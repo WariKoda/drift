@@ -13,7 +13,7 @@ import (
 
 	ftplib "github.com/jlaffaye/ftp"
 
-	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // Client wraps an FTP connection.

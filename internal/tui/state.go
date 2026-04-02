@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"github.com/nibra180/drift/internal/config"
-	"github.com/nibra180/drift/internal/diff"
-	"github.com/nibra180/drift/internal/fs"
-	internalsync "github.com/nibra180/drift/internal/sync"
+	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/nibra180/drift-tui/internal/diff"
+	"github.com/nibra180/drift-tui/internal/fs"
+	internalsync "github.com/nibra180/drift-tui/internal/sync"
 )
 
 // Screen represents which TUI screen is currently active.

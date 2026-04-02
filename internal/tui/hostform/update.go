@@ -2,7 +2,7 @@ package hostform
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // MsgHostSaved is emitted when the user saves a valid host form.

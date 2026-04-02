@@ -10,7 +10,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // AuthMethods builds the list of SSH auth methods for a host config.

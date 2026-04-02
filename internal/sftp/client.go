@@ -14,8 +14,8 @@ import (
 	pkgsftp "github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
 
-	"github.com/nibra180/drift/internal/config"
-	"github.com/nibra180/drift/internal/ssh"
+	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/nibra180/drift-tui/internal/ssh"
 )
 
 // Client holds an SSH connection and an SFTP session on top of it.

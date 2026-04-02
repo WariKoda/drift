@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift/internal/config"
-	"github.com/nibra180/drift/internal/remote"
+	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/nibra180/drift-tui/internal/remote"
 )
 
 // msgTestResult carries the outcome of an async connection test.

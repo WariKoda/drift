@@ -1,4 +1,4 @@
-module github.com/nibra180/drift
+module github.com/nibra180/drift-tui
 
 go 1.25.0
 

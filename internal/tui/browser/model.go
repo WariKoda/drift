@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift/internal/fs"
+	"github.com/nibra180/drift-tui/internal/fs"
 )
 
 // Model is the bubbletea sub-model for the file browser screen.

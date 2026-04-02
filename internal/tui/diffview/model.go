@@ -8,11 +8,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift/internal/config"
-	"github.com/nibra180/drift/internal/diff"
-	"github.com/nibra180/drift/internal/fs"
-	"github.com/nibra180/drift/internal/pathmap"
-	"github.com/nibra180/drift/internal/remote"
+	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/nibra180/drift-tui/internal/diff"
+	"github.com/nibra180/drift-tui/internal/fs"
+	"github.com/nibra180/drift-tui/internal/pathmap"
+	"github.com/nibra180/drift-tui/internal/remote"
 )
 
 // MsgDiffLoaded is sent when all sessions have been computed.

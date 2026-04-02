@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	"github.com/nibra180/drift/internal/config"
-	"github.com/nibra180/drift/internal/tui"
+	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/nibra180/drift-tui/internal/tui"
 )
 
 var rootCmd = &cobra.Command{

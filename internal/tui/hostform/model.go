@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // Protocol enumerates the supported remote protocols.

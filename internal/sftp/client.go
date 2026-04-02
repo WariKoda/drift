@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"time"
@@ -43,10 +44,22 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	}
 
 	addr := fmt.Sprintf("%s:%d", host.Hostname, port)
-	sshConn, err := gossh.Dial("tcp", addr, cfg)
+	// Prefer IPv4: "localhost" often resolves to ::1 first on dual-stack systems,
+	// but many containers (e.g. dockware) only bind on 0.0.0.0, not :::.
+	dialer := &net.Dialer{Timeout: cfg.Timeout}
+	tcpConn, err := dialer.DialContext(ctx, "tcp4", addr)
 	if err != nil {
+		tcpConn, err = dialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("connect to %s: %w", addr, err)
+		}
+	}
+	sshC, chans, reqs, err := gossh.NewClientConn(tcpConn, addr, cfg)
+	if err != nil {
+		tcpConn.Close()
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
+	sshConn := gossh.NewClient(sshC, chans, reqs)
 
 	sftpSession, err := pkgsftp.NewClient(sshConn)
 	if err != nil {

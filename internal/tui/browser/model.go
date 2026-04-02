@@ -71,6 +71,11 @@ func (m *Model) SetSize(w, h int) {
 	m.clampScroll()
 }
 
+// SetStatus sets a transient status message (e.g. error from a previous screen).
+func (m *Model) SetStatus(msg string) {
+	m.statusMsg = msg
+}
+
 // viewportHeight returns the number of lines available for entries.
 func (m Model) viewportHeight() int {
 	h := m.Height - 4 // header + 2 separators + status bar

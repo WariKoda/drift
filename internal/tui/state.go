@@ -15,7 +15,8 @@ const (
 	ScreenHostSelector        // modal overlay on browser (sync target picker)
 	ScreenHostManager         // CRUD list of all hosts
 	ScreenHostForm            // create / edit a host
-	ScreenDiffView            // split-pane diff (Phase 3)
+	ScreenDiffLoading         // async SSH connect + diff load in progress
+	ScreenDiffView            // split-pane diff
 	ScreenSyncProgress        // transfer progress (Phase 4)
 )
 

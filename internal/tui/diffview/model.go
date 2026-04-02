@@ -14,7 +14,11 @@ import (
 )
 
 // MsgDiffLoaded is sent when all sessions have been computed.
-type MsgDiffLoaded struct{ Sessions []diff.Session }
+// Conn is kept open for subsequent sync operations — caller must close it.
+type MsgDiffLoaded struct {
+	Sessions []diff.Session
+	Conn     *sftp.Client
+}
 
 // MsgDiffError is sent when SSH/SFTP connection or diff loading fails.
 type MsgDiffError struct{ Err error }
@@ -146,7 +150,8 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 			})
 		}
 
-		return MsgDiffLoaded{Sessions: sessions}
+		// conn stays open — caller (App) passes it to diffview.New for sync ops
+		return MsgDiffLoaded{Sessions: sessions, Conn: conn}
 	}
 }
 

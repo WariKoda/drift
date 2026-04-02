@@ -6,6 +6,7 @@ import (
 	"github.com/yourusername/drift/internal/config"
 	"github.com/yourusername/drift/internal/styles"
 	"github.com/yourusername/drift/internal/tui/browser"
+	"github.com/yourusername/drift/internal/tui/diffview"
 	"github.com/yourusername/drift/internal/tui/hostform"
 	"github.com/yourusername/drift/internal/tui/hostmanager"
 	"github.com/yourusername/drift/internal/tui/hostselector"
@@ -18,6 +19,7 @@ type App struct {
 	hostManager hostmanager.Model
 	hostForm    hostform.Model
 	hostSel     hostselector.Model
+	diffView    diffview.Model
 }
 
 // New creates a fully initialised App.
@@ -51,35 +53,57 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hostForm.SetSize(msg.Width, msg.Height)
 		a.hostSel.Width = msg.Width
 		a.hostSel.Height = msg.Height
+		a.diffView.SetSize(msg.Width, msg.Height)
 		return a, nil
 
-	// ── Browser → Host Selector (sync) ───────────────────────────────
+	// ── Browser → Host Selector ───────────────────────────────────────
 	case browser.MsgSyncRequested:
 		a.state.Selection = msg.Selection
 		a.hostSel = hostselector.New(a.state.Config, a.state.TermWidth, a.state.TermHeight)
 		a.state.Screen = ScreenHostSelector
 		return a, nil
 
-	// ── Host Selector results ─────────────────────────────────────────
+	// ── Host chosen → start loading diffs ────────────────────────────
 	case hostselector.MsgHostChosen:
 		h := msg.Host
 		a.state.SelectedHost = &h
-		// TODO Phase 3: open diff view
-		a.state.Screen = ScreenBrowser
-		a.state.StatusMsg = "Host selected: " + h.Name + " — diff coming in Phase 3"
-		return a, nil
+		a.state.Screen = ScreenDiffLoading
+		return a, diffview.LoadCmd(h, a.state.Selection, a.state.Config)
 
 	case hostselector.MsgSelectorCancelled:
 		a.state.Screen = ScreenBrowser
 		return a, nil
 
-	// ── Browser → Host Manager ────────────────────────────────────────
+	// ── Diff loaded ───────────────────────────────────────────────────
+	case diffview.MsgDiffLoaded:
+		a.diffView = diffview.New(
+			msg.Sessions,
+			*a.state.SelectedHost,
+			msg.Conn, // connection stays open for sync ops
+			a.state.TermWidth,
+			a.state.TermHeight,
+		)
+		a.state.Screen = ScreenDiffView
+		return a, nil
+
+	case diffview.MsgDiffError:
+		a.state.Screen = ScreenBrowser
+		a.browser.SetStatus("Connection failed: " + msg.Err.Error())
+		return a, nil
+
+	// ── Diff view → back to browser ───────────────────────────────────
+	case diffview.MsgBackToBrowser:
+		a.diffView.Close()
+		a.state.Screen = ScreenBrowser
+		a.state.Selection.Clear()
+		return a, nil
+
+	// ── Host Manager ──────────────────────────────────────────────────
 	case browser.MsgOpenHostManager:
 		a.hostManager = hostmanager.New(a.state.Config, a.state.TermWidth, a.state.TermHeight)
 		a.state.Screen = ScreenHostManager
 		return a, nil
 
-	// ── Host Manager navigation ───────────────────────────────────────
 	case hostmanager.MsgBackToBrowser:
 		a.state.Screen = ScreenBrowser
 		return a, nil
@@ -109,7 +133,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenHostManager
 		return a, nil
 
-	// ── Host Form results ─────────────────────────────────────────────
 	case hostform.MsgHostSaved:
 		var err error
 		if msg.Scope == config.ScopeGlobal {
@@ -137,21 +160,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
 		return a, cmd
-
 	case ScreenHostSelector:
 		var cmd tea.Cmd
 		a.hostSel, cmd = a.hostSel.Update(msg)
 		return a, cmd
-
 	case ScreenHostManager:
 		var cmd tea.Cmd
 		a.hostManager, cmd = a.hostManager.Update(msg)
 		return a, cmd
-
 	case ScreenHostForm:
 		var cmd tea.Cmd
 		a.hostForm, cmd = a.hostForm.Update(msg)
 		return a, cmd
+	case ScreenDiffView:
+		var cmd tea.Cmd
+		a.diffView, cmd = a.diffView.Update(msg)
+		return a, cmd
+	case ScreenDiffLoading:
+		if key, ok := msg.(tea.KeyMsg); ok {
+			if key.String() == "esc" || key.String() == "q" {
+				a.state.Screen = ScreenBrowser
+			}
+		}
+		return a, nil
 	}
 
 	return a, nil
@@ -161,7 +192,6 @@ func (a App) View() string {
 	switch a.state.Screen {
 	case ScreenBrowser:
 		return a.browser.View()
-
 	case ScreenHostSelector:
 		return lipgloss.Place(
 			a.state.TermWidth,
@@ -170,15 +200,21 @@ func (a App) View() string {
 			lipgloss.Center,
 			a.hostSel.View(),
 		)
-
+	case ScreenDiffLoading:
+		host := ""
+		if a.state.SelectedHost != nil {
+			host = a.state.SelectedHost.Hostname
+		}
+		return styles.Header.Render("drift") + "\n\n" +
+			styles.Muted.Render("  Connecting to "+host+" and loading diffs…\n\n") +
+			styles.Muted.Render("  [Esc] cancel")
+	case ScreenDiffView:
+		return a.diffView.View()
 	case ScreenHostManager:
 		return a.hostManager.View()
-
 	case ScreenHostForm:
 		return a.hostForm.View()
-
 	default:
-		return styles.Header.Render("drift") + "\n" + styles.Muted.Render("  Coming soon…")
+		return ""
 	}
 }
-

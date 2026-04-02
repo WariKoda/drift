@@ -106,7 +106,7 @@ func (m Model) renderHeader(s *diff.Session) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-func (m Model) renderSummary(r *diff.Result, height int) string {
+func (m Model) renderSummary(r *diff.DiffResult, height int) string {
 	var lines []string
 	switch {
 	case r.Binary:
@@ -163,7 +163,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 	return "  " + info + strings.Repeat(" ", gap) + keys
 }
 
-func countDiff(r *diff.Result) (added, removed int) {
+func countDiff(r *diff.DiffResult) (added, removed int) {
 	for _, l := range r.Lines {
 		switch l.Kind {
 		case diff.LineAdded:

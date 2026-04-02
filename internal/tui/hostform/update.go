@@ -13,7 +13,7 @@ type MsgHostSaved struct {
 	OldName string
 }
 
-// MsgFormCancelled is emitted when the user presses Esc.
+// MsgFormCancelled is emitted when the user presses Esc on the main form.
 type MsgFormCancelled struct{}
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -28,6 +28,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch m.sub {
+	case subMappingList:
+		return m.handleMappingList(msg)
+	case subMappingEdit:
+		return m.handleMappingEdit(msg)
+	default:
+		return m.handleMainKey(msg)
+	}
+}
+
+// ── Main form ─────────────────────────────────────────────────────────────────
+
+func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	rows := m.visibleRows()
 	curIdx := -1
 	if m.focusRow >= 0 && m.focusRow < len(rows) {
@@ -58,6 +71,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if curIdx == fScope {
 			return m.trySave()
 		}
+		if curIdx == fMappings {
+			m.sub = subMappingList
+			return m, nil
+		}
 		if curIdx == fProtocol {
 			m.protocol = (m.protocol + 1) % 2
 			m.applyFocus()
@@ -65,7 +82,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.authType = (m.authType + 1) % 3
 			m.applyFocus()
 		} else {
-			// Move to next field
 			m.focusRow++
 			if m.focusRow >= len(rows) {
 				return m.trySave()
@@ -77,7 +93,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.trySave()
 
 	case " ":
-		// Space toggles on toggle rows
 		if curIdx == fProtocol {
 			m.protocol = (m.protocol + 1) % 2
 			m.applyFocus()
@@ -90,15 +105,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			} else {
 				m.scope = config.ScopeGlobal
 			}
+		} else if curIdx == fMappings {
+			m.sub = subMappingList
+			return m, nil
 		} else {
-			// Pass space to text field
 			if curIdx >= 0 && curIdx < len(m.fields) && m.fields[curIdx] != nil {
 				m.fields[curIdx].HandleKey(msg)
 			}
 		}
 
 	case "left", "right":
-		// On toggle rows, left/right cycle options
 		if curIdx == fProtocol {
 			m.protocol = (m.protocol + 1) % 2
 			m.applyFocus()
@@ -106,7 +122,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if msg.String() == "right" {
 				m.authType = (m.authType + 1) % 3
 			} else {
-				m.authType = (m.authType + 2) % 3 // -1 mod 3
+				m.authType = (m.authType + 2) % 3
 			}
 			m.applyFocus()
 		} else if curIdx == fScope {
@@ -116,16 +132,110 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.scope = config.ScopeGlobal
 			}
 		} else {
-			// pass to text field
 			if curIdx >= 0 && curIdx < len(m.fields) && m.fields[curIdx] != nil {
 				m.fields[curIdx].HandleKey(msg)
 			}
 		}
 
 	default:
-		// Delegate to focused text field
 		if curIdx >= 0 && curIdx < len(m.fields) && m.fields[curIdx] != nil {
 			m.fields[curIdx].HandleKey(msg)
+		}
+	}
+
+	return m, nil
+}
+
+// ── Mapping list ──────────────────────────────────────────────────────────────
+
+func (m Model) handleMappingList(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.mapConfirmDel {
+		switch msg.String() {
+		case "y":
+			if m.mapCursor < len(m.mappings) {
+				m.mappings = append(m.mappings[:m.mapCursor], m.mappings[m.mapCursor+1:]...)
+				if m.mapCursor >= len(m.mappings) && m.mapCursor > 0 {
+					m.mapCursor--
+				}
+			}
+			m.mapConfirmDel = false
+		default:
+			m.mapConfirmDel = false
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.sub = subMain
+		m.applyFocus()
+
+	case "j", "down":
+		if m.mapCursor < len(m.mappings)-1 {
+			m.mapCursor++
+		}
+
+	case "k", "up":
+		if m.mapCursor > 0 {
+			m.mapCursor--
+		}
+
+	case "n":
+		m.openMappingEdit(-1)
+
+	case "e", "enter":
+		if len(m.mappings) > 0 {
+			m.openMappingEdit(m.mapCursor)
+		} else {
+			m.openMappingEdit(-1)
+		}
+
+	case "d", "delete":
+		if len(m.mappings) > 0 {
+			m.mapConfirmDel = true
+		}
+	}
+
+	return m, nil
+}
+
+// ── Mapping edit ──────────────────────────────────────────────────────────────
+
+func (m Model) handleMappingEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.sub = subMappingList
+
+	case "ctrl+s":
+		m.saveMappingEdit()
+		m.sub = subMappingList
+
+	case "tab", "down":
+		m.editFocusRow++
+		if m.editFocusRow >= 2 {
+			m.editFocusRow = 0
+		}
+		m.applyEditFocus()
+
+	case "shift+tab", "up":
+		m.editFocusRow--
+		if m.editFocusRow < 0 {
+			m.editFocusRow = 1
+		}
+		m.applyEditFocus()
+
+	case "enter":
+		if m.editFocusRow == 1 {
+			m.saveMappingEdit()
+			m.sub = subMappingList
+		} else {
+			m.editFocusRow++
+			m.applyEditFocus()
+		}
+
+	default:
+		if m.editFocusRow >= 0 && m.editFocusRow < 2 && m.editFields[m.editFocusRow] != nil {
+			m.editFields[m.editFocusRow].HandleKey(msg)
 		}
 	}
 

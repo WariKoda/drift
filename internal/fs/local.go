@@ -6,14 +6,30 @@ import (
 	"sort"
 )
 
+// skipDirs contains directory names that are never synced.
+var skipDirs = map[string]bool{
+	".git":         true,
+	".svn":         true,
+	".hg":          true,
+	"node_modules": true,
+	".idea":        true,
+	".vscode":      true,
+}
+
 // WalkFiles calls fn for every regular file under root, recursively, in lexical
-// order.  Unreadable entries are skipped silently.
+// order.  Unreadable entries and directories in skipDirs are skipped.
 func WalkFiles(root string, fn func(path string) error) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries
 		}
-		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+		if d.IsDir() {
+			if path != root && skipDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		return fn(path)

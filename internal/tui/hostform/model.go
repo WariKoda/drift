@@ -40,18 +40,28 @@ const (
 	fHostname   = 1
 	fPort       = 2
 	fUser       = 3
-	fAuthType   = 4 // toggle — no text field
+	fAuthType   = 4  // toggle — no text field
 	fKeyFile    = 5
 	fPassphrase = 6
 	fPassword   = 7
 	fRootPath   = 8
 	fScope      = 9  // toggle — no text field
 	fProtocol   = 10 // toggle — no text field
+	fMappings   = 11 // virtual row — opens mapping sub-screen
+)
+
+// subScreen tracks which panel is currently shown.
+type subScreen int
+
+const (
+	subMain        subScreen = iota
+	subMappingList           // list of mappings for this host
+	subMappingEdit           // edit a single mapping (new or existing)
 )
 
 // Model is the host create/edit form.
 type Model struct {
-	fields   [9]*TextField // indices 0–8 (fName..fRootPath); fAuthType/fScope/fProto are toggles
+	fields   [9]*TextField // indices 0–8 (fName..fRootPath); toggles have no text field
 	authType AuthType
 	protocol Protocol
 	scope    config.HostScope
@@ -60,16 +70,27 @@ type Model struct {
 
 	isEdit      bool
 	oldName     string
-	projectRoot string // for scope toggle label
+	projectRoot string
 	errMsg      string
 
 	Width  int
 	Height int
+
+	// per-host mappings
+	mappings []config.Mapping
+
+	// sub-screen state
+	sub           subScreen
+	mapCursor     int
+	mapConfirmDel bool
+	editIdx       int // -1 = new mapping
+	editFields    [2]*TextField
+	editFocusRow  int
 }
 
 // New returns a blank form for a new host.
 func New(scope config.HostScope, projectRoot string, width, height int) Model {
-	m := Model{scope: scope, projectRoot: projectRoot, Width: width, Height: height}
+	m := Model{scope: scope, projectRoot: projectRoot, Width: width, Height: height, editIdx: -1}
 	m.initFields()
 	m.fields[fName].Focused = true
 	return m
@@ -77,7 +98,7 @@ func New(scope config.HostScope, projectRoot string, width, height int) Model {
 
 // NewEdit returns a form pre-filled with an existing host's values.
 func NewEdit(h config.Host, scope config.HostScope, projectRoot string, width, height int) Model {
-	m := Model{isEdit: true, oldName: h.Name, scope: scope, projectRoot: projectRoot, Width: width, Height: height}
+	m := Model{isEdit: true, oldName: h.Name, scope: scope, projectRoot: projectRoot, Width: width, Height: height, editIdx: -1}
 	m.initFields()
 
 	m.fields[fName].SetValue(h.Name)
@@ -104,6 +125,8 @@ func NewEdit(h config.Host, scope config.HostScope, projectRoot string, width, h
 		m.fields[fPassphrase].SetValue(h.Auth.Passphrase)
 	}
 
+	m.mappings = append([]config.Mapping(nil), h.Mappings...)
+
 	m.fields[fName].Focused = true
 	return m
 }
@@ -118,7 +141,6 @@ func (m *Model) SetErr(msg string) { m.errMsg = msg }
 func (m *Model) SetSize(w, h int) {
 	m.Width = w
 	m.Height = h
-	// Recompute field widths
 	bw := w - 22
 	if bw < 20 {
 		bw = 20
@@ -127,6 +149,10 @@ func (m *Model) SetSize(w, h int) {
 		if f != nil && i != fPort {
 			f.Width = bw
 		}
+	}
+	if m.editFields[0] != nil {
+		m.editFields[0].Width = bw
+		m.editFields[1].Width = bw
 	}
 }
 
@@ -150,10 +176,8 @@ func (m *Model) initFields() {
 }
 
 // visibleRows returns the ordered focus positions for the current auth type.
-// fAuthType, fScope, and fProtocol are "virtual" rows (toggles, no text field).
 func (m Model) visibleRows() []int {
 	rows := []int{fName, fHostname, fPort, fUser, fProtocol}
-	// Auth type toggle only for SFTP (FTP always uses password)
 	if m.protocol == ProtoSFTP {
 		rows = append(rows, fAuthType)
 		switch m.authType {
@@ -163,10 +187,9 @@ func (m Model) visibleRows() []int {
 			rows = append(rows, fPassword)
 		}
 	} else {
-		// FTP: password only
 		rows = append(rows, fPassword)
 	}
-	return append(rows, fRootPath, fScope)
+	return append(rows, fRootPath, fMappings, fScope)
 }
 
 func (m *Model) applyFocus() {
@@ -180,6 +203,49 @@ func (m *Model) applyFocus() {
 			f.Focused = (i == cur)
 		}
 	}
+}
+
+func (m *Model) applyEditFocus() {
+	for i, f := range m.editFields {
+		if f != nil {
+			f.Focused = (i == m.editFocusRow)
+		}
+	}
+}
+
+// openMappingEdit prepares the edit sub-form for index idx (-1 = new).
+func (m *Model) openMappingEdit(idx int) {
+	bw := m.Width - 22
+	if bw < 20 {
+		bw = 20
+	}
+	m.editIdx = idx
+	m.editFocusRow = 0
+	m.editFields[0] = &TextField{Label: "Local Path", Width: bw, Placeholder: "plugins/plugin1", Focused: true}
+	m.editFields[1] = &TextField{Label: "Deploy Path", Width: bw, Placeholder: "/var/www/html/custom/plugins/plugin1"}
+	if idx >= 0 && idx < len(m.mappings) {
+		m.editFields[0].SetValue(m.mappings[idx].Local)
+		m.editFields[1].SetValue(m.mappings[idx].Remote)
+	}
+	m.sub = subMappingEdit
+}
+
+// saveMappingEdit writes the current edit fields back to m.mappings.
+// Returns false if required fields are empty.
+func (m *Model) saveMappingEdit() bool {
+	local := m.editFields[0].Value()
+	remote := m.editFields[1].Value()
+	if local == "" || remote == "" {
+		return false
+	}
+	mp := config.Mapping{Local: local, Remote: remote}
+	if m.editIdx < 0 {
+		m.mappings = append(m.mappings, mp)
+		m.mapCursor = len(m.mappings) - 1
+	} else {
+		m.mappings[m.editIdx] = mp
+	}
+	return true
 }
 
 // toHost validates and builds a config.Host from the form values.
@@ -217,8 +283,8 @@ func (m Model) toHost() (config.Host, error) {
 		User:     m.fields[fUser].Value(),
 		RootPath: root,
 		Protocol: m.protocol.String(),
+		Mappings: append([]config.Mapping(nil), m.mappings...),
 	}
-	// FTP always uses password auth
 	if m.protocol == ProtoFTP {
 		h.Auth = config.Auth{Type: "password", Password: m.fields[fPassword].Value()}
 		return h, nil

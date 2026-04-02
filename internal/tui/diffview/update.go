@@ -1,6 +1,8 @@
 package diffview
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -13,17 +15,36 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
-		m.clampScroll()
+		m.clampFileList()
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case MsgBulkSyncDone:
+		m.syncing = false
+		if len(msg.Errors) == 0 {
+			m.syncStatus = fmt.Sprintf("✓ synced %d file(s)", msg.Done)
+		} else {
+			m.syncStatus = fmt.Sprintf("✓ %d  ✗ %d error(s)", msg.Done, len(msg.Errors))
+		}
+		// refresh diffs after sync
+		m.refreshing = true
+		return m, m.refreshCmd()
+
+	case MsgRefreshed:
+		m.sessions = msg.Sessions
+		m.syncDirs = make([]SyncDir, len(m.sessions))
+		for i := range m.sessions {
+			m.syncDirs[i] = autoDir(&m.sessions[i])
+		}
+		m.refreshing = false
+		m.clampFileList()
 
 	case MsgSynced:
 		m.reloadSession(msg.SessionIdx)
 		m.scroll = 0
 
 	case MsgSyncError:
-		// error will be visible in status bar via activeSession().Err
 		if s := m.activeSession(); s != nil {
 			s.Err = msg.Err
 		}
@@ -34,12 +55,38 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 
-	// ── Navigation ────────────────────────────────────
-	case "j", "down":
+	// ── File list navigation ───────────────────────────────────────────
+	case "j", "down", "tab":
+		if m.activeIdx < len(m.sessions)-1 {
+			m.activeIdx++
+			m.scroll = 0
+			m.clampFileList()
+		}
+
+	case "k", "up", "shift+tab":
+		if m.activeIdx > 0 {
+			m.activeIdx--
+			m.scroll = 0
+			m.clampFileList()
+		}
+
+	// ── Sync direction — current file (Space) or all files (A) ───────────
+	case " ":
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			m.syncDirs[m.activeIdx] = nextDir(m.syncDirs[m.activeIdx], &m.sessions[m.activeIdx])
+		}
+
+	case "A":
+		for i := range m.sessions {
+			m.syncDirs[i] = nextDir(m.syncDirs[i], &m.sessions[i])
+		}
+
+	// ── Diff scroll ────────────────────────────────────────────────────
+	case "J":
 		m.scroll++
 		m.clampScroll()
 
-	case "k", "up":
+	case "K":
 		m.scroll--
 		m.clampScroll()
 
@@ -58,26 +105,35 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.scroll = m.totalLines()
 		m.clampScroll()
 
-	// ── File navigation ───────────────────────────────
-	case "tab", "n":
-		if m.activeIdx < len(m.sessions)-1 {
-			m.activeIdx++
-			m.scroll = 0
-		}
-
-	case "shift+tab", "p":
-		if m.activeIdx > 0 {
-			m.activeIdx--
-			m.scroll = 0
-		}
-
-	// ── Jump to next diff hunk ─────────────────────────
+	// ── Jump to next/prev diff hunk ────────────────────────────────────
 	case "]":
 		m.jumpNextHunk()
 	case "[":
 		m.jumpPrevHunk()
 
-	// ── Sync operations ───────────────────────────────
+	// ── Sync: current file with planned direction ──────────────────────
+	case "s":
+		if !m.syncing && !m.refreshing && m.activeIdx < len(m.syncDirs) {
+			if m.syncDirs[m.activeIdx] != DirNone {
+				m.syncing = true
+				m.syncStatus = ""
+				return m, m.bulkSyncCmd([]int{m.activeIdx})
+			}
+		}
+
+	// ── Sync: all files with planned directions ────────────────────────
+	case "S":
+		if !m.syncing && !m.refreshing {
+			indices := make([]int, len(m.sessions))
+			for i := range indices {
+				indices[i] = i
+			}
+			m.syncing = true
+			m.syncStatus = ""
+			return m, m.bulkSyncCmd(indices)
+		}
+
+	// ── Quick upload/download (bypass planned direction) ───────────────
 	case "u":
 		if s := m.activeSession(); s != nil && s.Result != nil && !s.Result.RemoteOnly {
 			return m, m.uploadCmd(m.activeIdx)
@@ -88,7 +144,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.downloadCmd(m.activeIdx)
 		}
 
-	// ── Quit ──────────────────────────────────────────
+	// ── Refresh all diffs ──────────────────────────────────────────────
+	case "r":
+		if !m.refreshing {
+			m.refreshing = true
+			return m, m.refreshCmd()
+		}
+
+	// ── Quit ───────────────────────────────────────────────────────────
 	case "q", "esc":
 		return m, func() tea.Msg { return MsgBackToBrowser{} }
 	}
@@ -104,7 +167,7 @@ func (m *Model) jumpNextHunk() {
 	}
 	lines := s.Result.Lines
 	for i := m.scroll + 1; i < len(lines); i++ {
-		if lines[i].Kind != 0 { // non-equal
+		if lines[i].Kind != 0 {
 			m.scroll = i
 			return
 		}

@@ -8,14 +8,15 @@
 // Env vars in auth fields ($VAR) are expanded at connection time.
 package config
 
-// Host represents a remote SFTP/SSH target.
+// Host represents a remote SFTP/SSH or FTP target.
 type Host struct {
 	Name     string `toml:"name"`      // unique identifier, e.g. "prod"
 	Hostname string `toml:"hostname"`  // IP or domain
-	Port     int    `toml:"port"`      // default 22
+	Port     int    `toml:"port"`      // default: 22 (sftp) or 21 (ftp)
 	User     string `toml:"user"`
 	Auth     Auth   `toml:"auth"`
 	RootPath string `toml:"root_path"` // remote base directory
+	Protocol string `toml:"protocol"`  // "sftp" (default) or "ftp"
 }
 
 // Auth configures how to authenticate with a Host.

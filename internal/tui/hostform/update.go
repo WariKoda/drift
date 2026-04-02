@@ -55,12 +55,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.errMsg = ""
 
 	case "enter":
-		// On last row (fScope) or if user presses Enter on save row → save
 		if curIdx == fScope {
 			return m.trySave()
 		}
-		// On auth type / scope toggles, toggle the value
-		if curIdx == fAuthType {
+		if curIdx == fProtocol {
+			m.protocol = (m.protocol + 1) % 2
+			m.applyFocus()
+		} else if curIdx == fAuthType {
 			m.authType = (m.authType + 1) % 3
 			m.applyFocus()
 		} else {
@@ -77,7 +78,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case " ":
 		// Space toggles on toggle rows
-		if curIdx == fAuthType {
+		if curIdx == fProtocol {
+			m.protocol = (m.protocol + 1) % 2
+			m.applyFocus()
+		} else if curIdx == fAuthType {
 			m.authType = (m.authType + 1) % 3
 			m.applyFocus()
 		} else if curIdx == fScope {
@@ -95,7 +99,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case "left", "right":
 		// On toggle rows, left/right cycle options
-		if curIdx == fAuthType {
+		if curIdx == fProtocol {
+			m.protocol = (m.protocol + 1) % 2
+			m.applyFocus()
+		} else if curIdx == fAuthType {
 			if msg.String() == "right" {
 				m.authType = (m.authType + 1) % 3
 			} else {

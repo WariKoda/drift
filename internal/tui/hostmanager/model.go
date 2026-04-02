@@ -23,6 +23,10 @@ type Model struct {
 	confirmDelete bool
 	deleteTarget  entry
 
+	// connection test
+	testing    bool   // true while async test is in flight
+	testTarget string // host name being tested
+
 	// status line
 	statusMsg string
 

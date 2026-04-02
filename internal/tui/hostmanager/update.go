@@ -1,9 +1,31 @@
 package hostmanager
 
 import (
+	"context"
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yourusername/drift/internal/config"
+	"github.com/yourusername/drift/internal/remote"
 )
+
+// msgTestResult carries the outcome of an async connection test.
+type msgTestResult struct {
+	hostName string
+	err      error
+}
+
+// testCmd dials SSH+SFTP for host and immediately closes, returning the result.
+func testCmd(host config.Host) tea.Cmd {
+	return func() tea.Msg {
+		conn, err := remote.Connect(context.Background(), host)
+		if err != nil {
+			return msgTestResult{hostName: host.Name, err: err}
+		}
+		conn.Close()
+		return msgTestResult{hostName: host.Name}
+	}
+}
 
 // MsgOpenForm is sent when the user wants to create or edit a host.
 type MsgOpenForm struct {
@@ -26,6 +48,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+
+	case msgTestResult:
+		m.testing = false
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.hostName, msg.err.Error())
+		} else {
+			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.hostName)
+		}
 
 	case tea.KeyMsg:
 		if m.confirmDelete {
@@ -86,6 +116,15 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			break
 		}
 		m.confirmDelete = true
+
+	case "t":
+		e := m.currentEntry()
+		if e != nil && !m.testing {
+			m.testing = true
+			m.testTarget = e.host.Name
+			m.statusMsg = ""
+			return m, testCmd(e.host)
+		}
 
 	case "esc", "q":
 		return m, func() tea.Msg { return MsgBackToBrowser{} }

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	pkgsftp "github.com/pkg/sftp"
@@ -96,8 +97,8 @@ func (c *Client) ReadFile(remotePath string) ([]byte, error) {
 
 // WriteFile writes data to a remote path, creating parent directories as needed.
 func (c *Client) WriteFile(remotePath string, data []byte) error {
-	if err := c.sftp.MkdirAll(path.Dir(remotePath)); err != nil {
-		return fmt.Errorf("mkdir %s: %w", path.Dir(remotePath), err)
+	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
+		return err
 	}
 	f, err := c.sftp.Create(remotePath)
 	if err != nil {
@@ -116,8 +117,8 @@ func (c *Client) UploadFile(localPath, remotePath string) error {
 	}
 	defer src.Close()
 
-	if err := c.sftp.MkdirAll(path.Dir(remotePath)); err != nil {
-		return fmt.Errorf("mkdir %s: %w", path.Dir(remotePath), err)
+	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
+		return err
 	}
 	dst, err := c.sftp.Create(remotePath)
 	if err != nil {
@@ -127,6 +128,71 @@ func (c *Client) UploadFile(localPath, remotePath string) error {
 
 	_, err = io.Copy(dst, src)
 	return err
+}
+
+// ensureDir creates remotePath and all missing parent directories.
+// It is more resilient than sftp.MkdirAll: it walks each path component
+// individually and uses Stat to skip components that already exist, working
+// around SFTP servers that return "not a directory" instead of "not found"
+// for missing path segments.
+func (c *Client) ensureDir(remotePath string) error {
+	// fast path
+	if err := c.sftp.MkdirAll(remotePath); err == nil {
+		return nil
+	}
+	// slow path: component-by-component
+	parts := strings.Split(remotePath, "/")
+	current := ""
+	for _, part := range parts {
+		if part == "" {
+			if current == "" {
+				current = "/"
+			}
+			continue
+		}
+		if current == "/" {
+			current = "/" + part
+		} else {
+			current = current + "/" + part
+		}
+		info, err := c.sftp.Stat(current)
+		if err == nil {
+			if !info.IsDir() {
+				return fmt.Errorf("ensureDir: %s exists but is not a directory", current)
+			}
+			continue // already a directory
+		}
+		if mkErr := c.sftp.Mkdir(current); mkErr != nil {
+			// re-stat: might have been created concurrently
+			if info2, statErr := c.sftp.Stat(current); statErr == nil && info2.IsDir() {
+				continue
+			}
+			return fmt.Errorf("mkdir %s: %w", current, mkErr)
+		}
+	}
+	return nil
+}
+
+// DeleteFile removes a file on the remote host.
+func (c *Client) DeleteFile(remotePath string) error {
+	return c.sftp.Remove(remotePath)
+}
+
+// WalkFiles calls fn for every regular file under remoteRoot, recursively.
+// Unreadable entries are skipped silently.
+func (c *Client) WalkFiles(remoteRoot string, fn func(path string) error) error {
+	walker := c.sftp.Walk(remoteRoot)
+	for walker.Step() {
+		if walker.Err() != nil {
+			continue
+		}
+		if !walker.Stat().IsDir() {
+			if err := fn(walker.Path()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // DownloadFile copies a remote file to a local path.

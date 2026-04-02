@@ -5,15 +5,18 @@ import (
 	"strings"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
-
-	"github.com/yourusername/drift/internal/sftp"
 )
 
 const maxTextSize = 2 * 1024 * 1024 // 2 MB
 
+// RemoteClient is the subset of remote operations needed for diffing.
+type RemoteClient interface {
+	Stat(path string) (os.FileInfo, error)
+	ReadFile(path string) ([]byte, error)
+}
+
 // Compare produces a DiffResult for a local/remote file pair.
-// sftpClient may be nil only when the remote file is expected to not exist.
-func Compare(localPath, remotePath string, client *sftp.Client) (*DiffResult, error) {
+func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, error) {
 	result := &DiffResult{
 		LocalPath:  localPath,
 		RemotePath: remotePath,
@@ -41,24 +44,39 @@ func Compare(localPath, remotePath string, client *sftp.Client) (*DiffResult, er
 	}
 	if !localExists {
 		result.RemoteOnly = true
-		// populate lines from remote content for display
-		if data, err := client.ReadFile(remotePath); err == nil {
-			for i, line := range splitLines(string(data)) {
-				result.Lines = append(result.Lines, DiffLine{
-					RemoteLine: line, Kind: LineAdded, RemoteNum: i + 1,
-				})
+		if result.SizeRemote <= maxTextSize {
+			if data, err := client.ReadFile(remotePath); err == nil {
+				if isBinary(data) {
+					result.Binary = true
+				} else {
+					for i, line := range splitLines(string(data)) {
+						result.Lines = append(result.Lines, DiffLine{
+							RemoteLine: line, Kind: LineAdded, RemoteNum: i + 1,
+						})
+					}
+				}
 			}
+		} else {
+			result.Binary = true
 		}
 		return result, nil
 	}
 	if !remoteExists {
 		result.LocalOnly = true
-		if data, err := os.ReadFile(localPath); err == nil {
-			for i, line := range splitLines(string(data)) {
-				result.Lines = append(result.Lines, DiffLine{
-					LocalLine: line, Kind: LineRemoved, LocalNum: i + 1,
-				})
+		if result.SizeLocal <= maxTextSize {
+			if data, err := os.ReadFile(localPath); err == nil {
+				if isBinary(data) {
+					result.Binary = true
+				} else {
+					for i, line := range splitLines(string(data)) {
+						result.Lines = append(result.Lines, DiffLine{
+							LocalLine: line, Kind: LineRemoved, LocalNum: i + 1,
+						})
+					}
+				}
 			}
+		} else {
+			result.Binary = true
 		}
 		return result, nil
 	}

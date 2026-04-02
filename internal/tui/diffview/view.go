@@ -17,15 +17,20 @@ func (m Model) View() string {
 	s := m.activeSession()
 
 	// ── Header ───────────────────────────────────────────────────────
-	sb.WriteString(m.renderHeader(s))
+	sb.WriteString(m.renderHeader())
 	sb.WriteByte('\n')
+	sb.WriteString(sepLine(m.Width))
+	sb.WriteByte('\n')
+
+	// ── File list ─────────────────────────────────────────────────────
+	sb.WriteString(m.renderFileList())
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 
 	// ── Column labels ─────────────────────────────────────────────────
 	pw := m.paneWidth()
 	localLabel := pad(styles.Key.Render("  LOCAL"), pw)
-	remoteLabel := pad(styles.Key.Render("  REMOTE  ") + styles.Muted.Render(m.host.Hostname), pw)
+	remoteLabel := pad(styles.Key.Render("  REMOTE  ")+styles.Muted.Render(m.host.Hostname), pw)
 	sb.WriteString(localLabel + dividerStyle.Render("│") + remoteLabel)
 	sb.WriteByte('\n')
 	sb.WriteString(sepLine(m.Width))
@@ -53,7 +58,7 @@ func (m Model) View() string {
 			sb.WriteString(strings.Repeat(" ", m.Width))
 			sb.WriteByte('\n')
 		}
-	} else if s.Result.LocalOnly || s.Result.RemoteOnly || s.Result.Binary || len(s.Result.Lines) == 0 {
+	} else if s.Result.Binary || len(s.Result.Lines) == 0 {
 		sb.WriteString(m.renderSummary(s.Result, vh))
 	} else {
 		leftLines, rightLines := diff.RenderPanes(s.Result, pw, m.scroll, vh)
@@ -85,25 +90,127 @@ func (m Model) View() string {
 	return sb.String()
 }
 
-func (m Model) renderHeader(s *diff.Session) string {
-	var filename string
-	if s != nil {
-		filename = shortPath(s.LocalPath)
-	}
-	nav := fmt.Sprintf("[%d/%d]", m.activeIdx+1, len(m.sessions))
-
-	left := styles.Header.Render("drift") + "  " +
-		styles.File.Render(filename) + "  " +
-		styles.Muted.Render(nav)
-
+func (m Model) renderHeader() string {
+	left := styles.Header.Render("drift")
 	right := styles.Muted.Render("→ ") + styles.Dir.Render(m.host.Name) +
 		styles.Muted.Render("  "+m.host.Hostname)
-
 	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+func (m Model) renderFileList() string {
+	var sb strings.Builder
+	pw := m.paneWidth()
+	fh := m.fileListHeight()
+	end := m.fileListOffset + fh
+	if end > len(m.sessions) {
+		end = len(m.sessions)
+	}
+
+	for i := m.fileListOffset; i < end; i++ {
+		s := &m.sessions[i]
+		active := i == m.activeIdx
+
+		// cursor (2 visible chars: indicator + space)
+		var cursor string
+		if active {
+			cursor = styles.Key.Render("▶") + " "
+		} else {
+			cursor = "  "
+		}
+
+		// direction arrow (center, replaces │ divider)
+		var dirChar string
+		dir := DirNone
+		if i < len(m.syncDirs) {
+			dir = m.syncDirs[i]
+		}
+		switch dir {
+		case DirUpload:
+			dirChar = styles.Marked.Render("↑")
+		case DirDownload:
+			dirChar = styles.Dir.Render("↓")
+		case DirDeleteLocal, DirDeleteRemote:
+			dirChar = styles.Err.Render("✗")
+		default:
+			dirChar = styles.Muted.Render("—")
+		}
+
+		// name style: active = File, inactive = Muted
+		var nameStyle lipgloss.Style
+		if active {
+			nameStyle = styles.File
+		} else {
+			nameStyle = styles.Muted
+		}
+
+		// Determine which sides have a file.
+		localOnly := s.Result != nil && s.Result.LocalOnly
+		remoteOnly := s.Result != nil && s.Result.RemoteOnly
+
+		// ── Left pane: cursor + local name (empty when RemoteOnly) ────
+		var leftPane string
+		if remoteOnly {
+			leftPane = pad(cursor, pw)
+		} else {
+			localName := shortPath(s.LocalPath)
+			localMaxW := pw - 2
+			if localMaxW < 2 {
+				localMaxW = 2
+			}
+			if r := []rune(localName); len(r) > localMaxW {
+				localName = "…" + string(r[len(r)-(localMaxW-1):])
+			}
+			leftPane = pad(cursor+nameStyle.Render(localName), pw)
+		}
+
+		// ── Right pane: remote name (empty when LocalOnly) ────────────
+		var rightPane string
+		if localOnly {
+			rightPane = pad("", pw)
+		} else {
+			remoteName := shortPath(s.RemotePath)
+			remoteMaxW := pw - 1
+			if remoteMaxW < 2 {
+				remoteMaxW = 2
+			}
+			if r := []rune(remoteName); len(r) > remoteMaxW {
+				remoteName = "…" + string(r[len(r)-(remoteMaxW-1):])
+			}
+			rightPane = pad(" "+nameStyle.Render(remoteName), pw)
+		}
+
+		sb.WriteString(leftPane + dirChar + rightPane + "\n")
+	}
+
+	return sb.String()
+}
+
+// sessionStatus returns the diff status string for a session.
+func sessionStatus(s *diff.Session) string {
+	if s.Err != nil {
+		return styles.Err.Render("error")
+	}
+	if s.Result == nil {
+		return styles.Muted.Render("loading…")
+	}
+	r := s.Result
+	switch {
+	case r.LocalOnly:
+		return styles.Warn.Render("local only")
+	case r.RemoteOnly:
+		return styles.Warn.Render("remote only")
+	case r.Binary:
+		return styles.Muted.Render("binary")
+	case !r.HasDiff():
+		return styles.Muted.Render("identical")
+	default:
+		added, removed := countDiff(r)
+		return styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
+	}
 }
 
 func (m Model) renderSummary(r *diff.DiffResult, height int) string {
@@ -115,17 +222,7 @@ func (m Model) renderSummary(r *diff.DiffResult, height int) string {
 			fmt.Sprintf("  local:  %s  (%d bytes)", r.ModLocal.Format("2006-01-02 15:04"), r.SizeLocal),
 			fmt.Sprintf("  remote: %s  (%d bytes)", r.ModRemote.Format("2006-01-02 15:04"), r.SizeRemote),
 		)
-	case r.LocalOnly:
-		lines = append(lines,
-			"  "+styles.Warn.Render("File only exists locally"),
-			"  "+styles.Muted.Render("Press [u] to upload"),
-		)
-	case r.RemoteOnly:
-		lines = append(lines,
-			"  "+styles.Warn.Render("File only exists on remote"),
-			"  "+styles.Muted.Render("Press [d] to download"),
-		)
-	case len(r.Lines) == 0:
+	default:
 		lines = append(lines, "  "+styles.Muted.Render("Files are identical"))
 	}
 
@@ -144,18 +241,26 @@ func (m Model) renderSummary(r *diff.DiffResult, height int) string {
 func (m Model) renderStatus(s *diff.Session) string {
 	var info string
 	if s != nil && s.Result != nil {
-		total := len(s.Result.Lines)
-		hasDiff := s.Result.HasDiff()
-		if !hasDiff {
+		if !s.Result.HasDiff() {
 			info = styles.Muted.Render("identical")
 		} else {
 			added, removed := countDiff(s.Result)
 			info = styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
 		}
-		_ = total
 	}
 
-	keys := styles.Muted.Render("[u]upload  [d]download  [Tab]next  [Shift+Tab]prev  []/[ ]hunks  [q]back")
+	var keys string
+	switch {
+	case m.syncing:
+		keys = styles.Warn.Render("syncing…")
+	case m.refreshing:
+		keys = styles.Warn.Render("refreshing…")
+	default:
+		keys = styles.Muted.Render("[j/k]file  [Space]dir  [A]dir-all  [s]sync  [S]sync-all  [r]refresh  [u/d]quick  [q]back")
+	}
+	if m.syncStatus != "" && !m.syncing && !m.refreshing {
+		info = styles.File.Render(m.syncStatus)
+	}
 	gap := m.Width - lipgloss.Width(info) - lipgloss.Width(keys) - 2
 	if gap < 1 {
 		gap = 1
@@ -188,7 +293,6 @@ func pad(s string, width int) string {
 }
 
 func shortPath(p string) string {
-	// show last 2 path segments
 	parts := strings.Split(p, "/")
 	if len(parts) > 2 {
 		return "…/" + strings.Join(parts[len(parts)-2:], "/")

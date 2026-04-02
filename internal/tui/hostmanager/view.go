@@ -116,10 +116,16 @@ func (m Model) renderStatus() string {
 				styles.Key.Render("[n]") + styles.Muted.Render("o")
 		}
 	}
-	if m.statusMsg != "" {
-		return styles.Muted.Render("  " + m.statusMsg)
+	if m.testing {
+		return styles.Warn.Render(fmt.Sprintf("  Testing %s…", m.testTarget))
 	}
-	help := "  [n]new  [e]edit  [d]delete  [Esc]back"
+	if m.statusMsg != "" {
+		if strings.HasPrefix(m.statusMsg, "✓") {
+			return padRight(styles.File.Render("  "+m.statusMsg), m.Width)
+		}
+		return padRight(styles.Err.Render("  "+m.statusMsg), m.Width)
+	}
+	help := "  [n]new  [e]edit  [d]delete  [t]test  [Esc]back"
 	return padRight(styles.Muted.Render(help), m.Width)
 }
 

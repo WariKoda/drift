@@ -6,6 +6,20 @@ import (
 	"sort"
 )
 
+// WalkFiles calls fn for every regular file under root, recursively, in lexical
+// order.  Unreadable entries are skipped silently.
+func WalkFiles(root string, fn func(path string) error) error {
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		return fn(path)
+	})
+}
+
 // ReadDir reads one level of a directory.
 // Directories are returned before files; both groups sorted alphabetically.
 func ReadDir(dir string) ([]*FileEntry, error) {

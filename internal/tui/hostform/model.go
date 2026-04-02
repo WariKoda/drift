@@ -9,6 +9,18 @@ import (
 	"github.com/yourusername/drift/internal/config"
 )
 
+// Protocol enumerates the supported remote protocols.
+type Protocol int
+
+const (
+	ProtoSFTP Protocol = iota
+	ProtoFTP
+)
+
+func (p Protocol) String() string {
+	return [...]string{"sftp", "ftp"}[p]
+}
+
 // AuthType enumerates the three SSH auth methods.
 type AuthType int
 
@@ -33,13 +45,15 @@ const (
 	fPassphrase = 6
 	fPassword   = 7
 	fRootPath   = 8
-	fScope      = 9 // toggle — no text field
+	fScope      = 9  // toggle — no text field
+	fProtocol   = 10 // toggle — no text field
 )
 
 // Model is the host create/edit form.
 type Model struct {
-	fields   [9]*TextField // indices 0–8 (fName..fRootPath); fAuthType/fScope are toggles
+	fields   [9]*TextField // indices 0–8 (fName..fRootPath); fAuthType/fScope/fProto are toggles
 	authType AuthType
+	protocol Protocol
 	scope    config.HostScope
 
 	focusRow int // which row is active (maps to visibleRows())
@@ -73,6 +87,10 @@ func NewEdit(h config.Host, scope config.HostScope, projectRoot string, width, h
 	}
 	m.fields[fUser].SetValue(h.User)
 	m.fields[fRootPath].SetValue(h.RootPath)
+
+	if h.Protocol == "ftp" {
+		m.protocol = ProtoFTP
+	}
 
 	switch h.Auth.Type {
 	case "password":
@@ -119,7 +137,11 @@ func (m *Model) initFields() {
 	}
 	m.fields[fName] = &TextField{Label: "Name", Width: bw, Placeholder: "prod", MaxLen: 64}
 	m.fields[fHostname] = &TextField{Label: "Hostname", Width: bw, Placeholder: "example.com"}
-	m.fields[fPort] = &TextField{Label: "Port", Width: 6, Placeholder: "22", MaxLen: 5}
+	portPlaceholder := "22"
+	if m.protocol == ProtoFTP {
+		portPlaceholder = "21"
+	}
+	m.fields[fPort] = &TextField{Label: "Port", Width: 6, Placeholder: portPlaceholder, MaxLen: 5}
 	m.fields[fUser] = &TextField{Label: "User", Width: bw, Placeholder: "deploy", MaxLen: 64}
 	m.fields[fKeyFile] = &TextField{Label: "Key File", Width: bw, Placeholder: "~/.ssh/id_ed25519"}
 	m.fields[fPassphrase] = &TextField{Label: "Passphrase", Width: bw, Password: true}
@@ -128,13 +150,20 @@ func (m *Model) initFields() {
 }
 
 // visibleRows returns the ordered focus positions for the current auth type.
-// fAuthType and fScope are "virtual" rows (toggles, no text field).
+// fAuthType, fScope, and fProtocol are "virtual" rows (toggles, no text field).
 func (m Model) visibleRows() []int {
-	rows := []int{fName, fHostname, fPort, fUser, fAuthType}
-	switch m.authType {
-	case AuthKeyfile:
-		rows = append(rows, fKeyFile, fPassphrase)
-	case AuthPassword:
+	rows := []int{fName, fHostname, fPort, fUser, fProtocol}
+	// Auth type toggle only for SFTP (FTP always uses password)
+	if m.protocol == ProtoSFTP {
+		rows = append(rows, fAuthType)
+		switch m.authType {
+		case AuthKeyfile:
+			rows = append(rows, fKeyFile, fPassphrase)
+		case AuthPassword:
+			rows = append(rows, fPassword)
+		}
+	} else {
+		// FTP: password only
 		rows = append(rows, fPassword)
 	}
 	return append(rows, fRootPath, fScope)
@@ -168,7 +197,11 @@ func (m Model) toHost() (config.Host, error) {
 		return config.Host{}, fmt.Errorf("Root Path is required")
 	}
 
-	port := 22
+	defaultPort := 22
+	if m.protocol == ProtoFTP {
+		defaultPort = 21
+	}
+	port := defaultPort
 	if p := m.fields[fPort].Value(); p != "" {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 1 || n > 65535 {
@@ -183,6 +216,12 @@ func (m Model) toHost() (config.Host, error) {
 		Port:     port,
 		User:     m.fields[fUser].Value(),
 		RootPath: root,
+		Protocol: m.protocol.String(),
+	}
+	// FTP always uses password auth
+	if m.protocol == ProtoFTP {
+		h.Auth = config.Auth{Type: "password", Password: m.fields[fPassword].Value()}
+		return h, nil
 	}
 	switch m.authType {
 	case AuthKeyfile:

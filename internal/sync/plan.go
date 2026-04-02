@@ -1,7 +1,7 @@
 // Package sync handles building and executing file sync plans.
 package sync
 
-import "github.com/yourusername/drift/internal/config"
+import "github.com/nibra180/drift/internal/config"
 
 // SyncDirection specifies whether to push local→remote or pull remote→local.
 type SyncDirection int

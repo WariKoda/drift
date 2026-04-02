@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/drift/internal/fs"
-	"github.com/yourusername/drift/internal/styles"
+	"github.com/nibra180/drift/internal/fs"
+	"github.com/nibra180/drift/internal/styles"
 )
 
 // View renders the browser screen.

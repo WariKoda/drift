@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yourusername/drift/internal/config"
+	"github.com/nibra180/drift/internal/config"
 )
 
 // Mapper translates between local absolute paths and remote absolute paths.

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/drift/internal/styles"
+	"github.com/nibra180/drift/internal/styles"
 )
 
 // Kind classifies the severity of a status message.

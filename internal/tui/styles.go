@@ -2,7 +2,7 @@
 // All style definitions live in internal/styles to avoid circular imports.
 package tui
 
-import "github.com/yourusername/drift/internal/styles"
+import "github.com/nibra180/drift/internal/styles"
 
 // Convenience aliases so tui package code can write e.g. StyleHeader.Render(...)
 var (

@@ -1,7 +1,7 @@
 package browser
 
 import (
-	"github.com/yourusername/drift/internal/fs"
+	"github.com/nibra180/drift/internal/fs"
 )
 
 // expandAt expands the directory at entries[i], inserting its children into the flat list.

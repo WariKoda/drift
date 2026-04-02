@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/drift/internal/config"
-	"github.com/yourusername/drift/internal/styles"
+	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift/internal/styles"
 )
 
 // MsgHostChosen is emitted when the user selects a host.

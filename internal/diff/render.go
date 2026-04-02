@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/drift/internal/styles"
+	"github.com/nibra180/drift/internal/styles"
 )
 
 // addedBg / removedBg / missingBg are row backgrounds for the diff panes.

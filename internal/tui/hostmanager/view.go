@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/drift/internal/config"
-	"github.com/yourusername/drift/internal/styles"
+	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift/internal/styles"
 )
 
 func (m Model) View() string {

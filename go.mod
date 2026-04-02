@@ -1,4 +1,4 @@
-module github.com/yourusername/drift
+module github.com/nibra180/drift
 
 go 1.25.0
 

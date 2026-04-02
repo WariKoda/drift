@@ -1,6 +1,6 @@
 package main
 
-import "github.com/yourusername/drift/cmd"
+import "github.com/nibra180/drift/cmd"
 
 func main() {
 	cmd.Execute()

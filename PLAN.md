@@ -431,7 +431,7 @@ All network I/O runs as `tea.Cmd` (goroutines), never blocking the render loop.
 ## Go Module (`go.mod`)
 
 ```
-module github.com/yourusername/drift
+module github.com/nibra180/drift
 
 go 1.22
 

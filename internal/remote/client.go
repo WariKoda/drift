@@ -7,9 +7,9 @@ import (
 	"context"
 	"os"
 
-	"github.com/yourusername/drift/internal/config"
-	driftftp "github.com/yourusername/drift/internal/ftp"
-	"github.com/yourusername/drift/internal/sftp"
+	"github.com/nibra180/drift/internal/config"
+	driftftp "github.com/nibra180/drift/internal/ftp"
+	"github.com/nibra180/drift/internal/sftp"
 )
 
 // Client abstracts all remote file operations needed by drift.

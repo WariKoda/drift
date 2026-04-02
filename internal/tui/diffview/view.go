@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/yourusername/drift/internal/diff"
-	"github.com/yourusername/drift/internal/styles"
+	"github.com/nibra180/drift/internal/diff"
+	"github.com/nibra180/drift/internal/styles"
 )
 
 var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)

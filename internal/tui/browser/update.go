@@ -2,7 +2,7 @@ package browser
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yourusername/drift/internal/fs"
+	"github.com/nibra180/drift/internal/fs"
 )
 
 // MsgSyncRequested is emitted when the user presses [s] with marked entries.

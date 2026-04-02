@@ -3,13 +3,13 @@ package tui
 import (
 	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yourusername/drift/internal/config"
-	"github.com/yourusername/drift/internal/styles"
-	"github.com/yourusername/drift/internal/tui/browser"
-	"github.com/yourusername/drift/internal/tui/diffview"
-	"github.com/yourusername/drift/internal/tui/hostform"
-	"github.com/yourusername/drift/internal/tui/hostmanager"
-	"github.com/yourusername/drift/internal/tui/hostselector"
+	"github.com/nibra180/drift/internal/config"
+	"github.com/nibra180/drift/internal/styles"
+	"github.com/nibra180/drift/internal/tui/browser"
+	"github.com/nibra180/drift/internal/tui/diffview"
+	"github.com/nibra180/drift/internal/tui/hostform"
+	"github.com/nibra180/drift/internal/tui/hostmanager"
+	"github.com/nibra180/drift/internal/tui/hostselector"
 )
 
 // App is the root bubbletea Model.

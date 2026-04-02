@@ -1,0 +1,39 @@
+# drift global config — ~/.config/drift/config.toml
+# Hosts defined here are available in every project.
+
+[defaults]
+port = 22
+user = "deploy"
+
+[[hosts]]
+name = "staging"
+hostname = "staging.example.com"
+port = 22
+user = "deploy"
+root_path = "/var/www/staging"
+
+  [hosts.auth]
+  type = "keyfile"
+  key_file = "~/.ssh/id_ed25519"
+
+[[hosts]]
+name = "prod"
+hostname = "prod.example.com"
+port = 2222
+user = "admin"
+root_path = "/srv/app"
+
+  [hosts.auth]
+  type = "keyfile"
+  key_file = "~/.ssh/id_rsa"
+  passphrase = "$SSH_KEY_PASSPHRASE"
+
+[[hosts]]
+name = "devbox"
+hostname = "192.168.1.50"
+user = "vagrant"
+root_path = "/home/vagrant/project"
+
+  [hosts.auth]
+  type = "password"
+  password = "$DEVBOX_PASS"

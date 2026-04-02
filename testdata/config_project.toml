@@ -1,0 +1,25 @@
+# drift project config — .drift/config.toml
+# Hosts here are merged with global config; same name = override for this project.
+# Mappings define which local dirs/files map to which remote paths.
+
+[[hosts]]
+name = "staging"
+hostname = "staging-myproject.example.com"
+root_path = "/var/www/myproject"
+
+  [hosts.auth]
+  type = "keyfile"
+  key_file = "~/.ssh/myproject_deploy"
+
+# local path (relative to project root) → remote path (relative to host root_path)
+[[mappings]]
+local  = "src/"
+remote = "app/src/"
+
+[[mappings]]
+local  = "public/"
+remote = "app/public/"
+
+[[mappings]]
+local  = "config/nginx.conf"
+remote = "etc/nginx/sites-enabled/myproject.conf"

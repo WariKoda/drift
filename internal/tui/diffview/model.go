@@ -268,8 +268,12 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 		var sessions []diff.Session
 
 		// addFile creates one diff session for a local/remote file pair.
+		// Files that are identical on both sides are skipped.
 		addFile := func(localPath, remotePath string) {
 			result, diffErr := diff.Compare(localPath, remotePath, conn)
+			if diffErr == nil && result != nil && !result.HasDiff() {
+				return // identical — skip
+			}
 			sessions = append(sessions, diff.Session{
 				LocalPath:  localPath,
 				RemotePath: remotePath,

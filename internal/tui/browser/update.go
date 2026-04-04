@@ -104,11 +104,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		entry := m.entries[m.cursor]
 		m.Selection.Toggle(entry.Path)
-		// advance cursor after mark
-		if m.cursor < len(m.entries)-1 {
-			m.cursor++
-			m.clampScroll()
-		}
 
 	case keyShiftV:
 		// Mark all visible entries in the current depth level

@@ -16,7 +16,7 @@ type Host struct {
 	User     string    `toml:"user"`
 	Auth     Auth      `toml:"auth"`
 	RootPath string    `toml:"root_path"`          // remote base directory
-	Protocol string    `toml:"protocol"`           // "sftp" (default) or "ftp"
+	Protocol string    `toml:"protocol"`           // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
 	Mappings []Mapping `toml:"mappings,omitempty"` // per-host path mappings
 }
 

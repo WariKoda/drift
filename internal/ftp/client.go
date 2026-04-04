@@ -4,6 +4,7 @@ package ftp
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"os"
@@ -30,10 +31,17 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	}
 	addr := fmt.Sprintf("%s:%d", host.Hostname, port)
 
-	conn, err := ftplib.Dial(addr,
+	opts := []ftplib.DialOption{
 		ftplib.DialWithContext(ctx),
-		ftplib.DialWithTimeout(15*time.Second),
-	)
+		ftplib.DialWithTimeout(15 * time.Second),
+	}
+	if host.Protocol == "ftps" {
+		opts = append(opts, ftplib.DialWithExplicitTLS(&tls.Config{
+			ServerName: host.Hostname,
+		}))
+	}
+
+	conn, err := ftplib.Dial(addr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}

@@ -76,10 +76,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case "k", "up":
 		m.cursor--
-		if m.cursor < 0 {
-			m.cursor = 0
-		}
-		m.clampCursor()
+		m.clampCursorUp()
 
 	case "g":
 		m.cursor = 0

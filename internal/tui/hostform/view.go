@@ -40,7 +40,7 @@ func (m Model) viewMain() string {
 
 		switch rowIdx {
 		case fProtocol:
-			sb.WriteString(m.renderToggle("Protocol", []string{"sftp", "ftp"}, int(m.protocol), isFocused))
+			sb.WriteString(m.renderToggle("Protocol", []string{"sftp", "ftp", "ftps"}, int(m.protocol), isFocused))
 		case fAuthType:
 			sb.WriteString(m.renderToggle("Auth Type", []string{"keyfile", "password", "agent"}, int(m.authType), isFocused))
 		case fScope:

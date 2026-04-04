@@ -64,6 +64,29 @@ func (m *Model) rebuild() {
 	m.clampCursor()
 }
 
+// clampCursorUp ensures cursor sits on a host row when navigating upward.
+// Headers are skipped backward so the cursor moves into the section above.
+func (m *Model) clampCursorUp() {
+	if len(m.entries) == 0 {
+		m.cursor = 0
+		return
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor >= len(m.entries) {
+		m.cursor = len(m.entries) - 1
+	}
+	// skip headers backward
+	for m.cursor > 0 && m.entries[m.cursor].isHeader {
+		m.cursor--
+	}
+	// if index 0 is also a header there is no host row above — fall forward
+	if m.entries[m.cursor].isHeader {
+		m.clampCursor()
+	}
+}
+
 // clampCursor ensures cursor sits on a host row (not a header).
 func (m *Model) clampCursor() {
 	if len(m.entries) == 0 {

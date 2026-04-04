@@ -26,10 +26,12 @@ type Client interface {
 }
 
 // Connect dials the host using the protocol specified in host.Protocol.
-// An empty or "sftp" protocol uses SSH/SFTP; "ftp" uses plain FTP.
+// An empty or "sftp" protocol uses SSH/SFTP; "ftp" uses plain FTP; "ftps" uses FTP over explicit TLS.
 func Connect(ctx context.Context, host config.Host) (Client, error) {
-	if host.Protocol == "ftp" {
+	switch host.Protocol {
+	case "ftp", "ftps":
 		return driftftp.Connect(ctx, host)
+	default:
+		return sftp.Connect(ctx, host)
 	}
-	return sftp.Connect(ctx, host)
 }

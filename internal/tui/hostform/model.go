@@ -15,10 +15,11 @@ type Protocol int
 const (
 	ProtoSFTP Protocol = iota
 	ProtoFTP
+	ProtoFTPS
 )
 
 func (p Protocol) String() string {
-	return [...]string{"sftp", "ftp"}[p]
+	return [...]string{"sftp", "ftp", "ftps"}[p]
 }
 
 // AuthType enumerates the three SSH auth methods.
@@ -109,8 +110,11 @@ func NewEdit(h config.Host, scope config.HostScope, projectRoot string, width, h
 	m.fields[fUser].SetValue(h.User)
 	m.fields[fRootPath].SetValue(h.RootPath)
 
-	if h.Protocol == "ftp" {
+	switch h.Protocol {
+	case "ftp":
 		m.protocol = ProtoFTP
+	case "ftps":
+		m.protocol = ProtoFTPS
 	}
 
 	switch h.Auth.Type {
@@ -164,7 +168,7 @@ func (m *Model) initFields() {
 	m.fields[fName] = &TextField{Label: "Name", Width: bw, Placeholder: "prod", MaxLen: 64}
 	m.fields[fHostname] = &TextField{Label: "Hostname", Width: bw, Placeholder: "example.com"}
 	portPlaceholder := "22"
-	if m.protocol == ProtoFTP {
+	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		portPlaceholder = "21"
 	}
 	m.fields[fPort] = &TextField{Label: "Port", Width: 6, Placeholder: portPlaceholder, MaxLen: 5}
@@ -178,7 +182,8 @@ func (m *Model) initFields() {
 // visibleRows returns the ordered focus positions for the current auth type.
 func (m Model) visibleRows() []int {
 	rows := []int{fName, fHostname, fPort, fUser, fProtocol}
-	if m.protocol == ProtoSFTP {
+	switch m.protocol {
+	case ProtoSFTP:
 		rows = append(rows, fAuthType)
 		switch m.authType {
 		case AuthKeyfile:
@@ -186,7 +191,7 @@ func (m Model) visibleRows() []int {
 		case AuthPassword:
 			rows = append(rows, fPassword)
 		}
-	} else {
+	case ProtoFTP, ProtoFTPS:
 		rows = append(rows, fPassword)
 	}
 	return append(rows, fRootPath, fMappings, fScope)
@@ -264,7 +269,7 @@ func (m Model) toHost() (config.Host, error) {
 	}
 
 	defaultPort := 22
-	if m.protocol == ProtoFTP {
+	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		defaultPort = 21
 	}
 	port := defaultPort
@@ -285,7 +290,7 @@ func (m Model) toHost() (config.Host, error) {
 		Protocol: m.protocol.String(),
 		Mappings: append([]config.Mapping(nil), m.mappings...),
 	}
-	if m.protocol == ProtoFTP {
+	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		h.Auth = config.Auth{Type: "password", Password: m.fields[fPassword].Value()}
 		return h, nil
 	}

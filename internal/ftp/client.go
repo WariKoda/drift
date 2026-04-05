@@ -38,6 +38,7 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	if host.Protocol == "ftps" {
 		opts = append(opts, ftplib.DialWithExplicitTLS(&tls.Config{
 			ServerName: host.Hostname,
+			MinVersion: tls.VersionTLS12,
 		}))
 	}
 
@@ -154,7 +155,9 @@ func (c *Client) walkDir(dir string, fn func(string) error) error {
 		p := strings.TrimSuffix(dir, "/") + "/" + e.Name
 		switch e.Type {
 		case ftplib.EntryTypeFolder:
-			_ = c.walkDir(p, fn)
+			if err := c.walkDir(p, fn); err != nil {
+				return err
+			}
 		case ftplib.EntryTypeFile:
 			if err := fn(p); err != nil {
 				return err

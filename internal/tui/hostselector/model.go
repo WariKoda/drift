@@ -2,6 +2,7 @@
 package hostselector
 
 import (
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -164,15 +165,7 @@ func (m Model) View() string {
 }
 
 func itoa(n int) string {
-	if n == 0 {
-		return ""
-	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
+	return strconv.Itoa(n)
 }
 
 func padStr(s string, n int) string {

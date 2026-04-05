@@ -23,16 +23,14 @@ func HostKeyCallback() (gossh.HostKeyCallback, error) {
 		return nil, err
 	}
 
-	// Create the file if it doesn't exist yet.
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		if mkErr := os.MkdirAll(filepath.Dir(path), 0o700); mkErr != nil {
-			return nil, fmt.Errorf("create ~/.ssh: %w", mkErr)
-		}
-		f, createErr := os.OpenFile(path, os.O_CREATE, 0o600)
-		if createErr != nil {
-			return nil, fmt.Errorf("create known_hosts: %w", createErr)
-		}
+	// Create the file if it doesn't exist yet (atomic, no TOCTOU race).
+	if mkErr := os.MkdirAll(filepath.Dir(path), 0o700); mkErr != nil {
+		return nil, fmt.Errorf("create ~/.ssh: %w", mkErr)
+	}
+	if f, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); createErr == nil {
 		f.Close()
+	} else if !os.IsExist(createErr) {
+		return nil, fmt.Errorf("create known_hosts: %w", createErr)
 	}
 
 	checker, err := knownhosts.New(path)

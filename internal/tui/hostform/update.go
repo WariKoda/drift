@@ -76,7 +76,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		if curIdx == fProtocol {
-			m.protocol = (m.protocol + 1) % 2
+			m.protocol = (m.protocol + 1) % 3
 			m.applyFocus()
 		} else if curIdx == fAuthType {
 			m.authType = (m.authType + 1) % 3
@@ -94,7 +94,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case " ":
 		if curIdx == fProtocol {
-			m.protocol = (m.protocol + 1) % 2
+			m.protocol = (m.protocol + 1) % 3
 			m.applyFocus()
 		} else if curIdx == fAuthType {
 			m.authType = (m.authType + 1) % 3
@@ -116,7 +116,7 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case "left", "right":
 		if curIdx == fProtocol {
-			m.protocol = (m.protocol + 1) % 2
+			m.protocol = (m.protocol + 1) % 3
 			m.applyFocus()
 		} else if curIdx == fAuthType {
 			if msg.String() == "right" {

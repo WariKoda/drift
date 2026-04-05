@@ -102,5 +102,5 @@ func writeToml(path string, v any) error {
 	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	return os.WriteFile(path, buf.Bytes(), 0o600)
 }

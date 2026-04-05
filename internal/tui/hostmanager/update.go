@@ -3,6 +3,7 @@ package hostmanager
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nibra180/drift-tui/internal/config"
@@ -18,7 +19,9 @@ type msgTestResult struct {
 // testCmd dials SSH+SFTP for host and immediately closes, returning the result.
 func testCmd(host config.Host) tea.Cmd {
 	return func() tea.Msg {
-		conn, err := remote.Connect(context.Background(), host)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		conn, err := remote.Connect(ctx, host)
 		if err != nil {
 			return msgTestResult{hostName: host.Name, err: err}
 		}

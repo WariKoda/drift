@@ -3,6 +3,7 @@ package ssh
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,17 +15,20 @@ import (
 )
 
 // AuthMethods builds the list of SSH auth methods for a host config.
-func AuthMethods(auth config.Auth) ([]gossh.AuthMethod, error) {
+// The returned io.Closer must be closed when the SSH connection is done
+// to release any resources (e.g. the SSH agent socket). It may be nil.
+func AuthMethods(auth config.Auth) ([]gossh.AuthMethod, io.Closer, error) {
 	switch auth.Type {
 	case "agent", "":
 		return agentAuth()
 	case "keyfile":
-		return keyfileAuth(auth)
+		methods, err := keyfileAuth(auth)
+		return methods, nil, err
 	case "password":
 		pass := os.ExpandEnv(auth.Password)
-		return []gossh.AuthMethod{gossh.Password(pass)}, nil
+		return []gossh.AuthMethod{gossh.Password(pass)}, nil, nil
 	default:
-		return nil, fmt.Errorf("unknown auth type %q (use keyfile, password, or agent)", auth.Type)
+		return nil, nil, fmt.Errorf("unknown auth type %q (use keyfile, password, or agent)", auth.Type)
 	}
 }
 
@@ -54,18 +58,18 @@ func keyfileAuth(auth config.Auth) ([]gossh.AuthMethod, error) {
 	return []gossh.AuthMethod{gossh.PublicKeys(signer)}, nil
 }
 
-func agentAuth() ([]gossh.AuthMethod, error) {
+func agentAuth() ([]gossh.AuthMethod, io.Closer, error) {
 	sock := os.Getenv("SSH_AUTH_SOCK")
 	if sock == "" {
-		return nil, fmt.Errorf("SSH_AUTH_SOCK not set and no keyfile configured")
+		return nil, nil, fmt.Errorf("SSH_AUTH_SOCK not set and no keyfile configured")
 	}
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
-		return nil, fmt.Errorf("connect to SSH agent: %w", err)
+		return nil, nil, fmt.Errorf("connect to SSH agent: %w", err)
 	}
 	return []gossh.AuthMethod{
 		gossh.PublicKeysCallback(agent.NewClient(conn).Signers),
-	}, nil
+	}, conn, nil
 }
 
 func expandHome(path string) string {

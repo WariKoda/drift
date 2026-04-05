@@ -1,6 +1,8 @@
 package browser
 
 import (
+	"strings"
+
 	"github.com/nibra180/drift-tui/internal/fs"
 )
 
@@ -81,13 +83,7 @@ func (m Model) filteredEntries() []*fs.FileEntry {
 }
 
 func toLower(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + 32
-		}
-	}
-	return string(b)
+	return strings.ToLower(s)
 }
 
 func contains(s, sub string) bool {

@@ -48,7 +48,7 @@ func (m Model) Init() tea.Cmd { return nil }
 func (m *Model) rebuild() {
 	m.entries = nil
 
-	if len(m.cfg.GlobalHosts) > 0 || true { // always show section header
+	{ // always show section header
 		m.entries = append(m.entries, entry{isHeader: true, scope: config.ScopeGlobal})
 		for _, h := range m.cfg.GlobalHosts {
 			m.entries = append(m.entries, entry{scope: config.ScopeGlobal, host: h})

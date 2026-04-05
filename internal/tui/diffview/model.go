@@ -259,7 +259,9 @@ func (m *Model) clampScroll() {
 // directories are detected by walking the remote side as well.
 func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig) tea.Cmd {
 	return func() tea.Msg {
-		conn, err := remote.Connect(context.Background(), host)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		conn, err := remote.Connect(ctx, host)
 		if err != nil {
 			return MsgDiffError{Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
 		}
@@ -307,7 +309,7 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 
 			// ── Directory: walk local side first ─────────────────────
 			seenLocal := map[string]struct{}{}
-			_ = fs.WalkFiles(localPath, func(p string) error {
+			if walkErr := fs.WalkFiles(localPath, func(p string) error {
 				seenLocal[p] = struct{}{}
 				remotePath, mapErr := mapper.LocalToRemote(p)
 				if mapErr != nil {
@@ -318,14 +320,18 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 				}
 				addFile(p, remotePath)
 				return nil
-			})
+			}); walkErr != nil {
+				sessions = append(sessions, diff.Session{
+					LocalPath: localPath, Err: fmt.Errorf("walk local: %w", walkErr), Loaded: true,
+				})
+			}
 
 			// ── Walk remote side to catch remote-only files ───────────
 			remoteDir, mapErr := mapper.LocalToRemote(localPath)
 			if mapErr != nil {
 				continue
 			}
-			_ = conn.WalkFiles(remoteDir, func(remotePath string) error {
+			if walkErr := conn.WalkFiles(remoteDir, func(remotePath string) error {
 				localFilePath, revErr := mapper.RemoteToLocal(remotePath)
 				if revErr != nil {
 					return nil
@@ -335,7 +341,11 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 				}
 				addFile(localFilePath, remotePath)
 				return nil
-			})
+			}); walkErr != nil {
+				sessions = append(sessions, diff.Session{
+					LocalPath: localPath, Err: fmt.Errorf("walk remote: %w", walkErr), Loaded: true,
+				})
+			}
 		}
 
 		return MsgDiffLoaded{Sessions: sessions, Conn: conn}

@@ -20,14 +20,15 @@ import (
 
 // Client holds an SSH connection and an SFTP session on top of it.
 type Client struct {
-	sshConn *gossh.Client
-	sftp    *pkgsftp.Client
-	Host    config.Host
+	sshConn   *gossh.Client
+	sftp      *pkgsftp.Client
+	authClose io.Closer // optional closer for auth resources (e.g. SSH agent socket)
+	Host      config.Host
 }
 
 // Connect dials SSH and opens an SFTP subsystem session.
 func Connect(ctx context.Context, host config.Host) (*Client, error) {
-	methods, err := ssh.AuthMethods(host.Auth)
+	methods, authCloser, err := ssh.AuthMethods(host.Auth)
 	if err != nil {
 		return nil, fmt.Errorf("auth setup: %w", err)
 	}
@@ -73,7 +74,7 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 		return nil, fmt.Errorf("open SFTP session: %w", err)
 	}
 
-	return &Client{sshConn: sshConn, sftp: sftpSession, Host: host}, nil
+	return &Client{sshConn: sshConn, sftp: sftpSession, authClose: authCloser, Host: host}, nil
 }
 
 // Close closes both the SFTP session and SSH connection.
@@ -82,7 +83,11 @@ func (c *Client) Close() error {
 		return nil
 	}
 	_ = c.sftp.Close()
-	return c.sshConn.Close()
+	err := c.sshConn.Close()
+	if c.authClose != nil {
+		_ = c.authClose.Close()
+	}
+	return err
 }
 
 // Stat returns file info for a remote path.

@@ -37,7 +37,6 @@ Config locations:
 
 		p := tea.NewProgram(app,
 			tea.WithAltScreen(),
-			tea.WithMouseCellMotion(),
 		)
 		if _, err := p.Run(); err != nil {
 			return fmt.Errorf("TUI error: %w", err)

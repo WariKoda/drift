@@ -36,7 +36,8 @@ func keyfileAuth(auth config.Auth) ([]gossh.AuthMethod, error) {
 	path := expandHome(os.ExpandEnv(auth.KeyFile))
 	if path == "" {
 		// fall back to agent if no key file configured
-		return agentAuth()
+		methods, _, err := agentAuth()
+		return methods, err
 	}
 
 	data, err := os.ReadFile(path)

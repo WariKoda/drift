@@ -14,14 +14,14 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	hosts := replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	cfg.GlobalHosts = hosts
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Hosts: hosts})
+	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, Hosts: hosts})
 }
 
 // DeleteGlobalHost removes a host by name from the global config file.
 func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 	cfg.GlobalHosts = removeHost(cfg.GlobalHosts, name)
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Hosts: cfg.GlobalHosts})
+	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, Hosts: cfg.GlobalHosts})
 }
 
 // SaveProjectHost adds or replaces a host in the project config file.
@@ -29,14 +29,14 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 	hosts := replaceOrAppend(cfg.ProjectHosts, h, oldName)
 	cfg.ProjectHosts = hosts
 	rebuildMerged(cfg)
-	return writeProject(ProjectConfig{Hosts: hosts, Mappings: cfg.Mappings}, cfg.ProjectRoot)
+	return writeProject(ProjectConfig{Defaults: cfg.ProjectDefaults, Hosts: hosts, Mappings: cfg.Mappings}, cfg.ProjectRoot)
 }
 
 // DeleteProjectHost removes a host by name from the project config file.
 func DeleteProjectHost(cfg *MergedConfig, name string) error {
 	cfg.ProjectHosts = removeHost(cfg.ProjectHosts, name)
 	rebuildMerged(cfg)
-	return writeProject(ProjectConfig{Hosts: cfg.ProjectHosts, Mappings: cfg.Mappings}, cfg.ProjectRoot)
+	return writeProject(ProjectConfig{Defaults: cfg.ProjectDefaults, Hosts: cfg.ProjectHosts, Mappings: cfg.Mappings}, cfg.ProjectRoot)
 }
 
 // rebuildMerged reconstructs cfg.Hosts from GlobalHosts + ProjectHosts.

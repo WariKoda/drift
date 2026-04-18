@@ -89,10 +89,11 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *Me
 	}
 
 	merged := &MergedConfig{
-		Hosts:        hosts,
-		GlobalHosts:  globalHosts,
-		ProjectHosts: []Host{},
-		ProjectRoot:  projectRoot,
+		GlobalDefaults: global.Defaults,
+		Hosts:          hosts,
+		GlobalHosts:    globalHosts,
+		ProjectHosts:   []Host{},
+		ProjectRoot:    projectRoot,
 	}
 
 	if project == nil {
@@ -105,6 +106,7 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *Me
 		hosts[h.Name] = h
 		projectHosts = append(projectHosts, h)
 	}
+	merged.ProjectDefaults = project.Defaults
 	merged.ProjectHosts = projectHosts
 	merged.Mappings = project.Mappings
 

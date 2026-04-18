@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"github.com/nibra180/drift-tui/internal/config"
-	"github.com/nibra180/drift-tui/internal/diff"
-	"github.com/nibra180/drift-tui/internal/fs"
-	internalsync "github.com/nibra180/drift-tui/internal/sync"
+	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/fs"
+	internalsync "github.com/WariKoda/drift/internal/sync"
 )
 
 // Screen represents which TUI screen is currently active.
@@ -24,16 +24,16 @@ const (
 type StatusKind int
 
 const (
-	StatusInfo  StatusKind = iota
+	StatusInfo StatusKind = iota
 	StatusWarn
 	StatusError
 )
 
 // AppState is the root state of the application.
 type AppState struct {
-	Screen      Screen
-	WorkingDir  string
-	Config      *config.MergedConfig
+	Screen     Screen
+	WorkingDir string
+	Config     *config.MergedConfig
 
 	// Browser
 	Selection *fs.SelectionState

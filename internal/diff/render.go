@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nibra180/drift-tui/internal/styles"
 )
 
 // addedBg / removedBg / missingBg are row backgrounds for the diff panes.

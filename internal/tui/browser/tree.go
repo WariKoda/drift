@@ -3,7 +3,7 @@ package browser
 import (
 	"strings"
 
-	"github.com/nibra180/drift-tui/internal/fs"
+	"github.com/WariKoda/drift/internal/fs"
 )
 
 // expandAt expands the directory at entries[i], inserting its children into the flat list.

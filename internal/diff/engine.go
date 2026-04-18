@@ -123,8 +123,8 @@ func lineDiff(local, remote string) []DiffLine {
 			for _, t := range texts {
 				result = append(result, DiffLine{
 					LocalLine: t, RemoteLine: t,
-					Kind:      LineEqual,
-					LocalNum:  localNum, RemoteNum: remoteNum,
+					Kind:     LineEqual,
+					LocalNum: localNum, RemoteNum: remoteNum,
 				})
 				localNum++
 				remoteNum++

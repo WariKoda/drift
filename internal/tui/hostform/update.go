@@ -1,8 +1,8 @@
 package hostform
 
 import (
+	"github.com/WariKoda/drift/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // MsgHostSaved is emitted when the user saves a valid host form.

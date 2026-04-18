@@ -6,6 +6,14 @@ Supports **SFTP/SSH** and **FTP** targets. Runs on Linux and macOS.
 
 ---
 
+## Status
+
+**Alpha / early OSS release.**
+
+The core workflow already works, but the project is still young. Expect rough edges, incomplete polish, and behavior changes between releases.
+
+---
+
 ## Features
 
 - File browser with multi-select (Space) and recursive directory marking
@@ -23,15 +31,21 @@ Supports **SFTP/SSH** and **FTP** targets. Runs on Linux and macOS.
 
 ## Installation
 
-### From source (requires Go 1.21+)
+### From source (requires Go 1.25+)
 
 ```bash
-git clone https://github.com/nibra180/drift-tui.git
-cd drift-tui
+git clone https://github.com/WariKoda/drift.git
+cd drift
 make install
 ```
 
 This builds the binary and installs it to `~/.local/bin/drift`.
+
+### Directly with Go
+
+```bash
+go install github.com/WariKoda/drift@latest
+```
 
 ### Update after code changes
 
@@ -52,6 +66,14 @@ drift version
 ```
 
 Navigate to any file or directory, press **Space** to mark it, then **s** to open the sync target picker.
+
+### Typical workflow
+
+1. Run `drift` in your project directory
+2. Mark one or more files/directories with **Space**
+3. Press **s** and choose a host
+4. Review diffs and suggested sync directions
+5. Sync the current file with **s** or all files with **S**
 
 ---
 
@@ -134,16 +156,18 @@ protocol  = "ftp"
 
   [[hosts.mappings]]
   local  = "plugins/plugin1"
-  remote = "/var/www/html/custom/plugins/plugin1"
+  remote = "html/custom/plugins/plugin1"
 
   [[hosts.mappings]]
   local  = "plugins/plugin2"
-  remote = "/var/www/html/custom/plugins/plugin2"
+  remote = "html/custom/plugins/plugin2"
 ```
 
 ### Path Mappings
 
-When a host has `mappings` configured, only files that fall under a mapping rule can be synced. Files outside all mappings are excluded. Without mappings, all files sync relative to `root_path`.
+`local` paths are relative to the project root. `remote` paths are relative to the host's `root_path`.
+
+When effective `mappings` are configured, only files that fall under a mapping rule can be synced. Files outside all mappings are excluded. Without mappings, all files sync relative to `root_path`.
 
 ### Auth types
 
@@ -179,6 +203,36 @@ internal/
 
 ---
 
+## Development
+
+```bash
+go test ./...
+go vet ./...
+go build ./...
+```
+
+### Local install
+
+```bash
+make install
+```
+
+### Versioned build
+
+```bash
+go build -ldflags "-X github.com/WariKoda/drift/cmd.Version=v0.1.0" -o drift .
+```
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome.
+
+For development notes and contribution workflow, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+---
+
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).

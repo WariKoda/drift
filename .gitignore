@@ -2,3 +2,4 @@ drift
 drift.exe
 dist/
 .drift/
+.idea/

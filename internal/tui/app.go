@@ -1,15 +1,15 @@
 package tui
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/styles"
+	"github.com/WariKoda/drift/internal/tui/browser"
+	"github.com/WariKoda/drift/internal/tui/diffview"
+	"github.com/WariKoda/drift/internal/tui/hostform"
+	"github.com/WariKoda/drift/internal/tui/hostmanager"
+	"github.com/WariKoda/drift/internal/tui/hostselector"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/config"
-	"github.com/nibra180/drift-tui/internal/styles"
-	"github.com/nibra180/drift-tui/internal/tui/browser"
-	"github.com/nibra180/drift-tui/internal/tui/diffview"
-	"github.com/nibra180/drift-tui/internal/tui/hostform"
-	"github.com/nibra180/drift-tui/internal/tui/hostmanager"
-	"github.com/nibra180/drift-tui/internal/tui/hostselector"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // App is the root bubbletea Model.

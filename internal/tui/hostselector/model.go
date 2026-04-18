@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nibra180/drift-tui/internal/config"
-	"github.com/nibra180/drift-tui/internal/styles"
 )
 
 // MsgHostChosen is emitted when the user selects a host.

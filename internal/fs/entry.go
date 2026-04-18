@@ -10,19 +10,19 @@ import (
 type EntryKind int
 
 const (
-	EntryFile    EntryKind = iota
+	EntryFile EntryKind = iota
 	EntryDir
 	EntrySymlink
 )
 
 // FileEntry represents a single file or directory, local or remote.
 type FileEntry struct {
-	Name     string
-	Path     string // absolute path (local or remote)
-	Kind     EntryKind
-	Size     int64
-	ModTime  time.Time
-	Mode     fs.FileMode
+	Name    string
+	Path    string // absolute path (local or remote)
+	Kind    EntryKind
+	Size    int64
+	ModTime time.Time
+	Mode    fs.FileMode
 
 	// Tree metadata (used by the browser TUI)
 	Depth    int

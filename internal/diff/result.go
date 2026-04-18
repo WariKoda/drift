@@ -7,8 +7,8 @@ import "time"
 type LineKind int
 
 const (
-	LineEqual    LineKind = iota
-	LineAdded             // present on one side, absent on the other
+	LineEqual LineKind = iota
+	LineAdded          // present on one side, absent on the other
 	LineRemoved
 	LineModified
 )

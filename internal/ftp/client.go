@@ -14,7 +14,7 @@ import (
 
 	ftplib "github.com/jlaffaye/ftp"
 
-	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/WariKoda/drift/internal/config"
 )
 
 // Client wraps an FTP connection.
@@ -205,8 +205,8 @@ type ftpFileInfo struct {
 	isDir   bool
 }
 
-func (f *ftpFileInfo) Name() string      { return f.name }
-func (f *ftpFileInfo) Size() int64       { return f.size }
+func (f *ftpFileInfo) Name() string       { return f.name }
+func (f *ftpFileInfo) Size() int64        { return f.size }
 func (f *ftpFileInfo) ModTime() time.Time { return f.modTime }
 func (f *ftpFileInfo) IsDir() bool        { return f.isDir }
 func (f *ftpFileInfo) Sys() any           { return nil }

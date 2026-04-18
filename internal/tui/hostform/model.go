@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/WariKoda/drift/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // Protocol enumerates the supported remote protocols.
@@ -26,7 +26,7 @@ func (p Protocol) String() string {
 type AuthType int
 
 const (
-	AuthKeyfile  AuthType = iota
+	AuthKeyfile AuthType = iota
 	AuthPassword
 	AuthAgent
 )
@@ -41,7 +41,7 @@ const (
 	fHostname   = 1
 	fPort       = 2
 	fUser       = 3
-	fAuthType   = 4  // toggle — no text field
+	fAuthType   = 4 // toggle — no text field
 	fKeyFile    = 5
 	fPassphrase = 6
 	fPassword   = 7
@@ -227,7 +227,7 @@ func (m *Model) openMappingEdit(idx int) {
 	m.editIdx = idx
 	m.editFocusRow = 0
 	m.editFields[0] = &TextField{Label: "Local Path", Width: bw, Placeholder: "plugins/plugin1", Focused: true}
-	m.editFields[1] = &TextField{Label: "Deploy Path", Width: bw, Placeholder: "/var/www/html/custom/plugins/plugin1"}
+	m.editFields[1] = &TextField{Label: "Deploy Path", Width: bw, Placeholder: "custom/plugins/plugin1"}
 	if idx >= 0 && idx < len(m.mappings) {
 		m.editFields[0].SetValue(m.mappings[idx].Local)
 		m.editFields[1].SetValue(m.mappings[idx].Remote)

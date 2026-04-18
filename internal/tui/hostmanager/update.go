@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/config"
-	"github.com/nibra180/drift-tui/internal/remote"
 )
 
 // msgTestResult carries the outcome of an async connection test.

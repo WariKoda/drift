@@ -1,6 +1,6 @@
 package main
 
-import "github.com/nibra180/drift-tui/cmd"
+import "github.com/WariKoda/drift/cmd"
 
 func main() {
 	cmd.Execute()

@@ -2,8 +2,8 @@
 package hostmanager
 
 import (
+	"github.com/WariKoda/drift/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/config"
 )
 
 // entry is a flat list item — either a section header or a host row.

@@ -4,15 +4,15 @@ package statusbar
 import (
 	"strings"
 
+	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nibra180/drift-tui/internal/styles"
 )
 
 // Kind classifies the severity of a status message.
 type Kind int
 
 const (
-	KindInfo  Kind = iota
+	KindInfo Kind = iota
 	KindWarn
 	KindError
 )

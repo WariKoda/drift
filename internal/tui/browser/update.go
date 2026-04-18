@@ -1,8 +1,8 @@
 package browser
 
 import (
+	"github.com/WariKoda/drift/internal/fs"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/fs"
 )
 
 // MsgSyncRequested is emitted when the user presses [s] with marked entries.

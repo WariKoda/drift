@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nibra180/drift-tui/internal/config"
+	"github.com/WariKoda/drift/internal/config"
 )
 
 // Mapper translates between local absolute paths and remote absolute paths.
@@ -36,7 +36,7 @@ func (m *Mapper) activeMappings() []config.Mapping {
 }
 
 // LocalToRemote converts an absolute local path to an absolute remote path.
-// When the host has explicit mappings, the file must match one of them.
+// When any effective mappings are configured, the file must match one of them.
 // Falls back to host.RootPath + relative path when no mappings are configured.
 func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 	absLocal = filepath.Clean(absLocal)
@@ -70,8 +70,8 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 		return remoteBase + "/" + remoteLocal, nil
 	}
 
-	// Host has explicit mappings but no match → file is not configured for sync
-	if len(m.host.Mappings) > 0 {
+	// Mappings are configured but no match → file is not configured for sync
+	if len(mappings) > 0 {
 		return "", fmt.Errorf("%s: not covered by any configured mapping", filepath.Base(absLocal))
 	}
 
@@ -119,8 +119,8 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 		return filepath.Join(localBase, suffix), nil
 	}
 
-	// Host has explicit mappings but no match
-	if len(m.host.Mappings) > 0 {
+	// Mappings are configured but no match
+	if len(mappings) > 0 {
 		return "", fmt.Errorf("pathmap: remote path %q not covered by any configured mapping", absRemote)
 	}
 

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nibra180/drift-tui/internal/config"
-	"github.com/nibra180/drift-tui/internal/styles"
 )
 
 func (m Model) View() string {

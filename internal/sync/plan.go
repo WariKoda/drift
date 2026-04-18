@@ -1,7 +1,7 @@
 // Package sync handles building and executing file sync plans.
 package sync
 
-import "github.com/nibra180/drift-tui/internal/config"
+import "github.com/WariKoda/drift/internal/config"
 
 // SyncDirection specifies whether to push local→remote or pull remote→local.
 type SyncDirection int
@@ -28,7 +28,7 @@ type Plan struct {
 type ItemStatus int
 
 const (
-	ItemPending  ItemStatus = iota
+	ItemPending ItemStatus = iota
 	ItemInFlight
 	ItemDone
 	ItemFailed

@@ -10,9 +10,9 @@ package config
 
 // Host represents a remote SFTP/SSH or FTP target.
 type Host struct {
-	Name     string    `toml:"name"`               // unique identifier, e.g. "prod"
-	Hostname string    `toml:"hostname"`            // IP or domain
-	Port     int       `toml:"port"`               // default: 22 (sftp) or 21 (ftp)
+	Name     string    `toml:"name"`     // unique identifier, e.g. "prod"
+	Hostname string    `toml:"hostname"` // IP or domain
+	Port     int       `toml:"port"`     // default: 22 (sftp) or 21 (ftp)
 	User     string    `toml:"user"`
 	Auth     Auth      `toml:"auth"`
 	RootPath string    `toml:"root_path"`          // remote base directory
@@ -57,15 +57,17 @@ type ProjectConfig struct {
 type HostScope int
 
 const (
-	ScopeGlobal  HostScope = iota
+	ScopeGlobal HostScope = iota
 	ScopeProject
 )
 
 // MergedConfig is the runtime-resolved configuration after merging global and project configs.
 type MergedConfig struct {
-	GlobalHosts  []Host            // hosts from ~/.config/drift/config.toml
-	ProjectHosts []Host            // hosts from .drift/config.toml
-	Hosts        map[string]Host   // merged view: project overrides global, keyed by Name
-	Mappings     []Mapping
-	ProjectRoot  string            // absolute path of the directory containing .drift/
+	GlobalDefaults  Defaults
+	ProjectDefaults Defaults
+	GlobalHosts     []Host          // hosts from ~/.config/drift/config.toml
+	ProjectHosts    []Host          // hosts from .drift/config.toml
+	Hosts           map[string]Host // merged view: project overrides global, keyed by Name
+	Mappings        []Mapping
+	ProjectRoot     string // absolute path of the directory containing .drift/
 }

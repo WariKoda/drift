@@ -7,12 +7,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/pathmap"
+	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/config"
-	"github.com/nibra180/drift-tui/internal/diff"
-	"github.com/nibra180/drift-tui/internal/fs"
-	"github.com/nibra180/drift-tui/internal/pathmap"
-	"github.com/nibra180/drift-tui/internal/remote"
 )
 
 // MsgDiffLoaded is sent when all sessions have been computed.
@@ -35,7 +35,10 @@ type MsgBulkSyncDone struct {
 }
 
 // MsgSynced is sent after a successful upload or download.
-type MsgSynced struct{ SessionIdx int; Direction SyncDir }
+type MsgSynced struct {
+	SessionIdx int
+	Direction  SyncDir
+}
 
 // MsgSyncError is sent when a sync operation fails.
 type MsgSyncError struct{ Err error }
@@ -45,10 +48,10 @@ type SyncDir int
 
 const (
 	DirNone         SyncDir = iota // — no sync planned (zero value / default)
-	DirUpload                       // ↑ push local → remote
-	DirDownload                     // ↓ pull remote → local
-	DirDeleteLocal                  // ✗ delete the local file
-	DirDeleteRemote                 // ✗ delete the remote file
+	DirUpload                      // ↑ push local → remote
+	DirDownload                    // ↓ pull remote → local
+	DirDeleteLocal                 // ✗ delete the local file
+	DirDeleteRemote                // ✗ delete the remote file
 )
 
 // nextDir returns the next direction in the cycle for s's file-existence state.
@@ -94,13 +97,13 @@ func nextDir(cur SyncDir, s *diff.Session) SyncDir {
 // Model is the diff view screen.
 type Model struct {
 	sessions       []diff.Session
-	syncDirs       []SyncDir    // planned direction per session (index-aligned)
+	syncDirs       []SyncDir // planned direction per session (index-aligned)
 	activeIdx      int
-	fileListOffset int          // scroll offset into the file list
+	fileListOffset int // scroll offset into the file list
 	scroll         int
-	refreshing     bool         // true while async refresh is in flight
-	syncing        bool         // true while bulk sync is in flight
-	syncStatus     string       // last bulk sync result message
+	refreshing     bool   // true while async refresh is in flight
+	syncing        bool   // true while bulk sync is in flight
+	syncStatus     string // last bulk sync result message
 	host           config.Host
 	conn           remote.Client // kept open for sync ops
 	Width          int

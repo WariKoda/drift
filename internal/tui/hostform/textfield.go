@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/nibra180/drift-tui/internal/styles"
 )
 
 // TextField is a single-line editable text input widget.

@@ -6,17 +6,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/fs"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/nibra180/drift-tui/internal/fs"
 )
 
 // Model is the bubbletea sub-model for the file browser screen.
 type Model struct {
 	// tree state
-	WorkDir  string
-	entries  []*fs.FileEntry // flat visible list
-	cursor   int
-	offset   int            // scroll offset into entries
+	WorkDir string
+	entries []*fs.FileEntry // flat visible list
+	cursor  int
+	offset  int // scroll offset into entries
 
 	// selection
 	Selection *fs.SelectionState

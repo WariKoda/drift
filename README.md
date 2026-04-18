@@ -4,13 +4,8 @@ A terminal TUI for browsing, diffing, and syncing files with remote hosts — th
 
 Supports **SFTP/SSH** and **FTP** targets. Runs on Linux and macOS.
 
----
-
-## Status
-
-**Alpha / early OSS release.**
-
-The core workflow already works, but the project is still young. Expect rough edges, incomplete polish, and behavior changes between releases.
+> [!WARNING]
+> **Alpha:** drift is in an early public stage. Expect rough edges, incomplete polish, and breaking changes between releases.
 
 ---
 

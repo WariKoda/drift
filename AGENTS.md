@@ -81,4 +81,33 @@ make install                  # installs to ~/.local/bin/drift
 make update                   # rebuild + reinstall (use after code changes)
 ```
 
-Module path: `github.com/nibra180/drift-tui`
+## Git workflow
+
+- Keep `main` stable and releasable.
+- Do not work directly on `main` unless the user explicitly asks for it.
+- Create a short-lived branch for each change:
+  - `feature/...` for new functionality
+  - `fix/...` for bug fixes
+  - `docs/...` for documentation changes
+  - `chore/...` for maintenance
+  - `refactor/...` for internal cleanup
+- Typical flow:
+
+```bash
+git switch main
+git pull
+git switch -c feature/my-change
+# implement change
+go test ./...
+go vet ./...
+go build ./...
+git add .
+git commit -m "Add my change"
+git push -u origin feature/my-change
+```
+
+- Open a pull request from the branch into `main`.
+- Merge to `main` only after validation passes.
+- Create releases from `main` using tags.
+
+Module path: `github.com/WariKoda/drift`

@@ -48,6 +48,38 @@ go vet ./...
 go build ./...
 ```
 
+## Git workflow
+
+Please keep `main` stable and use short-lived branches for changes.
+
+Recommended branch names:
+
+- `feature/...` for new functionality
+- `fix/...` for bug fixes
+- `docs/...` for documentation changes
+- `chore/...` for maintenance tasks
+- `refactor/...` for internal cleanups
+
+Typical flow:
+
+```bash
+git switch main
+git pull
+git switch -c feature/my-change
+
+# implement change
+
+go test ./...
+go vet ./...
+go build ./...
+
+git add .
+git commit -m "Add my change"
+git push -u origin feature/my-change
+```
+
+Then open a pull request into `main`.
+
 ## Pull requests
 
 Please include:

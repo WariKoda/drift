@@ -12,6 +12,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/pathmap"
 	"github.com/WariKoda/drift/internal/remote"
+	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -54,44 +55,42 @@ const (
 	DirDeleteRemote                // ✗ delete the remote file
 )
 
-// nextDir returns the next direction in the cycle for s's file-existence state.
-//
-//	Both sides exist : None → Upload → Download → None
-//	Local only       : None → Upload → DeleteLocal → None
-//	Remote only      : None → Download → DeleteRemote → None
-func nextDir(cur SyncDir, s *diff.Session) SyncDir {
-	if s.Result == nil {
+func syncDirFromDecision(decision syncpolicy.Decision) SyncDir {
+	switch decision {
+	case syncpolicy.DecisionUpload:
+		return DirUpload
+	case syncpolicy.DecisionDownload:
+		return DirDownload
+	case syncpolicy.DecisionDeleteLocal:
+		return DirDeleteLocal
+	case syncpolicy.DecisionDeleteRemote:
+		return DirDeleteRemote
+	default:
 		return DirNone
 	}
-	switch {
-	case s.Result.LocalOnly:
-		switch cur {
-		case DirNone:
-			return DirUpload
-		case DirUpload:
-			return DirDeleteLocal
-		default:
-			return DirNone
-		}
-	case s.Result.RemoteOnly:
-		switch cur {
-		case DirNone:
-			return DirDownload
-		case DirDownload:
-			return DirDeleteRemote
-		default:
-			return DirNone
-		}
+}
+
+func decisionFromSyncDir(dir SyncDir) syncpolicy.Decision {
+	switch dir {
+	case DirUpload:
+		return syncpolicy.DecisionUpload
+	case DirDownload:
+		return syncpolicy.DecisionDownload
+	case DirDeleteLocal:
+		return syncpolicy.DecisionDeleteLocal
+	case DirDeleteRemote:
+		return syncpolicy.DecisionDeleteRemote
 	default:
-		switch cur {
-		case DirNone:
-			return DirUpload
-		case DirUpload:
-			return DirDownload
-		default:
-			return DirNone
-		}
+		return syncpolicy.DecisionNone
 	}
+}
+
+func autoDir(s *diff.Session) SyncDir {
+	return syncDirFromDecision(syncpolicy.AutoDecision(s))
+}
+
+func nextDir(cur SyncDir, s *diff.Session) SyncDir {
+	return syncDirFromDecision(syncpolicy.NextDecision(decisionFromSyncDir(cur), s))
 }
 
 // Model is the diff view screen.
@@ -124,40 +123,6 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, width, h
 		conn:     conn,
 		Width:    width,
 		Height:   height,
-	}
-}
-
-// autoDir returns the most logical sync direction for a session based on file
-// existence and modification times.
-//
-//   - LocalOnly  → Upload   (remote is missing the file)
-//   - RemoteOnly → Download (local is missing the file)
-//   - Identical  → None     (nothing to do)
-//   - Both differ → compare mtimes; local newer ↑, remote newer ↓, ambiguous —
-//
-// A 2-second threshold tolerates FAT32 time resolution and minor clock drift.
-func autoDir(s *diff.Session) SyncDir {
-	if s.Err != nil || s.Result == nil {
-		return DirNone
-	}
-	r := s.Result
-	switch {
-	case r.LocalOnly:
-		return DirUpload
-	case r.RemoteOnly:
-		return DirDownload
-	case !r.HasDiff():
-		return DirNone
-	default:
-		const threshold = 2 * time.Second
-		delta := r.ModLocal.Sub(r.ModRemote)
-		if delta > threshold {
-			return DirUpload
-		}
-		if delta < -threshold {
-			return DirDownload
-		}
-		return DirNone
 	}
 }
 

@@ -4,6 +4,7 @@ package pathmap
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -49,7 +50,7 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 		localBase := filepath.Join(m.projectRoot, filepath.FromSlash(mp.Local))
 		localBase = filepath.Clean(localBase)
 
-		if strings.HasPrefix(absLocal, localBase) {
+		if hasLocalPathPrefix(absLocal, localBase) {
 			if len(localBase) > len(best) {
 				best = localBase
 				bestMapping = mp
@@ -101,7 +102,7 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 			filepath.ToSlash(filepath.Join(m.host.RootPath, mp.Remote)),
 			"/",
 		)
-		if strings.HasPrefix(absRemote, remoteBase) {
+		if hasRemotePathPrefix(absRemote, remoteBase) {
 			if len(remoteBase) > len(best) {
 				best = remoteBase
 				bestMapping = mp
@@ -126,10 +127,39 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 
 	// Fallback
 	rootPath := strings.TrimSuffix(filepath.ToSlash(m.host.RootPath), "/")
-	if !strings.HasPrefix(absRemote, rootPath) {
+	if !hasRemotePathPrefix(absRemote, rootPath) {
 		return "", fmt.Errorf("pathmap: remote path %q is outside host root %q", absRemote, m.host.RootPath)
 	}
 	rel := strings.TrimPrefix(absRemote, rootPath)
 	rel = strings.TrimPrefix(rel, "/")
 	return filepath.Join(m.projectRoot, rel), nil
+}
+
+func hasLocalPathPrefix(path, base string) bool {
+	path = filepath.Clean(path)
+	base = filepath.Clean(base)
+	if path == base {
+		return true
+	}
+	if base == string(filepath.Separator) {
+		return strings.HasPrefix(path, base)
+	}
+	return strings.HasPrefix(path, base+string(filepath.Separator))
+}
+
+func hasRemotePathPrefix(pathValue, base string) bool {
+	pathValue = cleanRemotePath(pathValue)
+	base = cleanRemotePath(base)
+	if pathValue == base {
+		return true
+	}
+	if base == "/" {
+		return strings.HasPrefix(pathValue, base)
+	}
+	return strings.HasPrefix(pathValue, base+"/")
+}
+
+func cleanRemotePath(value string) string {
+	value = filepath.ToSlash(value)
+	return path.Clean(value)
 }

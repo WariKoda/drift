@@ -44,3 +44,34 @@ func TestRemoteToLocal_ProjectMappingsAreEnforced(t *testing.T) {
 		t.Fatal("RemoteToLocal unexpectedly allowed file outside configured project mappings")
 	}
 }
+
+func TestLocalToRemote_DoesNotMatchSiblingPrefix(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, []config.Mapping{{Local: "plugins/foo", Remote: "html/custom/plugins/foo"}}, config.Host{
+		RootPath: "/var/www",
+	})
+
+	if _, err := mapper.LocalToRemote(filepath.Join(root, "plugins", "foobar", "src", "Main.php")); err == nil {
+		t.Fatal("LocalToRemote unexpectedly matched sibling path with shared prefix")
+	}
+}
+
+func TestRemoteToLocal_DoesNotMatchSiblingPrefix(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, []config.Mapping{{Local: "plugins/foo", Remote: "html/custom/plugins/foo"}}, config.Host{
+		RootPath: "/var/www",
+	})
+
+	if _, err := mapper.RemoteToLocal("/var/www/html/custom/plugins/foobar/src/Main.php"); err == nil {
+		t.Fatal("RemoteToLocal unexpectedly matched sibling path with shared prefix")
+	}
+}
+
+func TestRemoteToLocal_FallbackRequiresSegmentSafeHostRoot(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, nil, config.Host{RootPath: "/var/www/app"})
+
+	if _, err := mapper.RemoteToLocal("/var/www/application/index.php"); err == nil {
+		t.Fatal("RemoteToLocal unexpectedly allowed path outside host root with shared prefix")
+	}
+}

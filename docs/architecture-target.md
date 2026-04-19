@@ -4,6 +4,20 @@ Diese Skizze beschreibt eine mittelfristige Zielarchitektur für `drift`, die di
 
 Sie ist bewusst evolutionär formuliert: kein Big-Bang-Rewrite, sondern eine realistische Leitplanke für die nächsten Entwicklungszyklen.
 
+## Aktueller Stand
+
+Bereits umgesetzt:
+- `internal/pathmap` matcht Mapping-Prefixe segment-sicher
+- `diff.Compare()` behandelt nur echte NotFound-Fälle als `LocalOnly` / `RemoteOnly`
+- andere Stat-/Protokollfehler bleiben als Fehler sichtbar
+- `diffview.nextDir()` lässt für fehlerhafte Sessions keine Action-Auswahl mehr zu
+- Auto-Decision- und Action-Cycling-Logik wurde nach `internal/sync/policy.go` verschoben und dort getestet
+
+Noch offen:
+- deterministische Sortierung für Hosts und markierte Pfade
+- Einführung der `internal/app`-Services für Session-Aufbau und Refresh
+- Ersetzen der Sync-Ausführung in `diffview` durch `sync`-/`app`-Services
+
 ---
 
 ## Ziele
@@ -184,6 +198,12 @@ Mögliche `DifferenceKind`:
 ### Wichtig
 
 `diff.Compare()` sollte nur dann „local only“ oder „remote only“ melden, wenn ein echter NotFound-Fall erkannt wurde. Permission-, Netzwerk- oder Protokollfehler müssen gesondert sichtbar bleiben.
+
+Status: **teilweise umgesetzt**
+- echte NotFound-Fälle werden getrennt behandelt
+- FTP `550` wird als Missing erkannt
+- andere Fehler bleiben sichtbar und werden nicht mehr implizit als „Datei fehlt“ interpretiert
+- ein expliziteres Presence-Modell (`Presence`, `SideState`, `DifferenceKind`) ist weiterhin offen
 
 ---
 
@@ -387,11 +407,9 @@ Beispielproblem:
 
 Das darf nicht matchen.
 
-Empfehlung:
-- exakte Gleichheit oder
-- Prefix plus Pfadseparator
-
-Für Remote-Pfade analog mit Slash-normalisierten Segmenten.
+Status: **umgesetzt**
+- lokale und Remote-Pfade matchen nur noch bei exakter Gleichheit oder echtem Unterpfad
+- Segmentgrenzen sind durch Tests abgesichert
 
 ---
 
@@ -590,6 +608,11 @@ Soll enthalten:
 - Regeln für Delete-Freigaben
 - Umgang mit Ambiguität bei mtime
 
+Status: **teilweise umgesetzt**
+- `AutoDecision(...)` und `NextDecision(...)` liegen bereits in `internal/sync/policy.go`
+- erste Policy-Tests existieren
+- Delete-Policies und ein breiteres Action-/State-Modell sind noch offen
+
 ---
 
 ## `internal/sync/engine.go`
@@ -727,9 +750,11 @@ Sinnvolle Zielarchitektur:
 ## Phase 1 – sichere, kleine Schritte
 
 1. deterministische Sortierung für Hosts und markierte Pfade
-2. `pathmap` segment-sicher machen
-3. `diff.Compare()` für NotFound vs. andere Fehler schärfen
-4. `autoDir()` / `nextDir()` aus `tui/diffview` nach `internal/sync` verschieben
+2. ~~`pathmap` segment-sicher machen~~ ✅
+3. ~~`diff.Compare()` für NotFound vs. andere Fehler schärfen~~ ✅
+4. ~~`autoDir()` / `nextDir()` aus `tui/diffview` nach `internal/sync` verschieben~~ ✅
+
+**Empfohlener nächster Schritt:** Punkt 1, also deterministische Sortierung für Hosts und markierte Pfade.
 
 ## Phase 2 – Orchestrierung entkoppeln
 

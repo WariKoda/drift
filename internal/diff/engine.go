@@ -1,9 +1,12 @@
 package diff
 
 import (
+	"errors"
+	"net/textproto"
 	"os"
 	"strings"
 
+	ftplib "github.com/jlaffaye/ftp"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -36,13 +39,22 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 		result.ModRemote = remoteInfo.ModTime()
 	}
 
+	localMissing := isNotExistError(localErr)
+	remoteMissing := isNotExistError(remoteErr)
 	localExists := localErr == nil
 	remoteExists := remoteErr == nil
 
-	if !localExists && !remoteExists {
+	if localErr != nil && !localMissing {
+		return result, localErr
+	}
+	if remoteErr != nil && !remoteMissing {
+		return result, remoteErr
+	}
+
+	if localMissing && remoteMissing {
 		return result, nil
 	}
-	if !localExists {
+	if localMissing {
 		result.RemoteOnly = true
 		if result.SizeRemote <= maxTextSize {
 			if data, err := client.ReadFile(remotePath); err == nil {
@@ -61,7 +73,7 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 		}
 		return result, nil
 	}
-	if !remoteExists {
+	if remoteMissing {
 		result.LocalOnly = true
 		if result.SizeLocal <= maxTextSize {
 			if data, err := os.ReadFile(localPath); err == nil {
@@ -82,6 +94,10 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 	}
 
 	// Both exist — read content
+	if !localExists || !remoteExists {
+		return result, nil
+	}
+
 	if result.SizeLocal > maxTextSize || result.SizeRemote > maxTextSize {
 		result.Binary = true
 		return result, nil
@@ -172,5 +188,21 @@ func isBinary(data []byte) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func isNotExistError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
+		return true
+	}
+
+	var protoErr *textproto.Error
+	if errors.As(err, &protoErr) {
+		return protoErr.Code == ftplib.StatusFileUnavailable
+	}
+
 	return false
 }

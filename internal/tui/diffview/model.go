@@ -60,7 +60,7 @@ const (
 //	Local only       : None → Upload → DeleteLocal → None
 //	Remote only      : None → Download → DeleteRemote → None
 func nextDir(cur SyncDir, s *diff.Session) SyncDir {
-	if s.Result == nil {
+	if s.Err != nil || s.Result == nil {
 		return DirNone
 	}
 	switch {

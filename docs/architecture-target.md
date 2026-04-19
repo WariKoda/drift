@@ -12,9 +12,9 @@ Bereits umgesetzt:
 - andere Stat-/Protokollfehler bleiben als Fehler sichtbar
 - `diffview.nextDir()` lässt für fehlerhafte Sessions keine Action-Auswahl mehr zu
 - Auto-Decision- und Action-Cycling-Logik wurde nach `internal/sync/policy.go` verschoben und dort getestet
+- Hosts und markierte Pfade werden deterministisch sortiert verarbeitet
 
 Noch offen:
-- deterministische Sortierung für Hosts und markierte Pfade
 - Einführung der `internal/app`-Services für Session-Aufbau und Refresh
 - Ersetzen der Sync-Ausführung in `diffview` durch `sync`-/`app`-Services
 
@@ -749,12 +749,14 @@ Sinnvolle Zielarchitektur:
 
 ## Phase 1 – sichere, kleine Schritte
 
-1. deterministische Sortierung für Hosts und markierte Pfade
+1. ~~deterministische Sortierung für Hosts und markierte Pfade~~ ✅
 2. ~~`pathmap` segment-sicher machen~~ ✅
 3. ~~`diff.Compare()` für NotFound vs. andere Fehler schärfen~~ ✅
 4. ~~`autoDir()` / `nextDir()` aus `tui/diffview` nach `internal/sync` verschieben~~ ✅
 
-**Empfohlener nächster Schritt:** Punkt 1, also deterministische Sortierung für Hosts und markierte Pfade.
+**Phase 1 ist damit abgeschlossen.**
+
+**Empfohlener nächster Schritt:** Phase 2, Punkt 5 — `internal/app/session_service.go` einführen.
 
 ## Phase 2 – Orchestrierung entkoppeln
 

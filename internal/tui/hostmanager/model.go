@@ -50,13 +50,13 @@ func (m *Model) rebuild() {
 
 	{ // always show section header
 		m.entries = append(m.entries, entry{isHeader: true, scope: config.ScopeGlobal})
-		for _, h := range m.cfg.GlobalHosts {
+		for _, h := range config.SortedHostsByName(m.cfg.GlobalHosts) {
 			m.entries = append(m.entries, entry{scope: config.ScopeGlobal, host: h})
 		}
 	}
 
 	m.entries = append(m.entries, entry{isHeader: true, scope: config.ScopeProject})
-	for _, h := range m.cfg.ProjectHosts {
+	for _, h := range config.SortedHostsByName(m.cfg.ProjectHosts) {
 		m.entries = append(m.entries, entry{scope: config.ScopeProject, host: h})
 	}
 

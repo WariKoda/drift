@@ -33,6 +33,7 @@ func New(cfg *config.MergedConfig, width, height int) Model {
 	for _, h := range cfg.Hosts {
 		hosts = append(hosts, h)
 	}
+	hosts = config.SortedHostsByName(hosts)
 	m := Model{hosts: hosts, Width: width, Height: height}
 	m.applyFilter()
 	return m

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
@@ -253,7 +254,13 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 			})
 		}
 
+		markedPaths := make([]string, 0, len(sel.Marked))
 		for localPath := range sel.Marked {
+			markedPaths = append(markedPaths, localPath)
+		}
+		sort.Strings(markedPaths)
+
+		for _, localPath := range markedPaths {
 			info, statErr := os.Stat(localPath)
 			if statErr != nil {
 				sessions = append(sessions, diff.Session{

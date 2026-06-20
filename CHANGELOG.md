@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
 - when started inside an unregistered `.drift` project, drift offers to register it (`[y]` / `[n]`)
 - per-host `insecure_tls` option for ftps hosts with self-signed/mismatched certificates (host form toggle + config field)
 - diff viewer shows the active file's full local source and remote target path in the column labels
+- diff viewer marks removed (`-`) and added (`+`) lines with git-style gutter signs for clearer reading
+- redesigned dashboard with a centered DRIFT banner, project list and bottom action bar
+- quick-open projects from the dashboard with number keys `1`–`9`
+- browser status bar / help now lists `[H]hosts` and `[P]projects` (return to the dashboard from inside a project)
 
 ### Changed
 - extract the form text-input widget into `internal/tui/textfield` (shared by host and project forms)

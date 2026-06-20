@@ -102,6 +102,19 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.showArchived = !m.showArchived
 		m.rebuild()
 
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '1')
+		if idx < len(m.entries) {
+			m.cursor = idx
+			e := m.entries[idx]
+			if e.missing {
+				m.statusMsg = "Path not found: " + e.proj.Path + " — press [e] to fix"
+				break
+			}
+			p := e.proj
+			return m, func() tea.Msg { return MsgProjectChosen{Project: p} }
+		}
+
 	case "esc", "q":
 		return m, func() tea.Msg { return MsgDashboardQuit{} }
 	}

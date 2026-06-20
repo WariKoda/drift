@@ -29,7 +29,7 @@ const (
 
 // HelpText returns the key hint shown in the status bar.
 func HelpText() string {
-	return "[s]sync  [Space]mark  [r]refresh  [?]help  [q]quit"
+	return "[s]sync  [H]hosts  [P]projects  [?]help  [q]quit"
 }
 
 // FullHelp returns the help overlay text.
@@ -57,6 +57,8 @@ func FullHelp() string {
 
   Other
   ──────────────────────────────
+  H              host manager
+  P              project dashboard
   r              refresh directory
   /              filter entries
   ?              toggle this help

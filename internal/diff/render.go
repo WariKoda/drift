@@ -51,7 +51,8 @@ func RenderPanes(result *DiffResult, paneWidth, scrollOffset, count int) (left, 
 		}
 
 		dl := lines[idx]
-		contentWidth := paneWidth - numWidth - 2 // 2 for " " padding
+		// layout per cell: marker(1) + " " + lineNum + " " + content
+		contentWidth := paneWidth - numWidth - 3
 		if contentWidth < 1 {
 			contentWidth = 1
 		}
@@ -71,10 +72,12 @@ func renderSide(text string, lineNum int, kind LineKind, isLocal bool, paneWidth
 		numStr = strings.Repeat(" ", numWidth)
 	}
 
-	// Determine which side this cell represents and what color to use
+	// Determine which side this cell represents and what color to use.
+	// marker is the git-style gutter sign: "-" removed, "+" added, " " otherwise.
 	var bgColor lipgloss.AdaptiveColor
 	var hasBg bool
 	var textColor lipgloss.Style
+	marker := " "
 
 	switch kind {
 	case LineRemoved:
@@ -82,13 +85,13 @@ func renderSide(text string, lineNum int, kind LineKind, isLocal bool, paneWidth
 			bgColor = removedBg
 			hasBg = true
 			textColor = lipgloss.NewStyle().Foreground(styles.ColorError)
+			marker = "-"
 		} else {
 			// remote side is blank for removed lines
 			bgColor = missingBg
 			hasBg = true
 			textColor = styles.Muted
 			text = ""
-			lineNum = 0
 			numStr = strings.Repeat(" ", numWidth)
 		}
 	case LineAdded:
@@ -96,13 +99,13 @@ func renderSide(text string, lineNum int, kind LineKind, isLocal bool, paneWidth
 			bgColor = addedBg
 			hasBg = true
 			textColor = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B5E20", Dark: "#A6E3A1"})
+			marker = "+"
 		} else {
 			// local side is blank for added lines
 			bgColor = missingBg
 			hasBg = true
 			textColor = styles.Muted
 			text = ""
-			lineNum = 0
 			numStr = strings.Repeat(" ", numWidth)
 		}
 	default:
@@ -113,10 +116,11 @@ func renderSide(text string, lineNum int, kind LineKind, isLocal bool, paneWidth
 	content := truncateRunes(text, contentWidth)
 	content = content + strings.Repeat(" ", contentWidth-lipgloss.Width(content))
 
-	// Compose line
+	// Compose line: marker + line number + content
+	markerPart := textColor.Bold(true).Render(marker)
 	numPart := styles.Muted.Render(numStr)
 	contentPart := textColor.Render(content)
-	line := numPart + "  " + contentPart
+	line := markerPart + " " + numPart + " " + contentPart
 
 	if hasBg {
 		line = lipgloss.NewStyle().Background(bgColor).Width(paneWidth).Render(line)

@@ -115,6 +115,7 @@ other key to skip — you can always register later with `drift projects add .`.
 |-----|--------|
 | `j` / `k` or `↑` / `↓` | Navigate |
 | `Enter` | Open project (re-root drift into it) |
+| `1`–`9` | Jump to / open the n-th project |
 | `n` | New project |
 | `e` | Edit project |
 | `d` | Remove project (with confirmation) |

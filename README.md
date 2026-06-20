@@ -131,6 +131,7 @@ other key to skip — you can always register later with `drift projects add .`.
 | `Space` | Mark / unmark file or directory |
 | `Enter` | Open directory |
 | `Backspace` | Go up one level |
+| `f` | Fuzzy-find files across the project and mark them |
 | `s` | Sync marked files (opens host selector) |
 | `H` | Open host manager |
 | `P` | Open project dashboard |

@@ -9,12 +9,14 @@ import (
 	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
 	ftplib "github.com/jlaffaye/ftp"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/fs"
 )
 
 // Client wraps an FTP connection.
@@ -83,6 +85,49 @@ func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
 		size:    size,
 		modTime: t,
 	}, nil
+}
+
+// ReadDir reads one remote directory level.
+// Directories are returned before files; both groups sorted alphabetically.
+func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
+	items, err := c.conn.List(remotePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var dirs, files []*fs.FileEntry
+	for _, item := range items {
+		if item.Name == "." || item.Name == ".." {
+			continue
+		}
+		kind := fs.EntryFile
+		mode := os.FileMode(0o644)
+		switch item.Type {
+		case ftplib.EntryTypeFolder:
+			kind = fs.EntryDir
+			mode = os.ModeDir | 0o755
+		case ftplib.EntryTypeLink:
+			kind = fs.EntrySymlink
+			mode = os.ModeSymlink | 0o777
+		}
+		entry := &fs.FileEntry{
+			Name:    item.Name,
+			Path:    path.Join(remotePath, item.Name),
+			Kind:    kind,
+			Size:    int64(item.Size),
+			ModTime: item.Time,
+			Mode:    mode,
+		}
+		if kind == fs.EntryDir {
+			dirs = append(dirs, entry)
+		} else {
+			files = append(files, entry)
+		}
+	}
+
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	return append(dirs, files...), nil
 }
 
 // ReadFile reads the full contents of a remote file.

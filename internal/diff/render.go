@@ -18,7 +18,12 @@ var (
 // RenderPanes converts a DiffResult into two parallel slices of rendered strings
 // (left = local, right = remote), each line padded to paneWidth columns.
 // scrollOffset is the first DiffLine index to render; count is the number of rows.
-func RenderPanes(result *DiffResult, paneWidth, scrollOffset, count int) (left, right []string) {
+//
+// flip makes the colouring sync-direction-aware: with flip=false (download /
+// neutral) the local side is treated as old and the remote side as new; with
+// flip=true (upload) local is the new content being pushed, so local additions
+// turn green/+ and remote-only lines turn red/-.
+func RenderPanes(result *DiffResult, paneWidth, scrollOffset, count int, flip bool) (left, right []string) {
 	if result == nil {
 		for i := 0; i < count; i++ {
 			left = append(left, strings.Repeat(" ", paneWidth))
@@ -57,58 +62,84 @@ func RenderPanes(result *DiffResult, paneWidth, scrollOffset, count int) (left, 
 			contentWidth = 1
 		}
 
-		left = append(left, renderSide(dl.LocalLine, dl.LocalNum, dl.Kind, true, paneWidth, numWidth, contentWidth))
-		right = append(right, renderSide(dl.RemoteLine, dl.RemoteNum, dl.Kind, false, paneWidth, numWidth, contentWidth))
+		left = append(left, renderSide(dl.LocalLine, dl.LocalNum, dl.Kind, true, flip, paneWidth, numWidth, contentWidth))
+		right = append(right, renderSide(dl.RemoteLine, dl.RemoteNum, dl.Kind, false, flip, paneWidth, numWidth, contentWidth))
 	}
 	return
 }
 
-func renderSide(text string, lineNum int, kind LineKind, isLocal bool, paneWidth, numWidth, contentWidth int) string {
-	// Line number
+// sideAct is what a single pane cell represents after applying sync direction.
+type sideAct int
+
+const (
+	actEqual sideAct = iota
+	actAdd
+	actRemove
+	actBlank
+)
+
+// sideAction resolves how one side of a diff line should be rendered, taking the
+// sync direction (flip) into account. flip=false treats remote as the new state.
+func sideAction(kind LineKind, isLocal, flip bool) sideAct {
+	switch kind {
+	case LineRemoved:
+		if !isLocal {
+			return actBlank
+		}
+		if flip {
+			return actAdd
+		}
+		return actRemove
+	case LineAdded:
+		if isLocal {
+			return actBlank
+		}
+		if flip {
+			return actRemove
+		}
+		return actAdd
+	case LineModified:
+		// local = old, remote = new (download / neutral); flipped for upload.
+		if isLocal == flip {
+			return actAdd
+		}
+		return actRemove
+	default: // LineEqual
+		return actEqual
+	}
+}
+
+func renderSide(text string, lineNum int, kind LineKind, isLocal, flip bool, paneWidth, numWidth, contentWidth int) string {
+	act := sideAction(kind, isLocal, flip)
+
+	// Line number (blank when this side has no content).
 	var numStr string
-	if lineNum > 0 {
-		numStr = fmt.Sprintf("%*d", numWidth, lineNum)
-	} else {
+	if act == actBlank || lineNum <= 0 {
 		numStr = strings.Repeat(" ", numWidth)
+	} else {
+		numStr = fmt.Sprintf("%*d", numWidth, lineNum)
 	}
 
-	// Determine which side this cell represents and what color to use.
 	// marker is the git-style gutter sign: "-" removed, "+" added, " " otherwise.
 	var bgColor lipgloss.AdaptiveColor
 	var hasBg bool
 	var textColor lipgloss.Style
 	marker := " "
 
-	switch kind {
-	case LineRemoved:
-		if isLocal {
-			bgColor = removedBg
-			hasBg = true
-			textColor = lipgloss.NewStyle().Foreground(styles.ColorError)
-			marker = "-"
-		} else {
-			// remote side is blank for removed lines
-			bgColor = missingBg
-			hasBg = true
-			textColor = styles.Muted
-			text = ""
-			numStr = strings.Repeat(" ", numWidth)
-		}
-	case LineAdded:
-		if !isLocal {
-			bgColor = addedBg
-			hasBg = true
-			textColor = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B5E20", Dark: "#A6E3A1"})
-			marker = "+"
-		} else {
-			// local side is blank for added lines
-			bgColor = missingBg
-			hasBg = true
-			textColor = styles.Muted
-			text = ""
-			numStr = strings.Repeat(" ", numWidth)
-		}
-	default:
+	switch act {
+	case actAdd:
+		bgColor, hasBg = addedBg, true
+		textColor = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B5E20", Dark: "#A6E3A1"})
+		marker = "+"
+	case actRemove:
+		bgColor, hasBg = removedBg, true
+		textColor = lipgloss.NewStyle().Foreground(styles.ColorError)
+		marker = "-"
+	case actBlank:
+		bgColor, hasBg = missingBg, true
+		textColor = styles.Muted
+		text = ""
+	default: // actEqual
 		textColor = styles.File
 	}
 

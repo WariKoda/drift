@@ -25,11 +25,13 @@ const (
 	keyQ         = "q"
 	keyCtrlC     = "ctrl+c"
 	keyBackspace = "backspace"
+	keyTab       = "tab"
+	keyAt        = "@"
 )
 
 // HelpText returns the key hint shown in the status bar.
 func HelpText() string {
-	return "[s]sync  [H]hosts  [P]projects  [?]help  [q]quit"
+	return "[Tab]pane  [@]remote  [f]find  [s]sync  [H]hosts  [P]projects  [?]help  [q]quit"
 }
 
 // FullHelp returns the help overlay text.
@@ -51,15 +53,18 @@ func FullHelp() string {
   *              invert selection
   Esc            clear filter / selection
 
-  Sync
+  Find & Sync
   ──────────────────────────────
-  s              open host selector (requires ≥1 mark)
+  f              fuzzy find files across the project, mark with Space
+  s              sync marked local files (uses remote pane host when selected)
+  @              choose/change host for the remote pane
+  Tab            switch active pane
 
   Other
   ──────────────────────────────
   H              host manager
   P              project dashboard
-  r              refresh directory
+  r              refresh active pane
   /              filter entries
   ?              toggle this help
   q / Ctrl+C     quit`

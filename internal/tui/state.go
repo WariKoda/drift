@@ -24,6 +24,14 @@ const (
 	ScreenRegisterPrompt        // offer to register the current unregistered project
 )
 
+// HostSelectorPurpose identifies why the host selector is currently open.
+type HostSelectorPurpose int
+
+const (
+	HostSelectorForSync HostSelectorPurpose = iota
+	HostSelectorForRemoteBrowse
+)
+
 // StatusKind classifies the severity of a status bar message.
 type StatusKind int
 
@@ -49,8 +57,9 @@ type AppState struct {
 	// Browser
 	Selection *fs.SelectionState
 
-	// Host selector (sync modal)
-	SelectedHost *config.Host
+	// Host selector / selected sync target
+	SelectedHost        *config.Host
+	HostSelectorPurpose HostSelectorPurpose
 
 	// Diff (Phase 3)
 	DiffSessions  []diff.Session

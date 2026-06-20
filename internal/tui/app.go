@@ -116,6 +116,7 @@ func (a App) Init() tea.Cmd {
 // openProject re-roots the running app into p: it loads p's config, builds a
 // fresh browser at p.Path and switches to the browser screen.
 func (a *App) openProject(p project.Project) (tea.Cmd, error) {
+	a.browser.CloseRemote()
 	cfg, err := config.Load(p.Path)
 	if err != nil {
 		return nil, err
@@ -259,6 +260,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Browser → Dashboard ───────────────────────────────────────────
 	case browser.MsgOpenDashboard:
+		a.browser.CloseRemote()
 		if a.store == nil || a.registry == nil {
 			return a, nil
 		}
@@ -269,16 +271,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenDashboard
 		return a, nil
 
-	// ── Browser → Host Selector ───────────────────────────────────────
+	// ── Browser → Host Selector / direct sync ─────────────────────────
 	case browser.MsgSyncRequested:
 		a.state.Selection = msg.Selection
+		if msg.Host != nil {
+			h := *msg.Host
+			a.state.SelectedHost = &h
+			a.state.Screen = ScreenDiffLoading
+			return a, diffview.LoadCmd(h, a.state.Selection, a.state.Config)
+		}
+		a.state.HostSelectorPurpose = HostSelectorForSync
 		a.hostSel = hostselector.New(a.state.Config, a.state.TermWidth, a.state.TermHeight)
 		a.state.Screen = ScreenHostSelector
 		return a, nil
 
-	// ── Host chosen → start loading diffs ────────────────────────────
+	case browser.MsgBrowseRemoteRequested:
+		a.state.HostSelectorPurpose = HostSelectorForRemoteBrowse
+		a.hostSel = hostselector.New(a.state.Config, a.state.TermWidth, a.state.TermHeight)
+		a.state.Screen = ScreenHostSelector
+		return a, nil
+
+	// ── Host chosen → sync or load remote browser ─────────────────────
 	case hostselector.MsgHostChosen:
 		h := msg.Host
+		if a.state.HostSelectorPurpose == HostSelectorForRemoteBrowse {
+			a.state.Screen = ScreenBrowser
+			cmd := a.browser.StartRemote(h)
+			return a, cmd
+		}
 		a.state.SelectedHost = &h
 		a.state.Screen = ScreenDiffLoading
 		return a, diffview.LoadCmd(h, a.state.Selection, a.state.Config)
@@ -286,6 +306,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostselector.MsgSelectorCancelled:
 		a.state.Screen = ScreenBrowser
 		return a, nil
+
+	case browser.MsgRemoteLoaded:
+		if a.state.Screen != ScreenBrowser {
+			if msg.Conn != nil {
+				_ = msg.Conn.Close()
+			}
+			return a, nil
+		}
+		var cmd tea.Cmd
+		a.browser, cmd = a.browser.Update(msg)
+		return a, cmd
+
+	case browser.MsgRemoteChildrenLoaded:
+		if a.state.Screen != ScreenBrowser {
+			return a, nil
+		}
+		var cmd tea.Cmd
+		a.browser, cmd = a.browser.Update(msg)
+		return a, cmd
 
 	// ── Diff loaded ───────────────────────────────────────────────────
 	case diffview.MsgDiffLoaded:

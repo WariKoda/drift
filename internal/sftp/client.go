@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/ssh"
 )
 
@@ -93,6 +95,43 @@ func (c *Client) Close() error {
 // Stat returns file info for a remote path.
 func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
 	return c.sftp.Stat(remotePath)
+}
+
+// ReadDir reads one remote directory level.
+// Directories are returned before files; both groups sorted alphabetically.
+func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
+	infos, err := c.sftp.ReadDir(remotePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var dirs, files []*fs.FileEntry
+	for _, info := range infos {
+		kind := fs.EntryFile
+		switch {
+		case info.IsDir():
+			kind = fs.EntryDir
+		case info.Mode()&os.ModeSymlink != 0:
+			kind = fs.EntrySymlink
+		}
+		entry := &fs.FileEntry{
+			Name:    info.Name(),
+			Path:    path.Join(remotePath, info.Name()),
+			Kind:    kind,
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+			Mode:    info.Mode(),
+		}
+		if kind == fs.EntryDir {
+			dirs = append(dirs, entry)
+		} else {
+			files = append(files, entry)
+		}
+	}
+
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	return append(dirs, files...), nil
 }
 
 // ReadFile reads the full content of a remote file.

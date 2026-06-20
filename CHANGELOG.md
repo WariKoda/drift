@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- project-wide fuzzy file finder in the browser (`f`): search the whole project and multi-select files to mark for sync (powered by `sahilm/fuzzy`); results show the filename first with the directory dimmed alongside so look-alike names stay distinguishable
 - project dashboard: optional TUI landing screen listing registered projects
 - pick a project to re-root drift into it (loads its config, opens the browser there)
 - project registry stored in `~/.config/drift/projects.toml` (`internal/project`)
@@ -15,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - per-host `insecure_tls` option for ftps hosts with self-signed/mismatched certificates (host form toggle + config field)
 - diff viewer shows the active file's full local source and remote target path in the column labels
 - diff viewer marks removed (`-`) and added (`+`) lines with git-style gutter signs for clearer reading
+- diff viewer pairs changed lines side-by-side on one row (old left / new right) instead of separate rows
+- diff colouring is now sync-direction-aware: on upload local changes show as additions, on download remote changes do
 - redesigned dashboard with a centered DRIFT banner, project list and bottom action bar
 - quick-open projects from the dashboard with number keys `1`–`9`
 - browser status bar / help now lists `[H]hosts` and `[P]projects` (return to the dashboard from inside a project)

@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/fs"
 	driftftp "github.com/WariKoda/drift/internal/ftp"
 	"github.com/WariKoda/drift/internal/sftp"
 )
@@ -16,6 +17,7 @@ import (
 // Both *sftp.Client and *ftp.Client satisfy this interface.
 type Client interface {
 	Stat(path string) (os.FileInfo, error)
+	ReadDir(path string) ([]*fs.FileEntry, error)
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, data []byte) error
 	UploadFile(local, remote string) error

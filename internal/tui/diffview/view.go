@@ -67,7 +67,13 @@ func (m Model) View() string {
 	} else if s.Result.Binary || len(s.Result.Lines) == 0 {
 		sb.WriteString(m.renderSummary(s.Result, vh))
 	} else {
-		leftLines, rightLines := diff.RenderPanes(s.Result, pw, m.scroll, vh)
+		// Colour the diff by the active file's planned sync direction:
+		// uploads flip so local (new) shows as additions.
+		flip := false
+		if m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) {
+			flip = m.syncDirs[m.activeIdx] == DirUpload
+		}
+		leftLines, rightLines := diff.RenderPanes(s.Result, pw, m.scroll, vh, flip)
 		for i := 0; i < vh; i++ {
 			l := ""
 			r := ""
@@ -280,6 +286,9 @@ func countDiff(r *diff.DiffResult) (added, removed int) {
 		case diff.LineAdded:
 			added++
 		case diff.LineRemoved:
+			removed++
+		case diff.LineModified:
+			added++
 			removed++
 		}
 	}

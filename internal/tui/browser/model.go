@@ -6,8 +6,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
+)
+
+// PaneSide identifies which side of the split browser receives navigation keys.
+type PaneSide int
+
+const (
+	PaneLocal PaneSide = iota
+	PaneRemote
 )
 
 // Model is the bubbletea sub-model for the file browser screen.
@@ -29,12 +39,26 @@ type Model struct {
 	filterMode bool
 	filter     string
 
+	// fuzzy file finder overlay
+	finder finder
+
 	// help overlay
 	showHelp bool
 
 	// terminal dimensions (set by root app on WindowSizeMsg)
 	Width  int
 	Height int
+
+	// side-by-side remote browser state
+	activePane    PaneSide
+	remoteHost    *config.Host
+	remoteConn    remote.Client
+	remoteRoot    string
+	remoteEntries []*fs.FileEntry
+	remoteCursor  int
+	remoteOffset  int
+	remoteLoading bool
+	remoteStatus  string
 
 	// status message (transient)
 	statusMsg string
@@ -69,6 +93,7 @@ func (m *Model) SetSize(w, h int) {
 	m.Width = w
 	m.Height = h
 	m.clampScroll()
+	m.clampRemoteScroll()
 }
 
 // SetStatus sets a transient status message (e.g. error from a previous screen).
@@ -78,7 +103,16 @@ func (m *Model) SetStatus(msg string) {
 
 // viewportHeight returns the number of lines available for entries.
 func (m Model) viewportHeight() int {
-	h := m.Height - 4 // header + 2 separators + status bar
+	h := m.Height - 6 // header + 3 separators + pane labels + status bar
+	if h < 1 {
+		return 1
+	}
+	return h
+}
+
+// finderViewportHeight returns the rows available for finder results.
+func (m Model) finderViewportHeight() int {
+	h := m.Height - 5 // title + query + 2 separators + help
 	if h < 1 {
 		return 1
 	}
@@ -107,6 +141,31 @@ func (m *Model) clampScroll() {
 	}
 	if m.offset < 0 {
 		m.offset = 0
+	}
+}
+
+// clampRemoteScroll ensures the remote cursor and offset are within bounds.
+func (m *Model) clampRemoteScroll() {
+	if len(m.remoteEntries) == 0 {
+		m.remoteCursor = 0
+		m.remoteOffset = 0
+		return
+	}
+	if m.remoteCursor < 0 {
+		m.remoteCursor = 0
+	}
+	if m.remoteCursor >= len(m.remoteEntries) {
+		m.remoteCursor = len(m.remoteEntries) - 1
+	}
+	vh := m.viewportHeight()
+	if m.remoteCursor < m.remoteOffset {
+		m.remoteOffset = m.remoteCursor
+	}
+	if m.remoteCursor >= m.remoteOffset+vh {
+		m.remoteOffset = m.remoteCursor - vh + 1
+	}
+	if m.remoteOffset < 0 {
+		m.remoteOffset = 0
 	}
 }
 
@@ -141,6 +200,14 @@ func (m *Model) reload() error {
 }
 
 // absWorkDir returns the absolute display path of the working directory.
+// CloseRemote closes the currently open remote browser connection, if any.
+func (m *Model) CloseRemote() {
+	if m.remoteConn != nil {
+		_ = m.remoteConn.Close()
+		m.remoteConn = nil
+	}
+}
+
 func (m Model) absWorkDir() string {
 	abs, err := filepath.Abs(m.WorkDir)
 	if err != nil {

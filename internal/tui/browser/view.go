@@ -2,6 +2,7 @@ package browser
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/WariKoda/drift/internal/fs"
@@ -11,42 +12,54 @@ import (
 
 // View renders the browser screen.
 func (m Model) View() string {
+	if m.finder.active {
+		return m.renderFinder()
+	}
 	if m.showHelp {
 		return m.renderHelp()
 	}
 
 	var sb strings.Builder
+	localEntries := m.filteredEntries()
+	leftW, rightW := m.paneWidths()
+	divider := styles.Sep.Render("│")
 
 	sb.WriteString(m.renderHeader())
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderSep())
 	sb.WriteByte('\n')
+	sb.WriteString(m.renderPaneLabels(leftW, rightW))
+	sb.WriteByte('\n')
+	sb.WriteString(m.renderSep())
+	sb.WriteByte('\n')
 
-	entries := m.filteredEntries()
 	vh := m.viewportHeight()
-	start := m.offset
-	end := start + vh
-	if end > len(entries) {
-		end = len(entries)
-	}
-
-	rendered := 0
-	for i := start; i < end; i++ {
-		sb.WriteString(m.renderEntry(entries, i, i == m.cursor))
+	for row := 0; row < vh; row++ {
+		left := m.renderLocalRow(localEntries, m.offset+row, leftW)
+		right := m.renderRemoteRow(m.remoteOffset+row, rightW)
+		sb.WriteString(left)
+		sb.WriteString(divider)
+		sb.WriteString(right)
 		sb.WriteByte('\n')
-		rendered++
-	}
-	for rendered < vh {
-		sb.WriteString(strings.Repeat(" ", m.Width))
-		sb.WriteByte('\n')
-		rendered++
 	}
 
 	sb.WriteString(m.renderSep())
 	sb.WriteByte('\n')
-	sb.WriteString(m.renderStatus(entries))
+	sb.WriteString(m.renderStatus(localEntries))
 
 	return sb.String()
+}
+
+func (m Model) paneWidths() (int, int) {
+	left := (m.Width - 1) / 2
+	if left < 10 {
+		left = 10
+	}
+	right := m.Width - left - 1
+	if right < 10 {
+		right = 10
+	}
+	return left, right
 }
 
 func (m Model) renderHeader() string {
@@ -54,13 +67,63 @@ func (m Model) renderHeader() string {
 	return padRight(line, m.Width)
 }
 
+func (m Model) renderPaneLabels(leftW, rightW int) string {
+	localLabel := styles.Key.Render("  LOCAL  ") + styles.Muted.Render(truncLeftPath(m.absWorkDir(), leftW-10))
+	if m.activePane != PaneLocal {
+		localLabel = styles.Muted.Render("  LOCAL  ") + styles.Muted.Render(truncLeftPath(m.absWorkDir(), leftW-10))
+	}
+
+	remotePath := "[@] select host"
+	remoteName := "REMOTE"
+	if m.remoteHost != nil {
+		remoteName = "REMOTE " + m.remoteHost.Name
+		remotePath = m.remoteRoot
+	}
+	remoteHead := styles.Key.Render("  " + remoteName + "  ")
+	if m.activePane != PaneRemote {
+		remoteHead = styles.Muted.Render("  " + remoteName + "  ")
+	}
+	remoteLabel := remoteHead + styles.Muted.Render(truncLeftPath(remotePath, rightW-lipgloss.Width(remoteName)-4))
+
+	return padRight(truncate(localLabel, leftW), leftW) + styles.Sep.Render("│") + padRight(truncate(remoteLabel, rightW), rightW)
+}
+
 func (m Model) renderSep() string {
 	return styles.Sep.Render(strings.Repeat("─", m.Width))
 }
 
-func (m Model) renderEntry(entries []*fs.FileEntry, i int, isCursor bool) string {
-	entry := entries[i]
+func (m Model) renderLocalRow(entries []*fs.FileEntry, i, width int) string {
+	if i < 0 || i >= len(entries) {
+		return strings.Repeat(" ", width)
+	}
+	return m.renderEntry(entries[i], i == m.cursor && m.activePane == PaneLocal, width, true)
+}
 
+func (m Model) renderRemoteRow(i, width int) string {
+	switch {
+	case m.remoteHost == nil:
+		if i == 0 {
+			return padRight("  "+styles.Muted.Render("press [@] to choose remote host"), width)
+		}
+		return strings.Repeat(" ", width)
+	case m.remoteLoading:
+		if i == 0 {
+			return padRight("  "+styles.Muted.Render(m.remoteStatus), width)
+		}
+		return strings.Repeat(" ", width)
+	case len(m.remoteEntries) == 0:
+		if i == 0 {
+			return padRight("  "+styles.Muted.Render("empty"), width)
+		}
+		return strings.Repeat(" ", width)
+	case i < 0 || i >= len(m.remoteEntries):
+		return strings.Repeat(" ", width)
+	default:
+		return m.renderEntry(m.remoteEntries[i], i == m.remoteCursor && m.activePane == PaneRemote, width, false)
+	}
+}
+
+func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selectable bool) string {
 	indent := strings.Repeat("  ", entry.Depth)
 
 	var icon string
@@ -74,13 +137,16 @@ func (m Model) renderEntry(entries []*fs.FileEntry, i int, isCursor bool) string
 		icon = "  "
 	}
 
-	mark := "  "
-	if m.Selection.IsMarked(entry.Path) {
-		mark = styles.Marked.Render("● ")
+	mark := ""
+	if selectable {
+		mark = "  "
+		if m.Selection.IsMarked(entry.Path) {
+			mark = styles.Marked.Render("● ")
+		}
 	}
 
 	var name string
-	if m.filter != "" {
+	if selectable && m.filter != "" {
 		name = highlightMatch(entry.Name, m.filter, entry.Kind)
 	} else {
 		switch entry.Kind {
@@ -94,9 +160,7 @@ func (m Model) renderEntry(entries []*fs.FileEntry, i int, isCursor bool) string
 	}
 
 	line := indent + icon + mark + name
-
-	// Truncate long lines
-	maxW := m.Width - 1
+	maxW := width - 1
 	if lipgloss.Width(line) > maxW {
 		prefix := indent + icon + mark
 		available := maxW - lipgloss.Width(prefix) - 1
@@ -116,11 +180,10 @@ func (m Model) renderEntry(entries []*fs.FileEntry, i int, isCursor bool) string
 	}
 
 	if isCursor {
-		line = styles.CursorRow.Width(m.Width).Render(padRight(line, m.Width))
+		line = styles.CursorRow.Width(width).Render(padRight(line, width))
 	} else {
-		line = padRight(line, m.Width)
+		line = padRight(line, width)
 	}
-
 	return line
 }
 
@@ -132,13 +195,24 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	case m.statusMsg != "":
 		left = styles.Muted.Render(m.statusMsg)
 	case m.Selection.Count() > 0:
-		left = styles.Marked.Render(fmt.Sprintf("%d marked", m.Selection.Count())) +
-			"  " + styles.Muted.Render(HelpText())
+		left = styles.Marked.Render(fmt.Sprintf("%d marked", m.Selection.Count()))
+		if m.remoteStatus != "" {
+			left += "  " + styles.Muted.Render(m.remoteStatus)
+		}
 	default:
-		left = styles.Muted.Render(fmt.Sprintf("%d items", len(entries))) +
-			"  " + styles.Muted.Render(HelpText())
+		left = styles.Muted.Render(fmt.Sprintf("%d local items", len(entries)))
+		if m.remoteStatus != "" {
+			left += "  " + styles.Muted.Render(m.remoteStatus)
+		}
 	}
-	return padRight(left, m.Width)
+
+	right := styles.Muted.Render(HelpText())
+	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		gap = 1
+	}
+	line := "  " + left + strings.Repeat(" ", gap) + right
+	return padRight(truncate(line, m.Width), m.Width)
 }
 
 func (m Model) renderHelp() string {
@@ -153,6 +227,135 @@ func (m Model) renderHelp() string {
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Muted.Render("  [?] close help"))
 	return sb.String()
+}
+
+// renderFinder draws the fuzzy file finder overlay.
+func (m Model) renderFinder() string {
+	var sb strings.Builder
+
+	title := styles.Header.Render("drift") + "  " + styles.Muted.Render("Find files — "+m.absWorkDir())
+	sb.WriteString(padRight(title, m.Width))
+	sb.WriteByte('\n')
+
+	prompt := "  " + styles.Key.Render("›") + " " + m.finder.query + "█"
+	sb.WriteString(padRight(prompt, m.Width))
+	sb.WriteByte('\n')
+	sb.WriteString(m.renderSep())
+	sb.WriteByte('\n')
+
+	vh := m.finderViewportHeight()
+	rendered := 0
+	switch {
+	case m.finder.loading:
+		sb.WriteString(padRight("  "+styles.Muted.Render("indexing project…"), m.Width))
+		sb.WriteByte('\n')
+		rendered++
+	case len(m.finder.results) == 0:
+		sb.WriteString(padRight("  "+styles.Muted.Render("no matches"), m.Width))
+		sb.WriteByte('\n')
+		rendered++
+	default:
+		start := m.finder.offset
+		end := start + vh
+		if end > len(m.finder.results) {
+			end = len(m.finder.results)
+		}
+		for i := start; i < end; i++ {
+			sb.WriteString(m.renderFinderRow(i))
+			sb.WriteByte('\n')
+			rendered++
+		}
+	}
+	for rendered < vh {
+		sb.WriteString(strings.Repeat(" ", m.Width))
+		sb.WriteByte('\n')
+		rendered++
+	}
+
+	sb.WriteString(m.renderSep())
+	sb.WriteByte('\n')
+	help := fmt.Sprintf("  %d/%d  ·  [↑↓] move  [Space] mark  [Enter] done  [Esc] cancel  ·  %d marked",
+		len(m.finder.results), len(m.finder.rel), m.Selection.Count())
+	sb.WriteString(padRight(styles.Muted.Render(help), m.Width))
+	return sb.String()
+}
+
+func (m Model) renderFinderRow(i int) string {
+	r := m.finder.results[i]
+	active := i == m.finder.cursor
+
+	cursor := "  "
+	if active {
+		cursor = styles.Key.Render("▶ ")
+	}
+	mark := "  "
+	if m.Selection.IsMarked(r.abs) {
+		mark = styles.Marked.Render("● ")
+	}
+
+	// Filename first (scannable), directory after as dimmed context so that
+	// look-alike names are easy to tell apart.
+	dir := filepath.Dir(r.rel)
+	baseStart := 0
+	if dir != "." {
+		baseStart = len([]rune(dir)) + 1 // skip "dir/"
+	}
+	baseStyle := styles.Muted
+	if active {
+		baseStyle = styles.File
+	}
+	line := cursor + mark + highlightRunes(r.rel, r.matched, baseStart, baseStyle)
+
+	if dir != "." {
+		remaining := (m.Width - 1) - lipgloss.Width(line) - 2
+		if remaining >= 6 {
+			line += "  " + styles.Sep.Render(truncLeftPath(dir, remaining))
+		}
+	}
+
+	if lipgloss.Width(line) > m.Width-1 {
+		line = lipgloss.NewStyle().MaxWidth(m.Width - 1).Render(line)
+	}
+	if active {
+		return styles.CursorRow.Width(m.Width).Render(padRight(line, m.Width))
+	}
+	return padRight(line, m.Width)
+}
+
+// highlightRunes renders runes of s from start onward, emphasising the rune
+// positions in matched (absolute indexes into s).
+func highlightRunes(s string, matched []int, start int, base lipgloss.Style) string {
+	runes := []rune(s)
+	if start < 0 {
+		start = 0
+	}
+	set := make(map[int]struct{}, len(matched))
+	for _, idx := range matched {
+		set[idx] = struct{}{}
+	}
+	hl := lipgloss.NewStyle().Foreground(styles.ColorMatch).Bold(true)
+	var b strings.Builder
+	for i := start; i < len(runes); i++ {
+		if _, ok := set[i]; ok {
+			b.WriteString(hl.Render(string(runes[i])))
+		} else {
+			b.WriteString(base.Render(string(runes[i])))
+		}
+	}
+	return b.String()
+}
+
+// truncLeftPath shortens a path to max columns, keeping the tail (the immediate
+// parent is the most useful for disambiguation).
+func truncLeftPath(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max <= 1 {
+		return "…"
+	}
+	return "…" + string(r[len(r)-(max-1):])
 }
 
 func highlightMatch(name, filter string, kind fs.EntryKind) string {
@@ -210,6 +413,3 @@ func truncatePlain(s string, n int) string {
 	}
 	return string(r[:n])
 }
-
-// keep truncate from being flagged as unused by the linter
-var _ = truncate

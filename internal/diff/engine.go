@@ -132,11 +132,11 @@ func lineDiff(local, remote string) []DiffLine {
 	localNum := 1
 	remoteNum := 1
 
-	for _, d := range diffs {
-		texts := splitLines(d.Text)
+	for i := 0; i < len(diffs); i++ {
+		d := diffs[i]
 		switch d.Type {
 		case diffmatchpatch.DiffEqual:
-			for _, t := range texts {
+			for _, t := range splitLines(d.Text) {
 				result = append(result, DiffLine{
 					LocalLine: t, RemoteLine: t,
 					Kind:     LineEqual,
@@ -146,20 +146,45 @@ func lineDiff(local, remote string) []DiffLine {
 				remoteNum++
 			}
 		case diffmatchpatch.DiffDelete:
-			for _, t := range texts {
-				result = append(result, DiffLine{
-					LocalLine: t,
-					Kind:      LineRemoved,
-					LocalNum:  localNum,
-				})
-				localNum++
+			dels := splitLines(d.Text)
+			// A Delete immediately followed by an Insert is a modification:
+			// pair the lines so old (local) and new (remote) share one row.
+			var ins []string
+			if i+1 < len(diffs) && diffs[i+1].Type == diffmatchpatch.DiffInsert {
+				ins = splitLines(diffs[i+1].Text)
+				i++ // consume the paired insert
+			}
+			n := len(dels)
+			if len(ins) > n {
+				n = len(ins)
+			}
+			for j := 0; j < n; j++ {
+				switch {
+				case j < len(dels) && j < len(ins):
+					result = append(result, DiffLine{
+						LocalLine: dels[j], RemoteLine: ins[j],
+						Kind:     LineModified,
+						LocalNum: localNum, RemoteNum: remoteNum,
+					})
+					localNum++
+					remoteNum++
+				case j < len(dels):
+					result = append(result, DiffLine{
+						LocalLine: dels[j], Kind: LineRemoved, LocalNum: localNum,
+					})
+					localNum++
+				default:
+					result = append(result, DiffLine{
+						RemoteLine: ins[j], Kind: LineAdded, RemoteNum: remoteNum,
+					})
+					remoteNum++
+				}
 			}
 		case diffmatchpatch.DiffInsert:
-			for _, t := range texts {
+			// Insert not preceded by a Delete — a pure addition.
+			for _, t := range splitLines(d.Text) {
 				result = append(result, DiffLine{
-					RemoteLine: t,
-					Kind:       LineAdded,
-					RemoteNum:  remoteNum,
+					RemoteLine: t, Kind: LineAdded, RemoteNum: remoteNum,
 				})
 				remoteNum++
 			}

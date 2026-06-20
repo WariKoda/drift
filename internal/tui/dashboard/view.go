@@ -10,11 +10,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// accent is the warm gold used for the logo and active items.
+// accent is used for the logo and active items.
 var (
-	accentColor = lipgloss.AdaptiveColor{Light: "#D79921", Dark: "#FABD2F"}
-	logoStyle   = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
-	accentStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
+	logoStyle   = styles.Accent
+	accentStyle = styles.Accent
 )
 
 // glyphs holds 5-row block-letter art for the title.

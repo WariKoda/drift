@@ -8,13 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// addedBg / removedBg / missingBg are row backgrounds for the diff panes.
-var (
-	addedBg   = lipgloss.AdaptiveColor{Light: "#E8F5E9", Dark: "#1B4332"}
-	removedBg = lipgloss.AdaptiveColor{Light: "#FFEBEE", Dark: "#4A1010"}
-	missingBg = lipgloss.AdaptiveColor{Light: "#F5F5F5", Dark: "#1E1E1E"}
-)
-
 // RenderPanes converts a DiffResult into two parallel slices of rendered strings
 // (left = local, right = remote), each line padded to paneWidth columns.
 // scrollOffset is the first DiffLine index to render; count is the number of rows.
@@ -121,22 +114,22 @@ func renderSide(text string, lineNum int, kind LineKind, isLocal, flip bool, pan
 	}
 
 	// marker is the git-style gutter sign: "-" removed, "+" added, " " otherwise.
-	var bgColor lipgloss.AdaptiveColor
+	var bgColor lipgloss.TerminalColor
 	var hasBg bool
 	var textColor lipgloss.Style
 	marker := " "
 
 	switch act {
 	case actAdd:
-		bgColor, hasBg = addedBg, true
-		textColor = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#1B5E20", Dark: "#A6E3A1"})
+		bgColor, hasBg = styles.ColorDiffAddedBg, true
+		textColor = lipgloss.NewStyle().Foreground(styles.ColorDiffAddedText)
 		marker = "+"
 	case actRemove:
-		bgColor, hasBg = removedBg, true
-		textColor = lipgloss.NewStyle().Foreground(styles.ColorError)
+		bgColor, hasBg = styles.ColorDiffRemovedBg, true
+		textColor = lipgloss.NewStyle().Foreground(styles.ColorDiffRemovedText)
 		marker = "-"
 	case actBlank:
-		bgColor, hasBg = missingBg, true
+		bgColor, hasBg = styles.ColorDiffMissingBg, true
 		textColor = styles.Muted
 		text = ""
 	default: // actEqual

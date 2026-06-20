@@ -162,6 +162,21 @@ other key to skip — you can always register later with `drift projects add .`.
 
 ---
 
+## Theming
+
+Drift uses the terminal palette by default and auto-detects Omarchy themes when
+`~/.config/omarchy/current/theme/colors.toml` exists. You can override this with:
+
+```bash
+DRIFT_THEME=auto|ansi|omarchy|default
+DRIFT_THEME_FILE=/path/to/colors.toml
+```
+
+`auto` loads Omarchy colors first and falls back to ANSI terminal colors.
+`default` uses Drift's built-in fallback palette.
+
+---
+
 ## Configuration
 
 ### Global config: `~/.config/drift/config.toml`

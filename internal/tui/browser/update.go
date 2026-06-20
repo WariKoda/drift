@@ -3,14 +3,17 @@ package browser
 import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // MsgSyncRequested is emitted when the user presses [s] with marked entries.
 // Host is set when the side-by-side remote browser already has an active host.
 type MsgSyncRequested struct {
-	Selection *fs.SelectionState
-	Host      *config.Host
+	Selection       *fs.SelectionState
+	RemoteSelection *fs.SelectionState
+	Host            *config.Host
+	Conn            remote.Client
 }
 
 // MsgOpenHostManager is emitted when the user presses [H].
@@ -205,6 +208,9 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// ── Selection ─────────────────────────────────────
 	case keySpace:
 		if m.activePane == PaneRemote {
+			if entry := m.remoteCurrent(); entry != nil {
+				m.RemoteSelection.Toggle(entry.Path)
+			}
 			break
 		}
 		if len(m.entries) == 0 {
@@ -214,10 +220,19 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.Selection.Toggle(entry.Path)
 
 	case keyShiftV:
+		// Mark all visible entries in the current depth level of the active pane.
 		if m.activePane == PaneRemote {
+			if len(m.remoteEntries) == 0 {
+				break
+			}
+			depth := m.remoteEntries[m.remoteCursor].Depth
+			for _, e := range m.remoteEntries {
+				if e.Depth == depth {
+					m.RemoteSelection.Marked[e.Path] = struct{}{}
+				}
+			}
 			break
 		}
-		// Mark all visible entries in the current depth level
 		if len(m.entries) == 0 {
 			break
 		}
@@ -229,10 +244,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 
 	case keyStar:
+		// Invert selection in the active pane.
 		if m.activePane == PaneRemote {
+			for _, e := range m.remoteEntries {
+				m.RemoteSelection.Toggle(e.Path)
+			}
 			break
 		}
-		// Invert selection
 		for _, e := range m.entries {
 			m.Selection.Toggle(e.Path)
 		}
@@ -242,21 +260,25 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.filter = ""
 		} else {
 			m.Selection.Clear()
+			m.RemoteSelection.Clear()
 		}
 
 	// ── Sync trigger ──────────────────────────────────
 	case keyS:
-		if m.Selection.Count() == 0 {
+		if m.Selection.Count()+m.RemoteSelection.Count() == 0 {
 			m.statusMsg = "No files marked — use [Space] to mark files first"
 			break
 		}
 		var host *config.Host
+		var conn remote.Client
 		if m.remoteHost != nil {
 			h := *m.remoteHost
 			host = &h
+			conn = m.remoteConn
+			m.remoteConn = nil // hand connection ownership to the diff view
 		}
 		return m, func() tea.Msg {
-			return MsgSyncRequested{Selection: m.Selection, Host: host}
+			return MsgSyncRequested{Selection: m.Selection, RemoteSelection: m.RemoteSelection, Host: host, Conn: conn}
 		}
 
 	// ── Remote browser host ────────────────────────────

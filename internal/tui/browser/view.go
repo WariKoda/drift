@@ -96,7 +96,7 @@ func (m Model) renderLocalRow(entries []*fs.FileEntry, i, width int) string {
 	if i < 0 || i >= len(entries) {
 		return strings.Repeat(" ", width)
 	}
-	return m.renderEntry(entries[i], i == m.cursor && m.activePane == PaneLocal, width, true)
+	return m.renderEntry(entries[i], i == m.cursor && m.activePane == PaneLocal, width, m.Selection, m.filter)
 }
 
 func (m Model) renderRemoteRow(i, width int) string {
@@ -119,11 +119,11 @@ func (m Model) renderRemoteRow(i, width int) string {
 	case i < 0 || i >= len(m.remoteEntries):
 		return strings.Repeat(" ", width)
 	default:
-		return m.renderEntry(m.remoteEntries[i], i == m.remoteCursor && m.activePane == PaneRemote, width, false)
+		return m.renderEntry(m.remoteEntries[i], i == m.remoteCursor && m.activePane == PaneRemote, width, m.RemoteSelection, "")
 	}
 }
 
-func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selectable bool) string {
+func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selection *fs.SelectionState, filter string) string {
 	indent := strings.Repeat("  ", entry.Depth)
 
 	var icon string
@@ -138,16 +138,16 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 	}
 
 	mark := ""
-	if selectable {
+	if selection != nil {
 		mark = "  "
-		if m.Selection.IsMarked(entry.Path) {
+		if selection.IsMarked(entry.Path) {
 			mark = styles.Marked.Render("● ")
 		}
 	}
 
 	var name string
-	if selectable && m.filter != "" {
-		name = highlightMatch(entry.Name, m.filter, entry.Kind)
+	if filter != "" {
+		name = highlightMatch(entry.Name, filter, entry.Kind)
 	} else {
 		switch entry.Kind {
 		case fs.EntryDir:
@@ -194,8 +194,8 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 		left = styles.Key.Render("/") + " " + m.filter + "█"
 	case m.statusMsg != "":
 		left = styles.Muted.Render(m.statusMsg)
-	case m.Selection.Count() > 0:
-		left = styles.Marked.Render(fmt.Sprintf("%d marked", m.Selection.Count()))
+	case selectionCount(m.Selection)+selectionCount(m.RemoteSelection) > 0:
+		left = styles.Marked.Render(markedStatus(selectionCount(m.Selection), selectionCount(m.RemoteSelection)))
 		if m.remoteStatus != "" {
 			left += "  " + styles.Muted.Render(m.remoteStatus)
 		}
@@ -213,6 +213,24 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	}
 	line := "  " + left + strings.Repeat(" ", gap) + right
 	return padRight(truncate(line, m.Width), m.Width)
+}
+
+func markedStatus(local, remote int) string {
+	switch {
+	case local > 0 && remote > 0:
+		return fmt.Sprintf("%d marked (%d local, %d remote)", local+remote, local, remote)
+	case remote > 0:
+		return fmt.Sprintf("%d remote marked", remote)
+	default:
+		return fmt.Sprintf("%d marked", local)
+	}
+}
+
+func selectionCount(sel *fs.SelectionState) int {
+	if sel == nil {
+		return 0
+	}
+	return sel.Count()
 }
 
 func (m Model) renderHelp() string {

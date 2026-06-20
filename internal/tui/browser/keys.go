@@ -47,16 +47,16 @@ func FullHelp() string {
 
   Selection
   ──────────────────────────────
-  Space          toggle mark
+  Space          toggle mark in active pane
   v              start visual selection
-  V              mark all in current dir
-  *              invert selection
-  Esc            clear filter / selection
+  V              mark all in current dir of active pane
+  *              invert selection in active pane
+  Esc            clear filter / selections
 
   Find & Sync
   ──────────────────────────────
   f              fuzzy find files across the project, mark with Space
-  s              sync marked local files (uses remote pane host when selected)
+  s              sync marked local/remote files (uses remote pane host when selected)
   @              choose/change host for the remote pane
   Tab            switch active pane
 

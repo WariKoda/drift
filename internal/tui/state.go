@@ -55,7 +55,8 @@ type AppState struct {
 	PendingRegisterName string
 
 	// Browser
-	Selection *fs.SelectionState
+	Selection       *fs.SelectionState
+	RemoteSelection *fs.SelectionState
 
 	// Host selector / selected sync target
 	SelectedHost        *config.Host

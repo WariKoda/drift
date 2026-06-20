@@ -11,6 +11,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	ftplib "github.com/jlaffaye/ftp"
@@ -184,9 +185,98 @@ func (c *Client) DownloadFile(remotePath, localPath string) error {
 	return err
 }
 
+const maxWalkWorkers = 4
+
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
 func (c *Client) WalkFiles(remoteRoot string, fn func(string) error) error {
-	return c.walkDir(remoteRoot, fn)
+	return c.parallelWalkFiles(remoteRoot, fn)
+}
+
+func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) error {
+	workers := []*Client{c}
+	for len(workers) < maxWalkWorkers {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		worker, err := Connect(ctx, c.Host)
+		cancel()
+		if err != nil {
+			break
+		}
+		workers = append(workers, worker)
+	}
+	defer func() {
+		for _, worker := range workers[1:] {
+			_ = worker.Close()
+		}
+	}()
+
+	dirs := make(chan string, 4096)
+	var pending sync.WaitGroup
+	var workerWG sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	handleFile := func(p string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if firstErr != nil {
+			return
+		}
+		if err := fn(p); err != nil {
+			firstErr = err
+		}
+	}
+	shouldStop := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return firstErr != nil
+	}
+
+	pending.Add(1)
+	dirs <- remoteRoot
+	go func() {
+		pending.Wait()
+		close(dirs)
+	}()
+
+	for _, worker := range workers {
+		workerWG.Add(1)
+		go func(worker *Client) {
+			defer workerWG.Done()
+			for dir := range dirs {
+				if shouldStop() {
+					pending.Done()
+					continue
+				}
+				worker.walkDirLevel(dir, dirs, &pending, handleFile)
+				pending.Done()
+			}
+		}(worker)
+	}
+	workerWG.Wait()
+	return firstErr
+}
+
+func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.WaitGroup, handleFile func(string)) {
+	entries, err := c.conn.List(dir)
+	if err != nil {
+		return // skip unreadable directories
+	}
+	for _, e := range entries {
+		if e.Name == "." || e.Name == ".." {
+			continue
+		}
+		p := strings.TrimSuffix(dir, "/") + "/" + e.Name
+		switch e.Type {
+		case ftplib.EntryTypeFolder:
+			if fs.ShouldSkipDir(e.Name) {
+				continue
+			}
+			pending.Add(1)
+			dirs <- p
+		case ftplib.EntryTypeFile:
+			handleFile(p)
+		}
+	}
 }
 
 func (c *Client) walkDir(dir string, fn func(string) error) error {
@@ -201,6 +291,9 @@ func (c *Client) walkDir(dir string, fn func(string) error) error {
 		p := strings.TrimSuffix(dir, "/") + "/" + e.Name
 		switch e.Type {
 		case ftplib.EntryTypeFolder:
+			if fs.ShouldSkipDir(e.Name) {
+				continue
+			}
 			if err := c.walkDir(p, fn); err != nil {
 				return err
 			}

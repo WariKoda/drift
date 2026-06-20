@@ -30,11 +30,17 @@ type MsgRemoteChildrenLoaded struct {
 
 // StartRemote switches the right pane to host and starts loading its root.
 func (m *Model) StartRemote(host config.Host) tea.Cmd {
+	sameHost := m.remoteHost != nil && m.remoteHost.Name == host.Name
 	m.CloseRemote()
 	m.remoteHost = &host
 	m.remoteConn = nil
 	m.remoteRoot = remoteRoot(host)
 	m.remoteEntries = nil
+	if m.RemoteSelection == nil {
+		m.RemoteSelection = fs.NewSelectionState()
+	} else if !sameHost {
+		m.RemoteSelection.Clear()
+	}
 	m.remoteCursor = 0
 	m.remoteOffset = 0
 	m.remoteLoading = true

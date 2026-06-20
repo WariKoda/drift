@@ -98,6 +98,12 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 		return result, nil
 	}
 
+	// Fast path: when size and modification time match exactly, treat the files
+	// as unchanged without downloading the remote content.
+	if result.SizeLocal == result.SizeRemote && !result.ModLocal.IsZero() && result.ModLocal.Equal(result.ModRemote) {
+		return result, nil
+	}
+
 	if result.SizeLocal > maxTextSize || result.SizeRemote > maxTextSize {
 		result.Binary = true
 		return result, nil

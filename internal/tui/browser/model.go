@@ -29,7 +29,8 @@ type Model struct {
 	offset  int // scroll offset into entries
 
 	// selection
-	Selection *fs.SelectionState
+	Selection       *fs.SelectionState
+	RemoteSelection *fs.SelectionState
 
 	// visual selection mode
 	visualMode  bool
@@ -75,11 +76,12 @@ func New(workDir string) (Model, error) {
 		e.Depth = 0
 	}
 	return Model{
-		WorkDir:   workDir,
-		entries:   entries,
-		Selection: fs.NewSelectionState(),
-		Width:     80,
-		Height:    24,
+		WorkDir:         workDir,
+		entries:         entries,
+		Selection:       fs.NewSelectionState(),
+		RemoteSelection: fs.NewSelectionState(),
+		Width:           80,
+		Height:          24,
 	}, nil
 }
 

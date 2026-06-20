@@ -235,10 +235,14 @@ func (c *Client) WalkFiles(remoteRoot string, fn func(path string) error) error 
 		if walker.Err() != nil {
 			continue
 		}
-		if !walker.Stat().IsDir() {
-			if err := fn(walker.Path()); err != nil {
-				return err
+		if walker.Stat().IsDir() {
+			if walker.Path() != remoteRoot && fs.ShouldSkipDir(path.Base(walker.Path())) {
+				walker.SkipDir()
 			}
+			continue
+		}
+		if err := fn(walker.Path()); err != nil {
+			return err
 		}
 	}
 	return nil

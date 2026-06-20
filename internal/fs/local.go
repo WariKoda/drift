@@ -16,6 +16,11 @@ var skipDirs = map[string]bool{
 	".vscode":      true,
 }
 
+// ShouldSkipDir reports whether name is a directory that drift should never sync.
+func ShouldSkipDir(name string) bool {
+	return skipDirs[name]
+}
+
 // WalkFiles calls fn for every regular file under root, recursively, in lexical
 // order.  Unreadable entries and directories in skipDirs are skipped.
 func WalkFiles(root string, fn func(path string) error) error {
@@ -24,7 +29,7 @@ func WalkFiles(root string, fn func(path string) error) error {
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
-			if path != root && skipDirs[d.Name()] {
+			if path != root && ShouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

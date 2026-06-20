@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	stdsync "sync"
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
@@ -22,6 +23,83 @@ import (
 type MsgDiffLoaded struct {
 	Sessions []diff.Session
 	Conn     remote.Client
+}
+
+// LoadProgress describes the current diff loading state for the loading screen.
+type LoadProgress struct {
+	Phase         string
+	Done          int
+	Total         int
+	Indeterminate bool
+}
+
+// LoadProgressTracker is shared between the loading command and periodic UI ticks.
+type LoadProgressTracker struct {
+	mu       stdsync.Mutex
+	progress LoadProgress
+	done     bool
+}
+
+// MsgDiffLoadProgress is emitted while the diff loading command is running.
+type MsgDiffLoadProgress struct {
+	Progress LoadProgress
+	Done     bool
+	Tracker  *LoadProgressTracker
+}
+
+// NewLoadProgressTracker creates a tracker initialized to the first loading phase.
+func NewLoadProgressTracker() *LoadProgressTracker {
+	t := &LoadProgressTracker{}
+	t.Set("Connecting…", 0, 0, true)
+	return t
+}
+
+// Set updates the current loading phase and counters.
+func (t *LoadProgressTracker) Set(phase string, done, total int, indeterminate bool) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.progress = LoadProgress{Phase: phase, Done: done, Total: total, Indeterminate: indeterminate}
+}
+
+// Inc advances the completed counter by one.
+func (t *LoadProgressTracker) Inc() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.progress.Done++
+}
+
+// Finish marks the loading command as complete.
+func (t *LoadProgressTracker) Finish() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.done = true
+}
+
+// Snapshot returns a consistent copy of the progress state.
+func (t *LoadProgressTracker) Snapshot() (LoadProgress, bool) {
+	if t == nil {
+		return LoadProgress{}, true
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.progress, t.done
+}
+
+// ProgressTickCmd periodically polls a LoadProgressTracker for UI updates.
+func ProgressTickCmd(tracker *LoadProgressTracker) tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		progress, done := tracker.Snapshot()
+		return MsgDiffLoadProgress{Progress: progress, Done: done, Tracker: tracker}
+	})
 }
 
 // MsgDiffError is sent when SSH/SFTP connection or diff loading fails.
@@ -224,58 +302,56 @@ func (m *Model) clampScroll() {
 }
 
 // LoadCmd returns a tea.Cmd that connects to host and loads all diffs asynchronously.
-// Marked directories are expanded recursively; remote-only files inside those
-// directories are detected by walking the remote side as well.
-func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig) tea.Cmd {
+// Marked directories are expanded recursively. Local selections also walk the
+// mapped remote directory to catch remote-only files; remote selections do the
+// inverse and walk the mapped local directory to catch local-only files.
+func LoadCmd(host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker) tea.Cmd {
 	return func() tea.Msg {
+		defer progress.Finish()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		conn, err := remote.Connect(ctx, host)
-		if err != nil {
-			return MsgDiffError{Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
-		}
-
-		mapper := pathmap.New(cfg.ProjectRoot, cfg.Mappings, host)
-		var sessions []diff.Session
-
-		// addFile creates one diff session for a local/remote file pair.
-		// Files that are identical on both sides are skipped.
-		addFile := func(localPath, remotePath string) {
-			result, diffErr := diff.Compare(localPath, remotePath, conn)
-			if diffErr == nil && result != nil && !result.HasDiff() {
-				return // identical — skip
+		conn := existingConn
+		if conn == nil {
+			progress.Set("Connecting…", 0, 0, true)
+			var err error
+			conn, err = remote.Connect(ctx, host)
+			if err != nil {
+				return MsgDiffError{Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
 			}
-			sessions = append(sessions, diff.Session{
-				LocalPath:  localPath,
-				RemotePath: remotePath,
-				Result:     result,
-				Err:        diffErr,
-				Loaded:     true,
-			})
 		}
 
-		markedPaths := make([]string, 0, len(sel.Marked))
-		for localPath := range sel.Marked {
-			markedPaths = append(markedPaths, localPath)
-		}
-		sort.Strings(markedPaths)
+		progress.Set("Scanning selections…", 0, 0, true)
+		mapper := pathmap.New(cfg.ProjectRoot, cfg.Mappings, host)
+		var items []diffLoadItem
+		seenPairs := map[string]struct{}{}
 
-		for _, localPath := range markedPaths {
+		addError := func(localPath, remotePath string, err error) {
+			items = append(items, diffLoadItem{LocalPath: localPath, RemotePath: remotePath, Err: err})
+		}
+
+		// addFile queues one local/remote file pair for comparison. Identical files
+		// are skipped after the parallel compare phase.
+		addFile := func(localPath, remotePath string) {
+			key := localPath + "\x00" + remotePath
+			if _, seen := seenPairs[key]; seen {
+				return
+			}
+			seenPairs[key] = struct{}{}
+			items = append(items, diffLoadItem{LocalPath: localPath, RemotePath: remotePath, Compare: true})
+		}
+
+		for _, localPath := range sortedMarkedPaths(localSel) {
 			info, statErr := os.Stat(localPath)
 			if statErr != nil {
-				sessions = append(sessions, diff.Session{
-					LocalPath: localPath, Err: statErr, Loaded: true,
-				})
+				addError(localPath, "", statErr)
 				continue
 			}
 
 			if !info.IsDir() {
-				// ── Single file ──────────────────────────────────────
+				// ── Single local file ─────────────────────────────────
 				remotePath, mapErr := mapper.LocalToRemote(localPath)
 				if mapErr != nil {
-					sessions = append(sessions, diff.Session{
-						LocalPath: localPath, Err: mapErr, Loaded: true,
-					})
+					addError(localPath, "", mapErr)
 					continue
 				}
 				addFile(localPath, remotePath)
@@ -288,17 +364,13 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 				seenLocal[p] = struct{}{}
 				remotePath, mapErr := mapper.LocalToRemote(p)
 				if mapErr != nil {
-					sessions = append(sessions, diff.Session{
-						LocalPath: p, Err: mapErr, Loaded: true,
-					})
+					addError(p, "", mapErr)
 					return nil
 				}
 				addFile(p, remotePath)
 				return nil
 			}); walkErr != nil {
-				sessions = append(sessions, diff.Session{
-					LocalPath: localPath, Err: fmt.Errorf("walk local: %w", walkErr), Loaded: true,
-				})
+				addError(localPath, "", fmt.Errorf("walk local: %w", walkErr))
 			}
 
 			// ── Walk remote side to catch remote-only files ───────────
@@ -317,14 +389,201 @@ func LoadCmd(host config.Host, sel *fs.SelectionState, cfg *config.MergedConfig)
 				addFile(localFilePath, remotePath)
 				return nil
 			}); walkErr != nil {
-				sessions = append(sessions, diff.Session{
-					LocalPath: localPath, Err: fmt.Errorf("walk remote: %w", walkErr), Loaded: true,
-				})
+				addError(localPath, "", fmt.Errorf("walk remote: %w", walkErr))
 			}
 		}
 
-		return MsgDiffLoaded{Sessions: sessions, Conn: conn}
+		for _, remotePath := range sortedMarkedPaths(remoteSel) {
+			localPath, mapErr := mapper.RemoteToLocal(remotePath)
+			if mapErr != nil {
+				addError("", remotePath, mapErr)
+				continue
+			}
+
+			info, statErr := conn.Stat(remotePath)
+			if statErr != nil {
+				addError(localPath, remotePath, statErr)
+				continue
+			}
+
+			if !info.IsDir() {
+				// ── Single remote file ────────────────────────────────
+				addFile(localPath, remotePath)
+				continue
+			}
+
+			// ── Directory: walk remote side first ───────────────────
+			seenRemote := map[string]struct{}{}
+			if walkErr := conn.WalkFiles(remotePath, func(p string) error {
+				seenRemote[p] = struct{}{}
+				localFilePath, revErr := mapper.RemoteToLocal(p)
+				if revErr != nil {
+					addError("", p, revErr)
+					return nil
+				}
+				addFile(localFilePath, p)
+				return nil
+			}); walkErr != nil {
+				addError(localPath, remotePath, fmt.Errorf("walk remote: %w", walkErr))
+			}
+
+			// ── Walk local side to catch local-only files ────────────
+			localInfo, localErr := os.Stat(localPath)
+			if localErr != nil {
+				if !os.IsNotExist(localErr) {
+					addError(localPath, remotePath, localErr)
+				}
+				continue
+			}
+			if !localInfo.IsDir() {
+				continue
+			}
+			if walkErr := fs.WalkFiles(localPath, func(p string) error {
+				remoteFilePath, revErr := mapper.LocalToRemote(p)
+				if revErr != nil {
+					addError(p, "", revErr)
+					return nil
+				}
+				if _, seen := seenRemote[remoteFilePath]; seen {
+					return nil // already covered by remote walk
+				}
+				addFile(p, remoteFilePath)
+				return nil
+			}); walkErr != nil {
+				addError(localPath, remotePath, fmt.Errorf("walk local: %w", walkErr))
+			}
+		}
+
+		return MsgDiffLoaded{Sessions: loadDiffItems(host, conn, items, progress), Conn: conn}
 	}
+}
+
+const maxDiffLoadWorkers = 4
+
+type diffLoadItem struct {
+	LocalPath  string
+	RemotePath string
+	Err        error
+	Compare    bool
+}
+
+func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker) []diff.Session {
+	results := make([]*diff.Session, len(items))
+	var jobs []int
+	for i, item := range items {
+		if item.Compare {
+			jobs = append(jobs, i)
+			continue
+		}
+		if item.Err != nil {
+			s := diff.Session{
+				LocalPath:  item.LocalPath,
+				RemotePath: item.RemotePath,
+				Err:        item.Err,
+				Loaded:     true,
+			}
+			results[i] = &s
+		}
+	}
+
+	progress.Set("Comparing files…", 0, len(jobs), len(jobs) == 0)
+	if len(jobs) == 0 {
+		return sessionsFromResults(results)
+	}
+
+	workerCount := minInt(maxDiffLoadWorkers, len(jobs))
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	jobCh := make(chan int)
+	var wg stdsync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			workerConn := conn
+			if isFTPProtocol(host.Protocol) {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				ftpConn, err := remote.Connect(ctx, host)
+				if err != nil {
+					for idx := range jobCh {
+						item := items[idx]
+						progress.Inc()
+						s := diff.Session{
+							LocalPath:  item.LocalPath,
+							RemotePath: item.RemotePath,
+							Err:        fmt.Errorf("connect worker: %w", err),
+							Loaded:     true,
+						}
+						results[idx] = &s
+					}
+					return
+				}
+				defer ftpConn.Close()
+				workerConn = ftpConn
+			}
+
+			for idx := range jobCh {
+				item := items[idx]
+				result, diffErr := diff.Compare(item.LocalPath, item.RemotePath, workerConn)
+				progress.Inc()
+				if diffErr == nil && result != nil && !result.HasDiff() {
+					continue // identical — skip
+				}
+				s := diff.Session{
+					LocalPath:  item.LocalPath,
+					RemotePath: item.RemotePath,
+					Result:     result,
+					Err:        diffErr,
+					Loaded:     true,
+				}
+				results[idx] = &s
+			}
+		}()
+	}
+	for _, idx := range jobs {
+		jobCh <- idx
+	}
+	close(jobCh)
+	wg.Wait()
+
+	return sessionsFromResults(results)
+}
+
+func sessionsFromResults(results []*diff.Session) []diff.Session {
+	sessions := make([]diff.Session, 0, len(results))
+	for _, result := range results {
+		if result != nil {
+			sessions = append(sessions, *result)
+		}
+	}
+	return sessions
+}
+
+func isFTPProtocol(protocol string) bool {
+	return protocol == "ftp" || protocol == "ftps"
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func sortedMarkedPaths(sel *fs.SelectionState) []string {
+	if sel == nil {
+		return nil
+	}
+	paths := make([]string, 0, len(sel.Marked))
+	for p := range sel.Marked {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // uploadCmd uploads the local file of sessions[idx] to remote.

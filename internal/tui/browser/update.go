@@ -13,6 +13,10 @@ type MsgSyncRequested struct {
 // MsgOpenHostManager is emitted when the user presses [H].
 type MsgOpenHostManager struct{}
 
+// MsgOpenDashboard is emitted when the user presses [P] to return to the
+// project dashboard. The root app ignores it when no project registry is active.
+type MsgOpenDashboard struct{}
+
 // Update handles key events and returns the updated model plus any command.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -143,6 +147,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// ── Host Manager ───────────────────────────────────
 	case "H":
 		return m, func() tea.Msg { return MsgOpenHostManager{} }
+
+	// ── Project Dashboard ──────────────────────────────
+	case "P":
+		return m, func() tea.Msg { return MsgOpenDashboard{} }
 
 	// ── Filter ────────────────────────────────────────
 	case keySlash:

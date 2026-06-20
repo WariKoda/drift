@@ -1,13 +1,20 @@
 package tui
 
 import (
+	"fmt"
+	"path/filepath"
+	"time"
+
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/WariKoda/drift/internal/tui/browser"
+	"github.com/WariKoda/drift/internal/tui/dashboard"
 	"github.com/WariKoda/drift/internal/tui/diffview"
 	"github.com/WariKoda/drift/internal/tui/hostform"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
 	"github.com/WariKoda/drift/internal/tui/hostselector"
+	"github.com/WariKoda/drift/internal/tui/projectform"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -20,26 +27,161 @@ type App struct {
 	hostForm    hostform.Model
 	hostSel     hostselector.Model
 	diffView    diffview.Model
+	dashboard   dashboard.Model
+	projectForm projectform.Model
+
+	// Project registry (nil when drift was launched without dashboard support).
+	store    *project.Store
+	registry *project.Registry
 }
 
-// New creates a fully initialised App.
-func New(workDir string, cfg *config.MergedConfig) (App, error) {
+// New creates a fully initialised App. When initial is ScreenDashboard the app
+// starts on the project dashboard; otherwise it opens the file browser in
+// workDir (the classic behaviour). store and reg may be nil when the registry
+// is unavailable — the dashboard is then simply unreachable.
+func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *project.Registry, initial Screen) (App, error) {
+	a := App{
+		state: AppState{
+			Screen:     initial,
+			WorkingDir: workDir,
+			Config:     cfg,
+		},
+		store:    store,
+		registry: reg,
+	}
+
+	if initial == ScreenDashboard {
+		a.dashboard = dashboard.New(reg, 0, 0)
+		return a, nil
+	}
+
 	b, err := browser.New(workDir)
 	if err != nil {
 		return App{}, err
 	}
-	return App{
-		state: AppState{
-			Screen:     ScreenBrowser,
-			WorkingDir: workDir,
-			Config:     cfg,
-			Selection:  b.Selection,
-		},
-		browser: b,
-	}, nil
+	a.browser = b
+	a.state.Selection = b.Selection
+
+	// Offer to register the current project if it isn't in the registry yet.
+	if shouldPromptRegister(workDir, cfg, reg) {
+		a.state.Screen = ScreenRegisterPrompt
+		a.state.PendingRegisterPath = cfg.ProjectRoot
+		a.state.PendingRegisterName = filepath.Base(cfg.ProjectRoot)
+	}
+	return a, nil
 }
 
-func (a App) Init() tea.Cmd { return a.browser.Init() }
+// shouldPromptRegister reports whether drift should offer to register the
+// current directory: it is inside a real .drift project that has no matching
+// registry entry yet.
+func shouldPromptRegister(workDir string, cfg *config.MergedConfig, reg *project.Registry) bool {
+	if cfg == nil || reg == nil {
+		return false
+	}
+	if !config.HasProjectContext(workDir) {
+		return false
+	}
+	return cfg.ProjectRoot != "" && !reg.HasPath(cfg.ProjectRoot)
+}
+
+// registerPending adds the pending project to the registry and persists it.
+func (a *App) registerPending() error {
+	now := time.Now().UTC()
+	slug := a.registry.UniqueSlug(project.Slugify(a.state.PendingRegisterName))
+	p := project.Project{
+		Slug:      slug,
+		Name:      a.state.PendingRegisterName,
+		Path:      a.state.PendingRegisterPath,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := a.registry.Add(p); err != nil {
+		return err
+	}
+	if err := a.store.Save(a.registry); err != nil {
+		return err
+	}
+	pc := p
+	a.state.ActiveProject = &pc
+	return nil
+}
+
+func (a App) Init() tea.Cmd {
+	if a.state.Screen == ScreenDashboard {
+		return a.dashboard.Init()
+	}
+	return a.browser.Init()
+}
+
+// openProject re-roots the running app into p: it loads p's config, builds a
+// fresh browser at p.Path and switches to the browser screen.
+func (a *App) openProject(p project.Project) (tea.Cmd, error) {
+	cfg, err := config.Load(p.Path)
+	if err != nil {
+		return nil, err
+	}
+	b, err := browser.New(p.Path)
+	if err != nil {
+		return nil, err
+	}
+	b.SetSize(a.state.TermWidth, a.state.TermHeight)
+
+	a.browser = b
+	a.state.Config = cfg
+	a.state.WorkingDir = p.Path
+	a.state.Selection = b.Selection
+	pc := p
+	a.state.ActiveProject = &pc
+	a.state.Screen = ScreenBrowser
+	return b.Init(), nil
+}
+
+// saveProjectForm persists a created/edited project from the project form.
+func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
+	path, err := project.ExpandPath(msg.Path)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+
+	if msg.OldSlug == "" {
+		slug := a.registry.UniqueSlug(project.Slugify(msg.Name))
+		return a.persist(func() error {
+			return a.registry.Add(project.Project{
+				Slug:      slug,
+				Name:      msg.Name,
+				Path:      path,
+				CreatedAt: now,
+				UpdatedAt: now,
+			})
+		})
+	}
+
+	existing := a.registry.Find(msg.OldSlug)
+	if existing == nil {
+		return fmt.Errorf("project %q no longer exists", msg.OldSlug)
+	}
+	updated := *existing
+	updated.Name = msg.Name
+	updated.Path = path
+	updated.UpdatedAt = now
+	return a.persist(func() error {
+		return a.registry.Update(msg.OldSlug, updated)
+	})
+}
+
+// persist runs a registry mutation and writes the registry to disk, refreshing
+// the dashboard view on success.
+func (a *App) persist(mutate func() error) error {
+	if err := mutate(); err != nil {
+		return err
+	}
+	if err := a.store.Save(a.registry); err != nil {
+		return err
+	}
+	a.dashboard.Refresh(a.registry)
+	return nil
+}
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -54,6 +196,77 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hostSel.Width = msg.Width
 		a.hostSel.Height = msg.Height
 		a.diffView.SetSize(msg.Width, msg.Height)
+		a.dashboard.SetSize(msg.Width, msg.Height)
+		a.projectForm.SetSize(msg.Width, msg.Height)
+		return a, nil
+
+	// ── Project Dashboard ─────────────────────────────────────────────
+	case dashboard.MsgProjectChosen:
+		cmd, err := a.openProject(msg.Project)
+		if err != nil {
+			a.dashboard.SetStatus("Cannot open project: " + err.Error())
+			return a, nil
+		}
+		return a, cmd
+
+	case dashboard.MsgOpenProjectForm:
+		if msg.Project != nil {
+			a.projectForm = projectform.NewEdit(*msg.Project, a.state.TermWidth, a.state.TermHeight)
+		} else {
+			// Pre-fill a new project with the current working directory.
+			a.projectForm = projectform.New(
+				filepath.Base(a.state.WorkingDir), a.state.WorkingDir,
+				a.state.TermWidth, a.state.TermHeight)
+		}
+		a.state.Screen = ScreenProjectForm
+		return a, nil
+
+	case dashboard.MsgDeleteProject:
+		if err := a.persist(func() error { return a.registry.Remove(msg.Slug) }); err != nil {
+			a.dashboard.SetStatus("Delete failed: " + err.Error())
+		}
+		a.state.Screen = ScreenDashboard
+		return a, nil
+
+	case dashboard.MsgArchiveProject:
+		if p := a.registry.Find(msg.Slug); p != nil {
+			updated := *p
+			updated.Archived = !updated.Archived
+			updated.UpdatedAt = time.Now().UTC()
+			if err := a.persist(func() error { return a.registry.Update(msg.Slug, updated) }); err != nil {
+				a.dashboard.SetStatus("Archive failed: " + err.Error())
+			}
+		}
+		a.state.Screen = ScreenDashboard
+		return a, nil
+
+	case dashboard.MsgDashboardQuit:
+		return a, tea.Quit
+
+	// ── Project Form ──────────────────────────────────────────────────
+	case projectform.MsgProjectSaved:
+		if err := a.saveProjectForm(msg); err != nil {
+			a.projectForm.SetErr("Save failed: " + err.Error())
+			a.state.Screen = ScreenProjectForm
+			return a, nil
+		}
+		a.state.Screen = ScreenDashboard
+		return a, nil
+
+	case projectform.MsgProjectFormCancelled:
+		a.state.Screen = ScreenDashboard
+		return a, nil
+
+	// ── Browser → Dashboard ───────────────────────────────────────────
+	case browser.MsgOpenDashboard:
+		if a.store == nil || a.registry == nil {
+			return a, nil
+		}
+		if reg, err := a.store.Load(); err == nil {
+			a.registry = reg
+			a.dashboard.Refresh(reg)
+		}
+		a.state.Screen = ScreenDashboard
 		return a, nil
 
 	// ── Browser → Host Selector ───────────────────────────────────────
@@ -156,6 +369,30 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Delegate to active screen ─────────────────────────────────────
 	switch a.state.Screen {
+	case ScreenRegisterPrompt:
+		key, ok := msg.(tea.KeyMsg)
+		if !ok {
+			return a, nil
+		}
+		switch key.String() {
+		case "y", "Y", "enter":
+			if err := a.registerPending(); err != nil {
+				a.browser.SetStatus("Register failed: " + err.Error())
+			} else {
+				a.browser.SetStatus("Registered project: " + a.state.PendingRegisterName)
+			}
+		}
+		// any other key dismisses without registering
+		a.state.Screen = ScreenBrowser
+		return a, nil
+	case ScreenDashboard:
+		var cmd tea.Cmd
+		a.dashboard, cmd = a.dashboard.Update(msg)
+		return a, cmd
+	case ScreenProjectForm:
+		var cmd tea.Cmd
+		a.projectForm, cmd = a.projectForm.Update(msg)
+		return a, cmd
 	case ScreenBrowser:
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
@@ -190,6 +427,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (a App) View() string {
 	switch a.state.Screen {
+	case ScreenRegisterPrompt:
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.ColorDir).
+			Padding(1, 2)
+		content := styles.Header.Render("Register this project?") + "\n\n" +
+			styles.File.Render(a.state.PendingRegisterName) + "  " +
+			styles.Muted.Render(a.state.PendingRegisterPath) + "\n\n" +
+			styles.Key.Render("[y]") + styles.Muted.Render(" register   ") +
+			styles.Key.Render("[n]") + styles.Muted.Render(" skip")
+		return lipgloss.Place(
+			a.state.TermWidth, a.state.TermHeight,
+			lipgloss.Center, lipgloss.Center,
+			box.Render(content),
+		)
+	case ScreenDashboard:
+		return a.dashboard.View()
+	case ScreenProjectForm:
+		return a.projectForm.View()
 	case ScreenBrowser:
 		return a.browser.View()
 	case ScreenHostSelector:

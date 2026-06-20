@@ -37,8 +37,9 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	}
 	if host.Protocol == "ftps" {
 		opts = append(opts, ftplib.DialWithExplicitTLS(&tls.Config{
-			ServerName: host.Hostname,
-			MinVersion: tls.VersionTLS12,
+			ServerName:         host.Hostname,
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: host.InsecureTLS, //nolint:gosec // opt-in per host for self-signed certs
 		}))
 	}
 

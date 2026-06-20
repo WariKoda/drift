@@ -44,6 +44,40 @@ func TestSaveGlobalHostPreservesDefaults(t *testing.T) {
 	}
 }
 
+func TestSaveProjectHostRoundTripsInsecureTLS(t *testing.T) {
+	projectRoot := t.TempDir()
+	cfg := &MergedConfig{ProjectRoot: projectRoot}
+
+	if err := SaveProjectHost(cfg, Host{
+		Name:        "staging",
+		Hostname:    "shop.example.com",
+		Port:        21,
+		Protocol:    "ftps",
+		InsecureTLS: true,
+		Auth:        Auth{Type: "password", Password: "$PW"},
+		RootPath:    "/var/www",
+	}, ""); err != nil {
+		t.Fatalf("SaveProjectHost returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(projectRoot, ".drift", "config.toml"))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if !strings.Contains(string(data), "insecure_tls = true") {
+		t.Fatalf("written config missing insecure_tls flag:\n%s", data)
+	}
+
+	loaded, err := Load(projectRoot)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	h := loaded.Hosts["staging"]
+	if !h.InsecureTLS {
+		t.Fatal("InsecureTLS did not round-trip through load")
+	}
+}
+
 func TestSaveProjectHostPreservesDefaultsAndMappings(t *testing.T) {
 	projectRoot := t.TempDir()
 	cfg := &MergedConfig{

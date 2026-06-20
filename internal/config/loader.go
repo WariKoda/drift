@@ -113,10 +113,32 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *Me
 	return merged
 }
 
-func globalConfigPath() string {
+// Dir returns drift's configuration directory, honouring $XDG_CONFIG_HOME.
+// It is the parent of both config.toml and projects.toml.
+func Dir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "drift", "config.toml")
+		return filepath.Join(xdg, "drift")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "drift", "config.toml")
+	return filepath.Join(home, ".config", "drift")
+}
+
+func globalConfigPath() string {
+	return filepath.Join(Dir(), "config.toml")
+}
+
+// HasProjectContext reports whether startDir or any parent contains a
+// .drift/config.toml — i.e. whether drift is being invoked inside a project.
+func HasProjectContext(startDir string) bool {
+	dir := startDir
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".drift", "config.toml")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }

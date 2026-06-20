@@ -55,14 +55,47 @@ make update
 ## Usage
 
 ```bash
-# Start in the current directory
+# Start in the current directory (or the project dashboard, see below)
 drift
+
+# Open the project dashboard explicitly
+drift dash
+
+# Open a registered project directly
+drift open kunde-a
+
+# Manage projects
+drift projects list
+drift projects add "KUNDE A" ~/work/kunde-a
+drift projects edit kunde-a --name "KUNDE A GmbH" --path ~/work/kunde-a
+drift projects archive kunde-a
+drift projects remove kunde-a
 
 # Show version
 drift version
 ```
 
 Navigate to any file or directory, press **Space** to mark it, then **s** to open the sync target picker.
+
+### Project dashboard
+
+drift can keep a registry of your projects (one per customer, say) and show them in a
+dashboard on startup. From the dashboard you select a project and drift re-roots into it:
+it loads that project's config and opens the file browser in its directory — the same as
+`cd <path> && drift`, but without leaving drift.
+
+The dashboard appears automatically when you run `drift` **outside** any project
+(no `.drift/` found) and at least one project is registered. Inside a project directory,
+`drift` opens the browser as before. Override with `--dashboard` / `--no-dashboard`, or
+force it with `drift dash`.
+
+Each project stores only a slug, display name, local path and timestamps in
+`~/.config/drift/projects.toml`. Hosts and mappings continue to live in the project's own
+`<path>/.drift/config.toml` — nothing is duplicated.
+
+When you start `drift` inside a `.drift` project that isn't registered yet, it offers to
+add it to the registry (name defaults to the directory name). Press `y` to register or any
+other key to skip — you can always register later with `drift projects add .`.
 
 ### Typical workflow
 
@@ -76,6 +109,19 @@ Navigate to any file or directory, press **Space** to mark it, then **s** to ope
 
 ## Key Bindings
 
+### Project Dashboard
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` or `↑` / `↓` | Navigate |
+| `Enter` | Open project (re-root drift into it) |
+| `n` | New project |
+| `e` | Edit project |
+| `d` | Remove project (with confirmation) |
+| `a` | Archive / unarchive project |
+| `.` | Show / hide archived projects |
+| `q` / `Esc` | Quit drift |
+
 ### File Browser
 
 | Key | Action |
@@ -85,7 +131,8 @@ Navigate to any file or directory, press **Space** to mark it, then **s** to ope
 | `Enter` | Open directory |
 | `Backspace` | Go up one level |
 | `s` | Sync marked files (opens host selector) |
-| `h` | Open host manager |
+| `H` | Open host manager |
+| `P` | Open project dashboard |
 | `q` / `Esc` | Quit |
 
 ### Diff View
@@ -151,6 +198,9 @@ protocol  = "ftp"
   type     = "password"
   password = "$DEPLOY_PASSWORD"
 
+  # For ftps with a self-signed / mismatched certificate (skips TLS verification):
+  # insecure_tls = true
+
   [[hosts.mappings]]
   local  = "plugins/plugin1"
   remote = "html/custom/plugins/plugin1"
@@ -181,6 +231,7 @@ When effective `mappings` are configured, only files that fall under a mapping r
 ```
 internal/
   config/       config types, loader, writer
+  project/      project registry model + store (projects.toml)
   diff/         diff engine, result types, renderer
   ftp/          FTP client (jlaffaye/ftp)
   fs/           local file walker, directory reader
@@ -191,10 +242,13 @@ internal/
   tui/
     app.go      root Bubble Tea model, screen routing
     browser/    file browser screen
+    dashboard/  project dashboard screen
+    projectform/project create/edit form
     diffview/   diff + sync screen
     hostform/   host create/edit form (incl. mapping manager)
     hostmanager/host list screen
     hostselector/sync target picker
+    textfield/  shared single-line text input widget
     styles.go   shared lipgloss styles
 ```
 

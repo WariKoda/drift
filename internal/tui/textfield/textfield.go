@@ -1,4 +1,6 @@
-package hostform
+// Package textfield provides a single-line editable text input widget shared
+// by drift's TUI forms (host form, project form).
+package textfield
 
 import (
 	"fmt"

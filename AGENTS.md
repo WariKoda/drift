@@ -12,11 +12,19 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 
 | Package | Screen |
 |---------|--------|
+| `dashboard` | Project dashboard (optional landing screen) |
+| `projectform` | Create / edit a project |
 | `browser` | File browser (entry point) |
 | `hostselector` | Modal: pick sync target |
 | `hostmanager` | CRUD list of hosts |
 | `hostform` | Create / edit a host (includes mapping sub-screen) |
 | `diffview` | Side-by-side diff + sync |
+
+The `textfield` package holds the shared single-line input widget used by `hostform`
+and `projectform`. The project registry (slug, name, path, timestamps) lives in
+`internal/project` and is persisted to `~/.config/drift/projects.toml`; per-project hosts
+stay in `<path>/.drift/config.toml`. Selecting a project on the dashboard re-roots the app
+via `App.openProject` (`config.Load(path)` + `browser.New(path)`).
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
 
@@ -70,6 +78,7 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 |-------|------|
 | Global | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
 | Project | `.drift/config.toml` in project root (walked up from cwd) |
+| Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`) |
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
 

@@ -10,14 +10,15 @@ package config
 
 // Host represents a remote SFTP/SSH or FTP target.
 type Host struct {
-	Name     string    `toml:"name"`     // unique identifier, e.g. "prod"
-	Hostname string    `toml:"hostname"` // IP or domain
-	Port     int       `toml:"port"`     // default: 22 (sftp) or 21 (ftp)
-	User     string    `toml:"user"`
-	Auth     Auth      `toml:"auth"`
-	RootPath string    `toml:"root_path"`          // remote base directory
-	Protocol string    `toml:"protocol"`           // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
-	Mappings []Mapping `toml:"mappings,omitempty"` // per-host path mappings
+	Name        string    `toml:"name"`     // unique identifier, e.g. "prod"
+	Hostname    string    `toml:"hostname"` // IP or domain
+	Port        int       `toml:"port"`     // default: 22 (sftp) or 21 (ftp)
+	User        string    `toml:"user"`
+	Auth        Auth      `toml:"auth"`
+	RootPath    string    `toml:"root_path"`              // remote base directory
+	Protocol    string    `toml:"protocol"`               // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
+	InsecureTLS bool      `toml:"insecure_tls,omitempty"` // ftps: skip TLS certificate verification (self-signed certs)
+	Mappings    []Mapping `toml:"mappings,omitempty"`     // per-host path mappings
 }
 
 // Auth configures how to authenticate with a Host.

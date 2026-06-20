@@ -27,10 +27,16 @@ func (m Model) View() string {
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 
-	// ── Column labels ─────────────────────────────────────────────────
+	// ── Column labels (with the active file's full source/target path) ──
 	pw := m.paneWidth()
-	localLabel := pad(styles.Key.Render("  LOCAL"), pw)
-	remoteLabel := pad(styles.Key.Render("  REMOTE  ")+styles.Muted.Render(m.host.Hostname), pw)
+	localPath, remotePath := "", ""
+	if s != nil {
+		localPath, remotePath = s.LocalPath, s.RemotePath
+	}
+	const localPrefix = "  LOCAL  "
+	const remotePrefix = "  REMOTE  "
+	localLabel := pad(styles.Key.Render(localPrefix)+styles.Muted.Render(truncLeft(localPath, pw-len(localPrefix))), pw)
+	remoteLabel := pad(styles.Key.Render(remotePrefix)+styles.Muted.Render(truncLeft(remotePath, pw-len(remotePrefix))), pw)
 	sb.WriteString(localLabel + dividerStyle.Render("│") + remoteLabel)
 	sb.WriteByte('\n')
 	sb.WriteString(sepLine(m.Width))
@@ -298,4 +304,20 @@ func shortPath(p string) string {
 		return "…/" + strings.Join(parts[len(parts)-2:], "/")
 	}
 	return p
+}
+
+// truncLeft shortens p to max display columns, keeping the tail (the part that
+// matters most for a path) and prefixing an ellipsis when truncated.
+func truncLeft(p string, max int) string {
+	if max < 1 {
+		max = 1
+	}
+	r := []rune(p)
+	if len(r) <= max {
+		return p
+	}
+	if max == 1 {
+		return "…"
+	}
+	return "…" + string(r[len(r)-(max-1):])
 }

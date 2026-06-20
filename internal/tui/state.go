@@ -4,6 +4,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/project"
 	internalsync "github.com/WariKoda/drift/internal/sync"
 )
 
@@ -11,13 +12,16 @@ import (
 type Screen int
 
 const (
-	ScreenBrowser      Screen = iota
-	ScreenHostSelector        // modal overlay on browser (sync target picker)
-	ScreenHostManager         // CRUD list of all hosts
-	ScreenHostForm            // create / edit a host
-	ScreenDiffLoading         // async SSH connect + diff load in progress
-	ScreenDiffView            // split-pane diff
-	ScreenSyncProgress        // transfer progress (Phase 4)
+	ScreenBrowser        Screen = iota
+	ScreenHostSelector          // modal overlay on browser (sync target picker)
+	ScreenHostManager           // CRUD list of all hosts
+	ScreenHostForm              // create / edit a host
+	ScreenDiffLoading           // async SSH connect + diff load in progress
+	ScreenDiffView              // split-pane diff
+	ScreenSyncProgress          // transfer progress (Phase 4)
+	ScreenDashboard             // project dashboard (optional landing screen)
+	ScreenProjectForm           // create / edit a project
+	ScreenRegisterPrompt        // offer to register the current unregistered project
 )
 
 // StatusKind classifies the severity of a status bar message.
@@ -34,6 +38,13 @@ type AppState struct {
 	Screen     Screen
 	WorkingDir string
 	Config     *config.MergedConfig
+
+	// Project dashboard
+	ActiveProject *project.Project // the project drift is currently rooted in, if any
+
+	// Register prompt (offer to add the current project to the registry)
+	PendingRegisterPath string
+	PendingRegisterName string
 
 	// Browser
 	Selection *fs.SelectionState

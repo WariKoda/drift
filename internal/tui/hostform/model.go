@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/tui/textfield"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -37,18 +38,19 @@ func (a AuthType) String() string {
 
 // Field indices for m.fields slice and focus tracking.
 const (
-	fName       = 0
-	fHostname   = 1
-	fPort       = 2
-	fUser       = 3
-	fAuthType   = 4 // toggle — no text field
-	fKeyFile    = 5
-	fPassphrase = 6
-	fPassword   = 7
-	fRootPath   = 8
-	fScope      = 9  // toggle — no text field
-	fProtocol   = 10 // toggle — no text field
-	fMappings   = 11 // virtual row — opens mapping sub-screen
+	fName        = 0
+	fHostname    = 1
+	fPort        = 2
+	fUser        = 3
+	fAuthType    = 4 // toggle — no text field
+	fKeyFile     = 5
+	fPassphrase  = 6
+	fPassword    = 7
+	fRootPath    = 8
+	fScope       = 9  // toggle — no text field
+	fProtocol    = 10 // toggle — no text field
+	fMappings    = 11 // virtual row — opens mapping sub-screen
+	fInsecureTLS = 12 // toggle — no text field (ftps only)
 )
 
 // subScreen tracks which panel is currently shown.
@@ -62,10 +64,11 @@ const (
 
 // Model is the host create/edit form.
 type Model struct {
-	fields   [9]*TextField // indices 0–8 (fName..fRootPath); toggles have no text field
-	authType AuthType
-	protocol Protocol
-	scope    config.HostScope
+	fields      [9]*textfield.TextField // indices 0–8 (fName..fRootPath); toggles have no text field
+	authType    AuthType
+	protocol    Protocol
+	insecureTLS bool
+	scope       config.HostScope
 
 	focusRow int // which row is active (maps to visibleRows())
 
@@ -85,7 +88,7 @@ type Model struct {
 	mapCursor     int
 	mapConfirmDel bool
 	editIdx       int // -1 = new mapping
-	editFields    [2]*TextField
+	editFields    [2]*textfield.TextField
 	editFocusRow  int
 }
 
@@ -116,6 +119,7 @@ func NewEdit(h config.Host, scope config.HostScope, projectRoot string, width, h
 	case "ftps":
 		m.protocol = ProtoFTPS
 	}
+	m.insecureTLS = h.InsecureTLS
 
 	switch h.Auth.Type {
 	case "password":
@@ -165,18 +169,18 @@ func (m *Model) initFields() {
 	if bw < 20 {
 		bw = 20
 	}
-	m.fields[fName] = &TextField{Label: "Name", Width: bw, Placeholder: "prod", MaxLen: 64}
-	m.fields[fHostname] = &TextField{Label: "Hostname", Width: bw, Placeholder: "example.com"}
+	m.fields[fName] = &textfield.TextField{Label: "Name", Width: bw, Placeholder: "prod", MaxLen: 64}
+	m.fields[fHostname] = &textfield.TextField{Label: "Hostname", Width: bw, Placeholder: "example.com"}
 	portPlaceholder := "22"
 	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		portPlaceholder = "21"
 	}
-	m.fields[fPort] = &TextField{Label: "Port", Width: 6, Placeholder: portPlaceholder, MaxLen: 5}
-	m.fields[fUser] = &TextField{Label: "User", Width: bw, Placeholder: "deploy", MaxLen: 64}
-	m.fields[fKeyFile] = &TextField{Label: "Key File", Width: bw, Placeholder: "~/.ssh/id_ed25519"}
-	m.fields[fPassphrase] = &TextField{Label: "Passphrase", Width: bw, Password: true}
-	m.fields[fPassword] = &TextField{Label: "Password", Width: bw, Password: true, Placeholder: "or $ENV_VAR"}
-	m.fields[fRootPath] = &TextField{Label: "Root Path", Width: bw, Placeholder: "/var/www"}
+	m.fields[fPort] = &textfield.TextField{Label: "Port", Width: 6, Placeholder: portPlaceholder, MaxLen: 5}
+	m.fields[fUser] = &textfield.TextField{Label: "User", Width: bw, Placeholder: "deploy", MaxLen: 64}
+	m.fields[fKeyFile] = &textfield.TextField{Label: "Key File", Width: bw, Placeholder: "~/.ssh/id_ed25519"}
+	m.fields[fPassphrase] = &textfield.TextField{Label: "Passphrase", Width: bw, Password: true}
+	m.fields[fPassword] = &textfield.TextField{Label: "Password", Width: bw, Password: true, Placeholder: "or $ENV_VAR"}
+	m.fields[fRootPath] = &textfield.TextField{Label: "Root Path", Width: bw, Placeholder: "/var/www"}
 }
 
 // visibleRows returns the ordered focus positions for the current auth type.
@@ -193,6 +197,9 @@ func (m Model) visibleRows() []int {
 		}
 	case ProtoFTP, ProtoFTPS:
 		rows = append(rows, fPassword)
+		if m.protocol == ProtoFTPS {
+			rows = append(rows, fInsecureTLS)
+		}
 	}
 	return append(rows, fRootPath, fMappings, fScope)
 }
@@ -226,8 +233,8 @@ func (m *Model) openMappingEdit(idx int) {
 	}
 	m.editIdx = idx
 	m.editFocusRow = 0
-	m.editFields[0] = &TextField{Label: "Local Path", Width: bw, Placeholder: "plugins/plugin1", Focused: true}
-	m.editFields[1] = &TextField{Label: "Deploy Path", Width: bw, Placeholder: "custom/plugins/plugin1"}
+	m.editFields[0] = &textfield.TextField{Label: "Local Path", Width: bw, Placeholder: "plugins/plugin1", Focused: true}
+	m.editFields[1] = &textfield.TextField{Label: "Deploy Path", Width: bw, Placeholder: "custom/plugins/plugin1"}
 	if idx >= 0 && idx < len(m.mappings) {
 		m.editFields[0].SetValue(m.mappings[idx].Local)
 		m.editFields[1].SetValue(m.mappings[idx].Remote)
@@ -292,6 +299,9 @@ func (m Model) toHost() (config.Host, error) {
 	}
 	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		h.Auth = config.Auth{Type: "password", Password: m.fields[fPassword].Value()}
+		if m.protocol == ProtoFTPS {
+			h.InsecureTLS = m.insecureTLS
+		}
 		return h, nil
 	}
 	switch m.authType {

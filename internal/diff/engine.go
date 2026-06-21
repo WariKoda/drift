@@ -134,7 +134,11 @@ func lineDiff(local, remote string) []DiffLine {
 	diffs := dmp.DiffMain(a, b, false)
 	diffs = dmp.DiffCharsToLines(diffs, lines)
 
-	var result []DiffLine
+	// Pre-size the result: counting newlines on both sides is a cheap O(n) pass
+	// that avoids repeated slice growth/copy as rows are appended below. Modified
+	// rows pair two source lines into one, so this slightly over-allocates —
+	// acceptable headroom in exchange for zero reallocations.
+	result := make([]DiffLine, 0, strings.Count(local, "\n")+strings.Count(remote, "\n")+1)
 	localNum := 1
 	remoteNum := 1
 

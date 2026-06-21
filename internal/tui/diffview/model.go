@@ -458,7 +458,25 @@ func LoadCmd(host config.Host, localSel, remoteSel *fs.SelectionState, cfg *conf
 	}
 }
 
-const maxDiffLoadWorkers = 4
+const (
+	// maxDiffLoadWorkers caps concurrency for SFTP, where every worker shares
+	// the single SFTP client. pkg/sftp pipelines concurrent requests over one
+	// connection, so extra workers hide per-request round-trip latency — the
+	// dominant cost when comparing many small files.
+	maxDiffLoadWorkers = 8
+	// maxFTPDiffLoadWorkers caps concurrency for FTP, where each worker opens
+	// its own connection. Connection setup is expensive and servers commonly
+	// limit concurrent logins, so this stays low.
+	maxFTPDiffLoadWorkers = 4
+)
+
+// diffLoadWorkers returns the worker count to use for a host's protocol.
+func diffLoadWorkers(host config.Host) int {
+	if isFTPProtocol(host.Protocol) {
+		return maxFTPDiffLoadWorkers
+	}
+	return maxDiffLoadWorkers
+}
 
 type diffLoadItem struct {
 	LocalPath  string
@@ -467,31 +485,20 @@ type diffLoadItem struct {
 	Compare    bool
 }
 
-func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker) []diff.Session {
-	results := make([]*diff.Session, len(items))
-	var jobs []int
-	for i, item := range items {
-		if item.Compare {
-			jobs = append(jobs, i)
-			continue
-		}
-		if item.Err != nil {
-			s := diff.Session{
-				LocalPath:  item.LocalPath,
-				RemotePath: item.RemotePath,
-				Err:        item.Err,
-				Loaded:     true,
-			}
-			results[i] = &s
-		}
-	}
+// compareFunc receives a job index plus the connection that worker should use.
+// connErr is non-nil only when this worker failed to establish its own
+// connection (FTP); fn must record that as a per-item error.
+type compareFunc func(idx int, conn remote.Client, connErr error)
 
-	progress.Set("Comparing files…", 0, len(jobs), len(jobs) == 0)
+// forEachCompare runs fn for every index in jobs across a bounded worker pool.
+// For FTP each worker opens its own connection; for SFTP the shared conn is
+// reused. fn must only write to data owned by its idx, making the pool
+// race-free without locking. progress may be nil.
+func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *LoadProgressTracker, fn compareFunc) {
 	if len(jobs) == 0 {
-		return sessionsFromResults(results)
+		return
 	}
-
-	workerCount := minInt(maxDiffLoadWorkers, len(jobs))
+	workerCount := minInt(diffLoadWorkers(host), len(jobs))
 	if workerCount < 1 {
 		workerCount = 1
 	}
@@ -504,43 +511,24 @@ func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, p
 			defer wg.Done()
 
 			workerConn := conn
+			var connErr error
 			if isFTPProtocol(host.Protocol) {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				ftpConn, err := remote.Connect(ctx, host)
 				if err != nil {
-					for idx := range jobCh {
-						item := items[idx]
-						progress.Inc()
-						s := diff.Session{
-							LocalPath:  item.LocalPath,
-							RemotePath: item.RemotePath,
-							Err:        fmt.Errorf("connect worker: %w", err),
-							Loaded:     true,
-						}
-						results[idx] = &s
-					}
-					return
+					connErr = fmt.Errorf("connect worker: %w", err)
+				} else {
+					defer ftpConn.Close()
+					workerConn = ftpConn
 				}
-				defer ftpConn.Close()
-				workerConn = ftpConn
 			}
 
 			for idx := range jobCh {
-				item := items[idx]
-				result, diffErr := diff.Compare(item.LocalPath, item.RemotePath, workerConn)
-				progress.Inc()
-				if diffErr == nil && result != nil && !result.HasDiff() {
-					continue // identical — skip
+				fn(idx, workerConn, connErr)
+				if progress != nil {
+					progress.Inc()
 				}
-				s := diff.Session{
-					LocalPath:  item.LocalPath,
-					RemotePath: item.RemotePath,
-					Result:     result,
-					Err:        diffErr,
-					Loaded:     true,
-				}
-				results[idx] = &s
 			}
 		}()
 	}
@@ -549,6 +537,50 @@ func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, p
 	}
 	close(jobCh)
 	wg.Wait()
+}
+
+func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker) []diff.Session {
+	results := make([]*diff.Session, len(items))
+	var jobs []int
+	for i, item := range items {
+		if item.Compare {
+			jobs = append(jobs, i)
+			continue
+		}
+		if item.Err != nil {
+			results[i] = &diff.Session{
+				LocalPath:  item.LocalPath,
+				RemotePath: item.RemotePath,
+				Err:        item.Err,
+				Loaded:     true,
+			}
+		}
+	}
+
+	progress.Set("Comparing files…", 0, len(jobs), len(jobs) == 0)
+	forEachCompare(host, conn, jobs, progress, func(idx int, workerConn remote.Client, connErr error) {
+		item := items[idx]
+		if connErr != nil {
+			results[idx] = &diff.Session{
+				LocalPath:  item.LocalPath,
+				RemotePath: item.RemotePath,
+				Err:        connErr,
+				Loaded:     true,
+			}
+			return
+		}
+		result, diffErr := diff.Compare(item.LocalPath, item.RemotePath, workerConn)
+		if diffErr == nil && result != nil && !result.HasDiff() {
+			return // identical — skip
+		}
+		results[idx] = &diff.Session{
+			LocalPath:  item.LocalPath,
+			RemotePath: item.RemotePath,
+			Result:     result,
+			Err:        diffErr,
+			Loaded:     true,
+		}
+	})
 
 	return sessionsFromResults(results)
 }
@@ -646,22 +678,38 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 	}
 }
 
-// refreshCmd re-diffs all sessions using the existing connection.
+// refreshCmd re-diffs all sessions in parallel using the worker pool. The
+// session set (and order) is preserved so the file list stays stable.
 func (m Model) refreshCmd() tea.Cmd {
 	sessions := m.sessions
+	host := m.host
 	conn := m.conn
 	return func() tea.Msg {
 		refreshed := make([]diff.Session, len(sessions))
-		for i, s := range sessions {
-			result, err := diff.Compare(s.LocalPath, s.RemotePath, conn)
-			refreshed[i] = diff.Session{
+		jobs := make([]int, len(sessions))
+		for i := range sessions {
+			jobs[i] = i
+		}
+		forEachCompare(host, conn, jobs, nil, func(idx int, workerConn remote.Client, connErr error) {
+			s := sessions[idx]
+			if connErr != nil {
+				refreshed[idx] = diff.Session{
+					LocalPath:  s.LocalPath,
+					RemotePath: s.RemotePath,
+					Err:        connErr,
+					Loaded:     true,
+				}
+				return
+			}
+			result, err := diff.Compare(s.LocalPath, s.RemotePath, workerConn)
+			refreshed[idx] = diff.Session{
 				LocalPath:  s.LocalPath,
 				RemotePath: s.RemotePath,
 				Result:     result,
 				Err:        err,
 				Loaded:     true,
 			}
-		}
+		})
 		return MsgRefreshed{Sessions: refreshed}
 	}
 }

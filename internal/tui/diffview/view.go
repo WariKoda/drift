@@ -220,7 +220,7 @@ func sessionStatus(s *diff.Session) string {
 	case !r.HasDiff():
 		return styles.Muted.Render("identical")
 	default:
-		added, removed := countDiff(r)
+		added, removed := r.Counts()
 		return styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
 	}
 }
@@ -256,7 +256,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 		if !s.Result.HasDiff() {
 			info = styles.Muted.Render("identical")
 		} else {
-			added, removed := countDiff(s.Result)
+			added, removed := s.Result.Counts()
 			info = styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
 		}
 	}
@@ -278,21 +278,6 @@ func (m Model) renderStatus(s *diff.Session) string {
 		gap = 1
 	}
 	return "  " + info + strings.Repeat(" ", gap) + keys
-}
-
-func countDiff(r *diff.DiffResult) (added, removed int) {
-	for _, l := range r.Lines {
-		switch l.Kind {
-		case diff.LineAdded:
-			added++
-		case diff.LineRemoved:
-			removed++
-		case diff.LineModified:
-			added++
-			removed++
-		}
-	}
-	return
 }
 
 func sepLine(width int) string {

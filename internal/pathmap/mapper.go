@@ -84,6 +84,9 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 	remoteBase := strings.TrimSuffix(filepath.ToSlash(m.host.RootPath), "/")
 	relSuffix := filepath.ToSlash(rel)
 	if relSuffix == "" || relSuffix == "." {
+		if remoteBase == "" {
+			return "/", nil
+		}
 		return remoteBase, nil
 	}
 	return remoteBase + "/" + relSuffix, nil
@@ -127,6 +130,9 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 
 	// Fallback
 	rootPath := strings.TrimSuffix(filepath.ToSlash(m.host.RootPath), "/")
+	if rootPath == "" {
+		rootPath = "/"
+	}
 	if !hasRemotePathPrefix(absRemote, rootPath) {
 		return "", fmt.Errorf("pathmap: remote path %q is outside host root %q", absRemote, m.host.RootPath)
 	}

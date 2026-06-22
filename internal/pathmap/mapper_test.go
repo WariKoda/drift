@@ -75,3 +75,38 @@ func TestRemoteToLocal_FallbackRequiresSegmentSafeHostRoot(t *testing.T) {
 		t.Fatal("RemoteToLocal unexpectedly allowed path outside host root with shared prefix")
 	}
 }
+
+func TestRemoteToLocal_RootIsSlash(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, nil, config.Host{RootPath: "/"})
+
+	local, err := mapper.RemoteToLocal("/winarbor_exchange/file.txt")
+	if err != nil {
+		t.Fatalf("RemoteToLocal returned error for host root %q: %v", "/", err)
+	}
+	if want := filepath.Join(root, "winarbor_exchange", "file.txt"); local != want {
+		t.Fatalf("RemoteToLocal = %q, want %q", local, want)
+	}
+}
+
+func TestLocalToRemote_RootIsSlash(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, nil, config.Host{RootPath: "/"})
+
+	remote, err := mapper.LocalToRemote(filepath.Join(root, "winarbor_exchange", "file.txt"))
+	if err != nil {
+		t.Fatalf("LocalToRemote returned error for host root %q: %v", "/", err)
+	}
+	if want := "/winarbor_exchange/file.txt"; remote != want {
+		t.Fatalf("LocalToRemote = %q, want %q", remote, want)
+	}
+
+	// The project root itself maps back to the host root, not an empty string.
+	rootRemote, err := mapper.LocalToRemote(root)
+	if err != nil {
+		t.Fatalf("LocalToRemote returned error for project root: %v", err)
+	}
+	if rootRemote != "/" {
+		t.Fatalf("LocalToRemote(root) = %q, want %q", rootRemote, "/")
+	}
+}

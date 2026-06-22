@@ -22,6 +22,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case MsgBulkSyncDone:
 		m.syncing = false
+		m.syncProgress = nil
 		if len(msg.Errors) == 0 {
 			m.syncStatus = fmt.Sprintf("✓ synced %d file(s)", msg.Done)
 		} else {
@@ -30,6 +31,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// refresh diffs after sync
 		m.refreshing = true
 		return m, m.refreshCmd()
+
+	case MsgSyncProgress:
+		if !m.syncing || msg.Finished {
+			return m, nil // sync finished; MsgBulkSyncDone owns the final state
+		}
+		m.syncDone = msg.Done
+		m.syncTotal = msg.Total
+		return m, syncProgressTickCmd(m.syncProgress)
 
 	case MsgRefreshed:
 		m.sessions = msg.Sessions
@@ -50,6 +59,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// startBulkSync initializes the live progress tracker and kicks off the bulk
+// sync alongside the periodic progress tick.
+func (m Model) startBulkSync(indices []int) (Model, tea.Cmd) {
+	m.syncing = true
+	m.syncStatus = ""
+	m.syncDone = 0
+	m.syncTotal = len(indices)
+	m.syncProgress = &LoadProgressTracker{}
+	m.syncProgress.Set("Syncing…", 0, len(indices), false)
+	return m, tea.Batch(m.bulkSyncCmd(indices), syncProgressTickCmd(m.syncProgress))
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -115,9 +136,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "s":
 		if !m.syncing && !m.refreshing && m.activeIdx < len(m.syncDirs) {
 			if m.syncDirs[m.activeIdx] != DirNone {
-				m.syncing = true
-				m.syncStatus = ""
-				return m, m.bulkSyncCmd([]int{m.activeIdx})
+				return m.startBulkSync([]int{m.activeIdx})
 			}
 		}
 
@@ -128,9 +147,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			for i := range indices {
 				indices[i] = i
 			}
-			m.syncing = true
-			m.syncStatus = ""
-			return m, m.bulkSyncCmd(indices)
+			return m.startBulkSync(indices)
 		}
 
 	// ── Quick upload/download (bypass planned direction) ───────────────

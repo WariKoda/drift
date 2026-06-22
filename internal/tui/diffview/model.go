@@ -114,6 +114,22 @@ type MsgBulkSyncDone struct {
 	Errors []string // one entry per failed file
 }
 
+// MsgSyncProgress is emitted periodically while a bulk sync is running.
+type MsgSyncProgress struct {
+	Done     int
+	Total    int
+	Finished bool
+}
+
+// syncProgressTickCmd periodically polls the sync tracker for UI updates and
+// re-arms itself until the tracker reports completion.
+func syncProgressTickCmd(tracker *LoadProgressTracker) tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		progress, done := tracker.Snapshot()
+		return MsgSyncProgress{Done: progress.Done, Total: progress.Total, Finished: done}
+	})
+}
+
 // MsgSynced is sent after a successful upload or download.
 type MsgSynced struct {
 	SessionIdx int
@@ -179,9 +195,12 @@ type Model struct {
 	activeIdx      int
 	fileListOffset int // scroll offset into the file list
 	scroll         int
-	refreshing     bool   // true while async refresh is in flight
-	syncing        bool   // true while bulk sync is in flight
-	syncStatus     string // last bulk sync result message
+	refreshing     bool                 // true while async refresh is in flight
+	syncing        bool                 // true while bulk sync is in flight
+	syncStatus     string               // last bulk sync result message
+	syncProgress   *LoadProgressTracker // live counter shared with the running bulk sync
+	syncDone       int                  // files processed so far in the active bulk sync
+	syncTotal      int                  // total files in the active bulk sync
 	host           config.Host
 	conn           remote.Client // kept open for sync ops
 	Width          int
@@ -647,11 +666,14 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 	sessions := m.sessions
 	syncDirs := m.syncDirs
 	conn := m.conn
+	tracker := m.syncProgress
 	return func() tea.Msg {
+		defer tracker.Finish()
 		done := 0
 		var errs []string
 		for _, i := range indices {
 			if i >= len(sessions) || i >= len(syncDirs) {
+				tracker.Inc()
 				continue
 			}
 			s := sessions[i]
@@ -666,13 +688,15 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			case DirDeleteRemote:
 				err = conn.DeleteFile(s.RemotePath)
 			default:
-				continue // DirNone — skip
+				tracker.Inc() // DirNone — skip
+				continue
 			}
 			if err != nil {
 				errs = append(errs, err.Error())
 			} else {
 				done++
 			}
+			tracker.Inc()
 		}
 		return MsgBulkSyncDone{Done: done, Errors: errs}
 	}

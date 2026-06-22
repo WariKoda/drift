@@ -264,7 +264,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 	var keys string
 	switch {
 	case m.syncing:
-		keys = styles.Warn.Render("syncing…")
+		keys = styles.Warn.Render(m.syncProgressLabel())
 	case m.refreshing:
 		keys = styles.Warn.Render("refreshing…")
 	default:
@@ -278,6 +278,21 @@ func (m Model) renderStatus(s *diff.Session) string {
 		gap = 1
 	}
 	return "  " + info + strings.Repeat(" ", gap) + keys
+}
+
+// syncProgressLabel renders the live bulk-sync progress as a small bar with a
+// file counter, e.g. "syncing [████░░░░] 4/10".
+func (m Model) syncProgressLabel() string {
+	if m.syncTotal <= 0 {
+		return "syncing…"
+	}
+	const barWidth = 10
+	filled := m.syncDone * barWidth / m.syncTotal
+	if filled > barWidth {
+		filled = barWidth
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+	return fmt.Sprintf("syncing [%s] %d/%d", bar, m.syncDone, m.syncTotal)
 }
 
 func sepLine(width int) string {

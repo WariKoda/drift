@@ -20,6 +20,11 @@ const (
 // AutoDecision returns the most sensible default decision for a diff session.
 //
 // A 2-second threshold tolerates FAT32 time resolution and minor clock drift.
+// When the files genuinely differ but the timestamps cannot disambiguate the
+// direction — common over FTP/FTPS, where MDTM resolution is coarse and often
+// unreliable — drift defaults to Upload rather than DecisionNone. Returning None
+// here would silently drop the file from "sync all", which is the exact opposite
+// of what a deploy-oriented tool should do.
 func AutoDecision(s *diff.Session) Decision {
 	if s == nil || s.Err != nil || s.Result == nil {
 		return DecisionNone
@@ -36,13 +41,11 @@ func AutoDecision(s *diff.Session) Decision {
 	default:
 		const threshold = 2 * time.Second
 		delta := r.ModLocal.Sub(r.ModRemote)
-		if delta > threshold {
-			return DecisionUpload
-		}
 		if delta < -threshold {
 			return DecisionDownload
 		}
-		return DecisionNone
+		// Local newer, or timestamps too close to tell apart: upload.
+		return DecisionUpload
 	}
 }
 

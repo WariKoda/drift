@@ -60,13 +60,24 @@ func TestAutoDecision(t *testing.T) {
 			want: DecisionDownload,
 		},
 		{
-			name: "ambiguous mtime",
+			// Files differ but timestamps are within the threshold: a deploy
+			// tool should still upload rather than silently skip the file.
+			name: "ambiguous mtime defaults to upload",
 			s: &diff.Session{Result: &diff.DiffResult{
 				Lines:     []diff.DiffLine{{Kind: diff.LineAdded}},
 				ModLocal:  now,
 				ModRemote: now.Add(-1 * time.Second),
 			}},
-			want: DecisionNone,
+			want: DecisionUpload,
+		},
+		{
+			// Zero timestamps (e.g. FTP server without MDTM support) must not
+			// strand a changed file on DecisionNone.
+			name: "zero mtimes default to upload",
+			s: &diff.Session{Result: &diff.DiffResult{
+				Lines: []diff.DiffLine{{Kind: diff.LineAdded}},
+			}},
+			want: DecisionUpload,
 		},
 	}
 

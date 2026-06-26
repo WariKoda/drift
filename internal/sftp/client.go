@@ -228,12 +228,14 @@ func (c *Client) DeleteFile(remotePath string) error {
 }
 
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
-// Unreadable entries are skipped silently.
+// A listing error on any directory is propagated rather than skipped: swallowing
+// it would silently drop that subtree from the walk, so its files would never be
+// compared or synced.
 func (c *Client) WalkFiles(remoteRoot string, fn func(path string) error) error {
 	walker := c.sftp.Walk(remoteRoot)
 	for walker.Step() {
-		if walker.Err() != nil {
-			continue
+		if err := walker.Err(); err != nil {
+			return fmt.Errorf("walk %s: %w", walker.Path(), err)
 		}
 		if walker.Stat().IsDir() {
 			if walker.Path() != remoteRoot && fs.ShouldSkipDir(path.Base(walker.Path())) {

@@ -215,6 +215,8 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 	var mu sync.Mutex
 	var firstErr error
 
+	// handleFile holds mu for the whole fn call: fn writes shared maps/slices
+	// in the caller (LoadCmd), so the lock serializes those writes.
 	handleFile := func(p string) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -222,6 +224,16 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 			return
 		}
 		if err := fn(p); err != nil {
+			firstErr = err
+		}
+	}
+	// recordErr surfaces the first directory-listing failure. Without it a
+	// transient LIST error — common on FTPS data connections — would silently
+	// drop an entire subtree from the walk, so those files would never sync.
+	recordErr := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -247,7 +259,7 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 					pending.Done()
 					continue
 				}
-				worker.walkDirLevel(dir, dirs, &pending, handleFile)
+				worker.walkDirLevel(dir, dirs, &pending, handleFile, recordErr)
 				pending.Done()
 			}
 		}(worker)
@@ -256,10 +268,11 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 	return firstErr
 }
 
-func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.WaitGroup, handleFile func(string)) {
+func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.WaitGroup, handleFile func(string), recordErr func(error)) {
 	entries, err := c.conn.List(dir)
 	if err != nil {
-		return // skip unreadable directories
+		recordErr(fmt.Errorf("list %s: %w", dir, err))
+		return
 	}
 	for _, e := range entries {
 		if e.Name == "." || e.Name == ".." {
@@ -277,33 +290,6 @@ func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.Wait
 			handleFile(p)
 		}
 	}
-}
-
-func (c *Client) walkDir(dir string, fn func(string) error) error {
-	entries, err := c.conn.List(dir)
-	if err != nil {
-		return nil // skip unreadable directories
-	}
-	for _, e := range entries {
-		if e.Name == "." || e.Name == ".." {
-			continue
-		}
-		p := strings.TrimSuffix(dir, "/") + "/" + e.Name
-		switch e.Type {
-		case ftplib.EntryTypeFolder:
-			if fs.ShouldSkipDir(e.Name) {
-				continue
-			}
-			if err := c.walkDir(p, fn); err != nil {
-				return err
-			}
-		case ftplib.EntryTypeFile:
-			if err := fn(p); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // DeleteFile removes a file on the remote host.

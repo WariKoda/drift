@@ -12,6 +12,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/pathmap"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
@@ -198,6 +199,8 @@ type Model struct {
 	refreshing     bool                 // true while async refresh is in flight
 	syncing        bool                 // true while bulk sync is in flight
 	syncStatus     string               // last bulk sync result message
+	syncErrors     []string             // per-file errors from the last bulk sync
+	showErrors     bool                 // true while the error overlay is open
 	syncProgress   *LoadProgressTracker // live counter shared with the running bulk sync
 	syncDone       int                  // files processed so far in the active bulk sync
 	syncTotal      int                  // total files in the active bulk sync
@@ -230,6 +233,7 @@ func (m Model) Init() tea.Cmd { return nil }
 // Close closes the SFTP connection. Call when leaving the diff view.
 func (m *Model) Close() {
 	if m.conn != nil {
+		log.Info("remote disconnect", "host", m.host.Name)
 		_ = m.conn.Close()
 		m.conn = nil
 	}
@@ -335,8 +339,10 @@ func LoadCmd(host config.Host, localSel, remoteSel *fs.SelectionState, cfg *conf
 			var err error
 			conn, err = remote.Connect(ctx, host)
 			if err != nil {
+				log.Error("remote connect failed", "hostname", host.Hostname, "err", err)
 				return MsgDiffError{Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
 			}
+			log.Info("remote connect", "host", host.Name, "hostname", host.Hostname)
 		}
 
 		progress.Set("Scanning selections…", 0, 0, true)
@@ -643,6 +649,7 @@ func (m Model) uploadCmd(idx int) tea.Cmd {
 	conn := m.conn
 	return func() tea.Msg {
 		if err := conn.UploadFile(s.LocalPath, s.RemotePath); err != nil {
+			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
 		}
 		return MsgSynced{SessionIdx: idx, Direction: DirUpload}
@@ -655,6 +662,7 @@ func (m Model) downloadCmd(idx int) tea.Cmd {
 	conn := m.conn
 	return func() tea.Msg {
 		if err := conn.DownloadFile(s.RemotePath, s.LocalPath); err != nil {
+			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
 		}
 		return MsgSynced{SessionIdx: idx, Direction: DirDownload}
@@ -678,22 +686,29 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			}
 			s := sessions[i]
 			var err error
+			var op string
 			switch syncDirs[i] {
 			case DirUpload:
+				op = "upload"
 				err = conn.UploadFile(s.LocalPath, s.RemotePath)
 			case DirDownload:
+				op = "download"
 				err = conn.DownloadFile(s.RemotePath, s.LocalPath)
 			case DirDeleteLocal:
+				op = "delete-local"
 				err = os.Remove(s.LocalPath)
 			case DirDeleteRemote:
+				op = "delete-remote"
 				err = conn.DeleteFile(s.RemotePath)
 			default:
 				tracker.Inc() // DirNone — skip
 				continue
 			}
 			if err != nil {
+				log.Error("sync file", "op", op, "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 				errs = append(errs, err.Error())
 			} else {
+				log.Debug("sync file ok", "op", op, "local", s.LocalPath, "remote", s.RemotePath)
 				done++
 			}
 			tracker.Inc()

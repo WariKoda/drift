@@ -147,6 +147,8 @@ other key to skip — you can always register later with `drift projects add .`.
 | `A` | Cycle sync direction for all files |
 | `s` | Sync current file |
 | `S` | Sync all files |
+| `u` / `d` | Quick upload / download current file |
+| `e` | Toggle the last bulk-sync error list (when errors occurred) |
 | `r` | Refresh diffs |
 | `Esc` | Back to browser |
 
@@ -174,6 +176,27 @@ DRIFT_THEME_FILE=/path/to/colors.toml
 
 `auto` loads Omarchy colors first and falls back to ANSI terminal colors.
 `default` uses Drift's built-in fallback palette.
+
+---
+
+## Logging
+
+Logging is **off by default**. When enabled, drift writes diagnostics
+(connection lifecycle and every connect/sync/diff error, with full paths) to a
+file — never to the terminal, which the TUI owns. Enable it per run with a flag
+or environment variable; the flag wins:
+
+```bash
+drift --debug                 # debug level → ~/.config/drift/drift.log
+DRIFT_DEBUG=1 drift           # same, via environment
+drift --log /tmp/drift.log    # info level → explicit path
+DRIFT_LOG=/tmp/drift.log drift
+```
+
+`--debug` (or `DRIFT_DEBUG=1`) raises the level to debug, adding a line per
+synced file; without it the log stays at info level. The log file is appended to,
+not rotated. This complements the in-app `[e]` error list in the diff view, which
+only holds the most recent bulk sync.
 
 ---
 

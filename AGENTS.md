@@ -37,7 +37,7 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 - **No mocks in tests** — use real connections or skip.
 - **No speculative abstractions** — add helpers only when used in 3+ places.
 - **No backwards-compat shims** — if something is unused, delete it.
-- **No error swallowing** — propagate errors to the TUI as typed messages (`MsgDiffError`, session `.Err` field, etc.).
+- **No error swallowing** — propagate errors to the TUI as typed messages (`MsgDiffError`, session `.Err` field, etc.). Also log connect/sync/diff failures via `internal/log` (see Logging) so they survive past the TUI session.
 - All async work runs in `tea.Cmd` goroutines. Never block `Update()`.
 - Styles live in `internal/styles/styles.go` and `internal/tui/styles.go`. Do not inline lipgloss styles in view code.
 - Config is TOML. Types live in `internal/config/config.go`. Persistence via `internal/config/writer.go`.
@@ -81,6 +81,17 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 | Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`) |
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
+
+## Logging
+
+`internal/log` is a no-op slog wrapper, **off by default**. It is enabled in
+`cmd/root.go` (`runProgram` → `resolveLogConfig` → `log.Init`) when `--log`/`--debug`
+or `$DRIFT_LOG`/`$DRIFT_DEBUG` are set; otherwise no file is opened. Never log to
+stdout/stderr — the Bubble Tea alt screen owns the terminal; logging goes to a file.
+The package is dependency-free: the default path (`<config.Dir()>/drift.log`) is
+resolved by the caller in `cmd`, not inside `internal/log`. Use `log.Error` for
+failures (with key/value context like `"err"`, path keys) and `log.Info`/`log.Debug`
+for lifecycle. slog is concurrency-safe, so logging from `tea.Cmd` goroutines is fine.
 
 ## Build & install
 

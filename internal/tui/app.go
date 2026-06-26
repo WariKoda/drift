@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/WariKoda/drift/internal/tui/browser"
@@ -377,6 +378,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case diffview.MsgDiffError:
+		log.Error("diff load failed", "err", msg.Err)
 		if a.state.Screen != ScreenDiffLoading {
 			return a, nil
 		}

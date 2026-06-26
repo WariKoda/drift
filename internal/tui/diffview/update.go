@@ -3,6 +3,7 @@ package diffview
 import (
 	"fmt"
 
+	"github.com/WariKoda/drift/internal/log"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -23,10 +24,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case MsgBulkSyncDone:
 		m.syncing = false
 		m.syncProgress = nil
+		m.syncErrors = msg.Errors
+		log.Info("bulk sync done", "done", msg.Done, "errors", len(msg.Errors))
 		if len(msg.Errors) == 0 {
 			m.syncStatus = fmt.Sprintf("✓ synced %d file(s)", msg.Done)
+			m.showErrors = false
 		} else {
-			m.syncStatus = fmt.Sprintf("✓ %d  ✗ %d error(s)", msg.Done, len(msg.Errors))
+			m.syncStatus = fmt.Sprintf("✓ %d  ✗ %d error(s) — [e] to view", msg.Done, len(msg.Errors))
 		}
 		// refresh diffs after sync
 		m.refreshing = true
@@ -54,6 +58,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.scroll = 0
 
 	case MsgSyncError:
+		log.Error("sync error", "err", msg.Err)
 		if s := m.activeSession(); s != nil {
 			s.Err = msg.Err
 		}
@@ -168,8 +173,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.refreshCmd()
 		}
 
+	// ── Toggle the bulk-sync error overlay ─────────────────────────────
+	case "e":
+		if len(m.syncErrors) > 0 {
+			m.showErrors = !m.showErrors
+		}
+
 	// ── Quit ───────────────────────────────────────────────────────────
 	case "q", "esc":
+		if m.showErrors {
+			m.showErrors = false
+			return m, nil
+		}
 		return m, func() tea.Msg { return MsgBackToBrowser{} }
 	}
 

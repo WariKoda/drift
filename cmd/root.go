@@ -3,8 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +17,8 @@ import (
 var (
 	flagDashboard   bool
 	flagNoDashboard bool
+	flagLog         string
+	flagDebug       bool
 )
 
 var rootCmd = &cobra.Command{
@@ -59,6 +64,40 @@ Config locations:
 func init() {
 	rootCmd.Flags().BoolVar(&flagDashboard, "dashboard", false, "always start on the project dashboard")
 	rootCmd.Flags().BoolVar(&flagNoDashboard, "no-dashboard", false, "never start on the project dashboard")
+	rootCmd.PersistentFlags().StringVar(&flagLog, "log", "", "write diagnostics to this log file (overrides $DRIFT_LOG)")
+	rootCmd.PersistentFlags().BoolVar(&flagDebug, "debug", false, "enable debug logging (default file: <config dir>/drift.log)")
+}
+
+// resolveLogConfig derives logging options from flags and environment.
+// Flags win over environment. Logging is enabled when a path is given or debug
+// is on; with debug but no explicit path it defaults to <config dir>/drift.log.
+func resolveLogConfig() (opts log.Options, enabled bool) {
+	path := flagLog
+	if path == "" {
+		path = os.Getenv("DRIFT_LOG")
+	}
+	debug := flagDebug || envTruthy(os.Getenv("DRIFT_DEBUG"))
+
+	enabled = path != "" || debug
+	if !enabled {
+		return log.Options{}, false
+	}
+	if path == "" {
+		path = filepath.Join(config.Dir(), "drift.log")
+	}
+	return log.Options{Path: path, Debug: debug}, true
+}
+
+// envTruthy reports whether an environment value means "on". Empty/0/false are off.
+func envTruthy(v string) bool {
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return true // any non-empty, non-bool value (e.g. a path) counts as set
+	}
+	return b
 }
 
 // shouldShowDashboard decides whether the dashboard is the start screen.
@@ -89,6 +128,17 @@ func loadAll(workDir string) (*config.MergedConfig, *project.Store, *project.Reg
 }
 
 func runProgram(app tui.App) error {
+	if opts, enabled := resolveLogConfig(); enabled {
+		closer, err := log.Init(opts)
+		if err != nil {
+			// Warn before the alt screen takes over; continue without logging.
+			fmt.Fprintf(os.Stderr, "warning: could not open log file %s: %v\n", opts.Path, err)
+		} else {
+			defer closer.Close()
+			log.Info("drift start", "version", resolvedVersion())
+		}
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)

@@ -45,7 +45,9 @@ func (m Model) View() string {
 	// ── Diff content ──────────────────────────────────────────────────
 	vh := m.viewportHeight()
 
-	if s == nil {
+	if m.showErrors {
+		sb.WriteString(m.renderErrorList(vh))
+	} else if s == nil {
 		for i := 0; i < vh; i++ {
 			sb.WriteString(strings.Repeat(" ", m.Width))
 			sb.WriteByte('\n')
@@ -225,6 +227,31 @@ func sessionStatus(s *diff.Session) string {
 	}
 }
 
+// renderErrorList renders the per-file errors from the last bulk sync,
+// one per line, clipped to the viewport height. Shown via the [e] toggle.
+func (m Model) renderErrorList(height int) string {
+	var sb strings.Builder
+
+	title := styles.Err.Render(fmt.Sprintf("Sync errors (%d)", len(m.syncErrors)))
+	sb.WriteString("  " + title + styles.Muted.Render("  — [e] or [q] to close") + "\n")
+	used := 1
+
+	for _, e := range m.syncErrors {
+		if used >= height {
+			break
+		}
+		line := truncLeft(e, m.Width-4)
+		sb.WriteString("  " + styles.Err.Render("✗ ") + styles.Muted.Render(line) + "\n")
+		used++
+	}
+
+	for i := used; i < height; i++ {
+		sb.WriteString(strings.Repeat(" ", m.Width))
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
 func (m Model) renderSummary(r *diff.DiffResult, height int) string {
 	var lines []string
 	switch {
@@ -267,8 +294,13 @@ func (m Model) renderStatus(s *diff.Session) string {
 		keys = styles.Warn.Render(m.syncProgressLabel())
 	case m.refreshing:
 		keys = styles.Warn.Render("refreshing…")
+	case m.showErrors:
+		keys = styles.Muted.Render("[e/q]close errors")
 	default:
 		keys = styles.Muted.Render("[j/k]file  [Space]dir  [A]dir-all  [s]sync  [S]sync-all  [r]refresh  [u/d]quick  [q]back")
+		if len(m.syncErrors) > 0 {
+			keys = styles.Err.Render("[e]errors  ") + keys
+		}
 	}
 	if m.syncStatus != "" && !m.syncing && !m.refreshing {
 		info = styles.File.Render(m.syncStatus)

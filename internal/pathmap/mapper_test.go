@@ -2,6 +2,7 @@ package pathmap
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
@@ -108,5 +109,113 @@ func TestLocalToRemote_RootIsSlash(t *testing.T) {
 	}
 	if rootRemote != "/" {
 		t.Fatalf("LocalToRemote(root) = %q, want %q", rootRemote, "/")
+	}
+}
+
+func TestMapperRejectsInvalidEffectiveMappings(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, []config.Mapping{{
+		Local:  "../outside",
+		Remote: "app",
+	}}, config.Host{RootPath: "/var/www"})
+
+	if _, err := mapper.LocalToRemote(filepath.Join(root, "file.txt")); err == nil ||
+		!strings.Contains(err.Error(), "invalid mappings") {
+		t.Fatalf("LocalToRemote error = %v, want invalid mappings error", err)
+	}
+	if _, err := mapper.RemoteToLocal("/var/www/file.txt"); err == nil ||
+		!strings.Contains(err.Error(), "invalid mappings") {
+		t.Fatalf("RemoteToLocal error = %v, want invalid mappings error", err)
+	}
+}
+
+func TestMapperValidatesHostMappingsInsteadOfProjectFallback(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(
+		root,
+		[]config.Mapping{{Local: "../invalid-fallback", Remote: "app"}},
+		config.Host{
+			RootPath: "/var/www",
+			Mappings: []config.Mapping{{Local: "src", Remote: "app/src"}},
+		},
+	)
+
+	remote, err := mapper.LocalToRemote(filepath.Join(root, "src", "main.go"))
+	if err != nil {
+		t.Fatalf("LocalToRemote returned error for valid effective host mapping: %v", err)
+	}
+	if remote != "/var/www/app/src/main.go" {
+		t.Fatalf("LocalToRemote = %q, want %q", remote, "/var/www/app/src/main.go")
+	}
+}
+
+func TestLocalToRemote_FallbackRejectsPathOutsideProjectRoot(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, nil, config.Host{RootPath: "/var/www"})
+
+	if _, err := mapper.LocalToRemote(filepath.Join(root, "..", "outside.txt")); err == nil {
+		t.Fatal("LocalToRemote unexpectedly allowed a path outside the project root")
+	}
+}
+
+func TestRemoteToLocal_CleansTraversalBeforeFallbackMapping(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, nil, config.Host{RootPath: "/"})
+
+	local, err := mapper.RemoteToLocal("/safe/../../outside.txt")
+	if err != nil {
+		t.Fatalf("RemoteToLocal returned error: %v", err)
+	}
+	want := filepath.Join(root, "outside.txt")
+	if local != want {
+		t.Fatalf("RemoteToLocal = %q, want contained path %q", local, want)
+	}
+	if !hasLocalPathPrefix(local, root) {
+		t.Fatalf("RemoteToLocal returned path outside project root: %q", local)
+	}
+}
+
+func TestMapperSupportsMirroredNestedMappings(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, []config.Mapping{
+		{Local: "plugins", Remote: "custom/plugins"},
+		{Local: "plugins/one", Remote: "custom/plugins/one"},
+	}, config.Host{RootPath: "/var/www"})
+
+	remote, err := mapper.LocalToRemote(filepath.Join(root, "plugins", "one", "file.txt"))
+	if err != nil {
+		t.Fatalf("LocalToRemote returned error: %v", err)
+	}
+	if remote != "/var/www/custom/plugins/one/file.txt" {
+		t.Fatalf("LocalToRemote = %q, want mirrored nested path", remote)
+	}
+
+	local, err := mapper.RemoteToLocal(remote)
+	if err != nil {
+		t.Fatalf("RemoteToLocal returned error: %v", err)
+	}
+	if want := filepath.Join(root, "plugins", "one", "file.txt"); local != want {
+		t.Fatalf("RemoteToLocal = %q, want %q", local, want)
+	}
+}
+
+func TestMapperMappingWholeRootWithSlashRemoteRoot(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace", "project")
+	mapper := New(root, []config.Mapping{{Local: ".", Remote: "."}}, config.Host{RootPath: "/"})
+
+	remote, err := mapper.LocalToRemote(root)
+	if err != nil {
+		t.Fatalf("LocalToRemote returned error: %v", err)
+	}
+	if remote != "/" {
+		t.Fatalf("LocalToRemote = %q, want /", remote)
+	}
+
+	local, err := mapper.RemoteToLocal("/")
+	if err != nil {
+		t.Fatalf("RemoteToLocal returned error: %v", err)
+	}
+	if local != root {
+		t.Fatalf("RemoteToLocal = %q, want %q", local, root)
 	}
 }

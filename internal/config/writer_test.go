@@ -118,3 +118,48 @@ func TestSaveProjectHostPreservesDefaultsAndMappings(t *testing.T) {
 		t.Fatalf("written project config lost mappings:\n%s", text)
 	}
 }
+
+func TestSaveGlobalHostRejectsInvalidMappingWithoutMutation(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	cfg := &MergedConfig{}
+
+	err := SaveGlobalHost(cfg, Host{
+		Name:     "prod",
+		Hostname: "example.com",
+		RootPath: "/var/www",
+		Mappings: []Mapping{{Local: "../outside", Remote: "app"}},
+	}, "")
+	if err == nil {
+		t.Fatal("SaveGlobalHost returned nil for invalid mapping")
+	}
+	if len(cfg.GlobalHosts) != 0 || len(cfg.Hosts) != 0 {
+		t.Fatalf("SaveGlobalHost mutated config after validation failure: %#v", cfg)
+	}
+	if _, statErr := os.Stat(filepath.Join(configHome, "drift", "config.toml")); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid host was written to disk, Stat error = %v", statErr)
+	}
+}
+
+func TestSaveProjectHostRejectsInvalidProjectMappingsWithoutMutation(t *testing.T) {
+	projectRoot := t.TempDir()
+	cfg := &MergedConfig{
+		Mappings:    []Mapping{{Local: "app", Remote: "/absolute"}},
+		ProjectRoot: projectRoot,
+	}
+
+	err := SaveProjectHost(cfg, Host{
+		Name:     "prod",
+		Hostname: "example.com",
+		RootPath: "/var/www",
+	}, "")
+	if err == nil {
+		t.Fatal("SaveProjectHost returned nil for invalid project mapping")
+	}
+	if len(cfg.ProjectHosts) != 0 || len(cfg.Hosts) != 0 {
+		t.Fatalf("SaveProjectHost mutated config after validation failure: %#v", cfg)
+	}
+	if _, statErr := os.Stat(filepath.Join(projectRoot, ".drift", "config.toml")); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid project config was written to disk, Stat error = %v", statErr)
+	}
+}

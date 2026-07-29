@@ -239,25 +239,30 @@ func (m *Model) openMappingEdit(idx int) {
 		m.editFields[0].SetValue(m.mappings[idx].Local)
 		m.editFields[1].SetValue(m.mappings[idx].Remote)
 	}
+	m.errMsg = ""
 	m.sub = subMappingEdit
 }
 
 // saveMappingEdit writes the current edit fields back to m.mappings.
-// Returns false if required fields are empty.
-func (m *Model) saveMappingEdit() bool {
+func (m *Model) saveMappingEdit() error {
 	local := m.editFields[0].Value()
 	remote := m.editFields[1].Value()
-	if local == "" || remote == "" {
-		return false
-	}
 	mp := config.Mapping{Local: local, Remote: remote}
+	candidate := append([]config.Mapping(nil), m.mappings...)
 	if m.editIdx < 0 {
-		m.mappings = append(m.mappings, mp)
-		m.mapCursor = len(m.mappings) - 1
+		candidate = append(candidate, mp)
 	} else {
-		m.mappings[m.editIdx] = mp
+		candidate[m.editIdx] = mp
 	}
-	return true
+	if err := config.ValidateMappings(candidate); err != nil {
+		return err
+	}
+
+	m.mappings = candidate
+	if m.editIdx < 0 {
+		m.mapCursor = len(candidate) - 1
+	}
+	return nil
 }
 
 // toHost validates and builds a config.Host from the form values.
@@ -286,6 +291,9 @@ func (m Model) toHost() (config.Host, error) {
 			return config.Host{}, fmt.Errorf("Port must be 1–65535")
 		}
 		port = n
+	}
+	if err := config.ValidateMappings(m.mappings); err != nil {
+		return config.Host{}, fmt.Errorf("Mappings: %w", err)
 	}
 
 	h := config.Host{

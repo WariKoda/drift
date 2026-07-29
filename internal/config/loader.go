@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -19,6 +20,22 @@ func Load(startDir string) (*MergedConfig, error) {
 	project, projectRoot, err := loadProject(startDir)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, host := range global.Hosts {
+		if err := ValidateMappings(host.Mappings); err != nil {
+			return nil, fmt.Errorf("global host %q mappings: %w", host.Name, err)
+		}
+	}
+	if project != nil {
+		if err := ValidateMappings(project.Mappings); err != nil {
+			return nil, fmt.Errorf("project mappings: %w", err)
+		}
+		for _, host := range project.Hosts {
+			if err := ValidateMappings(host.Mappings); err != nil {
+				return nil, fmt.Errorf("project host %q mappings: %w", host.Name, err)
+			}
+		}
 	}
 
 	return merge(global, project, projectRoot), nil

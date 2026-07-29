@@ -127,11 +127,12 @@ einstufen und auf den Server zurückladen.
 - Reale In-Process-SFTP-Protokolltests decken erfolgreichen Austausch,
   Moduserhalt, Fehler nach dem Staging und Symlink-Ziele ab.
 
-Verbleibendes Integrationsrisiko: In der lokalen Audit-Umgebung ist kein
-echter FTP-/FTPS-Testserver vorhanden. Das Verhalten von `RNTO` beim Ersetzen
-vorhandener Dateien und die serverseitigen Standardberechtigungen müssen vor
-dem Release noch gegen die unterstützten FTP-Server geprüft werden. Der Code
-verwendet bewusst keinen unsicheren Delete-plus-Rename-Fallback.
+Verbleibendes Integrationsrisiko: Der lokale FTP-Protokolltest deckt gezielt
+die Serialisierung ab, ist aber kein vollständiger FTP-/FTPS-Produktserver.
+Das Verhalten von `RNTO` beim Ersetzen vorhandener Dateien und die
+serverseitigen Standardberechtigungen müssen vor dem Release noch gegen die
+unterstützten FTP-Server geprüft werden. Der Code verwendet bewusst keinen
+unsicheren Delete-plus-Rename-Fallback.
 
 ### P1.3 Mappings können Root-Grenzen verlassen oder kollidieren
 
@@ -216,6 +217,25 @@ eine unbrauchbare Verbindung.
 - In der TUI nur eine Operation pro Verbindung zulassen.
 - Wiederholte Quick-Aktionen und Refresh während Bulk-Sync sperren.
 - Concurrency-Tests mit einem realen lokalen FTP-Server ergänzen.
+
+**Status: behoben auf `fix/critical-sync-audit`**
+
+- Jede FTP-/FTPS-Clientinstanz serialisiert ihre Control- und
+  Datenverbindungsoperationen über einen eigenen Mutex.
+- Die Sperre eines streamingbasierten `Open` bleibt bis zum `Close` des
+  zurückgegebenen Readers aktiv. Wiederholtes `Close` ist sicher und gibt die
+  Sperre nur einmal frei.
+- `ReadFile` prüft neben Lesefehlern jetzt auch den abschließenden
+  FTP-Transferstatus.
+- Der Remote-Browser startet pro Verbindung nur einen Verzeichnis-Read und
+  verhindert währenddessen Refresh, Host-/Screenwechsel und die Übergabe der
+  Verbindung an die Diffview.
+- Die Diffview führt einen eigenen Zustand für Quick-Uploads und
+  Quick-Downloads. Während jeder Remote-Aktion sind weitere Quick-, Bulk- und
+  Refresh-Aktionen sowie das Schließen der Verbindung gesperrt.
+- Ein echter lokaler In-Process-FTP-Protokolltest hält einen `RETR`-Stream
+  geöffnet und stellt sicher, dass `SIZE` erst nach dessen `Close` beim Server
+  ankommt. TUI-Tests decken die Aktionssperren in Browser und Diffview ab.
 
 ## P2-Befunde
 
@@ -471,7 +491,7 @@ Die Punkte werden einzeln implementiert, getestet und überprüft:
 - [x] P1.1 Binär-/Großdateien korrekt als geändert erkennen
 - [x] P1.2 Uploads und Downloads atomar ausführen
 - [x] P1.3 Mapping-Grenzen und Kollisionen validieren
-- [ ] P1.4 FTP-Operationen pro Verbindung serialisieren
+- [x] P1.4 FTP-Operationen pro Verbindung serialisieren
 - [ ] P2.1 Bestehende FTP-Verbindung für einen Diff-Worker verwenden
 - [ ] P2.2 Cancellation und Operations-Timeouts einführen
 - [ ] P2.3 FTP-Stat robust implementieren

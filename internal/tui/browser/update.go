@@ -265,6 +265,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync trigger ──────────────────────────────────
 	case keyS:
+		if m.remoteLoading || m.remoteReading {
+			m.statusMsg = "Wait for the remote operation to finish"
+			break
+		}
 		if m.Selection.Count()+m.RemoteSelection.Count() == 0 {
 			m.statusMsg = "No files marked — use [Space] to mark files first"
 			break
@@ -283,14 +287,26 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Remote browser host ────────────────────────────
 	case keyAt:
+		if m.remoteLoading || m.remoteReading {
+			m.statusMsg = "Wait for the remote operation to finish"
+			break
+		}
 		return m, func() tea.Msg { return MsgBrowseRemoteRequested{} }
 
 	// ── Host Manager ───────────────────────────────────
 	case "H":
+		if m.remoteLoading || m.remoteReading {
+			m.statusMsg = "Wait for the remote operation to finish"
+			break
+		}
 		return m, func() tea.Msg { return MsgOpenHostManager{} }
 
 	// ── Project Dashboard ──────────────────────────────
 	case "P":
+		if m.remoteLoading || m.remoteReading {
+			m.statusMsg = "Wait for the remote operation to finish"
+			break
+		}
 		return m, func() tea.Msg { return MsgOpenDashboard{} }
 
 	// ── Fuzzy file finder ──────────────────────────────
@@ -306,6 +322,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// ── Refresh ───────────────────────────────────────
 	case keyR:
 		if m.activePane == PaneRemote && m.remoteHost != nil {
+			if m.remoteLoading || m.remoteReading {
+				m.statusMsg = "Wait for the remote operation to finish"
+				break
+			}
 			h := *m.remoteHost
 			cmd := m.StartRemote(h)
 			return m, cmd
@@ -325,7 +345,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
-	if m.remoteLoading || m.remoteConn == nil || len(m.remoteEntries) == 0 {
+	if m.remoteLoading || m.remoteReading || m.remoteConn == nil || len(m.remoteEntries) == 0 {
 		return m, nil
 	}
 	entry := m.remoteEntries[m.remoteCursor]
@@ -340,6 +360,7 @@ func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
 		return m, nil
 	}
 	entry.Expanded = true // optimistic spinner/guard against duplicate expand
+	m.remoteReading = true
 	m.remoteStatus = "Loading remote: " + entry.Path
 	return m, readRemoteDirCmd(m.remoteConn, entry.Path)
 }

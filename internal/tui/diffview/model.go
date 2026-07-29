@@ -198,6 +198,7 @@ type Model struct {
 	scroll         int
 	refreshing     bool                 // true while async refresh is in flight
 	syncing        bool                 // true while bulk sync is in flight
+	quickSyncing   bool                 // true while quick upload/download is in flight
 	syncStatus     string               // last bulk sync result message
 	syncErrors     []string             // per-file errors from the last bulk sync
 	showErrors     bool                 // true while the error overlay is open

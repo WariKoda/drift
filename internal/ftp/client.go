@@ -27,6 +27,7 @@ import (
 // Client wraps an FTP connection.
 type Client struct {
 	conn *ftplib.ServerConn
+	opMu sync.Mutex
 	Host config.Host
 }
 
@@ -69,11 +70,16 @@ func (c *Client) Close() error {
 	if c == nil {
 		return nil
 	}
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	return c.conn.Quit()
 }
 
 // Stat returns file info for a remote path.
 func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	size, err := c.conn.FileSize(remotePath)
 	if err != nil {
 		// Check if it's a directory by attempting to list it.
@@ -95,6 +101,9 @@ func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
 // ReadDir reads one remote directory level.
 // Directories are returned before files; both groups sorted alphabetically.
 func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	items, err := c.conn.List(remotePath)
 	if err != nil {
 		return nil, err
@@ -137,11 +146,16 @@ func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
 
 // Open opens a remote file for streaming reads.
 func (c *Client) Open(remotePath string) (io.ReadCloser, error) {
+	c.opMu.Lock()
 	r, err := c.conn.Retr(remotePath)
 	if err != nil {
+		c.opMu.Unlock()
 		return nil, fmt.Errorf("retr %s: %w", remotePath, err)
 	}
-	return r, nil
+	return &lockedReadCloser{
+		ReadCloser: r,
+		unlock:     c.opMu.Unlock,
+	}, nil
 }
 
 // ReadFile reads the full contents of a remote file.
@@ -150,14 +164,21 @@ func (c *Client) ReadFile(remotePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
-	return io.ReadAll(r)
+	data, readErr := io.ReadAll(r)
+	closeErr := r.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // WriteFile atomically writes data to a remote path, creating parent
 // directories as needed. The existing target is replaced only after the
 // staged upload has completed successfully.
 func (c *Client) WriteFile(remotePath string, data []byte) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
 		return err
 	}
@@ -186,6 +207,9 @@ func (c *Client) WriteFile(remotePath string, data []byte) error {
 
 // UploadFile atomically copies a local file to a remote path.
 func (c *Client) UploadFile(localPath, remotePath string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
 		return err
 	}
@@ -219,6 +243,9 @@ func (c *Client) UploadFile(localPath, remotePath string) error {
 
 // DownloadFile atomically copies a remote file to a local path.
 func (c *Client) DownloadFile(remotePath, localPath string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+
 	r, err := c.conn.Retr(remotePath)
 	if err != nil {
 		return fmt.Errorf("retr %s: %w", remotePath, err)
@@ -310,6 +337,8 @@ const maxWalkWorkers = 4
 
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
 func (c *Client) WalkFiles(remoteRoot string, fn func(string) error) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	return c.parallelWalkFiles(remoteRoot, fn)
 }
 
@@ -415,6 +444,8 @@ func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.Wait
 
 // DeleteFile removes a file on the remote host.
 func (c *Client) DeleteFile(remotePath string) error {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
 	return c.conn.Delete(remotePath)
 }
 
@@ -451,6 +482,25 @@ func stagingName(base string) (string, error) {
 		return "", fmt.Errorf("generate staging name: %w", err)
 	}
 	return "." + base + ".drift-tmp-" + hex.EncodeToString(token[:]), nil
+}
+
+// lockedReadCloser keeps the FTP control connection reserved for the complete
+// lifetime of a data transfer. FTP permits only one active data connection per
+// control connection, so releasing the client lock when Retr returns would
+// still allow another command to corrupt the in-flight transfer.
+type lockedReadCloser struct {
+	io.ReadCloser
+	once     sync.Once
+	closeErr error
+	unlock   func()
+}
+
+func (r *lockedReadCloser) Close() error {
+	r.once.Do(func() {
+		r.closeErr = r.ReadCloser.Close()
+		r.unlock()
+	})
+	return r.closeErr
 }
 
 // ftpFileInfo is a minimal os.FileInfo backed by FTP metadata.

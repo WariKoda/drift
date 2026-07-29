@@ -59,6 +59,7 @@ type Model struct {
 	remoteCursor  int
 	remoteOffset  int
 	remoteLoading bool
+	remoteReading bool
 	remoteStatus  string
 
 	// status message (transient)
@@ -208,6 +209,7 @@ func (m *Model) CloseRemote() {
 		_ = m.remoteConn.Close()
 		m.remoteConn = nil
 	}
+	m.remoteReading = false
 }
 
 func (m Model) absWorkDir() string {

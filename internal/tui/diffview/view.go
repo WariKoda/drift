@@ -294,6 +294,8 @@ func (m Model) renderStatus(s *diff.Session) string {
 	switch {
 	case m.syncing:
 		keys = styles.Warn.Render(m.syncProgressLabel())
+	case m.quickSyncing:
+		keys = styles.Warn.Render("syncing current file…")
 	case m.refreshing:
 		keys = styles.Warn.Render("refreshing…")
 	case m.showErrors:
@@ -304,7 +306,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 			keys = styles.Err.Render("[e]errors  ") + keys
 		}
 	}
-	if m.syncStatus != "" && !m.syncing && !m.refreshing {
+	if m.syncStatus != "" && !m.remoteBusy() {
 		info = styles.File.Render(m.syncStatus)
 	}
 	gap := m.Width - lipgloss.Width(info) - lipgloss.Width(keys) - 2

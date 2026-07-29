@@ -44,6 +44,7 @@ func (m *Model) StartRemote(host config.Host) tea.Cmd {
 	m.remoteCursor = 0
 	m.remoteOffset = 0
 	m.remoteLoading = true
+	m.remoteReading = false
 	m.remoteStatus = "Connecting to " + host.Name + "…"
 	m.activePane = PaneRemote
 	return loadRemoteCmd(host)
@@ -111,6 +112,7 @@ func (m *Model) applyRemoteLoaded(msg MsgRemoteLoaded) {
 }
 
 func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
+	m.remoteReading = false
 	idx := m.remoteIndexByPath(msg.ParentPath)
 	if idx < 0 {
 		return

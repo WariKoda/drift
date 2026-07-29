@@ -146,7 +146,7 @@ func (m Model) viewMappingEdit() string {
 
 	sb.WriteString("  " + styles.Muted.Render("Local Path  — relative to project root (e.g. plugins/plugin1)"))
 	sb.WriteByte('\n')
-	sb.WriteString("  " + styles.Muted.Render("Deploy Path — absolute path on the server"))
+	sb.WriteString("  " + styles.Muted.Render("Deploy Path — relative to the host Root Path"))
 	sb.WriteByte('\n')
 	sb.WriteByte('\n')
 
@@ -155,6 +155,12 @@ func (m Model) viewMappingEdit() string {
 			sb.WriteString(f.View())
 			sb.WriteByte('\n')
 		}
+	}
+
+	if m.errMsg != "" {
+		sb.WriteByte('\n')
+		sb.WriteString("  " + styles.Err.Render(m.errMsg))
+		sb.WriteByte('\n')
 	}
 
 	sb.WriteByte('\n')

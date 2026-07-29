@@ -2,12 +2,17 @@
 package sftp
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -144,21 +149,74 @@ func (c *Client) ReadFile(remotePath string) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
-// WriteFile writes data to a remote path, creating parent directories as needed.
+// WriteFile atomically writes data to a remote path, creating parent
+// directories as needed. The existing target is replaced only after the
+// staged file has been written and closed successfully.
 func (c *Client) WriteFile(remotePath string, data []byte) error {
 	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
 		return err
 	}
-	f, err := c.sftp.Create(remotePath)
-	if err != nil {
-		return fmt.Errorf("create %s: %w", remotePath, err)
+
+	var mode os.FileMode
+	preserveMode := false
+	if info, statErr := c.sftp.Lstat(remotePath); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("remote target %s is not a regular file", remotePath)
+		}
+		mode = info.Mode().Perm()
+		preserveMode = true
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("stat remote %s: %w", remotePath, statErr)
 	}
-	defer f.Close()
-	_, err = f.Write(data)
-	return err
+	stageBase, err := stagingName(path.Base(remotePath))
+	if err != nil {
+		return err
+	}
+	stagePath := path.Join(path.Dir(remotePath), stageBase)
+	f, err := c.sftp.OpenFile(stagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		return fmt.Errorf("create staged remote file for %s: %w", remotePath, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = c.sftp.Remove(stagePath)
+		}
+	}()
+
+	_, writeErr := io.Copy(f, bytes.NewReader(data))
+	var chmodErr error
+	if writeErr == nil && preserveMode {
+		chmodErr = f.Chmod(mode)
+	}
+	closeErr := f.Close()
+	var transferErr error
+	if writeErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("write staged remote file for %s: %w", remotePath, writeErr))
+	}
+	if chmodErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("preserve remote mode for %s: %w", remotePath, chmodErr))
+	}
+	if closeErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("close staged remote file for %s: %w", remotePath, closeErr))
+	}
+	if transferErr != nil {
+		return transferErr
+	}
+
+	if posixErr := c.sftp.PosixRename(stagePath, remotePath); posixErr != nil {
+		if renameErr := c.sftp.Rename(stagePath, remotePath); renameErr != nil {
+			return fmt.Errorf(
+				"replace remote %s (posix rename: %v): %w",
+				remotePath, posixErr, renameErr,
+			)
+		}
+	}
+	committed = true
+	return nil
 }
 
-// UploadFile copies a local file to a remote path.
+// UploadFile atomically copies a local file to a remote path.
 func (c *Client) UploadFile(localPath, remotePath string) error {
 	src, err := os.Open(localPath)
 	if err != nil {
@@ -169,14 +227,64 @@ func (c *Client) UploadFile(localPath, remotePath string) error {
 	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
 		return err
 	}
-	dst, err := c.sftp.Create(remotePath)
-	if err != nil {
-		return fmt.Errorf("create remote %s: %w", remotePath, err)
-	}
-	defer dst.Close()
 
-	_, err = io.Copy(dst, src)
-	return err
+	var mode os.FileMode
+	preserveMode := false
+	if info, statErr := c.sftp.Lstat(remotePath); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("remote target %s is not a regular file", remotePath)
+		}
+		mode = info.Mode().Perm()
+		preserveMode = true
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("stat remote %s: %w", remotePath, statErr)
+	}
+	stageBase, err := stagingName(path.Base(remotePath))
+	if err != nil {
+		return err
+	}
+	stagePath := path.Join(path.Dir(remotePath), stageBase)
+	dst, err := c.sftp.OpenFile(stagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		return fmt.Errorf("create staged remote file for %s: %w", remotePath, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = c.sftp.Remove(stagePath)
+		}
+	}()
+
+	_, copyErr := io.Copy(dst, src)
+	var chmodErr error
+	if copyErr == nil && preserveMode {
+		chmodErr = dst.Chmod(mode)
+	}
+	closeErr := dst.Close()
+	var transferErr error
+	if copyErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("upload staged remote file for %s: %w", remotePath, copyErr))
+	}
+	if chmodErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("preserve remote mode for %s: %w", remotePath, chmodErr))
+	}
+	if closeErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("close staged remote file for %s: %w", remotePath, closeErr))
+	}
+	if transferErr != nil {
+		return transferErr
+	}
+
+	if posixErr := c.sftp.PosixRename(stagePath, remotePath); posixErr != nil {
+		if renameErr := c.sftp.Rename(stagePath, remotePath); renameErr != nil {
+			return fmt.Errorf(
+				"replace remote %s (posix rename: %v): %w",
+				remotePath, posixErr, renameErr,
+			)
+		}
+	}
+	committed = true
+	return nil
 }
 
 // ensureDir creates remotePath and all missing parent directories.
@@ -250,23 +358,101 @@ func (c *Client) WalkFiles(remoteRoot string, fn func(path string) error) error 
 	return nil
 }
 
-// DownloadFile copies a remote file to a local path.
+// DownloadFile atomically copies a remote file to a local path.
 func (c *Client) DownloadFile(remotePath, localPath string) error {
 	src, err := c.sftp.Open(remotePath)
 	if err != nil {
 		return fmt.Errorf("open remote %s: %w", remotePath, err)
 	}
-	defer src.Close()
+	srcClosed := false
+	defer func() {
+		if !srcClosed {
+			_ = src.Close()
+		}
+	}()
 
-	if err := os.MkdirAll(path.Dir(localPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", path.Dir(localPath), err)
+	localDir := filepath.Dir(localPath)
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", localDir, err)
 	}
-	dst, err := os.Create(localPath)
+
+	mode := os.FileMode(0o666)
+	preserveMode := false
+	if info, statErr := os.Lstat(localPath); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("local target %s is not a regular file", localPath)
+		}
+		mode = info.Mode().Perm()
+		preserveMode = true
+	} else if !os.IsNotExist(statErr) {
+		return fmt.Errorf("stat local %s: %w", localPath, statErr)
+	}
+
+	stageBase, err := stagingName(filepath.Base(localPath))
 	if err != nil {
-		return fmt.Errorf("create local %s: %w", localPath, err)
+		return err
 	}
-	defer dst.Close()
+	stagePath := filepath.Join(localDir, stageBase)
+	dst, err := os.OpenFile(stagePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return fmt.Errorf("create staged local file for %s: %w", localPath, err)
+	}
+	dstClosed := false
+	committed := false
+	defer func() {
+		if !dstClosed {
+			_ = dst.Close()
+		}
+		if !committed {
+			_ = os.Remove(stagePath)
+		}
+	}()
+	if preserveMode {
+		if err := dst.Chmod(mode); err != nil {
+			return fmt.Errorf("set staged local mode for %s: %w", localPath, err)
+		}
+	}
 
-	_, err = io.Copy(dst, src)
-	return err
+	_, copyErr := io.Copy(dst, src)
+	srcCloseErr := src.Close()
+	srcClosed = true
+	var syncErr error
+	if copyErr == nil && srcCloseErr == nil {
+		syncErr = dst.Sync()
+	}
+	dstCloseErr := dst.Close()
+	dstClosed = true
+
+	var transferErr error
+	if copyErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("download staged local file for %s: %w", localPath, copyErr))
+	}
+	if srcCloseErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("close remote %s: %w", remotePath, srcCloseErr))
+	}
+	if syncErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("sync staged local file for %s: %w", localPath, syncErr))
+	}
+	if dstCloseErr != nil {
+		transferErr = errors.Join(transferErr, fmt.Errorf("close staged local file for %s: %w", localPath, dstCloseErr))
+	}
+	if transferErr != nil {
+		return transferErr
+	}
+
+	if err := os.Rename(stagePath, localPath); err != nil {
+		return fmt.Errorf("replace local %s: %w", localPath, err)
+	}
+	committed = true
+	return nil
+}
+
+// stagingName returns an unpredictable hidden sibling name. Staging files must
+// live beside their target so the final rename stays on the same filesystem.
+func stagingName(base string) (string, error) {
+	var token [16]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", fmt.Errorf("generate staging name: %w", err)
+	}
+	return "." + base + ".drift-tmp-" + hex.EncodeToString(token[:]), nil
 }

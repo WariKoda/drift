@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -11,6 +12,9 @@ import (
 // SaveGlobalHost adds or replaces a host in the global config file.
 // If oldName != "" the host with that name is replaced; otherwise a new host is appended.
 func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
+	if err := ValidateMappings(h.Mappings); err != nil {
+		return fmt.Errorf("host %q mappings: %w", h.Name, err)
+	}
 	hosts := replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	cfg.GlobalHosts = hosts
 	rebuildMerged(cfg)
@@ -26,6 +30,12 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 
 // SaveProjectHost adds or replaces a host in the project config file.
 func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
+	if err := ValidateMappings(h.Mappings); err != nil {
+		return fmt.Errorf("host %q mappings: %w", h.Name, err)
+	}
+	if err := ValidateMappings(cfg.Mappings); err != nil {
+		return fmt.Errorf("project mappings: %w", err)
+	}
 	hosts := replaceOrAppend(cfg.ProjectHosts, h, oldName)
 	cfg.ProjectHosts = hosts
 	rebuildMerged(cfg)
@@ -82,6 +92,11 @@ func removeHost(hosts []Host, name string) []Host {
 }
 
 func writeGlobal(cfg GlobalConfig) error {
+	for _, host := range cfg.Hosts {
+		if err := ValidateMappings(host.Mappings); err != nil {
+			return fmt.Errorf("host %q mappings: %w", host.Name, err)
+		}
+	}
 	path := globalConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -90,6 +105,14 @@ func writeGlobal(cfg GlobalConfig) error {
 }
 
 func writeProject(cfg ProjectConfig, projectRoot string) error {
+	if err := ValidateMappings(cfg.Mappings); err != nil {
+		return fmt.Errorf("project mappings: %w", err)
+	}
+	for _, host := range cfg.Hosts {
+		if err := ValidateMappings(host.Mappings); err != nil {
+			return fmt.Errorf("host %q mappings: %w", host.Name, err)
+		}
+	}
 	dir := filepath.Join(projectRoot, ".drift")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

@@ -214,10 +214,15 @@ func (m Model) handleMappingEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.sub = subMappingList
+		m.errMsg = ""
 
 	case "ctrl+s":
-		m.saveMappingEdit()
-		m.sub = subMappingList
+		if err := m.saveMappingEdit(); err != nil {
+			m.errMsg = err.Error()
+		} else {
+			m.errMsg = ""
+			m.sub = subMappingList
+		}
 
 	case "tab", "down":
 		m.editFocusRow++
@@ -235,8 +240,12 @@ func (m Model) handleMappingEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case "enter":
 		if m.editFocusRow == 1 {
-			m.saveMappingEdit()
-			m.sub = subMappingList
+			if err := m.saveMappingEdit(); err != nil {
+				m.errMsg = err.Error()
+			} else {
+				m.errMsg = ""
+				m.sub = subMappingList
+			}
 		} else {
 			m.editFocusRow++
 			m.applyEditFocus()
@@ -245,6 +254,7 @@ func (m Model) handleMappingEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 	default:
 		if m.editFocusRow >= 0 && m.editFocusRow < 2 && m.editFields[m.editFocusRow] != nil {
 			m.editFields[m.editFocusRow].HandleKey(msg)
+			m.errMsg = ""
 		}
 	}
 

@@ -13,18 +13,23 @@ import (
 
 // Mapper translates between local absolute paths and remote absolute paths.
 type Mapper struct {
-	projectRoot string
-	mappings    []config.Mapping // project-level fallback
-	host        config.Host
+	projectRoot   string
+	mappings      []config.Mapping // project-level fallback
+	host          config.Host
+	validationErr error
 }
 
 // New creates a Mapper for the given host and project mappings.
 func New(projectRoot string, mappings []config.Mapping, host config.Host) *Mapper {
-	return &Mapper{
+	mapper := &Mapper{
 		projectRoot: filepath.Clean(projectRoot),
 		mappings:    mappings,
 		host:        host,
 	}
+	if err := config.ValidateMappings(mapper.activeMappings()); err != nil {
+		mapper.validationErr = fmt.Errorf("pathmap: invalid mappings: %w", err)
+	}
+	return mapper
 }
 
 // activeMappings returns the effective mapping list.
@@ -40,6 +45,9 @@ func (m *Mapper) activeMappings() []config.Mapping {
 // When any effective mappings are configured, the file must match one of them.
 // Falls back to host.RootPath + relative path when no mappings are configured.
 func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
+	if m.validationErr != nil {
+		return "", m.validationErr
+	}
 	absLocal = filepath.Clean(absLocal)
 
 	mappings := m.activeMappings()
@@ -61,14 +69,11 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 	if best != "" {
 		remoteLocal := filepath.ToSlash(strings.TrimPrefix(absLocal, best))
 		remoteLocal = strings.TrimPrefix(remoteLocal, "/")
-		remoteBase := strings.TrimSuffix(
-			filepath.ToSlash(filepath.Join(m.host.RootPath, bestMapping.Remote)),
-			"/",
-		)
+		remoteBase := cleanRemotePath(path.Join(m.host.RootPath, bestMapping.Remote))
 		if remoteLocal == "" || remoteLocal == "." {
 			return remoteBase, nil
 		}
-		return remoteBase + "/" + remoteLocal, nil
+		return path.Join(remoteBase, remoteLocal), nil
 	}
 
 	// Mappings are configured but no match → file is not configured for sync
@@ -77,34 +82,34 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 	}
 
 	// Fallback: use path relative to project root
+	if !hasLocalPathPrefix(absLocal, m.projectRoot) {
+		return "", fmt.Errorf("pathmap: local path %q is outside project root %q", absLocal, m.projectRoot)
+	}
 	rel, err := filepath.Rel(m.projectRoot, absLocal)
 	if err != nil {
 		return "", fmt.Errorf("pathmap: cannot relativize %q against project root %q: %w", absLocal, m.projectRoot, err)
 	}
-	remoteBase := strings.TrimSuffix(filepath.ToSlash(m.host.RootPath), "/")
+	remoteBase := cleanRemotePath(m.host.RootPath)
 	relSuffix := filepath.ToSlash(rel)
 	if relSuffix == "" || relSuffix == "." {
-		if remoteBase == "" {
-			return "/", nil
-		}
 		return remoteBase, nil
 	}
-	return remoteBase + "/" + relSuffix, nil
+	return path.Join(remoteBase, relSuffix), nil
 }
 
 // RemoteToLocal converts an absolute remote path to an absolute local path.
 func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
-	absRemote = filepath.ToSlash(absRemote)
+	if m.validationErr != nil {
+		return "", m.validationErr
+	}
+	absRemote = cleanRemotePath(absRemote)
 
 	mappings := m.activeMappings()
 	best := ""
 	bestMapping := config.Mapping{}
 
 	for _, mp := range mappings {
-		remoteBase := strings.TrimSuffix(
-			filepath.ToSlash(filepath.Join(m.host.RootPath, mp.Remote)),
-			"/",
-		)
+		remoteBase := cleanRemotePath(path.Join(m.host.RootPath, mp.Remote))
 		if hasRemotePathPrefix(absRemote, remoteBase) {
 			if len(remoteBase) > len(best) {
 				best = remoteBase
@@ -129,10 +134,7 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 	}
 
 	// Fallback
-	rootPath := strings.TrimSuffix(filepath.ToSlash(m.host.RootPath), "/")
-	if rootPath == "" {
-		rootPath = "/"
-	}
+	rootPath := cleanRemotePath(m.host.RootPath)
 	if !hasRemotePathPrefix(absRemote, rootPath) {
 		return "", fmt.Errorf("pathmap: remote path %q is outside host root %q", absRemote, m.host.RootPath)
 	}

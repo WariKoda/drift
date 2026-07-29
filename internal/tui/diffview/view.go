@@ -282,6 +282,8 @@ func (m Model) renderStatus(s *diff.Session) string {
 	if s != nil && s.Result != nil {
 		if !s.Result.HasDiff() {
 			info = styles.Muted.Render("identical")
+		} else if s.Result.ContentDiff {
+			info = styles.File.Render("content differs")
 		} else {
 			added, removed := s.Result.Counts()
 			info = styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))

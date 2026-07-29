@@ -1,7 +1,9 @@
 package diff
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"net/textproto"
 	"os"
 	"path/filepath"
@@ -22,6 +24,13 @@ func (s stubRemoteClient) Stat(path string) (os.FileInfo, error) {
 
 func (s stubRemoteClient) ReadFile(path string) ([]byte, error) {
 	return s.readData, s.readErr
+}
+
+func (s stubRemoteClient) Open(path string) (io.ReadCloser, error) {
+	if s.readErr != nil {
+		return nil, s.readErr
+	}
+	return io.NopCloser(bytes.NewReader(s.readData)), nil
 }
 
 type stubFileInfo struct {
@@ -110,5 +119,114 @@ func TestCompare_TreatsFTP550AsNotFound(t *testing.T) {
 	}
 	if !result.LocalOnly {
 		t.Fatal("Compare did not treat FTP 550 as missing remote file")
+	}
+}
+
+func TestCompare_BinaryFilesUseContentForEquality(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteData []byte
+		wantDiff   bool
+	}{
+		{name: "different", remoteData: []byte{0, 1, 2, 4}, wantDiff: true},
+		{name: "identical", remoteData: []byte{0, 1, 2, 3}, wantDiff: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			localData := []byte{0, 1, 2, 3}
+			localPath := filepath.Join(t.TempDir(), "local.bin")
+			if err := os.WriteFile(localPath, localData, 0o644); err != nil {
+				t.Fatalf("WriteFile failed: %v", err)
+			}
+
+			result, err := Compare(localPath, "/remote/file.bin", stubRemoteClient{
+				statInfo: stubFileInfo{
+					name:    "file.bin",
+					size:    int64(len(tt.remoteData)),
+					modTime: time.Now().Add(time.Minute),
+				},
+				readData: tt.remoteData,
+			})
+			if err != nil {
+				t.Fatalf("Compare returned error: %v", err)
+			}
+			if !result.Binary {
+				t.Fatal("Compare did not mark binary content as binary")
+			}
+			if got := result.HasDiff(); got != tt.wantDiff {
+				t.Fatalf("HasDiff() = %v, want %v", got, tt.wantDiff)
+			}
+			if result.ContentDiff != tt.wantDiff {
+				t.Fatalf("ContentDiff = %v, want %v", result.ContentDiff, tt.wantDiff)
+			}
+		})
+	}
+}
+
+func TestCompare_LargeFilesUseStreamingContentComparison(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   bool
+		wantDiff bool
+	}{
+		{name: "different", mutate: true, wantDiff: true},
+		{name: "identical", wantDiff: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			localData := bytes.Repeat([]byte("a"), maxTextSize+1)
+			remoteData := bytes.Clone(localData)
+			if tt.mutate {
+				remoteData[len(remoteData)-1] = 'b'
+			}
+
+			localPath := filepath.Join(t.TempDir(), "large.dat")
+			if err := os.WriteFile(localPath, localData, 0o644); err != nil {
+				t.Fatalf("WriteFile failed: %v", err)
+			}
+
+			result, err := Compare(localPath, "/remote/large.dat", stubRemoteClient{
+				statInfo: stubFileInfo{
+					name:    "large.dat",
+					size:    int64(len(remoteData)),
+					modTime: time.Now().Add(time.Minute),
+				},
+				readData: remoteData,
+			})
+			if err != nil {
+				t.Fatalf("Compare returned error: %v", err)
+			}
+			if got := result.HasDiff(); got != tt.wantDiff {
+				t.Fatalf("HasDiff() = %v, want %v", got, tt.wantDiff)
+			}
+			if result.ContentDiff != tt.wantDiff {
+				t.Fatalf("ContentDiff = %v, want %v", result.ContentDiff, tt.wantDiff)
+			}
+		})
+	}
+}
+
+func TestCompare_LargeFilesWithDifferentSizesAlwaysDiffer(t *testing.T) {
+	localData := bytes.Repeat([]byte("a"), maxTextSize+1)
+	localPath := filepath.Join(t.TempDir(), "large.dat")
+	if err := os.WriteFile(localPath, localData, 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	result, err := Compare(localPath, "/remote/large.dat", stubRemoteClient{
+		statInfo: stubFileInfo{
+			name:    "large.dat",
+			size:    int64(len(localData) + 1),
+			modTime: time.Now().Add(time.Minute),
+		},
+		readErr: errors.New("content should not be read when sizes differ"),
+	})
+	if err != nil {
+		t.Fatalf("Compare returned error: %v", err)
+	}
+	if !result.HasDiff() || !result.ContentDiff {
+		t.Fatal("Compare did not mark different large-file sizes as changed")
 	}
 }

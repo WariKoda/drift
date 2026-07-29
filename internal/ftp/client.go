@@ -135,11 +135,20 @@ func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
 	return append(dirs, files...), nil
 }
 
-// ReadFile reads the full contents of a remote file.
-func (c *Client) ReadFile(remotePath string) ([]byte, error) {
+// Open opens a remote file for streaming reads.
+func (c *Client) Open(remotePath string) (io.ReadCloser, error) {
 	r, err := c.conn.Retr(remotePath)
 	if err != nil {
 		return nil, fmt.Errorf("retr %s: %w", remotePath, err)
+	}
+	return r, nil
+}
+
+// ReadFile reads the full contents of a remote file.
+func (c *Client) ReadFile(remotePath string) ([]byte, error) {
+	r, err := c.Open(remotePath)
+	if err != nil {
+		return nil, err
 	}
 	defer r.Close()
 	return io.ReadAll(r)

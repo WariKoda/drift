@@ -1,7 +1,11 @@
 package diff
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"io"
 	"net/textproto"
 	"os"
 	"strings"
@@ -15,6 +19,7 @@ const maxTextSize = 2 * 1024 * 1024 // 2 MB
 // RemoteClient is the subset of remote operations needed for diffing.
 type RemoteClient interface {
 	Stat(path string) (os.FileInfo, error)
+	Open(path string) (io.ReadCloser, error)
 	ReadFile(path string) ([]byte, error)
 }
 
@@ -106,6 +111,16 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 
 	if result.SizeLocal > maxTextSize || result.SizeRemote > maxTextSize {
 		result.Binary = true
+		if result.SizeLocal != result.SizeRemote {
+			result.ContentDiff = true
+			return result, nil
+		}
+
+		equal, err := contentEqual(localPath, remotePath, client)
+		if err != nil {
+			return result, err
+		}
+		result.ContentDiff = !equal
 		return result, nil
 	}
 
@@ -120,11 +135,46 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 
 	if isBinary(localData) || isBinary(remoteData) {
 		result.Binary = true
+		result.ContentDiff = !bytes.Equal(localData, remoteData)
 		return result, nil
 	}
 
 	result.Lines = lineDiff(string(localData), string(remoteData))
 	return result, nil
+}
+
+// contentEqual compares local and remote content with constant memory. It is
+// used when a line diff would be too expensive to build.
+func contentEqual(localPath, remotePath string, client RemoteClient) (bool, error) {
+	localFile, err := os.Open(localPath)
+	if err != nil {
+		return false, err
+	}
+	localSum, localSize, err := digestAndClose(localFile)
+	if err != nil {
+		return false, fmt.Errorf("hash local file %s: %w", localPath, err)
+	}
+
+	remoteFile, err := client.Open(remotePath)
+	if err != nil {
+		return false, err
+	}
+	remoteSum, remoteSize, err := digestAndClose(remoteFile)
+	if err != nil {
+		return false, fmt.Errorf("hash remote file %s: %w", remotePath, err)
+	}
+
+	return localSize == remoteSize && localSum == remoteSum, nil
+}
+
+func digestAndClose(r io.ReadCloser) ([sha256.Size]byte, int64, error) {
+	h := sha256.New()
+	size, readErr := io.Copy(h, r)
+	closeErr := r.Close()
+
+	var sum [sha256.Size]byte
+	copy(sum[:], h.Sum(nil))
+	return sum, size, errors.Join(readErr, closeErr)
 }
 
 // lineDiff computes a side-by-side line diff between local and remote text.

@@ -139,9 +139,18 @@ func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
 	return append(dirs, files...), nil
 }
 
+// Open opens a remote file for streaming reads.
+func (c *Client) Open(remotePath string) (io.ReadCloser, error) {
+	f, err := c.sftp.Open(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
 // ReadFile reads the full content of a remote file.
 func (c *Client) ReadFile(remotePath string) ([]byte, error) {
-	f, err := c.sftp.Open(remotePath)
+	f, err := c.Open(remotePath)
 	if err != nil {
 		return nil, err
 	}

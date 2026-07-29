@@ -73,6 +73,16 @@ Benutzer kann keine Sync-Richtung auswählen.
 - Tests für kleine Binärdateien, Dateien über 2 MiB und identische Binärdateien
   ergänzen.
 
+**Status: behoben auf `fix/critical-sync-audit`**
+
+- Nicht darstellbare Inhaltsunterschiede werden explizit als `ContentDiff`
+  geführt und von `HasDiff()` berücksichtigt.
+- Kleine Binärdateien werden bytegenau verglichen.
+- Große Dateien mit unterschiedlicher Größe gelten sofort als geändert.
+- Große Dateien gleicher Größe und mit abweichenden Metadaten werden über
+  streamingbasierte SHA-256-Hashes verglichen.
+- Identische Binär- und Großdateien bleiben aus der Diff-Session ausgefiltert.
+
 ### P1.2 Transfers überschreiben Ziele nicht atomar
 
 SFTP öffnet das endgültige Ziel vor dem Kopieren direkt mit `Create`:
@@ -458,7 +468,7 @@ Insbesondere fehlen Tests für:
 
 Die Punkte werden einzeln implementiert, getestet und überprüft:
 
-- [ ] P1.1 Binär-/Großdateien korrekt als geändert erkennen
+- [x] P1.1 Binär-/Großdateien korrekt als geändert erkennen
 - [x] P1.2 Uploads und Downloads atomar ausführen
 - [x] P1.3 Mapping-Grenzen und Kollisionen validieren
 - [ ] P1.4 FTP-Operationen pro Verbindung serialisieren

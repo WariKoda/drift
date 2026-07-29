@@ -33,11 +33,12 @@ type DiffResult struct {
 	RemoteOnly bool // file exists only on remote
 
 	// Metadata
-	Binary     bool
-	SizeLocal  int64
-	SizeRemote int64
-	ModLocal   time.Time
-	ModRemote  time.Time
+	Binary      bool
+	ContentDiff bool // content differs but has no renderable line diff
+	SizeLocal   int64
+	SizeRemote  int64
+	ModLocal    time.Time
+	ModRemote   time.Time
 
 	// Cached statistics over Lines. Lines is never mutated after Compare
 	// builds it, so these are computed once (lazily) and reused. Scanning the
@@ -58,7 +59,7 @@ func (r *DiffResult) ensureStats() {
 		return
 	}
 	r.statsReady = true
-	if r.LocalOnly || r.RemoteOnly {
+	if r.LocalOnly || r.RemoteOnly || r.ContentDiff {
 		r.differs = true
 	}
 	for _, l := range r.Lines {

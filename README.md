@@ -264,6 +264,24 @@ When effective `mappings` are configured, only files that fall under a mapping r
 | `password` | `password` (supports `$ENV_VAR`) |
 | `agent` | none — uses SSH agent |
 
+### Keep credentials out of version control
+
+`.drift/config.toml` lives inside your project, so it is easy to commit by accident. It
+holds hostnames, usernames and — for `password` auth — whatever you typed into the host
+form, stored verbatim. Add it to the project's `.gitignore`:
+
+```gitignore
+.drift/
+```
+
+Prefer `agent` or `keyfile` auth, or write `password = "$DEPLOY_PASSWORD"` and export the
+variable in your shell: drift expands `$ENV_VAR` at connect time, so the secret itself
+never reaches the file. The same applies to `passphrase`.
+
+If a config with a real password was already committed, treat that password as
+compromised and rotate it — removing the file in a later commit does not remove it from
+the history.
+
 ---
 
 ## Project Structure

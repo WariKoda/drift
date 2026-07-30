@@ -157,9 +157,87 @@ func TestDiffPageAndBoundaryNavigation(t *testing.T) {
 		t.Fatalf("G set offset to %d, want last full viewport at 16", model.scroll)
 	}
 
+	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyHome})
+	if model.scroll != 0 {
+		t.Fatalf("Home set offset to %d, want 0", model.scroll)
+	}
+
+	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyEnd})
+	if model.scroll != 16 {
+		t.Fatalf("End set offset to %d, want last full viewport at 16", model.scroll)
+	}
+
 	model, _ = model.handleKey(keyMsg("g"))
 	if model.scroll != 0 {
 		t.Fatalf("g set offset to %d, want 0", model.scroll)
+	}
+}
+
+func TestHunkNavigationClampsToLastFullViewport(t *testing.T) {
+	lines := make([]diff.DiffLine, 20)
+	lines[len(lines)-1].Kind = diff.LineModified
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
+		}},
+		Height: 12,
+	}
+
+	model, _ = model.handleKey(keyMsg("]"))
+	if model.scroll != 16 {
+		t.Fatalf("hunk navigation set offset to %d, want last full viewport at 16", model.scroll)
+	}
+}
+
+func TestShortDiffDoesNotScroll(t *testing.T) {
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 2)},
+		}},
+		Height: 12,
+	}
+
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyDown},
+		{Type: tea.KeyPgDown},
+		{Type: tea.KeyEnd},
+	} {
+		model, _ = model.handleKey(key)
+	}
+	if model.scroll != 0 {
+		t.Fatalf("short diff scrolled to offset %d, want 0", model.scroll)
+	}
+}
+
+func TestResizeClampsDiffScrollToNewViewport(t *testing.T) {
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
+		}},
+		Height: 12,
+		scroll: 16,
+	}
+
+	model.SetSize(100, 16) // viewport grows from four to eight lines
+	if model.scroll != 12 {
+		t.Fatalf("resize retained offset %d, want clamped offset 12", model.scroll)
+	}
+}
+
+func TestRefreshResetsDiffScroll(t *testing.T) {
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
+		}},
+		Height: 12,
+		scroll: 8,
+	}
+
+	model, _ = model.Update(MsgRefreshed{Sessions: []diff.Session{{
+		Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
+	}}})
+	if model.scroll != 0 {
+		t.Fatalf("refresh retained offset %d, want 0", model.scroll)
 	}
 }
 

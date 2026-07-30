@@ -51,6 +51,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.syncDirs[i] = autoDir(&m.sessions[i])
 		}
 		m.refreshing = false
+		m.scroll = 0
 		m.clampFileList()
 
 	case MsgSynced:
@@ -138,10 +139,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.scroll -= m.viewportHeight()
 		m.clampScroll()
 
-	case "g":
+	case "home", "g":
 		m.scroll = 0
 
-	case "G":
+	case "end", "G":
 		m.scroll = m.totalLines()
 		m.clampScroll()
 
@@ -220,6 +221,7 @@ func (m *Model) jumpNextHunk() {
 	for i := m.scroll + 1; i < len(lines); i++ {
 		if lines[i].Kind != 0 {
 			m.scroll = i
+			m.clampScroll()
 			return
 		}
 	}
@@ -235,6 +237,7 @@ func (m *Model) jumpPrevHunk() {
 	for i := m.scroll - 1; i >= 0; i-- {
 		if lines[i].Kind != 0 {
 			m.scroll = i
+			m.clampScroll()
 			return
 		}
 	}

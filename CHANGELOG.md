@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.3-alpha] - 2026-07-30
 ### Added
 - project-wide fuzzy file finder in the browser (`f`): search the whole project and multi-select files to mark for sync (powered by `sahilm/fuzzy`); results show the filename first with the directory dimmed alongside so look-alike names stay distinguishable
 - project dashboard: optional TUI landing screen listing registered projects
@@ -25,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - extract the form text-input widget into `internal/tui/textfield` (shared by host and project forms)
+- keep synchronized diff scrolling within the visible viewport after refreshes, file changes, hunk jumps, and terminal resizes; add `Home` / `End` navigation
 
 ## [0.1.2-alpha] - 2026-04-19
 ### Changed

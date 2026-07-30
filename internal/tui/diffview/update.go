@@ -55,9 +55,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case MsgSynced:
 		m.reloadSession(msg.SessionIdx)
+		m.quickSyncing = false
 		m.scroll = 0
 
 	case MsgSyncError:
+		m.quickSyncing = false
 		log.Error("sync error", "err", msg.Err)
 		if s := m.activeSession(); s != nil {
 			s.Err = msg.Err
@@ -76,6 +78,10 @@ func (m Model) startBulkSync(indices []int) (Model, tea.Cmd) {
 	m.syncProgress = &LoadProgressTracker{}
 	m.syncProgress.Set("Syncing…", 0, len(indices), false)
 	return m, tea.Batch(m.bulkSyncCmd(indices), syncProgressTickCmd(m.syncProgress))
+}
+
+func (m Model) remoteBusy() bool {
+	return m.syncing || m.quickSyncing || m.refreshing
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -139,7 +145,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync: current file with planned direction ──────────────────────
 	case "s":
-		if !m.syncing && !m.refreshing && m.activeIdx < len(m.syncDirs) {
+		if !m.remoteBusy() && m.activeIdx < len(m.syncDirs) {
 			if m.syncDirs[m.activeIdx] != DirNone {
 				return m.startBulkSync([]int{m.activeIdx})
 			}
@@ -147,7 +153,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync: all files with planned directions ────────────────────────
 	case "S":
-		if !m.syncing && !m.refreshing {
+		if !m.remoteBusy() {
 			indices := make([]int, len(m.sessions))
 			for i := range indices {
 				indices[i] = i
@@ -157,18 +163,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Quick upload/download (bypass planned direction) ───────────────
 	case "u":
-		if s := m.activeSession(); s != nil && s.Result != nil && !s.Result.RemoteOnly {
+		if s := m.activeSession(); !m.remoteBusy() && s != nil && s.Result != nil && !s.Result.RemoteOnly {
+			m.quickSyncing = true
 			return m, m.uploadCmd(m.activeIdx)
 		}
 
 	case "d":
-		if s := m.activeSession(); s != nil && s.Result != nil && !s.Result.LocalOnly {
+		if s := m.activeSession(); !m.remoteBusy() && s != nil && s.Result != nil && !s.Result.LocalOnly {
+			m.quickSyncing = true
 			return m, m.downloadCmd(m.activeIdx)
 		}
 
 	// ── Refresh all diffs ──────────────────────────────────────────────
 	case "r":
-		if !m.refreshing {
+		if !m.remoteBusy() {
 			m.refreshing = true
 			return m, m.refreshCmd()
 		}
@@ -183,6 +191,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "q", "esc":
 		if m.showErrors {
 			m.showErrors = false
+			return m, nil
+		}
+		if m.remoteBusy() {
 			return m, nil
 		}
 		return m, func() tea.Msg { return MsgBackToBrowser{} }

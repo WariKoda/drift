@@ -240,8 +240,12 @@ func (m *Model) Close() {
 	}
 }
 
-// SetSize updates terminal dimensions.
-func (m *Model) SetSize(w, h int) { m.Width = w; m.Height = h }
+// SetSize updates terminal dimensions and keeps the diff viewport in bounds.
+func (m *Model) SetSize(w, h int) {
+	m.Width = w
+	m.Height = h
+	m.clampFileList()
+}
 
 // fileListHeight returns the number of visible rows in the file list (capped at 5).
 func (m Model) fileListHeight() int {

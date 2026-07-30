@@ -144,7 +144,7 @@ other key to skip — you can always register later with `drift projects add .`.
 | `j` / `k` or `↑` / `↓` | Scroll diff content by line |
 | `PgUp` / `PgDn` | Scroll diff content by page |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
-| `g` / `G` | Jump to start / end of diff content |
+| `Home` / `g`, `End` / `G` | Jump to start / end of diff content |
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `Space` | Cycle sync direction for current file |
 | `A` | Cycle sync direction for all files |

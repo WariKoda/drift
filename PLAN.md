@@ -397,6 +397,10 @@ All network I/O runs as `tea.Cmd` (goroutines), never blocking the render loop.
 - When opening, switching, or reloading a file, automatically scroll to its first changed diff line.
 - Clamp the target to the available viewport and stay at the top when the file has no textual differences.
 
+### Diff Loading Indicator Polish
+- Center the existing “Loading differences…” indicator within the available loading screen.
+- Improve its visual presentation with the existing styles while keeping it responsive and within terminal bounds.
+
 ---
 
 ## Implementation Phases

@@ -1,5 +1,7 @@
 drift
 drift.exe
 dist/
+drift.log
 .drift/
 .idea/
+.claude/

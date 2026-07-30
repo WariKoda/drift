@@ -255,6 +255,26 @@ Worker-Verbindungsfehler endet.
 nur zusätzliche Worker bestmöglich separat verbinden. Bei fehlenden
 Zusatzverbindungen auf weniger Parallelität zurückfallen.
 
+**Status: behoben auf `fix/p2-1-diff-worker-connection`**
+
+- `forEachCompare` betreibt den ersten Worker immer mit der bereits
+  aufgebauten Verbindung. Dieser Worker läuft protokollunabhängig und ist der
+  einzige, dessen Existenz garantiert ist.
+- Nur zusätzliche FTP-/FTPS-Worker verbinden sich selbst. Ein Worker, der keine
+  eigene Verbindung erhält, beendet sich still und senkt damit die
+  Parallelität, statt seine Jobs mit einem Verbindungsfehler zu beenden.
+- Fehlgeschlagene Zusatzverbindungen werden über `log.Debug` protokolliert.
+- Der Fehlerkanal `connErr` in `compareFunc` entfällt, weil ein Worker ohne
+  Verbindung keine Jobs mehr annimmt. `loadDiffItems` und `refreshCmd` sind
+  entsprechend vereinfacht.
+- Für SFTP bleibt das Verhalten unverändert: alle Worker teilen die eine
+  gepipelinete Verbindung.
+- Ein realer lokaler In-Process-FTP-Server mit nur einer erlaubten Session
+  belegt, dass `loadDiffItems` alle Dateien fehlerfrei vergleicht und die
+  Zusatzworker trotzdem einen Verbindungsversuch unternehmen. Ein zweiter Test
+  mit mehreren erlaubten Sessions belegt, dass die Wiederverwendung den Pool
+  nicht auf einen Worker reduziert.
+
 ### P2.2 Dateioperationen besitzen keine Timeouts oder Cancellation
 
 Die Methoden von `remote.Client` akzeptieren keinen `context.Context`:
@@ -492,7 +512,7 @@ Die Punkte werden einzeln implementiert, getestet und überprüft:
 - [x] P1.2 Uploads und Downloads atomar ausführen
 - [x] P1.3 Mapping-Grenzen und Kollisionen validieren
 - [x] P1.4 FTP-Operationen pro Verbindung serialisieren
-- [ ] P2.1 Bestehende FTP-Verbindung für einen Diff-Worker verwenden
+- [x] P2.1 Bestehende FTP-Verbindung für einen Diff-Worker verwenden
 - [ ] P2.2 Cancellation und Operations-Timeouts einführen
 - [ ] P2.3 FTP-Stat robust implementieren
 - [ ] P2.4 Lokale Walk-Fehler und Spezialdateien korrekt behandeln

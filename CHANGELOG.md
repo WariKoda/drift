@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - redesigned dashboard with a centered DRIFT banner, project list and bottom action bar
 - quick-open projects from the dashboard with number keys `1`–`9`
 - browser status bar / help now lists `[H]hosts` and `[P]projects` (return to the dashboard from inside a project)
+- diff viewer supports line, half-page, full-page, and start/end scrolling within the selected file
 
 ### Changed
 - extract the form text-input widget into `internal/tui/textfield` (shared by host and project forms)

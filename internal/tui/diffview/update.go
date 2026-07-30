@@ -88,14 +88,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 
 	// ── File list navigation ───────────────────────────────────────────
-	case "j", "down", "tab":
+	case "tab", "n":
 		if m.activeIdx < len(m.sessions)-1 {
 			m.activeIdx++
 			m.scroll = 0
 			m.clampFileList()
 		}
 
-	case "k", "up", "shift+tab":
+	case "shift+tab", "p":
 		if m.activeIdx > 0 {
 			m.activeIdx--
 			m.scroll = 0
@@ -114,20 +114,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 
 	// ── Diff scroll ────────────────────────────────────────────────────
-	case "J":
+	case "j", "down", "J":
 		m.scroll++
 		m.clampScroll()
 
-	case "K":
+	case "k", "up", "K":
 		m.scroll--
 		m.clampScroll()
 
 	case "ctrl+d":
-		m.scroll += m.viewportHeight() / 2
+		m.scroll += max(1, m.viewportHeight()/2)
 		m.clampScroll()
 
 	case "ctrl+u":
-		m.scroll -= m.viewportHeight() / 2
+		m.scroll -= max(1, m.viewportHeight()/2)
+		m.clampScroll()
+
+	case "pgdown":
+		m.scroll += m.viewportHeight()
+		m.clampScroll()
+
+	case "pgup":
+		m.scroll -= m.viewportHeight()
 		m.clampScroll()
 
 	case "g":

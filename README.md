@@ -2,7 +2,7 @@
 
 A terminal TUI for browsing, diffing, and syncing files with remote hosts — think PHPStorm's "Browse Remote Host" and "Sync with Deployed To", but in your terminal.
 
-Supports **SFTP/SSH** and **FTP** targets. Runs on Linux and macOS.
+Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 
 ![drift screenshot](.github/assets/screenshots/drift-browser.png)
 
@@ -13,7 +13,8 @@ Supports **SFTP/SSH** and **FTP** targets. Runs on Linux and macOS.
 
 ## Features
 
-- File browser with multi-select (Space) and recursive directory marking
+- Side-by-side local/remote file browser with multi-select (Space) and recursive directory marking
+- Project-wide fuzzy file finder (`f`) for marking files
 - Side-by-side diff view for local vs. remote files
 - Per-file sync direction control: upload ↑, download ↓, delete local ✗, delete remote ✗, or skip —
 - Bulk sync direction toggle (A key cycles all files at once)
@@ -127,15 +128,20 @@ other key to skip — you can always register later with `drift projects add .`.
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` or `↑` / `↓` | Navigate |
-| `Space` | Mark / unmark file or directory |
-| `Enter` | Open directory |
-| `Backspace` | Go up one level |
+| `j` / `k` or `↑` / `↓` | Navigate in the active pane |
+| `h` / `←`, `l` / `→` / `Enter` | Collapse / open directory |
+| `g` / `G` | Jump to top / bottom |
+| `Tab` | Switch local / remote pane |
+| `@` | Choose or change the remote host |
+| `Space` | Mark / unmark file or directory in the active pane |
+| `V` / `*` | Mark the current level / invert the active pane's selection |
 | `f` | Fuzzy-find files across the project and mark them |
-| `s` | Sync marked files (opens host selector) |
+| `s` | Sync marked local and remote files |
+| `r` / `/` / `?` | Refresh active pane / filter / help |
 | `H` | Open host manager |
 | `P` | Open project dashboard |
-| `q` / `Esc` | Quit |
+| `Esc` | Clear filter and selections |
+| `q` / `Ctrl+C` | Quit |
 
 ### Diff View
 
@@ -153,7 +159,7 @@ other key to skip — you can always register later with `drift projects add .`.
 | `u` / `d` | Quick upload / download current file |
 | `e` | Toggle the last bulk-sync error list (when errors occurred) |
 | `r` | Refresh diffs |
-| `Esc` | Back to browser |
+| `q` / `Esc` | Back to browser |
 
 ### Host Manager
 
@@ -163,7 +169,7 @@ other key to skip — you can always register later with `drift projects add .`.
 | `e` / `Enter` | Edit host |
 | `d` | Delete host |
 | `t` | Test connection |
-| `Esc` | Back |
+| `q` / `Esc` | Back |
 
 ---
 
@@ -237,12 +243,12 @@ user      = "webuser"
 root_path = "/var/www"
 protocol  = "ftp"
 
+# For ftps with a self-signed / mismatched certificate (skips TLS verification):
+# insecure_tls = true
+
   [hosts.auth]
   type     = "password"
   password = "$DEPLOY_PASSWORD"
-
-  # For ftps with a self-signed / mismatched certificate (skips TLS verification):
-  # insecure_tls = true
 
   [[hosts.mappings]]
   local  = "plugins/plugin1"
@@ -294,23 +300,27 @@ internal/
   config/       config types, loader, writer
   project/      project registry model + store (projects.toml)
   diff/         diff engine, result types, renderer
-  ftp/          FTP client (jlaffaye/ftp)
+  ftp/          FTP/FTPS client (jlaffaye/ftp)
   fs/           local file walker, directory reader
+  log/          optional file-based diagnostics
   pathmap/      local ↔ remote path resolution with mapping rules
-  remote/       protocol-agnostic Client interface
-  sftp/         SFTP/SSH client
-  sync/         sync plan types
+  remote/       protocol-agnostic Client interface and connection factory
+  sftp/         SFTP client
+  ssh/          SSH auth and known_hosts verification
+  styles/       shared palettes and lipgloss styles
+  sync/         sync plan types and direction policy
   tui/
     app.go      root Bubble Tea model, screen routing
     browser/    file browser screen
     dashboard/  project dashboard screen
-    projectform/project create/edit form
+    projectform/ project create/edit form
     diffview/   diff + sync screen
     hostform/   host create/edit form (incl. mapping manager)
-    hostmanager/host list screen
+    hostmanager/ host list screen
     hostselector/sync target picker
+    statusbar/  reusable one-line status renderer
     textfield/  shared single-line text input widget
-    styles.go   shared lipgloss styles
+    styles.go   TUI-facing style aliases
 ```
 
 ---
@@ -332,7 +342,7 @@ make install
 ### Versioned build
 
 ```bash
-go build -ldflags "-X github.com/WariKoda/drift/cmd.Version=v0.1.0" -o drift .
+make release-build VERSION=vX.Y.Z
 ```
 
 ---

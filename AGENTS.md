@@ -4,7 +4,7 @@ Guidelines for AI agents working on this codebase.
 
 ## Project overview
 
-drift is a standalone terminal TUI (Go + Bubble Tea) for diffing and syncing local files with remote hosts over SFTP or FTP. It is inspired by PHPStorm's "Browse Remote Host" / "Sync with Deployed To" workflow.
+drift is a standalone terminal TUI (Go + Bubble Tea) for browsing, diffing, and syncing local files with remote hosts over SFTP, FTP, or FTPS. It is inspired by PHPStorm's "Browse Remote Host" / "Sync with Deployed To" workflow.
 
 ## Architecture
 
@@ -28,9 +28,9 @@ via `App.openProject` (`config.Load(path)` + `browser.New(path)`).
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
 
-Remote I/O goes through the `remote.Client` interface (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP). Use `remote.Connect(ctx, host)` — never instantiate protocol clients directly.
+Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host)` — never instantiate protocol clients directly.
 
-Path translation between local and remote is handled by `internal/pathmap`. When a host has `Mappings` configured, only files within those mappings may be synced. Falls back to `host.RootPath`-relative paths when no mappings are set.
+Path translation between local and remote is handled by `internal/pathmap`. When effective host-level or project-level fallback mappings are configured, only files within those mappings may be synced. Paths otherwise fall back to `host.RootPath`-relative translation.
 
 ## Code conventions
 
@@ -46,8 +46,8 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 
 ```go
 config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings)
-config.Mapping      // {Local, Remote} path pair — relative local, absolute remote
-remote.Client       // Stat, ReadFile, WriteFile, UploadFile, DownloadFile, WalkFiles, DeleteFile, Close
+config.Mapping      // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
+remote.Client       // Stat, ReadDir, Open, ReadFile, WriteFile, UploadFile, DownloadFile, WalkFiles, DeleteFile, Close
 diff.Session        // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}
 diff.DiffResult     // comparison output; HasDiff() reports whether files differ
 diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
@@ -64,9 +64,9 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 ## Adding a new protocol
 
 1. Implement `remote.Client` in a new package under `internal/`.
-2. Add a protocol constant to `config.Host.Protocol`.
-3. Add a case to `remote.Connect()`.
-4. Add a toggle option to `hostform` (`fProtocol` in `model.go`, `visibleRows`, `view.go`).
+2. Add the protocol value and connection case to `remote.Connect()`.
+3. Add the corresponding `hostform.Protocol` value and toggle option (`model.go`, `update.go`, `view.go`).
+4. Update `hostform.visibleRows()` when the protocol needs protocol-specific fields.
 
 ## File walker exclusions
 
@@ -96,9 +96,12 @@ for lifecycle. slog is concurrency-safe, so logging from `tea.Cmd` goroutines is
 ## Build & install
 
 ```bash
-go build -o drift .          # local binary
+make build                    # go build ./...
+make test                     # go test ./...
+make vet                      # go vet ./...
 make install                  # installs to ~/.local/bin/drift
 make update                   # rebuild + reinstall (use after code changes)
+make release-build VERSION=vX.Y.Z  # version-injected ./drift binary
 ```
 
 ## Git workflow

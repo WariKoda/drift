@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -269,29 +270,94 @@ func TestResizeClampsDiffScrollToNewViewport(t *testing.T) {
 	}
 }
 
-func TestRefreshResetsDiffScroll(t *testing.T) {
+func TestNewScrollsToFirstTextualDifference(t *testing.T) {
+	tests := []struct {
+		name   string
+		result *diff.DiffResult
+		want   int
+	}{
+		{
+			name:   "first difference",
+			result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 7)},
+			want:   7,
+		},
+		{
+			name:   "difference clamped to final viewport",
+			result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 19)},
+			want:   16,
+		},
+		{
+			name:   "no textual difference",
+			result: &diff.DiffResult{Lines: make([]diff.DiffLine, 20)},
+			want:   0,
+		},
+		{
+			name:   "binary difference",
+			result: &diff.DiffResult{Binary: true, ContentDiff: true, Lines: linesWithDifference(20, 7)},
+			want:   0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			model := New([]diff.Session{{Result: test.result}}, config.Host{}, nil, 100, 12)
+			if model.scroll != test.want {
+				t.Fatalf("initial scroll = %d, want %d", model.scroll, test.want)
+			}
+		})
+	}
+}
+
+func TestRefreshScrollsToFirstDifference(t *testing.T) {
 	model := Model{
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
 		}},
 		Height: 12,
-		scroll: 8,
+		scroll: 3,
 	}
 
 	model, _ = model.Update(MsgRefreshed{Sessions: []diff.Session{{
-		Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
+		Result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 8)},
 	}}})
-	if model.scroll != 0 {
-		t.Fatalf("refresh retained offset %d, want 0", model.scroll)
+	if model.scroll != 8 {
+		t.Fatalf("refresh scroll = %d, want first difference at 8", model.scroll)
 	}
 }
 
-func TestFileNavigationUsesTabAndResetsDiffScroll(t *testing.T) {
-	lines := make([]diff.DiffLine, 20)
+func TestSessionReloadScrollsToFirstDifferenceWhenActive(t *testing.T) {
 	model := Model{
 		sessions: []diff.Session{
-			{Result: &diff.DiffResult{ContentDiff: true, Lines: lines}},
-			{Result: &diff.DiffResult{ContentDiff: true, Lines: lines}},
+			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
+			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
+		},
+		Height: 13,
+		scroll: 3,
+	}
+
+	model, _ = model.Update(MsgSessionReloaded{
+		SessionIdx: 0,
+		Result:     &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 9)},
+	})
+	if model.scroll != 9 {
+		t.Fatalf("active session reload scroll = %d, want first difference at 9", model.scroll)
+	}
+
+	model.scroll = 4
+	model, _ = model.Update(MsgSessionReloaded{
+		SessionIdx: 1,
+		Result:     &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 12)},
+	})
+	if model.scroll != 4 {
+		t.Fatalf("inactive session reload changed scroll to %d, want 4", model.scroll)
+	}
+}
+
+func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
+	model := Model{
+		sessions: []diff.Session{
+			{Result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 2)}},
+			{Result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 7)}},
 		},
 		Height: 13,
 		scroll: 5,
@@ -301,8 +367,8 @@ func TestFileNavigationUsesTabAndResetsDiffScroll(t *testing.T) {
 	if model.activeIdx != 1 {
 		t.Fatalf("Tab selected file %d, want 1", model.activeIdx)
 	}
-	if model.scroll != 0 {
-		t.Fatalf("Tab retained scroll offset %d, want 0", model.scroll)
+	if model.scroll != 7 {
+		t.Fatalf("Tab scroll = %d, want first difference at 7", model.scroll)
 	}
 
 	model.scroll = 5
@@ -310,9 +376,17 @@ func TestFileNavigationUsesTabAndResetsDiffScroll(t *testing.T) {
 	if model.activeIdx != 0 {
 		t.Fatalf("Shift+Tab selected file %d, want 0", model.activeIdx)
 	}
-	if model.scroll != 0 {
-		t.Fatalf("Shift+Tab retained scroll offset %d, want 0", model.scroll)
+	if model.scroll != 2 {
+		t.Fatalf("Shift+Tab scroll = %d, want first difference at 2", model.scroll)
 	}
+}
+
+func linesWithDifference(total, changed int) []diff.DiffLine {
+	lines := make([]diff.DiffLine, total)
+	if changed >= 0 && changed < len(lines) {
+		lines[changed].Kind = diff.LineModified
+	}
+	return lines
 }
 
 func keyMsg(key string) tea.KeyMsg {

@@ -91,7 +91,33 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// SetSize updates the terminal dimensions.
+// StartsNetworkOperation reports whether key could perform network I/O and
+// must be blocked while another global activity is running.
+func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
+	switch key.String() {
+	case keyS, keyAt:
+		return true
+	case keyR:
+		return m.activePane == PaneRemote && m.remoteHost != nil
+	case keyL, keyRight, keyEnter:
+		return m.activePane == PaneRemote
+	default:
+		return false
+	}
+}
+
+// LoadingActivity reports an in-flight remote connection/root listing.
+func (m Model) LoadingActivity() (string, bool) {
+	if !m.remoteLoading {
+		return "", false
+	}
+	if m.remoteHost == nil {
+		return "Connecting to remote…", true
+	}
+	return "Connecting to " + m.remoteHost.Name + "…", true
+}
+
+// SetSize updates terminal dimensions.
 func (m *Model) SetSize(w, h int) {
 	m.Width = w
 	m.Height = h

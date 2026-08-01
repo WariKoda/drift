@@ -31,9 +31,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.showErrors = false
 		} else {
 			m.syncStatus = fmt.Sprintf("✓ %d  ✗ %d error(s) — [e] to view", msg.Done, len(msg.Errors))
+			m.showErrors = true
 		}
-		// refresh diffs after sync
+		// Refresh diffs as the final phase of the same global activity.
 		m.refreshing = true
+		m.activityLabel = "Refreshing diffs…"
+		m.activityTracker.Set(m.activityLabel, 0, len(m.sessions), len(m.sessions) == 0)
 		return m, m.refreshCmd()
 
 	case MsgSyncProgress:
@@ -51,16 +54,27 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.syncDirs[i] = autoDir(&m.sessions[i])
 		}
 		m.refreshing = false
+		m.finishActivity()
 		m.scroll = 0
 		m.clampFileList()
 
 	case MsgSynced:
-		m.reloadSession(msg.SessionIdx)
+		m.activityLabel = "Refreshing diff…"
+		m.activityTracker.Set(m.activityLabel, 0, 1, false)
+		return m, m.reloadSessionCmd(msg.SessionIdx)
+
+	case MsgSessionReloaded:
+		if msg.SessionIdx >= 0 && msg.SessionIdx < len(m.sessions) {
+			m.sessions[msg.SessionIdx].Result = msg.Result
+			m.sessions[msg.SessionIdx].Err = msg.Err
+		}
 		m.quickSyncing = false
+		m.finishActivity()
 		m.scroll = 0
 
 	case MsgSyncError:
 		m.quickSyncing = false
+		m.finishActivity()
 		log.Error("sync error", "err", msg.Err)
 		if s := m.activeSession(); s != nil {
 			s.Err = msg.Err
@@ -76,8 +90,7 @@ func (m Model) startBulkSync(indices []int) (Model, tea.Cmd) {
 	m.syncStatus = ""
 	m.syncDone = 0
 	m.syncTotal = len(indices)
-	m.syncProgress = &LoadProgressTracker{}
-	m.syncProgress.Set("Syncing…", 0, len(indices), false)
+	m.syncProgress = m.beginActivity("Syncing files…", len(indices))
 	return m, tea.Batch(m.bulkSyncCmd(indices), syncProgressTickCmd(m.syncProgress))
 }
 
@@ -174,12 +187,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "u":
 		if s := m.activeSession(); !m.remoteBusy() && s != nil && s.Result != nil && !s.Result.RemoteOnly {
 			m.quickSyncing = true
+			m.beginActivity("Uploading file…", 0)
 			return m, m.uploadCmd(m.activeIdx)
 		}
 
 	case "d":
 		if s := m.activeSession(); !m.remoteBusy() && s != nil && s.Result != nil && !s.Result.LocalOnly {
 			m.quickSyncing = true
+			m.beginActivity("Downloading file…", 0)
 			return m, m.downloadCmd(m.activeIdx)
 		}
 
@@ -187,6 +202,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "r":
 		if !m.remoteBusy() {
 			m.refreshing = true
+			m.beginActivity("Refreshing diffs…", len(m.sessions))
 			return m, m.refreshCmd()
 		}
 

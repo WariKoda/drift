@@ -3,9 +3,12 @@ package diffview
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/textproto"
 	"os"
 	"sort"
+	"strings"
 	stdsync "sync"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/WariKoda/drift/internal/pathmap"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -26,81 +30,12 @@ type MsgDiffLoaded struct {
 	Conn     remote.Client
 }
 
-// LoadProgress describes the current diff loading state for the loading screen.
-type LoadProgress struct {
-	Phase         string
-	Done          int
-	Total         int
-	Indeterminate bool
-}
-
-// LoadProgressTracker is shared between the loading command and periodic UI ticks.
-type LoadProgressTracker struct {
-	mu       stdsync.Mutex
-	progress LoadProgress
-	done     bool
-}
-
-// MsgDiffLoadProgress is emitted while the diff loading command is running.
-type MsgDiffLoadProgress struct {
-	Progress LoadProgress
-	Done     bool
-	Tracker  *LoadProgressTracker
-}
+// LoadProgressTracker shares operation progress with the global indicator.
+type LoadProgressTracker = loading.Tracker
 
 // NewLoadProgressTracker creates a tracker initialized to the first loading phase.
 func NewLoadProgressTracker() *LoadProgressTracker {
-	t := &LoadProgressTracker{}
-	t.Set("Connecting…", 0, 0, true)
-	return t
-}
-
-// Set updates the current loading phase and counters.
-func (t *LoadProgressTracker) Set(phase string, done, total int, indeterminate bool) {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.progress = LoadProgress{Phase: phase, Done: done, Total: total, Indeterminate: indeterminate}
-}
-
-// Inc advances the completed counter by one.
-func (t *LoadProgressTracker) Inc() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.progress.Done++
-}
-
-// Finish marks the loading command as complete.
-func (t *LoadProgressTracker) Finish() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.done = true
-}
-
-// Snapshot returns a consistent copy of the progress state.
-func (t *LoadProgressTracker) Snapshot() (LoadProgress, bool) {
-	if t == nil {
-		return LoadProgress{}, true
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.progress, t.done
-}
-
-// ProgressTickCmd periodically polls a LoadProgressTracker for UI updates.
-func ProgressTickCmd(tracker *LoadProgressTracker) tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
-		progress, done := tracker.Snapshot()
-		return MsgDiffLoadProgress{Progress: progress, Done: done, Tracker: tracker}
-	})
+	return loading.NewTracker("Connecting…")
 }
 
 // MsgDiffError is sent when SSH/SFTP connection or diff loading fails.
@@ -109,10 +44,17 @@ type MsgDiffError struct{ Err error }
 // MsgRefreshed is sent when a full diff refresh has completed.
 type MsgRefreshed struct{ Sessions []diff.Session }
 
+// SyncFailure describes one failed operation in a bulk sync.
+type SyncFailure struct {
+	Operation string
+	Path      string
+	Reason    string
+}
+
 // MsgBulkSyncDone is sent when bulk sync has finished.
 type MsgBulkSyncDone struct {
-	Done   int      // number of successfully synced files
-	Errors []string // one entry per failed file
+	Done   int           // number of successfully synced files
+	Errors []SyncFailure // one entry per failed file
 }
 
 // MsgSyncProgress is emitted periodically while a bulk sync is running.
@@ -139,6 +81,13 @@ type MsgSynced struct {
 
 // MsgSyncError is sent when a sync operation fails.
 type MsgSyncError struct{ Err error }
+
+// MsgSessionReloaded is sent after a quick sync re-compares the changed file.
+type MsgSessionReloaded struct {
+	SessionIdx int
+	Result     *diff.DiffResult
+	Err        error
+}
 
 // SyncDir indicates the planned sync direction for a file.
 type SyncDir int
@@ -191,24 +140,26 @@ func nextDir(cur SyncDir, s *diff.Session) SyncDir {
 
 // Model is the diff view screen.
 type Model struct {
-	sessions       []diff.Session
-	syncDirs       []SyncDir // planned direction per session (index-aligned)
-	activeIdx      int
-	fileListOffset int // scroll offset into the file list
-	scroll         int
-	refreshing     bool                 // true while async refresh is in flight
-	syncing        bool                 // true while bulk sync is in flight
-	quickSyncing   bool                 // true while quick upload/download is in flight
-	syncStatus     string               // last bulk sync result message
-	syncErrors     []string             // per-file errors from the last bulk sync
-	showErrors     bool                 // true while the error overlay is open
-	syncProgress   *LoadProgressTracker // live counter shared with the running bulk sync
-	syncDone       int                  // files processed so far in the active bulk sync
-	syncTotal      int                  // total files in the active bulk sync
-	host           config.Host
-	conn           remote.Client // kept open for sync ops
-	Width          int
-	Height         int
+	sessions        []diff.Session
+	syncDirs        []SyncDir // planned direction per session (index-aligned)
+	activeIdx       int
+	fileListOffset  int // scroll offset into the file list
+	scroll          int
+	refreshing      bool                 // true while async refresh is in flight
+	syncing         bool                 // true while bulk sync is in flight
+	quickSyncing    bool                 // true while quick upload/download is in flight
+	activityLabel   string               // label shown by the global loading indicator
+	activityTracker *LoadProgressTracker // progress shared with the global loading indicator
+	syncStatus      string               // last bulk sync result message
+	syncErrors      []SyncFailure        // per-file errors from the last bulk sync
+	showErrors      bool                 // true while the error overlay is open
+	syncProgress    *LoadProgressTracker // live counter shared with the running bulk sync
+	syncDone        int                  // files processed so far in the active bulk sync
+	syncTotal       int                  // total files in the active bulk sync
+	host            config.Host
+	conn            remote.Client // kept open for sync ops
+	Width           int
+	Height          int
 }
 
 // New creates a Model with pre-loaded sessions.
@@ -230,6 +181,26 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, width, h
 
 // Init satisfies the sub-model convention.
 func (m Model) Init() tea.Cmd { return nil }
+
+// LoadingActivity exposes the current network activity to the root indicator.
+func (m Model) LoadingActivity() (string, *LoadProgressTracker, bool) {
+	return m.activityLabel, m.activityTracker, m.remoteBusy()
+}
+
+func (m *Model) beginActivity(label string, total int) *LoadProgressTracker {
+	tracker := loading.NewTracker(label)
+	if total > 0 {
+		tracker.Set(label, 0, total, false)
+	}
+	m.activityLabel = label
+	m.activityTracker = tracker
+	return tracker
+}
+
+func (m *Model) finishActivity() {
+	m.activityLabel = ""
+	m.activityTracker = nil
+}
 
 // Close closes the SFTP connection. Call when leaving the diff view.
 func (m *Model) Close() {
@@ -602,6 +573,9 @@ func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, p
 	forEachCompare(host, conn, jobs, progress, func(idx int, workerConn remote.Client) {
 		item := items[idx]
 		result, diffErr := diff.Compare(item.LocalPath, item.RemotePath, workerConn)
+		if diffErr != nil {
+			log.Error("diff compare failed", "local", item.LocalPath, "remote", item.RemotePath, "err", diffErr)
+		}
 		if diffErr == nil && result != nil && !result.HasDiff() {
 			return // identical — skip
 		}
@@ -654,7 +628,9 @@ func sortedMarkedPaths(sel *fs.SelectionState) []string {
 func (m Model) uploadCmd(idx int) tea.Cmd {
 	s := m.sessions[idx]
 	conn := m.conn
+	tracker := m.activityTracker
 	return func() tea.Msg {
+		defer tracker.Finish()
 		if err := conn.UploadFile(s.LocalPath, s.RemotePath); err != nil {
 			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
@@ -667,7 +643,9 @@ func (m Model) uploadCmd(idx int) tea.Cmd {
 func (m Model) downloadCmd(idx int) tea.Cmd {
 	s := m.sessions[idx]
 	conn := m.conn
+	tracker := m.activityTracker
 	return func() tea.Msg {
+		defer tracker.Finish()
 		if err := conn.DownloadFile(s.RemotePath, s.LocalPath); err != nil {
 			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
@@ -685,7 +663,7 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 	return func() tea.Msg {
 		defer tracker.Finish()
 		done := 0
-		var errs []string
+		var errs []SyncFailure
 		for _, i := range indices {
 			if i >= len(sessions) || i >= len(syncDirs) {
 				tracker.Inc()
@@ -694,18 +672,23 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			s := sessions[i]
 			var err error
 			var op string
+			var failurePath string
 			switch syncDirs[i] {
 			case DirUpload:
 				op = "upload"
+				failurePath = s.LocalPath
 				err = conn.UploadFile(s.LocalPath, s.RemotePath)
 			case DirDownload:
 				op = "download"
+				failurePath = s.RemotePath
 				err = conn.DownloadFile(s.RemotePath, s.LocalPath)
 			case DirDeleteLocal:
-				op = "delete-local"
+				op = "delete local"
+				failurePath = s.LocalPath
 				err = os.Remove(s.LocalPath)
 			case DirDeleteRemote:
-				op = "delete-remote"
+				op = "delete remote"
+				failurePath = s.RemotePath
 				err = conn.DeleteFile(s.RemotePath)
 			default:
 				tracker.Inc() // DirNone — skip
@@ -713,7 +696,16 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			}
 			if err != nil {
 				log.Error("sync file", "op", op, "local", s.LocalPath, "remote", s.RemotePath, "err", err)
-				errs = append(errs, err.Error())
+				reason := strings.Join(strings.Fields(err.Error()), " ")
+				var protocolErr *textproto.Error
+				if errors.As(err, &protocolErr) {
+					reason = protocolErr.Error()
+				}
+				errs = append(errs, SyncFailure{
+					Operation: op,
+					Path:      failurePath,
+					Reason:    reason,
+				})
 			} else {
 				log.Debug("sync file ok", "op", op, "local", s.LocalPath, "remote", s.RemotePath)
 				done++
@@ -730,15 +722,20 @@ func (m Model) refreshCmd() tea.Cmd {
 	sessions := m.sessions
 	host := m.host
 	conn := m.conn
+	tracker := m.activityTracker
 	return func() tea.Msg {
+		defer tracker.Finish()
 		refreshed := make([]diff.Session, len(sessions))
 		jobs := make([]int, len(sessions))
 		for i := range sessions {
 			jobs[i] = i
 		}
-		forEachCompare(host, conn, jobs, nil, func(idx int, workerConn remote.Client) {
+		forEachCompare(host, conn, jobs, tracker, func(idx int, workerConn remote.Client) {
 			s := sessions[idx]
 			result, err := diff.Compare(s.LocalPath, s.RemotePath, workerConn)
+			if err != nil {
+				log.Error("diff refresh failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
+			}
 			refreshed[idx] = diff.Session{
 				LocalPath:  s.LocalPath,
 				RemotePath: s.RemotePath,
@@ -751,10 +748,18 @@ func (m Model) refreshCmd() tea.Cmd {
 	}
 }
 
-// reloadSession recomputes the diff for sessions[idx] after a sync.
-func (m *Model) reloadSession(idx int) {
-	s := &m.sessions[idx]
-	result, err := diff.Compare(s.LocalPath, s.RemotePath, m.conn)
-	s.Result = result
-	s.Err = err
+// reloadSessionCmd recomputes one diff asynchronously after a quick sync.
+func (m Model) reloadSessionCmd(idx int) tea.Cmd {
+	s := m.sessions[idx]
+	conn := m.conn
+	tracker := m.activityTracker
+	return func() tea.Msg {
+		defer tracker.Finish()
+		result, err := diff.Compare(s.LocalPath, s.RemotePath, conn)
+		if err != nil {
+			log.Error("diff refresh failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
+		}
+		tracker.Inc()
+		return MsgSessionReloaded{SessionIdx: idx, Result: result, Err: err}
+	}
 }

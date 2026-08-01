@@ -44,6 +44,16 @@ func New(cfg *config.MergedConfig, width, height int) Model {
 // Init implements tea.Model (partial).
 func (m Model) Init() tea.Cmd { return nil }
 
+// Testing reports whether a connection test is in flight.
+func (m Model) Testing() (string, bool) {
+	return m.testTarget, m.testing
+}
+
+// StartsNetworkOperation reports whether key would start a connection test.
+func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
+	return key.String() == "t" && m.currentEntry() != nil && !m.testing
+}
+
 // rebuild flattens global + project hosts into the entries slice.
 func (m *Model) rebuild() {
 	m.entries = nil

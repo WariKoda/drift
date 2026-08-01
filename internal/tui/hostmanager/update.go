@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// msgTestResult carries the outcome of an async connection test.
-type msgTestResult struct {
-	hostName string
-	err      error
+// MsgTestResult carries the outcome of an async connection test.
+type MsgTestResult struct {
+	HostName string
+	Err      error
 }
 
 // testCmd dials SSH+SFTP for host and immediately closes, returning the result.
@@ -23,10 +24,11 @@ func testCmd(host config.Host) tea.Cmd {
 		defer cancel()
 		conn, err := remote.Connect(ctx, host)
 		if err != nil {
-			return msgTestResult{hostName: host.Name, err: err}
+			log.Error("host connection test failed", "host", host.Name, "hostname", host.Hostname, "err", err)
+			return MsgTestResult{HostName: host.Name, Err: err}
 		}
 		conn.Close()
-		return msgTestResult{hostName: host.Name}
+		return MsgTestResult{HostName: host.Name}
 	}
 }
 
@@ -52,12 +54,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 
-	case msgTestResult:
+	case MsgTestResult:
 		m.testing = false
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.hostName, msg.err.Error())
+		if msg.Err != nil {
+			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.HostName, msg.Err.Error())
 		} else {
-			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.hostName)
+			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.HostName)
 		}
 
 	case tea.KeyMsg:

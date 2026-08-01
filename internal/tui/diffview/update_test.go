@@ -39,6 +39,27 @@ func TestQuickSyncBlocksOtherRemoteActions(t *testing.T) {
 	}
 }
 
+func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
+	model := Model{
+		sessions: []diff.Session{{
+			LocalPath:  "/local/file.txt",
+			RemotePath: "/remote/file.txt",
+			Result:     &diff.DiffResult{ContentDiff: true},
+		}},
+		syncDirs: []SyncDir{DirUpload},
+	}
+
+	model, _ = model.handleKey(keyMsg("u"))
+	model, cmd := model.Update(MsgSynced{SessionIdx: 0, Direction: DirUpload})
+	if cmd == nil {
+		t.Fatal("successful quick sync did not schedule an asynchronous diff refresh")
+	}
+	label, tracker, active := model.LoadingActivity()
+	if !active || tracker == nil || label != "Refreshing diff…" {
+		t.Fatalf("activity = (%q, %v, %v), want active diff refresh", label, tracker, active)
+	}
+}
+
 func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	model := Model{
 		quickSyncing: true,
@@ -52,6 +73,30 @@ func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	}
 	if model.sessions[0].Err == nil {
 		t.Fatal("quick-sync error was not recorded on the active session")
+	}
+}
+
+func TestBulkSyncFailureOpensDetails(t *testing.T) {
+	tracker := NewLoadProgressTracker()
+	model := Model{
+		syncing:         true,
+		activityTracker: tracker,
+		sessions:        []diff.Session{{LocalPath: "/project/file.php", RemotePath: "/srv/file.php"}},
+		syncDirs:        []SyncDir{DirUpload},
+	}
+	failure := SyncFailure{
+		Operation: "upload",
+		Path:      "/project/file.php",
+		Reason:    "permission denied",
+	}
+
+	model, _ = model.Update(MsgBulkSyncDone{Errors: []SyncFailure{failure}})
+
+	if !model.showErrors {
+		t.Fatal("bulk-sync failure details were not opened")
+	}
+	if len(model.syncErrors) != 1 || model.syncErrors[0] != failure {
+		t.Fatalf("sync errors = %#v, want %#v", model.syncErrors, failure)
 	}
 }
 

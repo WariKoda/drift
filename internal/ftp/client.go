@@ -45,8 +45,11 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	}
 	if host.Protocol == "ftps" {
 		opts = append(opts, ftplib.DialWithExplicitTLS(&tls.Config{
-			ServerName:         host.Hostname,
+			ServerName: host.Hostname,
+			// Some FTP servers negotiate TLS 1.3 successfully on the control
+			// connection but abort larger data transfers with status 426.
 			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: host.InsecureTLS, //nolint:gosec // opt-in per host for self-signed certs
 		}))
 	}

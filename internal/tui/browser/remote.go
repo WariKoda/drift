@@ -8,6 +8,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -58,10 +59,12 @@ func loadRemoteCmd(host config.Host) tea.Cmd {
 
 		conn, err := remote.Connect(ctx, host)
 		if err != nil {
+			log.Error("remote browser connect failed", "host", host.Name, "hostname", host.Hostname, "err", err)
 			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
 		}
 		entries, err := conn.ReadDir(root)
 		if err != nil {
+			log.Error("remote browser root read failed", "host", host.Name, "remote", root, "err", err)
 			_ = conn.Close()
 			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("read %s: %w", root, err)}
 		}
@@ -76,6 +79,7 @@ func readRemoteDirCmd(conn remote.Client, parentPath string) tea.Cmd {
 	return func() tea.Msg {
 		children, err := conn.ReadDir(parentPath)
 		if err != nil {
+			log.Error("remote browser directory read failed", "remote", parentPath, "err", err)
 			return MsgRemoteChildrenLoaded{ParentPath: parentPath, Err: fmt.Errorf("read %s: %w", parentPath, err)}
 		}
 		return MsgRemoteChildrenLoaded{ParentPath: parentPath, Children: children}

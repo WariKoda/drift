@@ -30,19 +30,21 @@ var (
 )
 
 var (
-	Dir       lipgloss.Style
-	File      lipgloss.Style
-	Link      lipgloss.Style
-	Marked    lipgloss.Style
-	Muted     lipgloss.Style
-	Header    lipgloss.Style
-	Sep       lipgloss.Style
-	Badge     lipgloss.Style
-	Key       lipgloss.Style
-	Warn      lipgloss.Style
-	Err       lipgloss.Style
-	CursorRow lipgloss.Style
-	Accent    lipgloss.Style
+	Dir             lipgloss.Style
+	File            lipgloss.Style
+	Link            lipgloss.Style
+	Marked          lipgloss.Style
+	Muted           lipgloss.Style
+	Header          lipgloss.Style
+	Sep             lipgloss.Style
+	Badge           lipgloss.Style
+	Key             lipgloss.Style
+	Warn            lipgloss.Style
+	Err             lipgloss.Style
+	CursorRow       lipgloss.Style
+	Accent          lipgloss.Style
+	LoadingBackdrop lipgloss.Style
+	LoadingBox      lipgloss.Style
 )
 
 func init() {
@@ -85,4 +87,9 @@ func ApplyPalette(p Palette) {
 	Err = lipgloss.NewStyle().Foreground(ColorError)
 	CursorRow = lipgloss.NewStyle().Background(ColorCursorBg)
 	Accent = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	LoadingBackdrop = lipgloss.NewStyle().Foreground(ColorMuted).Faint(true)
+	LoadingBox = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorAccent).
+		Padding(1, 2)
 }

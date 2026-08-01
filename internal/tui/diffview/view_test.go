@@ -48,6 +48,26 @@ func TestViewRendersSynchronizedDiffViewport(t *testing.T) {
 	}
 }
 
+func TestViewRendersBulkSyncFailureContext(t *testing.T) {
+	model := Model{
+		syncErrors: []SyncFailure{{
+			Operation: "upload",
+			Path:      "/project/file.php",
+			Reason:    "permission denied",
+		}},
+		showErrors: true,
+		Width:      100,
+		Height:     12,
+	}
+
+	rendered := model.View()
+	for _, want := range []string{"file.php", "upload", "permission denied"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("error details do not contain %q: %q", want, rendered)
+		}
+	}
+}
+
 func TestSyncProgressLabel(t *testing.T) {
 	tests := []struct {
 		name string

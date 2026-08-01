@@ -16,24 +16,37 @@ import (
 	"github.com/WariKoda/drift/internal/tui/hostform"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
 	"github.com/WariKoda/drift/internal/tui/hostselector"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/projectform"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+)
+
+type networkActivity int
+
+const (
+	activityNone networkActivity = iota
+	activityRemoteLoad
+	activityDiffLoad
+	activityHostTest
+	activityDiffView
 )
 
 // App is the root bubbletea Model.
 type App struct {
-	state            AppState
-	browser          browser.Model
-	hostManager      hostmanager.Model
-	hostForm         hostform.Model
-	hostSel          hostselector.Model
-	diffView         diffview.Model
-	diffLoadProgress diffview.LoadProgress
-	diffLoadTracker  *diffview.LoadProgressTracker
-	diffLoadPulse    int
-	dashboard        dashboard.Model
-	projectForm      projectform.Model
+	state       AppState
+	browser     browser.Model
+	hostManager hostmanager.Model
+	hostForm    hostform.Model
+	hostSel     hostselector.Model
+	diffView    diffview.Model
+	diffLoading bool
+	loader      loading.Model
+	activity    networkActivity
+	globalError string
+	dashboard   dashboard.Model
+	projectForm projectform.Model
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -119,6 +132,40 @@ func (a App) Init() tea.Cmd {
 	return a.browser.Init()
 }
 
+func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *loading.Tracker) tea.Cmd {
+	a.activity = kind
+	a.globalError = ""
+	return a.loader.Start(label, tracker)
+}
+
+func (a *App) finishNetworkActivity(kind networkActivity) {
+	if a.activity != kind {
+		return
+	}
+	a.loader.Finish()
+	a.activity = activityNone
+}
+
+func (a App) blocksNetworkKey(key tea.KeyMsg) bool {
+	switch a.state.Screen {
+	case ScreenBrowser:
+		return a.browser.StartsNetworkOperation(key)
+	case ScreenHostManager:
+		return a.hostManager.StartsNetworkOperation(key)
+	case ScreenHostSelector:
+		return key.String() == "enter"
+	default:
+		return false
+	}
+}
+
+func (a App) blocksQuitKey(key tea.KeyMsg) bool {
+	if key.String() != "q" {
+		return false
+	}
+	return a.state.Screen == ScreenBrowser || a.state.Screen == ScreenDashboard
+}
+
 // openProject re-roots the running app into p: it loads p's config, builds a
 // fresh browser at p.Path and switches to the browser screen.
 func (a *App) openProject(p project.Project) (tea.Cmd, error) {
@@ -192,6 +239,28 @@ func (a *App) persist(mutate func() error) error {
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd := a.loader.Update(msg); cmd != nil {
+		return a, cmd
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if a.loader.Active() && key.String() == "ctrl+c" {
+			return a, tea.Quit
+		}
+		if a.loader.Visible() {
+			if key.String() == "esc" {
+				a.loader.Hide()
+			}
+			return a, nil
+		}
+		if a.loader.Active() && (a.blocksQuitKey(key) || a.blocksNetworkKey(key)) {
+			return a, nil
+		}
+		if a.globalError != "" {
+			a.globalError = ""
+		}
+	}
+
 	switch msg := msg.(type) {
 
 	// ── Terminal resize ───────────────────────────────────────────────
@@ -285,14 +354,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Host != nil {
 			h := *msg.Host
 			tracker := diffview.NewLoadProgressTracker()
-			a.diffLoadProgress, _ = tracker.Snapshot()
-			a.diffLoadTracker = tracker
-			a.diffLoadPulse = 0
+			a.diffLoading = true
 			a.state.SelectedHost = &h
-			a.state.Screen = ScreenDiffLoading
 			return a, tea.Batch(
 				diffview.LoadCmd(h, a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker),
-				diffview.ProgressTickCmd(tracker),
+				a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 			)
 		}
 		a.state.HostSelectorPurpose = HostSelectorForSync
@@ -309,20 +375,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Host chosen → sync or load remote browser ─────────────────────
 	case hostselector.MsgHostChosen:
 		h := msg.Host
+		a.state.Screen = ScreenBrowser
 		if a.state.HostSelectorPurpose == HostSelectorForRemoteBrowse {
-			a.state.Screen = ScreenBrowser
 			cmd := a.browser.StartRemote(h)
-			return a, cmd
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", nil))
 		}
 		tracker := diffview.NewLoadProgressTracker()
-		a.diffLoadProgress, _ = tracker.Snapshot()
-		a.diffLoadTracker = tracker
-		a.diffLoadPulse = 0
+		a.diffLoading = true
 		a.state.SelectedHost = &h
-		a.state.Screen = ScreenDiffLoading
 		return a, tea.Batch(
 			diffview.LoadCmd(h, a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker),
-			diffview.ProgressTickCmd(tracker),
+			a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 		)
 
 	case hostselector.MsgSelectorCancelled:
@@ -330,11 +393,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case browser.MsgRemoteLoaded:
-		if a.state.Screen != ScreenBrowser {
-			if msg.Conn != nil {
-				_ = msg.Conn.Close()
-			}
-			return a, nil
+		a.finishNetworkActivity(activityRemoteLoad)
+		if msg.Err != nil {
+			a.globalError = msg.Err.Error()
 		}
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
@@ -348,25 +409,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.browser, cmd = a.browser.Update(msg)
 		return a, cmd
 
-	// ── Diff loading progress / loaded ────────────────────────────────
-	case diffview.MsgDiffLoadProgress:
-		if a.state.Screen != ScreenDiffLoading || msg.Tracker != a.diffLoadTracker {
-			return a, nil
-		}
-		a.diffLoadProgress = msg.Progress
-		a.diffLoadPulse++
-		if msg.Done {
-			return a, nil
-		}
-		return a, diffview.ProgressTickCmd(msg.Tracker)
-
+	// ── Diff loaded ───────────────────────────────────────────────────
 	case diffview.MsgDiffLoaded:
-		if a.state.Screen != ScreenDiffLoading {
+		if !a.diffLoading || a.state.SelectedHost == nil {
 			if msg.Conn != nil {
 				_ = msg.Conn.Close()
 			}
 			return a, nil
 		}
+		a.diffLoading = false
+		a.finishNetworkActivity(activityDiffLoad)
 		a.diffView = diffview.New(
 			msg.Sessions,
 			*a.state.SelectedHost,
@@ -374,16 +426,26 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.TermWidth,
 			a.state.TermHeight,
 		)
+		failed := 0
+		for _, session := range msg.Sessions {
+			if session.Err != nil {
+				failed++
+			}
+		}
+		if failed > 0 {
+			a.globalError = fmt.Sprintf("Comparison failed for %d file(s)", failed)
+		}
 		a.state.Screen = ScreenDiffView
 		return a, nil
 
 	case diffview.MsgDiffError:
 		log.Error("diff load failed", "err", msg.Err)
-		if a.state.Screen != ScreenDiffLoading {
+		if !a.diffLoading {
 			return a, nil
 		}
-		a.state.Screen = ScreenBrowser
-		a.browser.SetStatus("Connection failed: " + msg.Err.Error())
+		a.diffLoading = false
+		a.finishNetworkActivity(activityDiffLoad)
+		a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		return a, nil
 
 	// ── Diff view → back to browser ───────────────────────────────────
@@ -396,7 +458,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.state.SelectedHost != nil {
 			h := *a.state.SelectedHost
-			return a, a.browser.StartRemote(h)
+			cmd := a.browser.StartRemote(h)
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", nil))
 		}
 		return a, nil
 
@@ -409,6 +472,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostmanager.MsgBackToBrowser:
 		a.state.Screen = ScreenBrowser
 		return a, nil
+
+	case hostmanager.MsgTestResult:
+		a.finishNetworkActivity(activityHostTest)
+		if msg.Err != nil {
+			a.globalError = "Connection test failed: " + msg.Err.Error()
+		}
+		var cmd tea.Cmd
+		a.hostManager, cmd = a.hostManager.Update(msg)
+		return a, cmd
 
 	case hostmanager.MsgOpenForm:
 		if msg.Host != nil {
@@ -483,89 +555,67 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.projectForm, cmd = a.projectForm.Update(msg)
 		return a, cmd
 	case ScreenBrowser:
+		_, wasLoading := a.browser.LoadingActivity()
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
+		label, isLoading := a.browser.LoadingActivity()
+		if !wasLoading && isLoading && !a.loader.Active() {
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, label, nil))
+		}
 		return a, cmd
 	case ScreenHostSelector:
 		var cmd tea.Cmd
 		a.hostSel, cmd = a.hostSel.Update(msg)
 		return a, cmd
 	case ScreenHostManager:
+		_, wasTesting := a.hostManager.Testing()
 		var cmd tea.Cmd
 		a.hostManager, cmd = a.hostManager.Update(msg)
+		target, isTesting := a.hostManager.Testing()
+		if !wasTesting && isTesting && !a.loader.Active() {
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityHostTest, "Testing "+target+"…", nil))
+		}
 		return a, cmd
 	case ScreenHostForm:
 		var cmd tea.Cmd
 		a.hostForm, cmd = a.hostForm.Update(msg)
 		return a, cmd
 	case ScreenDiffView:
+		_, _, wasLoading := a.diffView.LoadingActivity()
 		var cmd tea.Cmd
 		a.diffView, cmd = a.diffView.Update(msg)
-		return a, cmd
-	case ScreenDiffLoading:
-		if key, ok := msg.(tea.KeyMsg); ok {
-			if key.String() == "esc" || key.String() == "q" {
-				a.state.Screen = ScreenBrowser
-				if a.state.SelectedHost != nil {
-					h := *a.state.SelectedHost
-					return a, a.browser.StartRemote(h)
+		label, tracker, isLoading := a.diffView.LoadingActivity()
+		if !wasLoading && isLoading && !a.loader.Active() {
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityDiffView, label, tracker))
+		}
+		if wasLoading && !isLoading {
+			a.finishNetworkActivity(activityDiffView)
+		}
+		switch result := msg.(type) {
+		case diffview.MsgSyncError:
+			a.globalError = result.Err.Error()
+		case diffview.MsgSessionReloaded:
+			if result.Err != nil {
+				a.globalError = "Diff refresh failed: " + result.Err.Error()
+			}
+		case diffview.MsgRefreshed:
+			failed := 0
+			for _, session := range result.Sessions {
+				if session.Err != nil {
+					failed++
 				}
 			}
+			if failed > 0 {
+				a.globalError = fmt.Sprintf("Diff refresh failed for %d file(s)", failed)
+			}
 		}
-		return a, nil
+		return a, cmd
 	}
 
 	return a, nil
 }
 
-func renderLoadingProgress(progress diffview.LoadProgress, pulse, width int) string {
-	phase := progress.Phase
-	if phase == "" {
-		phase = "Preparing…"
-	}
-
-	barWidth := width - 20
-	if barWidth > 42 {
-		barWidth = 42
-	}
-	if barWidth < 10 {
-		barWidth = 10
-	}
-
-	var bar string
-	var suffix string
-	if progress.Total > 0 && !progress.Indeterminate {
-		if progress.Done > progress.Total {
-			progress.Done = progress.Total
-		}
-		filled := progress.Done * barWidth / progress.Total
-		bar = styles.Marked.Render(strings.Repeat("█", filled)) + styles.Sep.Render(strings.Repeat("░", barWidth-filled))
-		percent := progress.Done * 100 / progress.Total
-		suffix = fmt.Sprintf(" %3d%%  %d/%d", percent, progress.Done, progress.Total)
-	} else {
-		segment := 5
-		if segment > barWidth {
-			segment = barWidth
-		}
-		span := barWidth - segment + 1
-		pos := 0
-		if span > 0 {
-			pos = pulse % span
-		}
-		bar = styles.Sep.Render(strings.Repeat("░", pos)) +
-			styles.Marked.Render(strings.Repeat("█", segment)) +
-			styles.Sep.Render(strings.Repeat("░", barWidth-pos-segment))
-		suffix = " …"
-	}
-
-	line := "  " + styles.Muted.Render(phase) + "\n" + "  [" + bar + "]" + styles.Muted.Render(suffix)
-	if width > 0 && lipgloss.Width(line) > width {
-		return lipgloss.NewStyle().MaxWidth(width).Render(line)
-	}
-	return line
-}
-
-func (a App) View() string {
+func (a App) baseView() string {
 	switch a.state.Screen {
 	case ScreenRegisterPrompt:
 		box := lipgloss.NewStyle().
@@ -596,15 +646,6 @@ func (a App) View() string {
 			lipgloss.Center,
 			a.hostSel.View(),
 		)
-	case ScreenDiffLoading:
-		host := ""
-		if a.state.SelectedHost != nil {
-			host = a.state.SelectedHost.Hostname
-		}
-		return styles.Header.Render("drift") + "\n\n" +
-			styles.Muted.Render("  Loading diffs for "+host+"…") + "\n\n" +
-			renderLoadingProgress(a.diffLoadProgress, a.diffLoadPulse, a.state.TermWidth) + "\n\n" +
-			styles.Muted.Render("  [Esc] cancel")
 	case ScreenDiffView:
 		return a.diffView.View()
 	case ScreenHostManager:
@@ -614,4 +655,46 @@ func (a App) View() string {
 	default:
 		return ""
 	}
+}
+
+// View renders the active screen and then applies global activity/error UI.
+func (a App) View() string {
+	base := a.baseView()
+	if a.loader.Visible() {
+		return a.loader.Overlay(base, a.state.TermWidth, a.state.TermHeight)
+	}
+	if a.loader.BackgroundVisible() {
+		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,
+			"⏳ "+a.loader.Status()+" — running in background", false)
+	}
+	if a.globalError != "" {
+		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,
+			"Error: "+a.globalError, true)
+	}
+	return base
+}
+
+func replaceStatusLine(view string, width, height int, text string, isError bool) string {
+	if height <= 0 {
+		return view
+	}
+	lines := strings.Split(view, "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	if width > 4 && lipgloss.Width(text) > width-4 {
+		text = ansi.Truncate(text, max(1, width-5), "") + "…"
+	}
+	line := "  " + text
+	if isError {
+		line = styles.Err.Render(line)
+	} else {
+		line = styles.Warn.Render(line)
+	}
+	line += strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
+	lines[height-1] = line
+	return strings.Join(lines, "\n")
 }

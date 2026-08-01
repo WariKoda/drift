@@ -236,12 +236,28 @@ func (m Model) renderErrorList(height int) string {
 	sb.WriteString("  " + title + styles.Muted.Render("  — [e] or [q] to close") + "\n")
 	used := 1
 
-	for _, e := range m.syncErrors {
+	for _, failure := range m.syncErrors {
 		if used >= height {
 			break
 		}
-		line := truncLeft(e, m.Width-4)
-		sb.WriteString("  " + styles.Err.Render("✗ ") + styles.Muted.Render(line) + "\n")
+		contentWidth := max(1, m.Width-4)
+		path := failure.Path
+		if path == "" {
+			path = "unknown file"
+		}
+		path = truncLeft(path, max(1, contentWidth/3))
+		operation := failure.Operation
+		if operation == "" {
+			operation = "sync"
+		}
+		prefix := "✗ " + path + " [" + operation + "] "
+		reason := failure.Reason
+		if reason == "" {
+			reason = "unknown error"
+		}
+		reason = truncLeft(reason, max(1, contentWidth-lipgloss.Width(prefix)))
+		sb.WriteString("  " + styles.Err.Render("✗ ") + styles.File.Render(path) +
+			styles.Muted.Render(" ["+operation+"] ") + styles.Err.Render(reason) + "\n")
 		used++
 	}
 

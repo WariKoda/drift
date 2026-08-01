@@ -42,6 +42,25 @@ func TestRemoteBrowserQueuesOnlyOneDirectoryRead(t *testing.T) {
 	}
 }
 
+func TestRemoteBrowserBlocksDirectoryReadDuringPreviewRead(t *testing.T) {
+	model := Model{
+		activePane:           PaneRemote,
+		remoteConn:           &driftftp.Client{},
+		remotePreviewReading: true,
+		remoteEntries: []*fs.FileEntry{
+			{Name: "directory", Path: "/directory", Kind: fs.EntryDir},
+		},
+	}
+
+	next, cmd := model.updateRemoteOpen()
+	if cmd != nil {
+		t.Fatal("directory read started while a preview read was active")
+	}
+	if next.remoteReading {
+		t.Fatal("blocked directory read marked the connection busy")
+	}
+}
+
 func TestRemoteBrowserBlocksConnectionReplacementDuringDirectoryRead(t *testing.T) {
 	model := Model{
 		activePane:    PaneRemote,
@@ -58,6 +77,62 @@ func TestRemoteBrowserBlocksConnectionReplacementDuringDirectoryRead(t *testing.
 			}
 			if !next.remoteReading {
 				t.Fatalf("key %q cleared the active directory read", key)
+			}
+		})
+	}
+}
+
+func TestRemotePreviewWaitsForDirectoryRead(t *testing.T) {
+	request := previewRequest{generation: 1, source: PaneRemote, path: "/file.txt"}
+	model := Model{
+		activePane:    PaneRemote,
+		remoteConn:    &driftftp.Client{},
+		remoteReading: true,
+		remoteEntries: []*fs.FileEntry{
+			{Name: "file.txt", Path: request.path, Kind: fs.EntryFile},
+		},
+		preview: filePreview{
+			active:     true,
+			source:     PaneRemote,
+			generation: request.generation,
+			pending:    request,
+		},
+	}
+
+	if cmd := model.beginPreviewLoad(request); cmd != nil {
+		t.Fatal("preview read started while a directory read was active")
+	}
+	if !model.preview.waiting {
+		t.Fatal("preview read was not queued")
+	}
+
+	model.remoteReading = false
+	if cmd := model.resumePreviewLoad(); cmd == nil {
+		t.Fatal("queued preview read did not start after directory read")
+	}
+	if !model.remotePreviewReading {
+		t.Fatal("started preview read did not mark remote connection busy")
+	}
+}
+
+func TestRemoteBrowserBlocksConnectionReplacementDuringPreviewRead(t *testing.T) {
+	model := Model{
+		activePane:           PaneRemote,
+		remoteHost:           &config.Host{Name: "test"},
+		remoteConn:           &driftftp.Client{},
+		remotePreviewReading: true,
+		Selection:            fs.NewSelectionState(),
+		RemoteSelection:      fs.NewSelectionState(),
+	}
+
+	for _, key := range []string{"r", "@", "H", "P", "s"} {
+		t.Run(key, func(t *testing.T) {
+			next, cmd := model.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+			if cmd != nil {
+				t.Fatalf("key %q started a screen or connection change during a preview read", key)
+			}
+			if !next.remotePreviewReading {
+				t.Fatalf("key %q cleared the active preview read", key)
 			}
 		})
 	}

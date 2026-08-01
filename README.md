@@ -14,6 +14,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 ## Features
 
 - Side-by-side local/remote file browser with multi-select (Space) and recursive directory marking
+- Safe local/remote text preview in the opposite pane (`p`), with line numbers and wrapping
 - Project-wide fuzzy file finder (`f`) for marking files
 - Side-by-side diff view for local vs. remote files
 - Per-file sync direction control: upload ↑, download ↓, delete local ✗, delete remote ✗, or skip —
@@ -132,6 +133,8 @@ other key to skip — you can always register later with `drift projects add .`.
 | `h` / `←`, `l` / `→` / `Enter` | Collapse / open directory |
 | `g` / `G` | Jump to top / bottom |
 | `Tab` | Switch local / remote pane |
+| `p` | Toggle a text preview in the opposite pane |
+| `PgUp` / `PgDn`, `Home` / `End` | Scroll / jump within an active preview |
 | `@` | Choose or change the remote host |
 | `Space` | Mark / unmark file or directory in the active pane |
 | `V` / `*` | Mark the current level / invert the active pane's selection |

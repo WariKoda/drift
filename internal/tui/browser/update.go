@@ -36,12 +36,36 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.Height = msg.Height
 		m.clampScroll()
 		m.clampRemoteScroll()
+		m.layoutPreview(true)
 
 	case MsgRemoteLoaded:
+		stale := m.remoteHost == nil || m.remoteHost.Name != msg.Host.Name
 		m.applyRemoteLoaded(msg)
+		if stale {
+			return m, nil
+		}
+		if msg.Err != nil {
+			m.preview.loading = false
+			m.preview.waiting = false
+			if m.preview.active && !m.preview.loaded && m.preview.source == PaneRemote {
+				m.preview.message = "Preview unavailable: " + sanitizePreviewError(msg.Err)
+			}
+			return m, nil
+		}
+		if cmd := m.resumePreviewLoad(); cmd != nil {
+			return m, cmd
+		}
+		return m, m.schedulePreview()
 
 	case MsgRemoteChildrenLoaded:
 		m.applyRemoteChildrenLoaded(msg)
+		return m, m.resumePreviewLoad()
+
+	case msgPreviewDebounced:
+		return m, m.beginPreviewLoad(msg.request)
+
+	case msgPreviewLoaded:
+		return m, m.applyPreviewLoaded(msg)
 
 	case msgFinderIndex:
 		if m.finder.active && msg.base == m.WorkDir {
@@ -115,8 +139,18 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case keyQ, keyCtrlC:
 		return m, tea.Quit
 
+	// ── File preview ───────────────────────────────────
+	case keyP:
+		return m, m.togglePreview()
+
+	case keyPgUp, keyPgDown, keyHome, keyEnd:
+		if m.preview.active {
+			m.scrollPreview(msg.String())
+		}
+
 	// ── Pane focus ─────────────────────────────────────
 	case keyTab:
+		m.disablePreview()
 		if m.activePane == PaneLocal && m.remoteHost != nil {
 			m.activePane = PaneRemote
 		} else {
@@ -132,6 +166,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.cursor++
 			m.clampScroll()
 		}
+		return m, m.schedulePreview()
 
 	case keyK, keyUp:
 		if m.activePane == PaneRemote {
@@ -141,6 +176,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.cursor--
 			m.clampScroll()
 		}
+		return m, m.schedulePreview()
 
 	case keyG:
 		if m.activePane == PaneRemote {
@@ -150,6 +186,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.cursor = 0
 			m.clampScroll()
 		}
+		return m, m.schedulePreview()
 
 	case keyShiftG:
 		if m.activePane == PaneRemote {
@@ -159,6 +196,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.cursor = len(m.entries) - 1
 			m.clampScroll()
 		}
+		return m, m.schedulePreview()
 
 	// ── Expand / open ─────────────────────────────────
 	case keyL, keyRight, keyEnter:
@@ -175,6 +213,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 				if m.cursor+1 < len(m.entries) && m.entries[m.cursor+1].Depth > entry.Depth {
 					m.cursor++
 					m.clampScroll()
+					return m, m.schedulePreview()
 				}
 			} else {
 				if err := m.expandAt(m.cursor); err != nil {
@@ -202,6 +241,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.collapseAt(p)
 				m.cursor = p
 				m.clampScroll()
+				return m, m.schedulePreview()
 			}
 		}
 
@@ -258,14 +298,15 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case keyEsc:
 		if m.filter != "" {
 			m.filter = ""
-		} else {
-			m.Selection.Clear()
-			m.RemoteSelection.Clear()
+			m.clampScroll()
+			return m, m.schedulePreview()
 		}
+		m.Selection.Clear()
+		m.RemoteSelection.Clear()
 
 	// ── Sync trigger ──────────────────────────────────
 	case keyS:
-		if m.remoteLoading || m.remoteReading {
+		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
@@ -273,6 +314,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.statusMsg = "No files marked — use [Space] to mark files first"
 			break
 		}
+		m.disablePreview()
 		var host *config.Host
 		var conn remote.Client
 		if m.remoteHost != nil {
@@ -287,57 +329,64 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Remote browser host ────────────────────────────
 	case keyAt:
-		if m.remoteLoading || m.remoteReading {
+		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
+		m.disablePreview()
 		return m, func() tea.Msg { return MsgBrowseRemoteRequested{} }
 
 	// ── Host Manager ───────────────────────────────────
 	case "H":
-		if m.remoteLoading || m.remoteReading {
+		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
+		m.disablePreview()
 		return m, func() tea.Msg { return MsgOpenHostManager{} }
 
 	// ── Project Dashboard ──────────────────────────────
 	case "P":
-		if m.remoteLoading || m.remoteReading {
+		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
+		m.disablePreview()
 		return m, func() tea.Msg { return MsgOpenDashboard{} }
 
 	// ── Fuzzy file finder ──────────────────────────────
 	case "f":
+		m.disablePreview()
 		m.finder = finder{active: true, loading: true}
 		return m, buildFinderIndexCmd(m.WorkDir)
 
 	// ── Filter ────────────────────────────────────────
 	case keySlash:
+		m.disablePreview()
 		m.filterMode = true
 		m.filter = ""
 
 	// ── Refresh ───────────────────────────────────────
 	case keyR:
 		if m.activePane == PaneRemote && m.remoteHost != nil {
-			if m.remoteLoading || m.remoteReading {
+			if m.remoteBusy() {
 				m.statusMsg = "Wait for the remote operation to finish"
 				break
 			}
+			m.prepareRemotePreviewRefresh()
 			h := *m.remoteHost
-			cmd := m.StartRemote(h)
-			return m, cmd
+			return m, m.StartRemote(h)
 		}
 		if err := m.reload(); err != nil {
 			m.statusMsg = "Refresh failed: " + err.Error()
 		} else {
 			m.statusMsg = "Refreshed"
+			return m, m.schedulePreview()
 		}
 
 	// ── Help ──────────────────────────────────────────
 	case keyQuestion:
+		m.disablePreview()
 		m.showHelp = !m.showHelp
 	}
 
@@ -345,7 +394,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
-	if m.remoteLoading || m.remoteReading || m.remoteConn == nil || len(m.remoteEntries) == 0 {
+	if m.remoteBusy() || m.remoteConn == nil || len(m.remoteEntries) == 0 {
 		return m, nil
 	}
 	entry := m.remoteEntries[m.remoteCursor]
@@ -357,7 +406,7 @@ func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
 			m.remoteCursor++
 			m.clampRemoteScroll()
 		}
-		return m, nil
+		return m, m.schedulePreview()
 	}
 	entry.Expanded = true // optimistic spinner/guard against duplicate expand
 	m.remoteReading = true
@@ -380,6 +429,7 @@ func (m Model) updateRemoteClose() (Model, tea.Cmd) {
 		m.collapseRemoteAt(p)
 		m.remoteCursor = p
 		m.clampRemoteScroll()
+		return m, m.schedulePreview()
 	}
 	return m, nil
 }

@@ -178,8 +178,10 @@ other key to skip — you can always register later with `drift projects add .`.
 
 ## Theming
 
-Drift uses the terminal palette by default and auto-detects Omarchy themes when
-`~/.config/omarchy/current/theme/colors.toml` exists. You can override this with:
+Drift uses the terminal palette by default and auto-detects Omarchy themes from
+`$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (normally
+`~/.local/state/omarchy/current/theme/colors.toml`). The legacy location under
+`$XDG_CONFIG_HOME` is supported as a fallback. You can override this with:
 
 ```bash
 DRIFT_THEME=auto|ansi|omarchy|default

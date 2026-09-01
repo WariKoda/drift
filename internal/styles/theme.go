@@ -47,9 +47,18 @@ type omarchyColors struct {
 	Accent              string `toml:"accent"`
 	Cursor              string `toml:"cursor"`
 	Foreground          string `toml:"foreground"`
+	DarkForeground      string `toml:"dark_foreground"`
 	Background          string `toml:"background"`
+	Selection           string `toml:"selection"`
 	SelectionForeground string `toml:"selection_foreground"`
 	SelectionBackground string `toml:"selection_background"`
+	Muted               string `toml:"muted"`
+	Red                 string `toml:"red"`
+	Green               string `toml:"green"`
+	Yellow              string `toml:"yellow"`
+	Magenta             string `toml:"magenta"`
+	Cyan                string `toml:"cyan"`
+	Blue                string `toml:"blue"`
 	Color0              string `toml:"color0"`
 	Color1              string `toml:"color1"`
 	Color2              string `toml:"color2"`
@@ -98,11 +107,31 @@ func omarchyThemeFile() string {
 	if file := strings.TrimSpace(os.Getenv("DRIFT_THEME_FILE")); file != "" {
 		return file
 	}
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "omarchy", "current", "theme", "colors.toml")
+
+	home, _ := os.UserHomeDir()
+	stateDir := strings.TrimSpace(os.Getenv("XDG_STATE_HOME"))
+	if stateDir == "" && home != "" {
+		stateDir = filepath.Join(home, ".local", "state")
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".config", "omarchy", "current", "theme", "colors.toml")
+	configDir := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	if configDir == "" && home != "" {
+		configDir = filepath.Join(home, ".config")
+	}
+
+	var candidates []string
+	if stateDir != "" {
+		candidates = append(candidates, filepath.Join(stateDir, "omarchy", "current", "theme", "colors.toml"))
+	}
+	if configDir != "" {
+		candidates = append(candidates, filepath.Join(configDir, "omarchy", "current", "theme", "colors.toml"))
+	}
+	for _, file := range candidates {
+		if _, err := os.Stat(file); err == nil {
+			return file
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
 	}
 	return ""
 }
@@ -139,7 +168,7 @@ func ansiPalette() Palette {
 		File:     lipgloss.Color("7"),
 		Marked:   lipgloss.Color("3"),
 		Symlink:  lipgloss.Color("6"),
-		CursorBg: lipgloss.Color("0"),
+		CursorBg: lipgloss.Color("8"),
 		Header:   lipgloss.Color("4"),
 		Muted:    lipgloss.Color("8"),
 		Sep:      lipgloss.Color("8"),
@@ -173,20 +202,26 @@ func loadOmarchyPalette(file string) (Palette, error) {
 func paletteFromOmarchy(c omarchyColors) (Palette, error) {
 	background := normalizeHex(first(c.Background, "#000000"))
 	foreground := normalizeHex(first(c.Foreground, c.Color7, "#ffffff"))
-	accent := normalizeHex(first(c.Accent, c.Color4, foreground))
-	muted := normalizeHex(first(c.Color8, c.Color0, foreground))
-	red := normalizeHex(first(c.Color9, c.Color1, "#ff0000"))
-	green := normalizeHex(first(c.Color10, c.Color2, "#00ff00"))
-	yellow := normalizeHex(first(c.Color11, c.Color3, accent))
-	magenta := normalizeHex(first(c.Color13, c.Color5, accent))
-	cyan := normalizeHex(first(c.Color14, c.Color6, accent))
+	accent := normalizeHex(first(c.Accent, c.Blue, c.Color4, foreground))
+	muted := normalizeHex(first(c.Muted, c.DarkForeground, c.Color8, c.Color0, foreground))
+	red := normalizeHex(first(c.Red, c.Color9, c.Color1, "#ff0000"))
+	green := normalizeHex(first(c.Green, c.Color10, c.Color2, "#00ff00"))
+	yellow := normalizeHex(first(c.Yellow, c.Color11, c.Color3, accent))
+	magenta := normalizeHex(first(c.Magenta, c.Color13, c.Color5, accent))
+	cyan := normalizeHex(first(c.Cyan, c.Color14, c.Color6, accent))
+	cursorBg := first(c.Selection, c.SelectionBackground)
+	if cursorBg == "" {
+		cursorBg = mixHex(background, muted, 0.45)
+	} else {
+		cursorBg = normalizeHex(cursorBg)
+	}
 
 	return Palette{
 		Dir:      lipgloss.Color(accent),
 		File:     lipgloss.Color(foreground),
 		Marked:   lipgloss.Color(yellow),
 		Symlink:  lipgloss.Color(cyan),
-		CursorBg: lipgloss.Color(mixHex(background, muted, 0.45)),
+		CursorBg: lipgloss.Color(cursorBg),
 		Header:   lipgloss.Color(magenta),
 		Muted:    lipgloss.Color(muted),
 		Sep:      lipgloss.Color(muted),

@@ -169,7 +169,7 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, width, h
 	for i := range sessions {
 		syncDirs[i] = autoDir(&sessions[i])
 	}
-	return Model{
+	model := Model{
 		sessions: sessions,
 		syncDirs: syncDirs,
 		host:     host,
@@ -177,6 +177,8 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, width, h
 		Width:    width,
 		Height:   height,
 	}
+	model.scrollToFirstDifference()
+	return model
 }
 
 // Init satisfies the sub-model convention.
@@ -297,6 +299,23 @@ func (m *Model) clampScroll() {
 	}
 	if m.scroll < 0 {
 		m.scroll = 0
+	}
+}
+
+// scrollToFirstDifference places the first changed text row at the top of the
+// viewport, or as close to it as the remaining number of rows allows.
+func (m *Model) scrollToFirstDifference() {
+	m.scroll = 0
+	session := m.activeSession()
+	if session == nil || session.Err != nil || session.Result == nil || session.Result.Binary {
+		return
+	}
+	for index, line := range session.Result.Lines {
+		if line.Kind != diff.LineEqual {
+			m.scroll = index
+			m.clampScroll()
+			return
+		}
 	}
 }
 

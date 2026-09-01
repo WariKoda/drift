@@ -37,6 +37,13 @@ func (m Model) View() string {
 	for row := 0; row < vh; row++ {
 		left := m.renderLocalRow(localEntries, m.offset+row, leftW)
 		right := m.renderRemoteRow(m.remoteOffset+row, rightW)
+		if m.preview.active {
+			if m.preview.source == PaneLocal {
+				right = m.renderPreviewRow(row, rightW)
+			} else {
+				left = m.renderPreviewRow(row, leftW)
+			}
+		}
 		sb.WriteString(left)
 		sb.WriteString(divider)
 		sb.WriteString(right)
@@ -85,6 +92,14 @@ func (m Model) renderPaneLabels(leftW, rightW int) string {
 	}
 	remoteLabel := remoteHead + styles.Muted.Render(truncLeftPath(remotePath, rightW-lipgloss.Width(remoteName)-4))
 
+	if m.preview.active {
+		if m.preview.source == PaneLocal {
+			remoteLabel = m.renderPreviewLabel(rightW)
+		} else {
+			localLabel = m.renderPreviewLabel(leftW)
+		}
+	}
+
 	return padRight(truncate(localLabel, leftW), leftW) + styles.Sep.Render("│") + padRight(truncate(remoteLabel, rightW), rightW)
 }
 
@@ -121,6 +136,45 @@ func (m Model) renderRemoteRow(i, width int) string {
 	default:
 		return m.renderEntry(m.remoteEntries[i], i == m.remoteCursor && m.activePane == PaneRemote, width, m.RemoteSelection, "")
 	}
+}
+
+func (m Model) renderPreviewLabel(width int) string {
+	title := "  PREVIEW  "
+	if m.preview.loading {
+		title = "  PREVIEW…  "
+	}
+	path := m.preview.path
+	if !m.preview.loaded && m.preview.targetPath != "" {
+		path = m.preview.targetPath
+	}
+	path = strings.ReplaceAll(sanitizePreviewText([]byte(path)), "\n", " ")
+	remaining := width - lipgloss.Width(title)
+	if remaining < 1 {
+		remaining = 1
+	}
+	return styles.Key.Render(title) + styles.Muted.Render(truncLeftPath(path, remaining))
+}
+
+func (m Model) renderPreviewRow(row, width int) string {
+	if !m.preview.loaded {
+		if row == 0 {
+			return padRight(truncate("  "+styles.Muted.Render(m.preview.message), width), width)
+		}
+		return strings.Repeat(" ", width)
+	}
+
+	index := m.preview.offset + row
+	if index < 0 || index >= len(m.preview.rows) {
+		return strings.Repeat(" ", width)
+	}
+	previewRow := m.preview.rows[index]
+	number := ""
+	if !previewRow.continuation {
+		number = fmt.Sprintf("%d", previewRow.lineNumber)
+	}
+	prefix := fmt.Sprintf("%*s │ ", m.preview.numberWidth, number)
+	line := styles.Muted.Render(prefix) + styles.File.Render(previewRow.text)
+	return padRight(truncate(line, width), width)
 }
 
 func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selection *fs.SelectionState, filter string) string {
@@ -192,6 +246,8 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	switch {
 	case m.filterMode:
 		left = styles.Key.Render("/") + " " + m.filter + "█"
+	case m.preview.active && m.preview.loading:
+		left = styles.Muted.Render("Loading preview…")
 	case m.statusMsg != "":
 		left = styles.Muted.Render(m.statusMsg)
 	case selectionCount(m.Selection)+selectionCount(m.RemoteSelection) > 0:
@@ -206,7 +262,11 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 		}
 	}
 
-	right := styles.Muted.Render(HelpText())
+	help := HelpText()
+	if m.preview.active {
+		help = "[p]close  [PgUp/PgDown]scroll  [Home/End]jump"
+	}
+	right := styles.Muted.Render(help)
 	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1

@@ -19,6 +19,11 @@ const (
 	keyStar      = "*"
 	keyS         = "s"
 	keyR         = "r"
+	keyP         = "p"
+	keyPgUp      = "pgup"
+	keyPgDown    = "pgdown"
+	keyHome      = "home"
+	keyEnd       = "end"
 	keySlash     = "/"
 	keyEsc       = "esc"
 	keyQuestion  = "?"
@@ -31,7 +36,7 @@ const (
 
 // HelpText returns the key hint shown in the status bar.
 func HelpText() string {
-	return "[Tab]pane  [@]remote  [f]find  [s]sync  [H]hosts  [P]projects  [?]help  [q]quit"
+	return "[Tab]pane  [p]preview  [@]remote  [f]find  [s]sync  [H]hosts  [P]projects  [?]help  [q]quit"
 }
 
 // FullHelp returns the help overlay text.
@@ -44,6 +49,12 @@ func FullHelp() string {
   h / ←          collapse dir / go to parent
   g              jump to top
   G              jump to bottom
+
+  Preview
+  ──────────────────────────────
+  p              toggle file preview in opposite pane
+  PgUp / PgDown  scroll preview by page
+  Home / End     jump to preview start / end
 
   Selection
   ──────────────────────────────

@@ -46,21 +46,25 @@ type Model struct {
 	// help overlay
 	showHelp bool
 
+	// file preview shown over the pane opposite the active tree
+	preview filePreview
+
 	// terminal dimensions (set by root app on WindowSizeMsg)
 	Width  int
 	Height int
 
 	// side-by-side remote browser state
-	activePane    PaneSide
-	remoteHost    *config.Host
-	remoteConn    remote.Client
-	remoteRoot    string
-	remoteEntries []*fs.FileEntry
-	remoteCursor  int
-	remoteOffset  int
-	remoteLoading bool
-	remoteReading bool
-	remoteStatus  string
+	activePane           PaneSide
+	remoteHost           *config.Host
+	remoteConn           remote.Client
+	remoteRoot           string
+	remoteEntries        []*fs.FileEntry
+	remoteCursor         int
+	remoteOffset         int
+	remoteLoading        bool
+	remoteReading        bool
+	remotePreviewReading bool
+	remoteStatus         string
 
 	// status message (transient)
 	statusMsg string
@@ -97,6 +101,10 @@ func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
 	switch key.String() {
 	case keyS, keyAt:
 		return true
+	case keyP:
+		return m.activePane == PaneRemote && !m.preview.active
+	case keyJ, keyK, keyDown, keyUp, keyG, keyShiftG:
+		return m.preview.active && m.preview.source == PaneRemote
 	case keyR:
 		return m.activePane == PaneRemote && m.remoteHost != nil
 	case keyL, keyRight, keyEnter:
@@ -123,6 +131,7 @@ func (m *Model) SetSize(w, h int) {
 	m.Height = h
 	m.clampScroll()
 	m.clampRemoteScroll()
+	m.layoutPreview(true)
 }
 
 // SetStatus sets a transient status message (e.g. error from a previous screen).
@@ -236,6 +245,11 @@ func (m *Model) CloseRemote() {
 		m.remoteConn = nil
 	}
 	m.remoteReading = false
+	m.remotePreviewReading = false
+}
+
+func (m Model) remoteBusy() bool {
+	return m.remoteLoading || m.remoteReading || m.remotePreviewReading
 }
 
 func (m Model) absWorkDir() string {

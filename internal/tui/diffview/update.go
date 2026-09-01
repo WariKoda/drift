@@ -55,8 +55,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.refreshing = false
 		m.finishActivity()
-		m.scroll = 0
 		m.clampFileList()
+		m.scrollToFirstDifference()
 
 	case MsgSynced:
 		m.activityLabel = "Refreshing diff…"
@@ -64,13 +64,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.reloadSessionCmd(msg.SessionIdx)
 
 	case MsgSessionReloaded:
+		reloadedActiveSession := msg.SessionIdx == m.activeIdx
 		if msg.SessionIdx >= 0 && msg.SessionIdx < len(m.sessions) {
 			m.sessions[msg.SessionIdx].Result = msg.Result
 			m.sessions[msg.SessionIdx].Err = msg.Err
+			if reloadedActiveSession {
+				m.scrollToFirstDifference()
+			}
 		}
 		m.quickSyncing = false
 		m.finishActivity()
-		m.scroll = 0
 
 	case MsgSyncError:
 		m.quickSyncing = false
@@ -105,15 +108,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "tab", "n":
 		if m.activeIdx < len(m.sessions)-1 {
 			m.activeIdx++
-			m.scroll = 0
 			m.clampFileList()
+			m.scrollToFirstDifference()
 		}
 
 	case "shift+tab", "p":
 		if m.activeIdx > 0 {
 			m.activeIdx--
-			m.scroll = 0
 			m.clampFileList()
+			m.scrollToFirstDifference()
 		}
 
 	// ── Sync direction — current file (Space) or all files (A) ───────────

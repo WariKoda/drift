@@ -45,16 +45,17 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 		port = 22
 	}
 
-	hkc, err := ssh.HostKeyCallback()
+	hkc, hostKeyAlgorithms, err := ssh.HostKeyCallback(host.Hostname, port)
 	if err != nil {
 		return nil, fmt.Errorf("known_hosts: %w", err)
 	}
 
 	cfg := &gossh.ClientConfig{
-		User:            host.User,
-		Auth:            methods,
-		HostKeyCallback: hkc,
-		Timeout:         15 * time.Second,
+		User:              host.User,
+		Auth:              methods,
+		HostKeyCallback:   hkc,
+		HostKeyAlgorithms: hostKeyAlgorithms,
+		Timeout:           15 * time.Second,
 	}
 
 	addr := fmt.Sprintf("%s:%d", host.Hostname, port)

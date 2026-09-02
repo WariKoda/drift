@@ -1,6 +1,7 @@
 package sftp
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -8,21 +9,33 @@ import (
 	"testing"
 
 	pkgsftp "github.com/pkg/sftp"
+
+	"github.com/WariKoda/drift/internal/fs"
 )
 
-func TestUploadFileReplacesTargetAtomically(t *testing.T) {
+// failingReader yields a little content and then fails, so a transfer breaks
+// after the staging file has already been created.
+type failingReader struct{ read bool }
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, errors.New("source read failed")
+	}
+	r.read = true
+	return copy(p, "partial"), nil
+}
+
+func (r *failingReader) Close() error { return nil }
+
+func TestUploadReplacesTargetAtomically(t *testing.T) {
 	client, remoteDir := newProtocolClient(t)
 	remoteTarget := filepath.Join(remoteDir, "target.txt")
 	if err := os.WriteFile(remoteTarget, []byte("old content"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	localSource := filepath.Join(t.TempDir(), "source.txt")
-	if err := os.WriteFile(localSource, []byte("new content"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	if err := client.UploadFile(localSource, "target.txt"); err != nil {
-		t.Fatalf("UploadFile returned error: %v", err)
+	if err := client.Upload("target.txt", strings.NewReader("new content")); err != nil {
+		t.Fatalf("Upload returned error: %v", err)
 	}
 
 	assertFileContent(t, remoteTarget, "new content")
@@ -36,24 +49,22 @@ func TestUploadFileReplacesTargetAtomically(t *testing.T) {
 	assertNoStagingFiles(t, remoteDir)
 }
 
-func TestUploadFileFailurePreservesTarget(t *testing.T) {
+func TestUploadFailurePreservesTarget(t *testing.T) {
 	client, remoteDir := newProtocolClient(t)
 	remoteTarget := filepath.Join(remoteDir, "target.txt")
 	if err := os.WriteFile(remoteTarget, []byte("old content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Opening a directory succeeds, but reading it as upload content fails after
-	// the remote staging file has already been created.
-	if err := client.UploadFile(t.TempDir(), "target.txt"); err == nil {
-		t.Fatal("UploadFile unexpectedly succeeded for a directory source")
+	if err := client.Upload("target.txt", &failingReader{}); err == nil {
+		t.Fatal("Upload unexpectedly succeeded for a failing source")
 	}
 
 	assertFileContent(t, remoteTarget, "old content")
 	assertNoStagingFiles(t, remoteDir)
 }
 
-func TestUploadFileRejectsSymlinkTarget(t *testing.T) {
+func TestUploadRejectsSymlinkTarget(t *testing.T) {
 	client, remoteDir := newProtocolClient(t)
 	realTarget := filepath.Join(remoteDir, "real-target.txt")
 	if err := os.WriteFile(realTarget, []byte("old content"), 0o644); err != nil {
@@ -62,13 +73,9 @@ func TestUploadFileRejectsSymlinkTarget(t *testing.T) {
 	if err := os.Symlink("real-target.txt", filepath.Join(remoteDir, "target.txt")); err != nil {
 		t.Fatal(err)
 	}
-	localSource := filepath.Join(t.TempDir(), "source.txt")
-	if err := os.WriteFile(localSource, []byte("new content"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	if err := client.UploadFile(localSource, "target.txt"); err == nil {
-		t.Fatal("UploadFile unexpectedly replaced a symlink target")
+	if err := client.Upload("target.txt", strings.NewReader("new content")); err == nil {
+		t.Fatal("Upload unexpectedly replaced a symlink target")
 	}
 
 	assertFileContent(t, realTarget, "old content")
@@ -82,7 +89,25 @@ func TestUploadFileRejectsSymlinkTarget(t *testing.T) {
 	assertNoStagingFiles(t, remoteDir)
 }
 
-func TestDownloadFileReplacesTargetAtomically(t *testing.T) {
+// The download side is Open plus fs.Root.WriteAtomic. These tests keep that
+// pair covered against the real SFTP protocol; fs.Root's own tests cover the
+// project confinement.
+func downloadThroughRoot(t *testing.T, client *Client, remotePath, localPath, projectRoot string) error {
+	t.Helper()
+	root, err := fs.OpenRoot(projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	src, err := client.Open(remotePath)
+	if err != nil {
+		return err
+	}
+	return root.WriteAtomic(localPath, src)
+}
+
+func TestDownloadReplacesTargetAtomically(t *testing.T) {
 	client, remoteDir := newProtocolClient(t)
 	if err := os.WriteFile(filepath.Join(remoteDir, "source.txt"), []byte("remote content"), 0o644); err != nil {
 		t.Fatal(err)
@@ -93,8 +118,8 @@ func TestDownloadFileReplacesTargetAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := client.DownloadFile("source.txt", localTarget); err != nil {
-		t.Fatalf("DownloadFile returned error: %v", err)
+	if err := downloadThroughRoot(t, client, "source.txt", localTarget, localDir); err != nil {
+		t.Fatalf("download returned error: %v", err)
 	}
 
 	assertFileContent(t, localTarget, "remote content")
@@ -108,7 +133,7 @@ func TestDownloadFileReplacesTargetAtomically(t *testing.T) {
 	assertNoStagingFiles(t, localDir)
 }
 
-func TestDownloadFileRejectsSymlinkTarget(t *testing.T) {
+func TestDownloadRejectsSymlinkTarget(t *testing.T) {
 	client, remoteDir := newProtocolClient(t)
 	if err := os.WriteFile(filepath.Join(remoteDir, "source.txt"), []byte("remote content"), 0o644); err != nil {
 		t.Fatal(err)
@@ -123,8 +148,8 @@ func TestDownloadFileRejectsSymlinkTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := client.DownloadFile("source.txt", localTarget); err == nil {
-		t.Fatal("DownloadFile unexpectedly replaced a symlink target")
+	if err := downloadThroughRoot(t, client, "source.txt", localTarget, localDir); err == nil {
+		t.Fatal("download unexpectedly replaced a symlink target")
 	}
 
 	assertFileContent(t, realTarget, "old content")
@@ -138,7 +163,7 @@ func TestDownloadFileRejectsSymlinkTarget(t *testing.T) {
 	assertNoStagingFiles(t, localDir)
 }
 
-func TestDownloadFileFailurePreservesTarget(t *testing.T) {
+func TestDownloadFailurePreservesTarget(t *testing.T) {
 	client, remoteDir := newProtocolClient(t)
 	if err := os.Mkdir(filepath.Join(remoteDir, "source-dir"), 0o755); err != nil {
 		t.Fatal(err)
@@ -150,9 +175,9 @@ func TestDownloadFileFailurePreservesTarget(t *testing.T) {
 	}
 
 	// The SFTP server opens the directory, then fails when the client tries to
-	// read it after creating the local staging file.
-	if err := client.DownloadFile("source-dir", localTarget); err == nil {
-		t.Fatal("DownloadFile unexpectedly succeeded for a directory source")
+	// read it after the local staging file has been created.
+	if err := downloadThroughRoot(t, client, "source-dir", localTarget, localDir); err == nil {
+		t.Fatal("download unexpectedly succeeded for a directory source")
 	}
 
 	assertFileContent(t, localTarget, "old content")

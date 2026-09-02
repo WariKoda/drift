@@ -300,7 +300,7 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			model := New([]diff.Session{{Result: test.result}}, config.Host{}, nil, 100, 12)
+			model := New([]diff.Session{{Result: test.result}}, config.Host{}, nil, nil, 100, 12)
 			if model.scroll != test.want {
 				t.Fatalf("initial scroll = %d, want %d", model.scroll, test.want)
 			}

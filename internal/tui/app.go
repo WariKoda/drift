@@ -450,6 +450,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Conn != nil {
 				_ = msg.Conn.Close()
 			}
+			_ = msg.Root.Close()
 			return a, nil
 		}
 		a.diffRequest = 0
@@ -462,6 +463,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.Sessions,
 			host,
 			msg.Conn, // connection stays open for sync ops
+			msg.Root, // project root stays open for local sync ops
 			a.state.TermWidth,
 			a.state.TermHeight,
 		)

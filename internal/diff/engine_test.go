@@ -9,7 +9,22 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/WariKoda/drift/internal/fs"
 )
+
+// testRoot returns a project root and its directory. Compare reads local files
+// through fs.Root, so every test needs a real one.
+func testRoot(t *testing.T) (*fs.Root, string) {
+	t.Helper()
+	dir := t.TempDir()
+	root, err := fs.OpenRoot(dir)
+	if err != nil {
+		t.Fatalf("open project root: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root, dir
+}
 
 type stubRemoteClient struct {
 	statInfo os.FileInfo
@@ -48,8 +63,9 @@ func (s stubFileInfo) IsDir() bool        { return s.isDir }
 func (s stubFileInfo) Sys() any           { return nil }
 
 func TestCompare_RemoteOnlyWhenLocalIsMissing(t *testing.T) {
+	root, dir := testRoot(t)
 	remoteData := []byte("hello\nworld\n")
-	result, err := Compare("/definitely/missing/local.txt", "/remote/file.txt", stubRemoteClient{
+	result, err := Compare(root, filepath.Join(dir, "missing.txt"), "/remote/file.txt", stubRemoteClient{
 		statInfo: stubFileInfo{name: "file.txt", size: int64(len(remoteData)), modTime: time.Now()},
 		readData: remoteData,
 	})
@@ -65,13 +81,13 @@ func TestCompare_RemoteOnlyWhenLocalIsMissing(t *testing.T) {
 }
 
 func TestCompare_LocalOnlyWhenRemoteIsMissing(t *testing.T) {
-	dir := t.TempDir()
+	root, dir := testRoot(t)
 	localPath := filepath.Join(dir, "local.txt")
 	if err := os.WriteFile(localPath, []byte("hello\nworld\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	result, err := Compare(localPath, "/remote/missing.txt", stubRemoteClient{
+	result, err := Compare(root, localPath, "/remote/missing.txt", stubRemoteClient{
 		statErr: os.ErrNotExist,
 	})
 	if err != nil {
@@ -86,14 +102,14 @@ func TestCompare_LocalOnlyWhenRemoteIsMissing(t *testing.T) {
 }
 
 func TestCompare_ReturnsRemoteStatErrorsThatAreNotNotFound(t *testing.T) {
-	dir := t.TempDir()
+	root, dir := testRoot(t)
 	localPath := filepath.Join(dir, "local.txt")
 	if err := os.WriteFile(localPath, []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
 	wantErr := errors.New("permission denied")
-	result, err := Compare(localPath, "/remote/file.txt", stubRemoteClient{
+	result, err := Compare(root, localPath, "/remote/file.txt", stubRemoteClient{
 		statErr: wantErr,
 	})
 	if !errors.Is(err, wantErr) {
@@ -105,13 +121,13 @@ func TestCompare_ReturnsRemoteStatErrorsThatAreNotNotFound(t *testing.T) {
 }
 
 func TestCompare_TreatsFTP550AsNotFound(t *testing.T) {
-	dir := t.TempDir()
+	root, dir := testRoot(t)
 	localPath := filepath.Join(dir, "local.txt")
 	if err := os.WriteFile(localPath, []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	result, err := Compare(localPath, "/remote/missing.txt", stubRemoteClient{
+	result, err := Compare(root, localPath, "/remote/missing.txt", stubRemoteClient{
 		statErr: &textproto.Error{Code: 550, Msg: "File unavailable"},
 	})
 	if err != nil {
@@ -134,13 +150,14 @@ func TestCompare_BinaryFilesUseContentForEquality(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			root, dir := testRoot(t)
 			localData := []byte{0, 1, 2, 3}
-			localPath := filepath.Join(t.TempDir(), "local.bin")
+			localPath := filepath.Join(dir, "local.bin")
 			if err := os.WriteFile(localPath, localData, 0o644); err != nil {
 				t.Fatalf("WriteFile failed: %v", err)
 			}
 
-			result, err := Compare(localPath, "/remote/file.bin", stubRemoteClient{
+			result, err := Compare(root, localPath, "/remote/file.bin", stubRemoteClient{
 				statInfo: stubFileInfo{
 					name:    "file.bin",
 					size:    int64(len(tt.remoteData)),
@@ -182,12 +199,13 @@ func TestCompare_LargeFilesUseStreamingContentComparison(t *testing.T) {
 				remoteData[len(remoteData)-1] = 'b'
 			}
 
-			localPath := filepath.Join(t.TempDir(), "large.dat")
+			root, dir := testRoot(t)
+			localPath := filepath.Join(dir, "large.dat")
 			if err := os.WriteFile(localPath, localData, 0o644); err != nil {
 				t.Fatalf("WriteFile failed: %v", err)
 			}
 
-			result, err := Compare(localPath, "/remote/large.dat", stubRemoteClient{
+			result, err := Compare(root, localPath, "/remote/large.dat", stubRemoteClient{
 				statInfo: stubFileInfo{
 					name:    "large.dat",
 					size:    int64(len(remoteData)),
@@ -209,13 +227,14 @@ func TestCompare_LargeFilesUseStreamingContentComparison(t *testing.T) {
 }
 
 func TestCompare_LargeFilesWithDifferentSizesAlwaysDiffer(t *testing.T) {
+	root, dir := testRoot(t)
 	localData := bytes.Repeat([]byte("a"), maxTextSize+1)
-	localPath := filepath.Join(t.TempDir(), "large.dat")
+	localPath := filepath.Join(dir, "large.dat")
 	if err := os.WriteFile(localPath, localData, 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	result, err := Compare(localPath, "/remote/large.dat", stubRemoteClient{
+	result, err := Compare(root, localPath, "/remote/large.dat", stubRemoteClient{
 		statInfo: stubFileInfo{
 			name:    "large.dat",
 			size:    int64(len(localData) + 1),

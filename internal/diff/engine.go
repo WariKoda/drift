@@ -12,6 +12,8 @@ import (
 
 	ftplib "github.com/jlaffaye/ftp"
 	"github.com/sergi/go-diff/diffmatchpatch"
+
+	"github.com/WariKoda/drift/internal/fs"
 )
 
 const maxTextSize = 2 * 1024 * 1024 // 2 MB
@@ -23,15 +25,18 @@ type RemoteClient interface {
 	ReadFile(path string) ([]byte, error)
 }
 
-// Compare produces a DiffResult for a local/remote file pair.
-func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, error) {
+// Compare produces a DiffResult for a local/remote file pair. Local reads go
+// through root, so a local path that only looks like a project path — because a
+// symlinked component points elsewhere — fails instead of pulling in a file
+// from outside the project.
+func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (*DiffResult, error) {
 	result := &DiffResult{
 		LocalPath:  localPath,
 		RemotePath: remotePath,
 	}
 
 	// Stat local
-	localInfo, localErr := os.Stat(localPath)
+	localInfo, localErr := root.Stat(localPath)
 	if localErr == nil {
 		result.SizeLocal = localInfo.Size()
 		result.ModLocal = localInfo.ModTime()
@@ -81,7 +86,7 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 	if remoteMissing {
 		result.LocalOnly = true
 		if result.SizeLocal <= maxTextSize {
-			if data, err := os.ReadFile(localPath); err == nil {
+			if data, err := root.ReadFile(localPath); err == nil {
 				if isBinary(data) {
 					result.Binary = true
 				} else {
@@ -116,7 +121,7 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 			return result, nil
 		}
 
-		equal, err := contentEqual(localPath, remotePath, client)
+		equal, err := contentEqual(root, localPath, remotePath, client)
 		if err != nil {
 			return result, err
 		}
@@ -124,7 +129,7 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 		return result, nil
 	}
 
-	localData, err := os.ReadFile(localPath)
+	localData, err := root.ReadFile(localPath)
 	if err != nil {
 		return result, err
 	}
@@ -145,8 +150,8 @@ func Compare(localPath, remotePath string, client RemoteClient) (*DiffResult, er
 
 // contentEqual compares local and remote content with constant memory. It is
 // used when a line diff would be too expensive to build.
-func contentEqual(localPath, remotePath string, client RemoteClient) (bool, error) {
-	localFile, err := os.Open(localPath)
+func contentEqual(root *fs.Root, localPath, remotePath string, client RemoteClient) (bool, error) {
+	localFile, err := root.Open(localPath)
 	if err != nil {
 		return false, err
 	}

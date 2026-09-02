@@ -142,7 +142,7 @@ func TestDiffScrollNavigation(t *testing.T) {
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
 		}},
-		Height: 12, // one file-list row leaves a four-line diff viewport
+		Height: 12, // body leaves a six-line diff viewport beside the file list
 	}
 
 	for _, key := range []tea.KeyMsg{
@@ -175,22 +175,22 @@ func TestDiffPageAndBoundaryNavigation(t *testing.T) {
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
 		}},
-		Height: 12, // one file-list row leaves a four-line diff viewport
+		Height: 12, // body leaves a six-line diff viewport beside the file list
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyPgDown})
-	if model.scroll != 4 {
-		t.Fatalf("PageDown set offset to %d, want 4", model.scroll)
+	if model.scroll != 6 {
+		t.Fatalf("PageDown set offset to %d, want 6", model.scroll)
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyCtrlD})
-	if model.scroll != 6 {
-		t.Fatalf("Ctrl+D set offset to %d, want 6", model.scroll)
+	if model.scroll != 9 {
+		t.Fatalf("Ctrl+D set offset to %d, want 9", model.scroll)
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyPgUp})
-	if model.scroll != 2 {
-		t.Fatalf("PageUp set offset to %d, want 2", model.scroll)
+	if model.scroll != 3 {
+		t.Fatalf("PageUp set offset to %d, want 3", model.scroll)
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyCtrlU})
@@ -199,8 +199,8 @@ func TestDiffPageAndBoundaryNavigation(t *testing.T) {
 	}
 
 	model, _ = model.handleKey(keyMsg("G"))
-	if model.scroll != 16 {
-		t.Fatalf("G set offset to %d, want last full viewport at 16", model.scroll)
+	if model.scroll != 14 {
+		t.Fatalf("G set offset to %d, want last full viewport at 14", model.scroll)
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyHome})
@@ -209,8 +209,8 @@ func TestDiffPageAndBoundaryNavigation(t *testing.T) {
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyEnd})
-	if model.scroll != 16 {
-		t.Fatalf("End set offset to %d, want last full viewport at 16", model.scroll)
+	if model.scroll != 14 {
+		t.Fatalf("End set offset to %d, want last full viewport at 14", model.scroll)
 	}
 
 	model, _ = model.handleKey(keyMsg("g"))
@@ -221,7 +221,7 @@ func TestDiffPageAndBoundaryNavigation(t *testing.T) {
 
 func TestHunkNavigationClampsToLastFullViewport(t *testing.T) {
 	lines := make([]diff.DiffLine, 20)
-	lines[len(lines)-1].Kind = diff.LineModified
+	lines[len(lines)-1].Kind = diff.LineRemoved
 	model := Model{
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
@@ -230,8 +230,8 @@ func TestHunkNavigationClampsToLastFullViewport(t *testing.T) {
 	}
 
 	model, _ = model.handleKey(keyMsg("]"))
-	if model.scroll != 16 {
-		t.Fatalf("hunk navigation set offset to %d, want last full viewport at 16", model.scroll)
+	if model.scroll != 14 {
+		t.Fatalf("hunk navigation set offset to %d, want last full viewport at 14", model.scroll)
 	}
 }
 
@@ -264,9 +264,9 @@ func TestResizeClampsDiffScrollToNewViewport(t *testing.T) {
 		scroll: 16,
 	}
 
-	model.SetSize(100, 16) // viewport grows from four to eight lines
-	if model.scroll != 12 {
-		t.Fatalf("resize retained offset %d, want clamped offset 12", model.scroll)
+	model.SetSize(100, 16) // viewport grows from six to ten lines
+	if model.scroll != 10 {
+		t.Fatalf("resize retained offset %d, want clamped offset 10", model.scroll)
 	}
 }
 
@@ -284,7 +284,7 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 		{
 			name:   "difference clamped to final viewport",
 			result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 19)},
-			want:   16,
+			want:   14,
 		},
 		{
 			name:   "no textual difference",
@@ -384,9 +384,46 @@ func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
 func linesWithDifference(total, changed int) []diff.DiffLine {
 	lines := make([]diff.DiffLine, total)
 	if changed >= 0 && changed < len(lines) {
-		lines[changed].Kind = diff.LineModified
+		lines[changed].Kind = diff.LineRemoved
 	}
 	return lines
+}
+
+func TestHunkJumpLandsOnRunStart(t *testing.T) {
+	// Flattened change: equal, removed, added, equal, removed — two hunks.
+	// Pad with equals so clampScroll can leave the viewport on a hunk start.
+	lines := []diff.DiffLine{
+		{Text: "a", Kind: diff.LineEqual},
+		{Text: "old", Kind: diff.LineRemoved},
+		{Text: "new", Kind: diff.LineAdded},
+		{Text: "b", Kind: diff.LineEqual},
+		{Text: "gone", Kind: diff.LineRemoved},
+	}
+	for i := 0; i < 20; i++ {
+		lines = append(lines, diff.DiffLine{Text: "pad", Kind: diff.LineEqual})
+	}
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
+		}},
+		Height: 12,
+		scroll: 0,
+	}
+
+	model, _ = model.handleKey(keyMsg("]"))
+	if model.scroll != 1 {
+		t.Fatalf("] jumped to %d, want first hunk start at 1", model.scroll)
+	}
+
+	model, _ = model.handleKey(keyMsg("]"))
+	if model.scroll != 4 {
+		t.Fatalf("] jumped to %d, want second hunk start at 4 (not the Added mid-run)", model.scroll)
+	}
+
+	model, _ = model.handleKey(keyMsg("["))
+	if model.scroll != 1 {
+		t.Fatalf("[ jumped to %d, want previous hunk start at 1", model.scroll)
+	}
 }
 
 func keyMsg(key string) tea.KeyMsg {

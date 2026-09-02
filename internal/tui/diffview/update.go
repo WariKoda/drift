@@ -3,6 +3,7 @@ package diffview
 import (
 	"fmt"
 
+	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/log"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -233,6 +234,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// isHunkStart reports whether lines[i] begins a contiguous non-equal run.
+func isHunkStart(lines []diff.DiffLine, i int) bool {
+	if i < 0 || i >= len(lines) {
+		return false
+	}
+	if lines[i].Kind == diff.LineEqual {
+		return false
+	}
+	return i == 0 || lines[i-1].Kind == diff.LineEqual
+}
+
 // jumpNextHunk moves scroll to the next diff hunk start.
 func (m *Model) jumpNextHunk() {
 	s := m.activeSession()
@@ -241,7 +253,7 @@ func (m *Model) jumpNextHunk() {
 	}
 	lines := s.Result.Lines
 	for i := m.scroll + 1; i < len(lines); i++ {
-		if lines[i].Kind != 0 {
+		if isHunkStart(lines, i) {
 			m.scroll = i
 			m.clampScroll()
 			return
@@ -257,7 +269,7 @@ func (m *Model) jumpPrevHunk() {
 	}
 	lines := s.Result.Lines
 	for i := m.scroll - 1; i >= 0; i-- {
-		if lines[i].Kind != 0 {
+		if isHunkStart(lines, i) {
 			m.scroll = i
 			m.clampScroll()
 			return

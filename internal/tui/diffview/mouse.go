@@ -5,7 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// zone names the horizontal band of the screen a click landed in.
+// zone names the region of the screen a click landed in.
 type zone int
 
 const (
@@ -22,37 +22,40 @@ type hit struct {
 	index int
 }
 
-// hitTest maps a terminal cell to a band of the diff view.
+// hitTest maps a terminal cell to a region of the side-by-side diff view.
 //
-// Only the vertical position selects the band — both bands span the full width.
-// The horizontal divider between the two panes is not a target: clicking either
-// pane of a file row selects that file.
+// The body is split horizontally: x < fileListWidth is the file list, and
+// x > fileListWidth (past the │ divider) is the right pane. Within the right
+// pane only the rows below the path chrome map to diff lines.
 func (m Model) hitTest(x, y int) hit {
-	fh := m.fileListHeight()
+	bh := m.bodyHeight()
+	if y < bodyTop || y >= bodyTop+bh {
+		return hit{zoneNone, -1}
+	}
 
-	// ── File list ─────────────────────────────────────────────────────
-	if y >= fileListTop && y < fileListTop+fh {
-		idx := y - fileListTop + m.fileListOffset
+	fw := m.fileListWidth()
+	if x < fw {
+		idx := y - bodyTop + m.fileListOffset
 		if idx < 0 || idx >= len(m.sessions) {
 			return hit{zoneNone, -1} // blank row past the last session
 		}
 		return hit{zoneFileList, idx}
 	}
-
-	// ── Diff content ──────────────────────────────────────────────────
-	top := m.contentTop()
-	if y >= top && y < top+m.viewportHeight() {
-		// The content area is not always a diff: the error overlay, a load
-		// error and a pending load all borrow these rows. None of them has
-		// selectable lines, so report the band without an index.
-		s := m.activeSession()
-		if m.showErrors || s == nil || s.Err != nil || s.Result == nil {
-			return hit{zoneContent, -1}
-		}
-		return hit{zoneContent, y - top + m.scroll}
+	if x == fw {
+		return hit{zoneNone, -1} // vertical divider
 	}
 
-	return hit{zoneNone, -1}
+	// Right pane: path chrome is not selectable content.
+	top := m.contentTop()
+	if y < top || y >= top+m.viewportHeight() {
+		return hit{zoneNone, -1}
+	}
+
+	s := m.activeSession()
+	if m.showErrors || s == nil || s.Err != nil || s.Result == nil {
+		return hit{zoneContent, -1}
+	}
+	return hit{zoneContent, y - top + m.scroll}
 }
 
 // updateMouse handles wheel and click events for the diff view.

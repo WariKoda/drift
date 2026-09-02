@@ -20,7 +20,7 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `hostselector`      | Modal: pick sync target                               |
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
-| `diffview`          | Side-by-side diff + sync                              |
+| `diffview`          | File list + unified diff + sync                       |
 
 
 The `textfield` package holds the shared single-line input widget used by `hostform`

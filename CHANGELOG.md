@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - dashboard project names grow with the terminal instead of clipping at 18 characters
 - browser header shows the registered project name next to the path
 - project list sorts by last opened, then name
+- diff viewer shows a unified single-pane diff instead of side-by-side local/remote columns
+- diff viewer places the file list on the left and the unified diff on the right
 
 ### Fixed
 - host manager rendered two lines more than the terminal had, because each section header emitted a blank line the row budget never counted; the status bar was pushed off screen

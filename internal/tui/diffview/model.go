@@ -1,4 +1,4 @@
-// Package diffview implements the split-pane local/remote diff screen.
+// Package diffview implements the file-list + unified-diff screen.
 package diffview
 
 import (
@@ -240,22 +240,26 @@ func (m *Model) SetSize(w, h int) {
 	m.clampFileList()
 }
 
-// fileListHeight returns the number of visible rows in the file list (capped at 5).
-func (m Model) fileListHeight() int {
-	n := len(m.sessions)
-	if n > 5 {
-		n = 5
-	}
-	if n < 1 {
+// bodyHeight returns the shared vertical space for the file list and diff pane.
+// See the layout constants in view.go for the row budget.
+func (m Model) bodyHeight() int {
+	h := m.Height - headerLines - footerLines
+	if h < 1 {
 		return 1
 	}
-	return n
+	return h
 }
 
-// viewportHeight returns available lines for diff content.
-// See the layout constants in view.go for the row budget.
+// fileListHeight returns the number of visible rows in the left file list.
+// Side-by-side layout uses the full body height.
+func (m Model) fileListHeight() int {
+	return m.bodyHeight()
+}
+
+// viewportHeight returns available lines for unified diff content in the right
+// pane (body minus the path header chrome).
 func (m Model) viewportHeight() int {
-	h := m.Height - chromeLines - m.fileListHeight()
+	h := m.bodyHeight() - pathChrome
 	if h < 1 {
 		return 1
 	}
@@ -299,9 +303,29 @@ func (m *Model) clampFileListOffset() {
 	}
 }
 
-// paneWidth returns the width of one diff pane.
-func (m Model) paneWidth() int {
-	w := (m.Width - 1) / 2 // 1 for │ divider
+// fileListWidth returns the left sidebar width for the file list.
+func (m Model) fileListWidth() int {
+	w := m.Width / 3
+	if w < 22 {
+		w = 22
+	}
+	if w > 40 {
+		w = 40
+	}
+	// Leave enough room for the diff gutter and a few content columns.
+	max := m.Width - 1 - 20
+	if max < 10 {
+		max = 10
+	}
+	if w > max {
+		w = max
+	}
+	return w
+}
+
+// diffWidth returns the right pane width (path header + unified diff).
+func (m Model) diffWidth() int {
+	w := m.Width - m.fileListWidth() - 1 // 1 for │ divider
 	if w < 10 {
 		return 10
 	}

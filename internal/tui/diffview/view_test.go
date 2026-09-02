@@ -8,16 +8,15 @@ import (
 	"github.com/WariKoda/drift/internal/diff"
 )
 
-func TestViewRendersSynchronizedDiffViewport(t *testing.T) {
+func TestViewRendersSideBySideFileListAndDiff(t *testing.T) {
 	lines := make([]diff.DiffLine, 8)
 	for i := range lines {
 		lineNumber := i + 1
 		lines[i] = diff.DiffLine{
-			LocalLine:  fmt.Sprintf("local-row-%02d", lineNumber),
-			RemoteLine: fmt.Sprintf("remote-row-%02d", lineNumber),
-			LocalNum:   lineNumber,
-			RemoteNum:  lineNumber,
-			Kind:       diff.LineEqual,
+			Text:      fmt.Sprintf("row-%02d", lineNumber),
+			LocalNum:  lineNumber,
+			RemoteNum: lineNumber,
+			Kind:      diff.LineEqual,
 		}
 	}
 	model := Model{
@@ -29,7 +28,7 @@ func TestViewRendersSynchronizedDiffViewport(t *testing.T) {
 		syncDirs: []SyncDir{DirNone},
 		scroll:   2,
 		Width:    100,
-		Height:   12, // one file row and four diff rows
+		Height:   12,
 	}
 
 	rendered := strings.Split(model.View(), "\n")
@@ -37,14 +36,26 @@ func TestViewRendersSynchronizedDiffViewport(t *testing.T) {
 		t.Fatalf("view rendered %d rows, want terminal height %d", len(rendered), model.Height)
 	}
 
-	const contentStart = 6
+	fw := model.fileListWidth()
+	contentStart := model.contentTop()
 	for i, row := range rendered[contentStart : contentStart+model.viewportHeight()] {
 		lineNumber := i + 3
-		local := fmt.Sprintf("local-row-%02d", lineNumber)
-		remote := fmt.Sprintf("remote-row-%02d", lineNumber)
-		if !strings.Contains(row, local) || !strings.Contains(row, remote) {
-			t.Fatalf("viewport row %d does not contain synchronized line %d: %q", i, lineNumber, row)
+		text := fmt.Sprintf("row-%02d", lineNumber)
+		if !strings.Contains(row, text) {
+			t.Fatalf("viewport row %d does not contain unified line %d: %q", i, lineNumber, row)
 		}
+		// Diff content sits to the right of the file-list column.
+		plain := stripANSI(row)
+		idx := strings.Index(plain, text)
+		if idx < fw {
+			t.Fatalf("diff text %q appeared in the file list (col %d < %d): %q", text, idx, fw, plain)
+		}
+	}
+
+	// File list row shows the short local path on the left.
+	fileRow := stripANSI(rendered[bodyTop])
+	if !strings.Contains(fileRow, "file.txt") {
+		t.Fatalf("file list row missing name: %q", fileRow)
 	}
 }
 
@@ -90,4 +101,18 @@ func TestSyncProgressLabel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }

@@ -22,7 +22,8 @@ type Project struct {
 	Path      string    `toml:"path"` // absolute local path
 	Archived  bool      `toml:"archived,omitempty"`
 	CreatedAt time.Time `toml:"created_at"`
-	UpdatedAt time.Time `toml:"updated_at"`
+	UpdatedAt time.Time `toml:"updated_at"` // edits and archive only; not bumped on open
+	OpenedAt  time.Time `toml:"opened_at,omitempty"`
 }
 
 // Registry is the structure of projects.toml.
@@ -40,15 +41,99 @@ func (r *Registry) Find(slug string) *Project {
 	return nil
 }
 
-// HasPath reports whether any project (cleaned) points at the given path.
-func (r *Registry) HasPath(path string) bool {
+// FindByPath returns the project whose cleaned Path equals cleaned path, or nil.
+func (r *Registry) FindByPath(path string) *Project {
 	cp := filepath.Clean(path)
 	for i := range r.Projects {
 		if filepath.Clean(r.Projects[i].Path) == cp {
-			return true
+			return &r.Projects[i]
 		}
 	}
-	return false
+	return nil
+}
+
+// HasPath reports whether any project (cleaned) points at the given path.
+func (r *Registry) HasPath(path string) bool {
+	return r.FindByPath(path) != nil
+}
+
+// MostRecentlyOpened returns the non-archived project with the latest non-zero
+// OpenedAt, or nil.
+func (r *Registry) MostRecentlyOpened() *Project {
+	for _, p := range r.Active() {
+		if !p.OpenedAt.IsZero() {
+			return r.Find(p.Slug)
+		}
+	}
+	return nil
+}
+
+// Match finds a project by user query for `drift open`.
+// Resolution order:
+//  1. exact slug
+//  2. exact display name, case-insensitive; error if more than one
+//  3. unique case-insensitive prefix of slug or name
+//  4. unique case-insensitive substring of slug or name
+//
+// Error if none or ambiguous. Search includes archived projects.
+func (r *Registry) Match(query string) (*Project, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("project query must not be empty")
+	}
+	if p := r.Find(query); p != nil {
+		return p, nil
+	}
+
+	var names []*Project
+	for i := range r.Projects {
+		if strings.EqualFold(r.Projects[i].Name, query) {
+			names = append(names, &r.Projects[i])
+		}
+	}
+	if p, err := pickUnique(query, names); p != nil || err != nil {
+		return p, err
+	}
+
+	q := strings.ToLower(query)
+	var prefix []*Project
+	for i := range r.Projects {
+		p := &r.Projects[i]
+		if strings.HasPrefix(strings.ToLower(p.Slug), q) || strings.HasPrefix(strings.ToLower(p.Name), q) {
+			prefix = append(prefix, p)
+		}
+	}
+	if p, err := pickUnique(query, prefix); p != nil || err != nil {
+		return p, err
+	}
+
+	var sub []*Project
+	for i := range r.Projects {
+		p := &r.Projects[i]
+		if strings.Contains(strings.ToLower(p.Slug), q) || strings.Contains(strings.ToLower(p.Name), q) {
+			sub = append(sub, p)
+		}
+	}
+	if p, err := pickUnique(query, sub); p != nil || err != nil {
+		return p, err
+	}
+	return nil, fmt.Errorf("no project matching %q", query)
+}
+
+// pickUnique returns the sole hit, an ambiguous error, or (nil, nil) when empty.
+func pickUnique(query string, hits []*Project) (*Project, error) {
+	switch len(hits) {
+	case 0:
+		return nil, nil
+	case 1:
+		return hits[0], nil
+	}
+	slugs := make([]string, len(hits))
+	for i, p := range hits {
+		slugs[i] = p.Slug
+	}
+	sort.Strings(slugs)
+	return nil, fmt.Errorf("ambiguous project %q: matches %s", query, strings.Join(slugs, ", "))
 }
 
 // Add appends a project. It errors if the slug already exists.
@@ -85,12 +170,13 @@ func (r *Registry) Remove(slug string) error {
 	return fmt.Errorf("project %q not found", slug)
 }
 
-// Active returns non-archived projects sorted by display name (then slug).
+// Active returns non-archived projects, most recently opened first.
+// Never-opened projects sort after those with a timestamp, by name then slug.
 func (r *Registry) Active() []Project {
 	return r.sorted(false)
 }
 
-// All returns every project, including archived ones, sorted by name (then slug).
+// All returns every project, including archived ones, in the same order as Active.
 func (r *Registry) All() []Project {
 	return r.sorted(true)
 }
@@ -104,6 +190,16 @@ func (r *Registry) sorted(includeArchived bool) []Project {
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool {
+		ai, aj := out[i].OpenedAt, out[j].OpenedAt
+		zi, zj := ai.IsZero(), aj.IsZero()
+		switch {
+		case !zi && zj:
+			return true
+		case zi && !zj:
+			return false
+		case !zi && !zj && !ai.Equal(aj):
+			return ai.After(aj)
+		}
 		if out[i].Name != out[j].Name {
 			return out[i].Name < out[j].Name
 		}

@@ -13,11 +13,18 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // Overlay dims base and places the activity modal in the terminal center.
 func (m Model) Overlay(base string, width, height int) string {
-	if !m.Visible() || width <= 0 || height <= 0 {
+	if !m.Visible() {
+		return base
+	}
+	return OverlayCentered(base, m.modal(width), width, height)
+}
+
+// OverlayCentered dims base and draws modal in the terminal center.
+func OverlayCentered(base, modal string, width, height int) string {
+	if width <= 0 || height <= 0 || modal == "" {
 		return base
 	}
 
-	modal := m.modal(width)
 	modalLines := strings.Split(modal, "\n")
 	modalWidth := 0
 	for _, line := range modalLines {

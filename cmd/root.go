@@ -30,9 +30,10 @@ var rootCmd = &cobra.Command{
 	Long: `drift opens a file browser in the current directory.
 Select files or folders, then sync them with a configured remote host over SFTP/SSH.
 
-When started outside a project (no .drift/ found) and projects are registered,
-drift shows a dashboard of your projects instead. Use --dashboard or --no-dashboard
-to force either behaviour.
+When started outside a project (no .drift/ found), drift reopens the last project
+you opened, if that path still exists. Otherwise it shows the dashboard when
+projects are registered. --dashboard forces the list; --no-dashboard stays in
+the current directory.
 
 Config locations:
   global:   ~/.config/drift/config.toml
@@ -49,12 +50,23 @@ Config locations:
 			return err
 		}
 
+		last := usableLastProject(reg)
+		mode := resolveStart(flagDashboard, flagNoDashboard, config.HasProjectContext(workDir), last, len(reg.Projects))
+
+		root := workDir
 		initial := tui.ScreenBrowser
-		if shouldShowDashboard(flagDashboard, flagNoDashboard, config.HasProjectContext(workDir), len(reg.Projects)) {
+		switch mode {
+		case startDashboard:
 			initial = tui.ScreenDashboard
+		case startLastProject:
+			root = last.Path
+			cfg, err = config.Load(root)
+			if err != nil {
+				return fmt.Errorf("config error: %w", err)
+			}
 		}
 
-		app, err := tui.New(workDir, cfg, store, reg, initial)
+		app, err := tui.New(root, cfg, store, reg, initial)
 		if err != nil {
 			return fmt.Errorf("cannot read directory: %w", err)
 		}
@@ -111,17 +123,48 @@ func envTruthy(v string) bool {
 	return b
 }
 
-// shouldShowDashboard decides whether the dashboard is the start screen.
-// Explicit flags win; otherwise the dashboard appears only when drift is run
-// outside a project context and at least one project is registered.
-func shouldShowDashboard(dashFlag, noDashFlag, hasProjectCtx bool, regCount int) bool {
+// startMode is how `drift` with no subcommand chooses its first screen.
+type startMode int
+
+const (
+	startBrowserCwd startMode = iota
+	startDashboard
+	startLastProject
+)
+
+// resolveStart decides the no-subcommand start screen.
+// --no-dashboard wins; --dashboard forces the list; inside a project the
+// browser stays in cwd; outside, a usable last-opened project is restored.
+func resolveStart(dashFlag, noDashFlag, hasProjectCtx bool, last *project.Project, regCount int) startMode {
 	if noDashFlag {
-		return false
+		return startBrowserCwd
 	}
 	if dashFlag {
-		return true
+		return startDashboard
 	}
-	return !hasProjectCtx && regCount > 0
+	if hasProjectCtx {
+		return startBrowserCwd
+	}
+	if last != nil {
+		return startLastProject
+	}
+	if regCount > 0 {
+		return startDashboard
+	}
+	return startBrowserCwd
+}
+
+// usableLastProject returns MostRecentlyOpened if its path exists and is a directory.
+func usableLastProject(reg *project.Registry) *project.Project {
+	p := reg.MostRecentlyOpened()
+	if p == nil {
+		return nil
+	}
+	info, err := os.Stat(p.Path)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	return p
 }
 
 // loadAll loads the merged config and the project registry for workDir.

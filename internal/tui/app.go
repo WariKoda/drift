@@ -19,6 +19,7 @@ import (
 	"github.com/WariKoda/drift/internal/tui/loading"
 	mousepkg "github.com/WariKoda/drift/internal/tui/mouse"
 	"github.com/WariKoda/drift/internal/tui/projectform"
+	"github.com/WariKoda/drift/internal/tui/projectselector"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -47,6 +48,7 @@ type App struct {
 	globalError string
 	dashboard   dashboard.Model
 	projectForm projectform.Model
+	projectSel  projectselector.Model
 
 	// diffRequest is the ID of the diff request whose result the app still
 	// wants; 0 means none is pending. diffSeq issues those IDs. Results of
@@ -87,6 +89,10 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 	a.browser = b
 	a.state.Selection = b.Selection
 	a.state.RemoteSelection = b.RemoteSelection
+	a.bindActiveProject(workDir, cfg)
+	if a.state.ActiveProject != nil {
+		a.recordOpened(a.state.ActiveProject.Slug)
+	}
 
 	// Offer to register the current project if it isn't in the registry yet.
 	if shouldPromptRegister(workDir, cfg, reg) {
@@ -120,6 +126,7 @@ func (a *App) registerPending() error {
 		Path:      a.state.PendingRegisterPath,
 		CreatedAt: now,
 		UpdatedAt: now,
+		OpenedAt:  now,
 	}
 	if err := a.registry.Add(p); err != nil {
 		return err
@@ -129,6 +136,7 @@ func (a *App) registerPending() error {
 	}
 	pc := p
 	a.state.ActiveProject = &pc
+	a.browser.SetProjectName(p.Name)
 	return nil
 }
 
@@ -213,6 +221,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 		return nil, err
 	}
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
+	b.SetProjectName(p.Name)
 
 	a.browser = b
 	a.state.Config = cfg
@@ -222,7 +231,83 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	pc := p
 	a.state.ActiveProject = &pc
 	a.state.Screen = ScreenBrowser
+	a.recordOpened(p.Slug)
 	return b.Init(), nil
+}
+
+func (a App) currentSlug() string {
+	if a.state.ActiveProject == nil {
+		return ""
+	}
+	return a.state.ActiveProject.Slug
+}
+
+// bindActiveProject sets ActiveProject and the browser header from the registry.
+func (a *App) bindActiveProject(workDir string, cfg *config.MergedConfig) {
+	if a.registry == nil {
+		return
+	}
+	var p *project.Project
+	if cfg != nil && cfg.ProjectRoot != "" {
+		p = a.registry.FindByPath(cfg.ProjectRoot)
+	}
+	if p == nil {
+		p = a.registry.FindByPath(workDir)
+	}
+	if p == nil {
+		return
+	}
+	pc := *p
+	a.state.ActiveProject = &pc
+	a.browser.SetProjectName(p.Name)
+}
+
+// recordOpened stamps OpenedAt and persists it. A save failure is logged and
+// does not undo the open — the session is already rooted in the project.
+func (a *App) recordOpened(slug string) {
+	if a.registry == nil || a.store == nil || slug == "" {
+		return
+	}
+	existing := a.registry.Find(slug)
+	if existing == nil {
+		return
+	}
+	existing.OpenedAt = time.Now().UTC()
+	pc := *existing
+	a.state.ActiveProject = &pc
+	if err := a.store.Save(a.registry); err != nil {
+		log.Error("could not persist last-opened", "err", err, "slug", slug)
+		return
+	}
+	a.dashboard.Refresh(a.registry)
+}
+
+// openPicker shows the project switcher over the current browser session.
+// Remote pane and in-flight diffs stay; they are torn down only by openProject.
+func (a *App) openPicker() {
+	if a.store == nil || a.registry == nil {
+		return
+	}
+	if reg, err := a.store.Load(); err == nil {
+		a.registry = reg
+	}
+	a.projectSel = projectselector.New(
+		a.registry.Active(), a.currentSlug(),
+		a.state.TermWidth, a.state.TermHeight,
+	)
+	a.state.Screen = ScreenProjectSelector
+}
+
+// openDashboard shows the project CRUD screen. When returnable is true, Esc
+// comes back to the browser instead of quitting.
+func (a *App) openDashboard(returnable bool) {
+	if a.registry == nil {
+		return
+	}
+	a.dashboard.Refresh(a.registry)
+	a.dashboard.SetSize(a.state.TermWidth, a.state.TermHeight)
+	a.dashboard.SetReturnable(returnable)
+	a.state.Screen = ScreenDashboard
 }
 
 // saveProjectForm persists a created/edited project from the project form.
@@ -324,6 +409,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diffView.SetSize(msg.Width, msg.Height)
 		a.dashboard.SetSize(msg.Width, msg.Height)
 		a.projectForm.SetSize(msg.Width, msg.Height)
+		a.projectSel.SetSize(msg.Width, msg.Height)
 		return a, nil
 
 	// ── Project Dashboard ─────────────────────────────────────────────
@@ -333,6 +419,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.dashboard.SetStatus("Cannot open project: " + err.Error())
 			return a, nil
 		}
+		a.dashboard.SetReturnable(false)
 		return a, cmd
 
 	case dashboard.MsgOpenProjectForm:
@@ -369,6 +456,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dashboard.MsgDashboardQuit:
 		return a, tea.Quit
 
+	case dashboard.MsgDashboardBack:
+		a.state.Screen = ScreenBrowser
+		return a, nil
+
 	// ── Project Form ──────────────────────────────────────────────────
 	case projectform.MsgProjectSaved:
 		if err := a.saveProjectForm(msg); err != nil {
@@ -383,21 +474,35 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenDashboard
 		return a, nil
 
-	// ── Browser → Dashboard ───────────────────────────────────────────
+	// ── Browser → Project picker ──────────────────────────────────────
 	case browser.MsgOpenDashboard:
-		a.browser.CloseRemote()
-		if a.store == nil || a.registry == nil {
+		a.openPicker()
+		return a, nil
+
+	case projectselector.MsgSelectorCancelled:
+		a.state.Screen = ScreenBrowser
+		return a, nil
+
+	case projectselector.MsgOpenDashboard:
+		if a.store != nil {
+			if reg, err := a.store.Load(); err == nil {
+				a.registry = reg
+			}
+		}
+		a.openDashboard(true)
+		return a, nil
+
+	case projectselector.MsgProjectChosen:
+		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Project.Slug {
+			a.state.Screen = ScreenBrowser
 			return a, nil
 		}
-		// The dashboard has no way back to this browser, so a pending diff
-		// request is gone for good.
-		a.abandonDiffRequest()
-		if reg, err := a.store.Load(); err == nil {
-			a.registry = reg
-			a.dashboard.Refresh(reg)
+		cmd, err := a.openProject(msg.Project)
+		if err != nil {
+			a.projectSel.SetStatus("Cannot open project: " + err.Error())
+			return a, nil
 		}
-		a.state.Screen = ScreenDashboard
-		return a, nil
+		return a, cmd
 
 	// ── Browser → Host Selector / direct sync ─────────────────────────
 	case browser.MsgSyncRequested:
@@ -611,6 +716,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.projectForm, cmd = a.projectForm.Update(msg)
 		return a, cmd
+	case ScreenProjectSelector:
+		var cmd tea.Cmd
+		a.projectSel, cmd = a.projectSel.Update(msg)
+		return a, cmd
 	case ScreenBrowser:
 		_, wasLoading := a.browser.LoadingActivity()
 		var cmd tea.Cmd
@@ -693,6 +802,13 @@ func (a App) baseView() string {
 		return a.dashboard.View()
 	case ScreenProjectForm:
 		return a.projectForm.View()
+	case ScreenProjectSelector:
+		return loading.OverlayCentered(
+			a.browser.View(),
+			a.projectSel.View(),
+			a.state.TermWidth,
+			a.state.TermHeight,
+		)
 	case ScreenBrowser:
 		return a.browser.View()
 	case ScreenHostSelector:

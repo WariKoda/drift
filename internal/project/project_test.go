@@ -1,6 +1,10 @@
 package project
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+	"time"
+)
 
 func TestSlugify(t *testing.T) {
 	tests := []struct {
@@ -114,5 +118,118 @@ func TestActiveAndAllSorting(t *testing.T) {
 	}
 	if all[0].Name != "Alpha" || all[1].Name != "Archived" || all[2].Name != "Zeta" {
 		t.Fatalf("All not sorted: %v", all)
+	}
+}
+
+func TestSortingByOpenedAt(t *testing.T) {
+	recent := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	older := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	r := &Registry{Projects: []Project{
+		{Slug: "z", Name: "Zeta", OpenedAt: older},
+		{Slug: "a", Name: "Alpha"},
+		{Slug: "b", Name: "Beta", OpenedAt: recent},
+		{Slug: "arch", Name: "Archived", Archived: true, OpenedAt: recent.Add(time.Hour)},
+	}}
+
+	active := r.Active()
+	if len(active) != 3 {
+		t.Fatalf("Active len = %d, want 3", len(active))
+	}
+	if active[0].Name != "Beta" || active[1].Name != "Zeta" || active[2].Name != "Alpha" {
+		t.Fatalf("Active order = %s, %s, %s; want Beta, Zeta, Alpha",
+			active[0].Name, active[1].Name, active[2].Name)
+	}
+
+	if p := r.MostRecentlyOpened(); p == nil || p.Slug != "b" {
+		t.Fatalf("MostRecentlyOpened = %v, want Beta (archived has a later OpenedAt)", p)
+	}
+
+	same := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	tied := &Registry{Projects: []Project{
+		{Slug: "z", Name: "Same", OpenedAt: same},
+		{Slug: "a", Name: "Same", OpenedAt: same},
+	}}
+	got := tied.Active()
+	if got[0].Slug != "a" || got[1].Slug != "z" {
+		t.Fatalf("equal OpenedAt should tie-break by slug: %s, %s", got[0].Slug, got[1].Slug)
+	}
+
+	none := &Registry{Projects: []Project{
+		{Slug: "a", Name: "A"},
+		{Slug: "arch", Name: "Archived", Archived: true, OpenedAt: recent},
+	}}
+	if p := none.MostRecentlyOpened(); p != nil {
+		t.Fatalf("MostRecentlyOpened with only archived/zero = %v, want nil", p)
+	}
+}
+
+func TestFindByPath(t *testing.T) {
+	r := &Registry{Projects: []Project{
+		{Slug: "a", Path: "/home/u/work/kunde-a"},
+		{Slug: "b", Path: "/home/u/work/kunde-b/"},
+	}}
+	if p := r.FindByPath("/home/u/work/kunde-a"); p == nil || p.Slug != "a" {
+		t.Fatalf("exact path: got %v", p)
+	}
+	if p := r.FindByPath("/home/u/work/kunde-b"); p == nil || p.Slug != "b" {
+		t.Fatal("expected trailing-slash path to match after Clean")
+	}
+	if p := r.FindByPath(filepath.Clean("/home/u/work/kunde-a/../kunde-a")); p == nil || p.Slug != "a" {
+		t.Fatalf("cleaned relative segments: got %v", p)
+	}
+	if p := r.FindByPath("/home/u/work/kunde-c"); p != nil {
+		t.Fatal("unregistered path should not match")
+	}
+}
+
+func TestMatch(t *testing.T) {
+	r := &Registry{Projects: []Project{
+		{Slug: "kunde-a", Name: "KUNDE A"},
+		{Slug: "kunde-b", Name: "KUNDE B"},
+		{Slug: "acme", Name: "Acme Corp"},
+		{Slug: "old-acme", Name: "Legacy", Archived: true},
+		{Slug: "shop-1", Name: "Shop"},
+		{Slug: "shop-2", Name: "Shop"},
+	}}
+
+	tests := []struct {
+		name    string
+		query   string
+		want    string
+		wantErr bool
+	}{
+		{"exact slug", "kunde-a", "kunde-a", false},
+		{"exact slug wins over substring", "acme", "acme", false},
+		{"exact name", "KUNDE A", "kunde-a", false},
+		{"exact name case-insensitive", "kunde a", "kunde-a", false},
+		{"trim space", "  acme  ", "acme", false},
+		{"unique prefix slug", "acm", "acme", false},
+		{"unique prefix name", "acme c", "acme", false},
+		{"unique substring", "corp", "acme", false},
+		{"archived exact slug", "old-acme", "old-acme", false},
+		{"archived exact name", "legacy", "old-acme", false},
+		{"ambiguous prefix", "kunde", "", true},
+		{"ambiguous exact name", "Shop", "", true},
+		{"ambiguous substring", "unde", "", true},
+		{"missing", "nope", "", true},
+		{"empty", "", "", true},
+		{"whitespace", "   ", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := r.Match(tt.query)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Match(%q) = %v, want error", tt.query, p)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Match(%q): %v", tt.query, err)
+			}
+			if p.Slug != tt.want {
+				t.Fatalf("Match(%q) = %q, want %q", tt.query, p.Slug, tt.want)
+			}
+		})
 	}
 }

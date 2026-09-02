@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/WariKoda/drift/internal/project"
+	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -24,6 +25,9 @@ type Model struct {
 	showArchived  bool
 	confirmDelete bool
 	statusMsg     string
+	returnable    bool
+
+	clicks mouse.ClickTracker
 
 	Width  int
 	Height int
@@ -89,6 +93,10 @@ func (m Model) currentEntry() *entry {
 
 // SetStatus sets a one-line status/error message shown in the footer.
 func (m *Model) SetStatus(msg string) { m.statusMsg = msg }
+
+// SetReturnable marks whether Esc should return to the previous screen
+// instead of quitting drift. Landing-page dashboard stays false (Esc/q quit).
+func (m *Model) SetReturnable(v bool) { m.returnable = v }
 
 // SetSize updates terminal dimensions.
 func (m *Model) SetSize(w, h int) {

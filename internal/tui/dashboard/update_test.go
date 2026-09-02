@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/WariKoda/drift/internal/project"
@@ -108,5 +109,78 @@ func TestQuitEmitsDashboardQuit(t *testing.T) {
 	_, out := dispatch(m, key("q"))
 	if _, ok := out.(MsgDashboardQuit); !ok {
 		t.Fatalf("expected MsgDashboardQuit, got %T", out)
+	}
+}
+
+func TestEscQuitsWhenNotReturnable(t *testing.T) {
+	m := newModel(t)
+	_, out := dispatch(m, key("esc"))
+	if _, ok := out.(MsgDashboardQuit); !ok {
+		t.Fatalf("expected MsgDashboardQuit, got %T", out)
+	}
+}
+
+func TestEscBackWhenReturnable(t *testing.T) {
+	m := newModel(t)
+	m.SetReturnable(true)
+	m, out := dispatch(m, key("esc"))
+	if _, ok := out.(MsgDashboardBack); !ok {
+		t.Fatalf("expected MsgDashboardBack, got %T", out)
+	}
+	_, out = dispatch(m, key("q"))
+	if _, ok := out.(MsgDashboardQuit); !ok {
+		t.Fatalf("q should still quit, got %T", out)
+	}
+}
+
+func TestRefreshKeepsReturnable(t *testing.T) {
+	m := newModel(t)
+	m.SetReturnable(true)
+	m.Refresh(m.reg)
+	_, out := dispatch(m, key("esc"))
+	if _, ok := out.(MsgDashboardBack); !ok {
+		t.Fatalf("expected MsgDashboardBack after refresh, got %T", out)
+	}
+}
+
+func TestNumberKeysIndexEntriesNotWindow(t *testing.T) {
+	dir := t.TempDir()
+	projects := make([]project.Project, 20)
+	for i := range projects {
+		projects[i] = project.Project{
+			Slug: string(rune('a' + i)),
+			Name: "P" + string(rune('A'+i)),
+			Path: dir,
+		}
+	}
+	m := New(&project.Registry{Projects: projects}, 80, 24)
+	m.cursor = len(m.entries) - 1
+	m.clampCursor()
+	if m.windowStart() == 0 {
+		t.Fatal("expected the window to have scrolled off entry 0")
+	}
+
+	_, out := dispatch(m, key("1"))
+	chosen, ok := out.(MsgProjectChosen)
+	if !ok {
+		t.Fatalf("expected MsgProjectChosen, got %T", out)
+	}
+	if chosen.Project.Slug != projects[0].Slug {
+		t.Fatalf("number key opened %q, want %q", chosen.Project.Slug, projects[0].Slug)
+	}
+}
+
+func TestReturnableActionBarShowsBack(t *testing.T) {
+	m := newModel(t)
+	if strings.Contains(m.actionBar(), "[Esc]") {
+		t.Fatal("landing dashboard should not show [Esc] back")
+	}
+	m.SetReturnable(true)
+	bar := m.actionBar()
+	if !strings.Contains(bar, "[Esc]") || !strings.Contains(bar, "back") {
+		t.Fatalf("returnable action bar = %q, want [Esc] back", bar)
+	}
+	if !strings.Contains(bar, "[q]") {
+		t.Fatalf("returnable action bar = %q, want [q] quit", bar)
 	}
 }

@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/project"
 )
 
 func TestResolveLogConfig(t *testing.T) {
@@ -53,28 +56,68 @@ func TestResolveLogConfig(t *testing.T) {
 	}
 }
 
-func TestShouldShowDashboard(t *testing.T) {
+func TestResolveStart(t *testing.T) {
+	last := &project.Project{Slug: "recent", Path: "/tmp/recent"}
 	tests := []struct {
 		name          string
 		dash, noDash  bool
 		hasProjectCtx bool
+		last          *project.Project
 		regCount      int
-		want          bool
+		want          startMode
 	}{
-		{"no flags, outside project, has projects", false, false, false, 2, true},
-		{"no flags, outside project, no projects", false, false, false, 0, false},
-		{"no flags, inside project", false, false, true, 5, false},
-		{"force dashboard inside project", true, false, true, 0, true},
-		{"force dashboard with no projects", true, false, false, 0, true},
-		{"no-dashboard wins over context", false, true, false, 3, false},
-		{"no-dashboard wins over dashboard flag", true, true, false, 3, false},
+		{"outside + last opened", false, false, false, last, 2, startLastProject},
+		{"outside + projects none opened", false, false, false, nil, 2, startDashboard},
+		{"outside + no projects", false, false, false, nil, 0, startBrowserCwd},
+		{"inside project", false, false, true, last, 5, startBrowserCwd},
+		{"dashboard flag with last opened", true, false, false, last, 2, startDashboard},
+		{"dashboard flag inside project", true, false, true, last, 0, startDashboard},
+		{"no-dashboard with last opened", false, true, false, last, 3, startBrowserCwd},
+		{"no-dashboard wins over dashboard flag", true, true, false, last, 3, startBrowserCwd},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldShowDashboard(tt.dash, tt.noDash, tt.hasProjectCtx, tt.regCount); got != tt.want {
-				t.Fatalf("shouldShowDashboard(%v,%v,%v,%d) = %v, want %v",
-					tt.dash, tt.noDash, tt.hasProjectCtx, tt.regCount, got, tt.want)
+			got := resolveStart(tt.dash, tt.noDash, tt.hasProjectCtx, tt.last, tt.regCount)
+			if got != tt.want {
+				t.Fatalf("resolveStart(...) = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUsableLastProject(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+
+	ok := &project.Registry{Projects: []project.Project{
+		{Slug: "ok", Path: dir, OpenedAt: now},
+	}}
+	if p := usableLastProject(ok); p == nil || p.Slug != "ok" {
+		t.Fatalf("usable dir: got %v", p)
+	}
+
+	missing := &project.Registry{Projects: []project.Project{
+		{Slug: "gone", Path: filepath.Join(dir, "nope"), OpenedAt: now},
+	}}
+	if p := usableLastProject(missing); p != nil {
+		t.Fatalf("missing path: got %v", p)
+	}
+
+	file := filepath.Join(dir, "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asFile := &project.Registry{Projects: []project.Project{
+		{Slug: "file", Path: file, OpenedAt: now},
+	}}
+	if p := usableLastProject(asFile); p != nil {
+		t.Fatalf("file path: got %v", p)
+	}
+
+	never := &project.Registry{Projects: []project.Project{
+		{Slug: "n", Path: dir},
+	}}
+	if p := usableLastProject(never); p != nil {
+		t.Fatalf("never opened: got %v", p)
 	}
 }

@@ -39,13 +39,7 @@ func logoLines() []string {
 }
 
 func (m Model) View() string {
-	w, h := m.Width, m.Height
-	if w < 1 {
-		w = 80
-	}
-	if h < 1 {
-		h = 24
-	}
+	w, h := m.termSize()
 
 	center := func(s string) string {
 		pad := (w - lipgloss.Width(s)) / 2
@@ -58,19 +52,19 @@ func (m Model) View() string {
 	var lines []string
 
 	// ── Top padding + logo ────────────────────────────────────────────
-	lines = append(lines, "")
+	for i := 0; i < headerBlankTop; i++ {
+		lines = append(lines, "")
+	}
 	for _, l := range logoLines() {
 		lines = append(lines, center(logoStyle.Render(l)))
 	}
-	lines = append(lines, "", "")
+	for i := 0; i < headerBlankBot; i++ {
+		lines = append(lines, "")
+	}
 
 	// ── Project rows ──────────────────────────────────────────────────
 	footer := m.footerBlock(center)
-	listMax := h - len(lines) - len(footer)
-	if listMax < 1 {
-		listMax = 1
-	}
-	for _, row := range m.projectRows(listMax) {
+	for _, row := range m.projectRows() {
 		lines = append(lines, center(row))
 	}
 
@@ -86,36 +80,133 @@ func (m Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
-// blockWidth is the fixed visual width of the centered menu block.
+// Screen layout, top to bottom:
+//
+//	headerBlankTop + logoRowCount + headerBlankBot   padding and logo
+//	listMax()                                        project rows
+//	footerLineCount                                  action bar, status
+//
+// hitTest in mouse.go maps clicks back through these helpers, so a layout
+// change here must be a change to the constants — not a hand-counted number
+// in View.
 const (
-	blockWidth = 58
-	nameWidth  = 18
+	headerBlankTop  = 1
+	logoRowCount    = 5
+	headerBlankBot  = 2
+	footerLineCount = 4
+
+	defaultTermWidth  = 80
+	defaultBlockWidth = 58
+	minBlockWidth     = 40
+	maxBlockWidth     = 88
+	defaultNameWidth  = 18
+	maxNameWidth      = 36
 )
 
+func (m Model) termSize() (w, h int) {
+	w, h = m.Width, m.Height
+	if w < 1 {
+		w = defaultTermWidth
+	}
+	if h < 1 {
+		h = 24
+	}
+	return
+}
+
+// listTop is the y of the first project row (1 blank + 5 logo + 2 blanks).
+func (m Model) listTop() int {
+	return headerBlankTop + logoRowCount + headerBlankBot
+}
+
+// listMax is how many project rows fit between the logo and the footer.
+func (m Model) listMax() int {
+	_, h := m.termSize()
+	n := h - m.listTop() - footerLineCount
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+// windowStart is the first entry index shown, keeping the cursor in view
+// when the list is longer than listMax.
+func (m Model) windowStart() int {
+	max := m.listMax()
+	if len(m.entries) <= max {
+		return 0
+	}
+	start := m.cursor - max/2
+	if start < 0 {
+		start = 0
+	}
+	if start > len(m.entries)-max {
+		start = len(m.entries) - max
+	}
+	return start
+}
+
+// blockWidth is the visual width of the centered project block.
+//
+// An 80-col terminal keeps the original 58-cell block. Wider terminals grow
+// it toward maxBlockWidth; narrower ones shrink it so it still fits, never
+// below minBlockWidth.
+func (m Model) blockWidth() int {
+	w, _ := m.termSize()
+	bw := w - (defaultTermWidth - defaultBlockWidth) // keep the 80-col side pad
+	if bw > maxBlockWidth {
+		bw = maxBlockWidth
+	}
+	if bw < minBlockWidth {
+		bw = minBlockWidth
+	}
+	maxFit := w - 2
+	if maxFit < minBlockWidth {
+		maxFit = minBlockWidth
+	}
+	if bw > maxFit {
+		bw = maxFit
+	}
+	return bw
+}
+
+// nameWidth is how many runes the name column gets inside the block.
+func (m Model) nameWidth() int {
+	nw := defaultNameWidth + (m.blockWidth() - defaultBlockWidth)
+	if nw < defaultNameWidth {
+		return defaultNameWidth
+	}
+	if nw > maxNameWidth {
+		return maxNameWidth
+	}
+	return nw
+}
+
+// blockLeft is the x of the centered block — the same pad View's center()
+// applies to a row whose visual width is blockWidth.
+func (m Model) blockLeft() int {
+	w, _ := m.termSize()
+	pad := (w - m.blockWidth()) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	return pad
+}
+
 // projectRows renders up to listMax project rows (a window around the cursor).
-func (m Model) projectRows(listMax int) []string {
+func (m Model) projectRows() []string {
 	if len(m.entries) == 0 {
 		return []string{styles.Muted.Render("No projects yet — press ") +
 			accentStyle.Render("n") + styles.Muted.Render(" to add one.")}
 	}
 
-	start := 0
-	if len(m.entries) > listMax {
-		// keep the cursor in view
-		start = m.cursor - listMax/2
-		if start < 0 {
-			start = 0
-		}
-		if start > len(m.entries)-listMax {
-			start = len(m.entries) - listMax
-		}
-	}
-	end := start + listMax
+	start := m.windowStart()
+	end := start + m.listMax()
 	if end > len(m.entries) {
 		end = len(m.entries)
 	}
 
-	pathWidth := blockWidth - 2 - nameWidth - 1 - 2 // diamond + name + sep + key area
+	pathWidth := m.blockWidth() - 2 - m.nameWidth() - 1 - 2 // diamond + name + sep + key area
 	if pathWidth < 8 {
 		pathWidth = 8
 	}
@@ -148,7 +239,7 @@ func (m Model) renderRow(i, pathWidth int) string {
 		st = styles.File
 	}
 	diamond := st.Render(marker)
-	name := st.Render(padRune(e.proj.Name, nameWidth))
+	name := st.Render(padRune(e.proj.Name, m.nameWidth()))
 	path := styles.Muted.Render(padRuneLeft(collapseHome(e.proj.Path), pathWidth))
 
 	// Right-aligned quick-open key for the first nine projects.
@@ -185,18 +276,22 @@ func (m Model) footerBlock(center func(string) string) []string {
 	}
 
 	return []string{
-		center(actionBar()),
+		center(m.actionBar()),
 		"",
 		center(status),
 		"",
 	}
 }
 
-func actionBar() string {
+func (m Model) actionBar() string {
 	pairs := [][2]string{
 		{"↵", "open"}, {"n", "new"}, {"e", "edit"},
-		{"d", "remove"}, {"a", "archive"}, {".", "archived"}, {"q", "quit"},
+		{"d", "remove"}, {"a", "archive"}, {".", "archived"},
 	}
+	if m.returnable {
+		pairs = append(pairs, [2]string{"Esc", "back"})
+	}
+	pairs = append(pairs, [2]string{"q", "quit"})
 	var parts []string
 	for _, p := range pairs {
 		parts = append(parts, styles.Key.Render("["+p[0]+"]")+styles.Muted.Render(" "+p[1]))

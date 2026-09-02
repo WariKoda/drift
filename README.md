@@ -57,13 +57,13 @@ make update
 ## Usage
 
 ```bash
-# Start in the current directory (or the project dashboard, see below)
+# Start in the current directory, last project, or dashboard (see below)
 drift
 
 # Open the project dashboard explicitly
 drift dash
 
-# Open a registered project directly
+# Open a registered project by name or slug
 drift open kunde-a
 
 # Manage projects
@@ -87,9 +87,18 @@ it loads that project's config and opens the file browser in its directory — t
 `cd <path> && drift`, but without leaving drift.
 
 The dashboard appears automatically when you run `drift` **outside** any project
-(no `.drift/` found) and at least one project is registered. Inside a project directory,
-`drift` opens the browser as before. Override with `--dashboard` / `--no-dashboard`, or
-force it with `drift dash`.
+(no `.drift/` found) and nothing has been opened yet, as long as at least one
+project is registered. If you have opened a project before, `drift` restores that
+one instead (its path must still exist). Inside a project directory, `drift`
+opens the browser as before. `--dashboard` (or `drift dash`) always opens the
+list; `--no-dashboard` stays in the current directory.
+
+From the file browser, `P` opens a filterable switcher and leaves the current
+session alone. Esc goes back. Enter on another project re-roots. `m` (with an
+empty filter) opens the full dashboard to add, edit, archive, or remove entries.
+
+`drift open` accepts a display name or slug: exact slug, then exact name
+(case-insensitive), then a unique prefix or substring of either.
 
 Each project stores only a slug, display name, local path and timestamps in
 `~/.config/drift/projects.toml`. Hosts and mappings continue to live in the project's own
@@ -123,7 +132,19 @@ other key to skip — you can always register later with `drift projects add .`.
 | `d` | Remove project (with confirmation) |
 | `a` | Archive / unarchive project |
 | `.` | Show / hide archived projects |
-| `q` / `Esc` | Quit drift |
+| Click / wheel | Move the cursor; double click opens |
+| `Esc` | Back to the browser when opened from `P` then `m`; otherwise quit |
+| `q` | Quit drift |
+
+### Project switcher (`P` in the file browser)
+
+| Key | Action |
+|-----|--------|
+| type | Filter by name, slug, or path |
+| `↑` / `↓` or `Ctrl+n` / `Ctrl+p` | Navigate |
+| `Enter` / `1`–`9` | Open the selected / n-th filtered project |
+| `m` | Open the dashboard to manage projects (empty filter only) |
+| `Esc` | Back to the browser (session kept) |
 
 ### File Browser
 
@@ -142,7 +163,7 @@ other key to skip — you can always register later with `drift projects add .`.
 | `s` | Sync marked local and remote files |
 | `r` / `/` / `?` | Refresh active pane / filter / help |
 | `H` | Open host manager |
-| `P` | Open project dashboard |
+| `P` | Switch project (filterable picker; `m` opens the dashboard) |
 | `Esc` | Clear filter and selections |
 | `q` / `Ctrl+C` | Quit |
 
@@ -348,6 +369,7 @@ internal/
     browser/    file browser screen
     dashboard/  project dashboard screen
     projectform/ project create/edit form
+    projectselector/ project switcher modal
     diffview/   diff + sync screen
     hostform/   host create/edit form (incl. mapping manager)
     hostmanager/ host list screen

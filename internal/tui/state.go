@@ -12,15 +12,16 @@ import (
 type Screen int
 
 const (
-	ScreenBrowser        Screen = iota
-	ScreenHostSelector          // modal overlay on browser (sync target picker)
-	ScreenHostManager           // CRUD list of all hosts
-	ScreenHostForm              // create / edit a host
-	ScreenDiffView              // split-pane diff
-	ScreenSyncProgress          // transfer progress (Phase 4)
-	ScreenDashboard             // project dashboard (optional landing screen)
-	ScreenProjectForm           // create / edit a project
-	ScreenRegisterPrompt        // offer to register the current unregistered project
+	ScreenBrowser         Screen = iota
+	ScreenHostSelector           // modal overlay on browser (sync target picker)
+	ScreenHostManager            // CRUD list of all hosts
+	ScreenHostForm               // create / edit a host
+	ScreenDiffView               // split-pane diff
+	ScreenSyncProgress           // transfer progress (Phase 4)
+	ScreenDashboard              // project dashboard (optional landing screen)
+	ScreenProjectForm            // create / edit a project
+	ScreenRegisterPrompt         // offer to register the current unregistered project
+	ScreenProjectSelector        // modal overlay on browser (switch project)
 )
 
 // HostSelectorPurpose identifies why the host selector is currently open.

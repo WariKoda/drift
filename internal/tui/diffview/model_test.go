@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/remote"
 )
 
@@ -45,7 +46,13 @@ func TestLoadDiffItemsUsesSingleFTPSession(t *testing.T) {
 	}
 	defer conn.Close()
 
-	sessions := loadDiffItems(host, conn, items, NewLoadProgressTracker())
+	root, err := fs.OpenRoot(localDir)
+	if err != nil {
+		t.Fatalf("open project root: %v", err)
+	}
+	defer root.Close()
+
+	sessions := loadDiffItems(root, host, conn, items, NewLoadProgressTracker())
 
 	if len(sessions) != len(items) {
 		t.Fatalf("sessions = %d, want %d", len(sessions), len(items))

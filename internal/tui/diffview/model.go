@@ -33,6 +33,7 @@ type MsgDiffLoaded struct {
 	Host      config.Host
 	Sessions  []diff.Session
 	Conn      remote.Client
+	Root      *fs.Root // project root for local reads and writes; caller must close it
 }
 
 // LoadProgressTracker shares operation progress with the global indicator.
@@ -168,13 +169,14 @@ type Model struct {
 	syncTotal       int                  // total files in the active bulk sync
 	host            config.Host
 	conn            remote.Client // kept open for sync ops
+	root            *fs.Root      // confines every local read, write and delete to the project
 	Width           int
 	Height          int
 }
 
 // New creates a Model with pre-loaded sessions.
 // syncDirs are pre-filled by autoDir so the user starts with a sensible selection.
-func New(sessions []diff.Session, host config.Host, conn remote.Client, width, height int) Model {
+func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs.Root, width, height int) Model {
 	syncDirs := make([]SyncDir, len(sessions))
 	for i := range sessions {
 		syncDirs[i] = autoDir(&sessions[i])
@@ -184,6 +186,7 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, width, h
 		syncDirs: syncDirs,
 		host:     host,
 		conn:     conn,
+		root:     root,
 		Width:    width,
 		Height:   height,
 	}
@@ -214,12 +217,17 @@ func (m *Model) finishActivity() {
 	m.activityTracker = nil
 }
 
-// Close closes the SFTP connection. Call when leaving the diff view.
+// Close releases the remote connection and the project root handle. Call when
+// leaving the diff view.
 func (m *Model) Close() {
 	if m.conn != nil {
 		log.Info("remote disconnect", "host", m.host.Name)
 		_ = m.conn.Close()
 		m.conn = nil
+	}
+	if m.root != nil {
+		_ = m.root.Close()
+		m.root = nil
 	}
 }
 
@@ -340,13 +348,23 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		defer progress.Finish()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+
+		root, err := fs.OpenRoot(cfg.ProjectRoot)
+		if err != nil {
+			log.Error("open project root failed", "root", cfg.ProjectRoot, "err", err)
+			if existingConn != nil {
+				_ = existingConn.Close()
+			}
+			return MsgDiffError{RequestID: requestID, Host: host, Err: err}
+		}
+
 		conn := existingConn
 		if conn == nil {
 			progress.Set("Connecting…", 0, 0, true)
-			var err error
 			conn, err = remote.Connect(ctx, host)
 			if err != nil {
 				log.Error("remote connect failed", "hostname", host.Hostname, "err", err)
+				_ = root.Close()
 				return MsgDiffError{
 					RequestID: requestID,
 					Host:      host,
@@ -377,7 +395,7 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		for _, localPath := range sortedMarkedPaths(localSel) {
-			info, statErr := os.Stat(localPath)
+			info, statErr := root.Stat(localPath)
 			if statErr != nil {
 				addError(localPath, "", statErr)
 				continue
@@ -464,9 +482,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			}
 
 			// ── Walk local side to catch local-only files ────────────
-			localInfo, localErr := os.Stat(localPath)
+			localInfo, localErr := root.Stat(localPath)
 			if localErr != nil {
-				if !os.IsNotExist(localErr) {
+				if !errors.Is(localErr, os.ErrNotExist) {
 					addError(localPath, remotePath, localErr)
 				}
 				continue
@@ -493,8 +511,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		return MsgDiffLoaded{
 			RequestID: requestID,
 			Host:      host,
-			Sessions:  loadDiffItems(host, conn, items, progress),
+			Sessions:  loadDiffItems(root, host, conn, items, progress),
 			Conn:      conn,
+			Root:      root,
 		}
 	}
 }
@@ -591,7 +610,7 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 	wg.Wait()
 }
 
-func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker) []diff.Session {
+func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker) []diff.Session {
 	results := make([]*diff.Session, len(items))
 	var jobs []int
 	for i, item := range items {
@@ -612,7 +631,7 @@ func loadDiffItems(host config.Host, conn remote.Client, items []diffLoadItem, p
 	progress.Set("Comparing files…", 0, len(jobs), len(jobs) == 0)
 	forEachCompare(host, conn, jobs, progress, func(idx int, workerConn remote.Client) {
 		item := items[idx]
-		result, diffErr := diff.Compare(item.LocalPath, item.RemotePath, workerConn)
+		result, diffErr := diff.Compare(root, item.LocalPath, item.RemotePath, workerConn)
 		if diffErr != nil {
 			log.Error("diff compare failed", "local", item.LocalPath, "remote", item.RemotePath, "err", diffErr)
 		}
@@ -664,14 +683,38 @@ func sortedMarkedPaths(sel *fs.SelectionState) []string {
 	return paths
 }
 
+// uploadFile streams the local file at localPath to remotePath. The local file
+// is opened inside the project root, so a symlinked path component pointing out
+// of the project fails the upload instead of shipping a file from outside it.
+func uploadFile(conn remote.Client, root *fs.Root, localPath, remotePath string) error {
+	src, err := root.Open(localPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	return conn.Upload(remotePath, src)
+}
+
+// downloadFile writes the remote file at remotePath to localPath inside the
+// project root. WriteAtomic closes the remote stream, so a transfer that only
+// fails on close never reaches the target file.
+func downloadFile(conn remote.Client, root *fs.Root, remotePath, localPath string) error {
+	src, err := conn.Open(remotePath)
+	if err != nil {
+		return err
+	}
+	return root.WriteAtomic(localPath, src)
+}
+
 // uploadCmd uploads the local file of sessions[idx] to remote.
 func (m Model) uploadCmd(idx int) tea.Cmd {
 	s := m.sessions[idx]
 	conn := m.conn
+	root := m.root
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
-		if err := conn.UploadFile(s.LocalPath, s.RemotePath); err != nil {
+		if err := uploadFile(conn, root, s.LocalPath, s.RemotePath); err != nil {
 			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
 		}
@@ -683,10 +726,11 @@ func (m Model) uploadCmd(idx int) tea.Cmd {
 func (m Model) downloadCmd(idx int) tea.Cmd {
 	s := m.sessions[idx]
 	conn := m.conn
+	root := m.root
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
-		if err := conn.DownloadFile(s.RemotePath, s.LocalPath); err != nil {
+		if err := downloadFile(conn, root, s.RemotePath, s.LocalPath); err != nil {
 			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
 		}
@@ -699,6 +743,7 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 	sessions := m.sessions
 	syncDirs := m.syncDirs
 	conn := m.conn
+	root := m.root
 	tracker := m.syncProgress
 	return func() tea.Msg {
 		defer tracker.Finish()
@@ -717,15 +762,15 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			case DirUpload:
 				op = "upload"
 				failurePath = s.LocalPath
-				err = conn.UploadFile(s.LocalPath, s.RemotePath)
+				err = uploadFile(conn, root, s.LocalPath, s.RemotePath)
 			case DirDownload:
 				op = "download"
 				failurePath = s.RemotePath
-				err = conn.DownloadFile(s.RemotePath, s.LocalPath)
+				err = downloadFile(conn, root, s.RemotePath, s.LocalPath)
 			case DirDeleteLocal:
 				op = "delete local"
 				failurePath = s.LocalPath
-				err = os.Remove(s.LocalPath)
+				err = root.Remove(s.LocalPath)
 			case DirDeleteRemote:
 				op = "delete remote"
 				failurePath = s.RemotePath
@@ -762,6 +807,7 @@ func (m Model) refreshCmd() tea.Cmd {
 	sessions := m.sessions
 	host := m.host
 	conn := m.conn
+	root := m.root
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
@@ -772,7 +818,7 @@ func (m Model) refreshCmd() tea.Cmd {
 		}
 		forEachCompare(host, conn, jobs, tracker, func(idx int, workerConn remote.Client) {
 			s := sessions[idx]
-			result, err := diff.Compare(s.LocalPath, s.RemotePath, workerConn)
+			result, err := diff.Compare(root, s.LocalPath, s.RemotePath, workerConn)
 			if err != nil {
 				log.Error("diff refresh failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 			}
@@ -792,10 +838,11 @@ func (m Model) refreshCmd() tea.Cmd {
 func (m Model) reloadSessionCmd(idx int) tea.Cmd {
 	s := m.sessions[idx]
 	conn := m.conn
+	root := m.root
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
-		result, err := diff.Compare(s.LocalPath, s.RemotePath, conn)
+		result, err := diff.Compare(root, s.LocalPath, s.RemotePath, conn)
 		if err != nil {
 			log.Error("diff refresh failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 		}

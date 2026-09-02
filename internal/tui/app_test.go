@@ -124,9 +124,7 @@ func (c *countingConn) Stat(string) (os.FileInfo, error)           { return nil,
 func (c *countingConn) ReadDir(string) ([]*fs.FileEntry, error)    { return nil, errors.New("unused") }
 func (c *countingConn) Open(string) (io.ReadCloser, error)         { return nil, errors.New("unused") }
 func (c *countingConn) ReadFile(string) ([]byte, error)            { return nil, errors.New("unused") }
-func (c *countingConn) WriteFile(string, []byte) error             { return errors.New("unused") }
-func (c *countingConn) UploadFile(string, string) error            { return errors.New("unused") }
-func (c *countingConn) DownloadFile(string, string) error          { return errors.New("unused") }
+func (c *countingConn) Upload(string, io.Reader) error             { return errors.New("unused") }
 func (c *countingConn) WalkFiles(string, func(string) error) error { return errors.New("unused") }
 func (c *countingConn) DeleteFile(string) error                    { return errors.New("unused") }
 func (c *countingConn) Close() error                               { c.closes++; return nil }

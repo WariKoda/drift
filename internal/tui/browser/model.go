@@ -9,6 +9,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -68,6 +69,9 @@ type Model struct {
 
 	// status message (transient)
 	statusMsg string
+
+	// mouse
+	clicks mouse.ClickTracker
 }
 
 // New creates a browser Model for the given directory.
@@ -140,8 +144,9 @@ func (m *Model) SetStatus(msg string) {
 }
 
 // viewportHeight returns the number of lines available for entries.
+// See the layout constants in view.go for the row budget.
 func (m Model) viewportHeight() int {
-	h := m.Height - 6 // header + 3 separators + pane labels + status bar
+	h := m.Height - headerLines - footerLines
 	if h < 1 {
 		return 1
 	}
@@ -150,11 +155,38 @@ func (m Model) viewportHeight() int {
 
 // finderViewportHeight returns the rows available for finder results.
 func (m Model) finderViewportHeight() int {
-	h := m.Height - 5 // title + query + 2 separators + help
+	h := m.Height - finderHeaderLines - finderFooterLines
 	if h < 1 {
 		return 1
 	}
 	return h
+}
+
+// clampLocalOffset keeps the local scroll offset in range without dragging it
+// back to the cursor. The wheel moves the viewport on its own, so clampScroll —
+// which exists to follow the cursor — must not run after it.
+func (m *Model) clampLocalOffset() {
+	m.offset = clampOffset(m.offset, len(m.filteredEntries()), m.viewportHeight())
+}
+
+// clampRemoteOffset is clampLocalOffset for the remote pane.
+func (m *Model) clampRemoteOffset() {
+	m.remoteOffset = clampOffset(m.remoteOffset, len(m.remoteEntries), m.viewportHeight())
+}
+
+// clampOffset bounds a scroll offset to [0, count-vh].
+func clampOffset(offset, count, vh int) int {
+	max := count - vh
+	if max < 0 {
+		max = 0
+	}
+	if offset > max {
+		offset = max
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return offset
 }
 
 // clampScroll ensures cursor and offset are within bounds.

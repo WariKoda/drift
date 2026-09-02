@@ -9,6 +9,37 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Screen layout, top to bottom:
+//
+//	headerLines  title, separator
+//	listHeight() entry rows
+//	footerLines  separator, status
+//
+// hitTest in mouse.go maps clicks back through these, so a change here must be
+// a change to the constants — not to a hand-counted number in View.
+const (
+	headerLines = 2
+	footerLines = 2
+)
+
+// entryRowSpan returns how many screen rows an entry occupies. A section
+// header takes two: a blank spacer above its label.
+func entryRowSpan(e entry) int {
+	if e.isHeader {
+		return 2
+	}
+	return 1
+}
+
+// listHeight returns the number of entry rows the list can show.
+func (m Model) listHeight() int {
+	h := m.Height - headerLines - footerLines
+	if h < 1 {
+		return 1
+	}
+	return h
+}
+
 func (m Model) View() string {
 	var sb strings.Builder
 
@@ -20,22 +51,26 @@ func (m Model) View() string {
 	sb.WriteByte('\n')
 
 	// Entry list
-	vh := m.Height - 4
-	if vh < 1 {
-		vh = 1
-	}
+	vh := m.listHeight()
 	rendered := 0
 	for i, e := range m.entries {
-		if rendered >= vh {
+		span := entryRowSpan(e)
+		if rendered+span > vh {
 			break
 		}
 		if e.isHeader {
+			// A section header is a blank spacer row followed by its label.
+			// Both are written here rather than smuggled in as a "\n" prefix,
+			// so the row budget and hitTest see the same two rows the terminal
+			// does.
+			sb.WriteString(strings.Repeat(" ", m.Width))
+			sb.WriteByte('\n')
 			sb.WriteString(m.renderHeader(e.scope))
 		} else {
 			sb.WriteString(m.renderHost(e, i == m.cursor))
 		}
 		sb.WriteByte('\n')
-		rendered++
+		rendered += span
 	}
 	for rendered < vh {
 		sb.WriteString(strings.Repeat(" ", m.Width))
@@ -65,7 +100,7 @@ func (m Model) renderHeader(scope config.HostScope) string {
 			sub = ".drift/config.toml (no project root found)"
 		}
 	}
-	line := "\n  " + styles.Key.Render(label) + "  " + styles.Muted.Render(sub)
+	line := "  " + styles.Key.Render(label) + "  " + styles.Muted.Render(sub)
 	return padRight(line, m.Width)
 }
 

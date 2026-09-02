@@ -76,6 +76,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.finder.clamp(m.finderViewportHeight())
 		}
 
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
+
 	case tea.KeyMsg:
 		// Overlays capture keys first.
 		if m.finder.active {

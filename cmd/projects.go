@@ -199,7 +199,7 @@ var openCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("cannot read directory: %w", err)
 		}
-		return runProgram(app)
+		return runProgram(app, resolveMouseEnabled(cfg))
 	},
 }
 

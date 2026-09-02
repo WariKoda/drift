@@ -41,9 +41,18 @@ type Defaults struct {
 	User string `toml:"user"`
 }
 
+// UI holds terminal interface preferences. Global config only — these describe
+// how the terminal behaves, not anything project-specific.
+type UI struct {
+	// Mouse enables mouse reporting. Nil means unset; the default is enabled.
+	// A pointer is needed to tell "absent from the file" from an explicit false.
+	Mouse *bool `toml:"mouse,omitempty"`
+}
+
 // GlobalConfig is the structure of ~/.config/drift/config.toml.
 type GlobalConfig struct {
 	Defaults Defaults `toml:"defaults"`
+	UI       UI       `toml:"ui,omitempty"`
 	Hosts    []Host   `toml:"hosts"`
 }
 
@@ -66,9 +75,19 @@ const (
 type MergedConfig struct {
 	GlobalDefaults  Defaults
 	ProjectDefaults Defaults
+	UI              UI // from the global config only
 	GlobalHosts     []Host          // hosts from ~/.config/drift/config.toml
 	ProjectHosts    []Host          // hosts from .drift/config.toml
 	Hosts           map[string]Host // merged view: project overrides global, keyed by Name
 	Mappings        []Mapping
 	ProjectRoot     string // absolute path of the directory containing .drift/
+}
+
+// MouseEnabled reports whether mouse reporting should be turned on.
+// Unset means enabled; the config can only turn it off.
+func (c *MergedConfig) MouseEnabled() bool {
+	if c == nil || c.UI.Mouse == nil {
+		return true
+	}
+	return *c.UI.Mouse
 }

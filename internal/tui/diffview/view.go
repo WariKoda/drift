@@ -11,6 +11,34 @@ import (
 
 var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 
+// Screen layout, top to bottom:
+//
+//	headerLines       header, separator
+//	fileListHeight()  file rows
+//	midLines          separator, column labels, separator
+//	viewportHeight()  diff content
+//	footerLines       separator, status
+//
+// hitTest in mouse.go maps clicks back through these, so a change here must be
+// a change to the constants — not to a hand-counted number in View.
+const (
+	headerLines = 2
+	midLines    = 3
+	footerLines = 2
+
+	// chromeLines is every line View spends on something other than the file
+	// list and the diff content.
+	chromeLines = headerLines + midLines + footerLines
+)
+
+// fileListTop is the first screen row occupied by the file list.
+const fileListTop = headerLines
+
+// contentTop returns the first screen row occupied by the diff content.
+func (m Model) contentTop() int {
+	return headerLines + m.fileListHeight() + midLines
+}
+
 func (m Model) View() string {
 	var sb strings.Builder
 

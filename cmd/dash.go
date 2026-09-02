@@ -25,7 +25,7 @@ var dashCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return runProgram(app)
+		return runProgram(app, resolveMouseEnabled(cfg))
 	},
 }
 

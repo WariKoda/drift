@@ -174,6 +174,35 @@ other key to skip — you can always register later with `drift projects add .`.
 | `t` | Test connection |
 | `q` / `Esc` | Back |
 
+### Mouse
+
+The mouse works in the file browser, the diff view and the host manager.
+
+| Action | Effect |
+|--------|--------|
+| Wheel | Scroll the pane under the pointer |
+| Click | Move the cursor there, and focus that pane |
+| Click on a pane label | Focus that pane |
+| Double click | Expand a directory (local), open one (remote), cycle a file's sync direction (diff view), edit a host (host manager) |
+| `Shift`+Click | Select text with the terminal's own selection |
+
+Mouse reporting takes the terminal's native text selection away, so it can be
+turned off:
+
+```bash
+drift --no-mouse              # this run only
+DRIFT_NO_MOUSE=1 drift        # via environment
+```
+
+```toml
+# ~/.config/drift/config.toml — permanently
+[ui]
+mouse = false
+```
+
+The flag beats the environment variable, which beats the config file. Mouse
+support is on unless one of them turns it off.
+
 ---
 
 ## Theming

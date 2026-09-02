@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added
+- mouse support in the file browser, diff view and host manager: the wheel scrolls the pane under the pointer, a click moves the cursor and focuses that pane, and a double click performs the row's action (expand a local directory, open a remote one, cycle a file's sync direction, edit a host)
+- clicking a browser pane label focuses that pane; the fuzzy finder supports wheel and click, with a double click marking a result
+- mouse reporting can be turned off with `--no-mouse`, `DRIFT_NO_MOUSE=1`, or `[ui] mouse = false` in the global config — it otherwise takes the terminal's own text selection away (`Shift`+Click restores it per selection)
+
+### Fixed
+- host manager rendered two lines more than the terminal had, because each section header emitted a blank line the row budget never counted; the status bar was pushed off screen
 
 ## [0.1.3-alpha] - 2026-07-30
 ### Added

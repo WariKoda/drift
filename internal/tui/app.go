@@ -17,6 +17,7 @@ import (
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
 	"github.com/WariKoda/drift/internal/tui/hostselector"
 	"github.com/WariKoda/drift/internal/tui/loading"
+	mousepkg "github.com/WariKoda/drift/internal/tui/mouse"
 	"github.com/WariKoda/drift/internal/tui/projectform"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -287,6 +288,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		if a.loader.Active() && (a.blocksQuitKey(key) || a.blocksNetworkKey(key)) {
+			return a, nil
+		}
+		if a.globalError != "" {
+			a.globalError = ""
+		}
+	}
+
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		// The modal covers the screen underneath, so nothing there is clickable.
+		if a.loader.Visible() {
+			return a, nil
+		}
+		// While network work runs, wheel scrolling stays allowed — it only moves
+		// the viewport. Buttons could start a second operation, so they don't.
+		if a.loader.Active() && !mousepkg.IsWheel(mouse) {
 			return a, nil
 		}
 		if a.globalError != "" {

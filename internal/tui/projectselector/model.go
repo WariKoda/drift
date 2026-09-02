@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// MsgProjectChosen is emitted when the user confirms a project (Enter / 1-9).
+// MsgProjectChosen is emitted when the user confirms a project with Enter.
 type MsgProjectChosen struct {
 	Project project.Project
 }
@@ -100,9 +100,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case "enter":
 		return m.choose(m.cursor)
-
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		return m.choose(int(msg.String()[0] - '1'))
 
 	case "down", "ctrl+n":
 		if m.cursor < len(m.filtered)-1 {

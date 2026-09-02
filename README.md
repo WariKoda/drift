@@ -142,7 +142,7 @@ other key to skip — you can always register later with `drift projects add .`.
 |-----|--------|
 | type | Filter by name, slug, or path |
 | `↑` / `↓` or `Ctrl+n` / `Ctrl+p` | Navigate |
-| `Enter` / `1`–`9` | Open the selected / n-th filtered project |
+| `Enter` | Open the selected project |
 | `m` | Open the dashboard to manage projects (empty filter only) |
 | `Esc` | Back to the browser (session kept) |
 

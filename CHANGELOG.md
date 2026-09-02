@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Fixed
+- project switcher treats digit keys as search input instead of jumping to the n-th row
 
 ## [0.1.4-alpha] - 2026-09-02
 ### Added

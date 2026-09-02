@@ -41,12 +41,18 @@ type App struct {
 	hostForm    hostform.Model
 	hostSel     hostselector.Model
 	diffView    diffview.Model
-	diffLoading bool
 	loader      loading.Model
 	activity    networkActivity
 	globalError string
 	dashboard   dashboard.Model
 	projectForm projectform.Model
+
+	// diffRequest is the ID of the diff request whose result the app still
+	// wants; 0 means none is pending. diffSeq issues those IDs. Results of
+	// abandoned requests are discarded instead of being applied to whatever
+	// state the app has moved on to.
+	diffRequest uint64
+	diffSeq     uint64
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -146,6 +152,30 @@ func (a *App) finishNetworkActivity(kind networkActivity) {
 	a.activity = activityNone
 }
 
+// beginDiffRequest issues the ID for a new diff request and makes it the only
+// one whose result the app will accept.
+func (a *App) beginDiffRequest() uint64 {
+	a.diffSeq++
+	a.diffRequest = a.diffSeq
+	return a.diffRequest
+}
+
+// abandonDiffRequest gives up on the pending diff request. Its result is
+// discarded and its connection closed once it arrives.
+func (a *App) abandonDiffRequest() {
+	if a.diffRequest == 0 {
+		return
+	}
+	a.diffRequest = 0
+	a.finishNetworkActivity(activityDiffLoad)
+}
+
+// acceptsDiffResult reports whether a result with requestID belongs to the
+// request the app is still waiting for.
+func (a App) acceptsDiffResult(requestID uint64) bool {
+	return requestID != 0 && requestID == a.diffRequest
+}
+
 func (a App) blocksNetworkKey(key tea.KeyMsg) bool {
 	switch a.state.Screen {
 	case ScreenBrowser:
@@ -167,8 +197,11 @@ func (a App) blocksQuitKey(key tea.KeyMsg) bool {
 }
 
 // openProject re-roots the running app into p: it loads p's config, builds a
-// fresh browser at p.Path and switches to the browser screen.
+// fresh browser at p.Path and switches to the browser screen. A diff request
+// still in flight belongs to the project being left and is abandoned.
 func (a *App) openProject(p project.Project) (tea.Cmd, error) {
+	a.abandonDiffRequest()
+	a.state.SelectedHost = nil
 	a.browser.CloseRemote()
 	cfg, err := config.Load(p.Path)
 	if err != nil {
@@ -340,6 +373,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.store == nil || a.registry == nil {
 			return a, nil
 		}
+		// The dashboard has no way back to this browser, so a pending diff
+		// request is gone for good.
+		a.abandonDiffRequest()
 		if reg, err := a.store.Load(); err == nil {
 			a.registry = reg
 			a.dashboard.Refresh(reg)
@@ -354,10 +390,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Host != nil {
 			h := *msg.Host
 			tracker := diffview.NewLoadProgressTracker()
-			a.diffLoading = true
-			a.state.SelectedHost = &h
 			return a, tea.Batch(
-				diffview.LoadCmd(h, a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker),
+				diffview.LoadCmd(a.beginDiffRequest(), h,
+					a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker),
 				a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 			)
 		}
@@ -381,10 +416,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", nil))
 		}
 		tracker := diffview.NewLoadProgressTracker()
-		a.diffLoading = true
-		a.state.SelectedHost = &h
 		return a, tea.Batch(
-			diffview.LoadCmd(h, a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker),
+			diffview.LoadCmd(a.beginDiffRequest(), h,
+				a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker),
 			a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 		)
 
@@ -411,17 +445,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Diff loaded ───────────────────────────────────────────────────
 	case diffview.MsgDiffLoaded:
-		if !a.diffLoading || a.state.SelectedHost == nil {
+		if !a.acceptsDiffResult(msg.RequestID) {
+			log.Info("discarding abandoned diff result", "host", msg.Host.Name, "request", msg.RequestID)
 			if msg.Conn != nil {
 				_ = msg.Conn.Close()
 			}
 			return a, nil
 		}
-		a.diffLoading = false
+		a.diffRequest = 0
 		a.finishNetworkActivity(activityDiffLoad)
+		// The host comes from the result, never from app state: sessions,
+		// connection and host must belong to the same request.
+		host := msg.Host
+		a.state.SelectedHost = &host
 		a.diffView = diffview.New(
 			msg.Sessions,
-			*a.state.SelectedHost,
+			host,
 			msg.Conn, // connection stays open for sync ops
 			a.state.TermWidth,
 			a.state.TermHeight,
@@ -439,11 +478,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case diffview.MsgDiffError:
-		log.Error("diff load failed", "err", msg.Err)
-		if !a.diffLoading {
+		log.Error("diff load failed", "host", msg.Host.Name, "err", msg.Err)
+		if !a.acceptsDiffResult(msg.RequestID) {
 			return a, nil
 		}
-		a.diffLoading = false
+		a.diffRequest = 0
 		a.finishNetworkActivity(activityDiffLoad)
 		a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		return a, nil

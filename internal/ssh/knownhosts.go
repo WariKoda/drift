@@ -3,9 +3,11 @@ package ssh
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -17,28 +19,28 @@ import (
 //   - Known host, key matches     → allowed
 //   - Unknown host                → key is added to known_hosts, allowed
 //   - Known host, key changed     → rejected with a clear error message
-func HostKeyCallback() (gossh.HostKeyCallback, error) {
+func HostKeyCallback(hostname string, port int) (gossh.HostKeyCallback, []string, error) {
 	path, err := knownHostsPath()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Create the file if it doesn't exist yet (atomic, no TOCTOU race).
 	if mkErr := os.MkdirAll(filepath.Dir(path), 0o700); mkErr != nil {
-		return nil, fmt.Errorf("create ~/.ssh: %w", mkErr)
+		return nil, nil, fmt.Errorf("create ~/.ssh: %w", mkErr)
 	}
 	if f, createErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); createErr == nil {
 		f.Close()
 	} else if !os.IsExist(createErr) {
-		return nil, fmt.Errorf("create known_hosts: %w", createErr)
+		return nil, nil, fmt.Errorf("create known_hosts: %w", createErr)
 	}
 
 	checker, err := knownhosts.New(path)
 	if err != nil {
-		return nil, fmt.Errorf("parse known_hosts: %w", err)
+		return nil, nil, fmt.Errorf("parse known_hosts: %w", err)
 	}
 
-	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
+	callback := func(hostname string, remote net.Addr, key gossh.PublicKey) error {
 		err := checker(hostname, remote, key)
 		if err == nil {
 			return nil
@@ -60,7 +62,49 @@ func HostKeyCallback() (gossh.HostKeyCallback, error) {
 
 		// Host is not yet known — add it (TOFU).
 		return addKnownHost(path, hostname, key)
-	}, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read known_hosts: %w", err)
+	}
+	address := net.JoinHostPort(hostname, strconv.Itoa(port))
+	remote := &net.TCPAddr{IP: net.IPv4zero, Port: port}
+	seen := make(map[string]bool)
+	var algorithms []string
+	addAlgorithm := func(algorithm string) {
+		if !seen[algorithm] {
+			seen[algorithm] = true
+			algorithms = append(algorithms, algorithm)
+		}
+	}
+
+	for len(data) > 0 {
+		_, _, key, _, rest, parseErr := gossh.ParseKnownHosts(data)
+		if errors.Is(parseErr, io.EOF) {
+			break
+		}
+		if parseErr != nil {
+			return nil, nil, fmt.Errorf("parse known_hosts: %w", parseErr)
+		}
+		data = rest
+		if checker(address, remote, key) != nil {
+			continue
+		}
+		if key.Type() == gossh.KeyAlgoRSA {
+			addAlgorithm(gossh.KeyAlgoRSASHA512)
+			addAlgorithm(gossh.KeyAlgoRSASHA256)
+		}
+		addAlgorithm(key.Type())
+	}
+
+	if len(algorithms) > 0 {
+		for _, algorithm := range gossh.SupportedAlgorithms().HostKeys {
+			addAlgorithm(algorithm)
+		}
+	}
+
+	return callback, algorithms, nil
 }
 
 func addKnownHost(path, hostname string, key gossh.PublicKey) error {

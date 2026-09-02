@@ -25,9 +25,14 @@ import (
 
 // MsgDiffLoaded is sent when all sessions have been computed.
 // Conn is kept open for subsequent sync operations — caller must close it.
+// RequestID and Host identify the LoadCmd call this result belongs to: results
+// can arrive after the app has moved on (another project was opened), and the
+// caller must be able to tell those apart from the result it is waiting for.
 type MsgDiffLoaded struct {
-	Sessions []diff.Session
-	Conn     remote.Client
+	RequestID uint64
+	Host      config.Host
+	Sessions  []diff.Session
+	Conn      remote.Client
 }
 
 // LoadProgressTracker shares operation progress with the global indicator.
@@ -39,7 +44,12 @@ func NewLoadProgressTracker() *LoadProgressTracker {
 }
 
 // MsgDiffError is sent when SSH/SFTP connection or diff loading fails.
-type MsgDiffError struct{ Err error }
+// RequestID and Host identify the failed request, see MsgDiffLoaded.
+type MsgDiffError struct {
+	RequestID uint64
+	Host      config.Host
+	Err       error
+}
 
 // MsgRefreshed is sent when a full diff refresh has completed.
 type MsgRefreshed struct{ Sessions []diff.Session }
@@ -323,7 +333,9 @@ func (m *Model) scrollToFirstDifference() {
 // Marked directories are expanded recursively. Local selections also walk the
 // mapped remote directory to catch remote-only files; remote selections do the
 // inverse and walk the mapped local directory to catch local-only files.
-func LoadCmd(host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker) tea.Cmd {
+// requestID is echoed back in the result so the caller can discard results of
+// requests it has abandoned in the meantime.
+func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker) tea.Cmd {
 	return func() tea.Msg {
 		defer progress.Finish()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -335,7 +347,11 @@ func LoadCmd(host config.Host, localSel, remoteSel *fs.SelectionState, cfg *conf
 			conn, err = remote.Connect(ctx, host)
 			if err != nil {
 				log.Error("remote connect failed", "hostname", host.Hostname, "err", err)
-				return MsgDiffError{Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
+				return MsgDiffError{
+					RequestID: requestID,
+					Host:      host,
+					Err:       fmt.Errorf("connect to %s: %w", host.Hostname, err),
+				}
 			}
 			log.Info("remote connect", "host", host.Name, "hostname", host.Hostname)
 		}
@@ -474,7 +490,12 @@ func LoadCmd(host config.Host, localSel, remoteSel *fs.SelectionState, cfg *conf
 			}
 		}
 
-		return MsgDiffLoaded{Sessions: loadDiffItems(host, conn, items, progress), Conn: conn}
+		return MsgDiffLoaded{
+			RequestID: requestID,
+			Host:      host,
+			Sessions:  loadDiffItems(host, conn, items, progress),
+			Conn:      conn,
+		}
 	}
 }
 

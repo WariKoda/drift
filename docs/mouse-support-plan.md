@@ -17,7 +17,6 @@ Grobschätzung:
 |-------|--------|---------|
 | 1 | Scrollrad | ~2 Std. |
 | 2 | Klick zum Selektieren | ~1 Tag |
-| 3 | Kür (Hover, Statusbar-Klicks, Drag) | ~0,5 Tag, optional |
 
 Empfehlung: **Phase 1 separat und zuerst ausliefern.** Scrollrad ist das, was
 Nutzer in einem TUI reflexartig versuchen, und es kostet fast nichts.
@@ -81,8 +80,7 @@ p := tea.NewProgram(app, opts...)
 
 `tea.WithMouseCellMotion()` statt `WithMouseAllMotion()`: liefert Klicks, Wheel und
 Motion **nur während gedrückter Taste**. `WithMouseAllMotion()` würde bei jeder
-Cursor-Bewegung ein Event schicken — unnötige Last, solange es kein Hover gibt
-(siehe Phase 3).
+Cursor-Bewegung ein Event schicken, ohne dass irgendetwas darauf reagiert.
 
 Neue Funktion `resolveMouseConfig()` analog zum bestehenden `resolveLogConfig()`,
 mit der Präzedenz: CLI-Flag > Env-Var > Config > Default `true`.
@@ -230,8 +228,7 @@ Zwei getrennte Trefferzonen:
 - **Dateiliste**: `fileIndex = y - 2 + m.fileListOffset` → setzt `activeIdx`,
   danach `clampFileList()`
 - **Diff-Inhalt**: `lineIndex = y - (5 + fh) + m.scroll` → für Phase 2 reicht es,
-  hier nichts zu selektieren; die Zone wird erst für Wheel (Phase 1) und
-  eventuelles Zeilen-Highlighting (Phase 3) gebraucht
+  hier nichts zu selektieren; die Zone wird fürs Wheel (Phase 1) gebraucht
 
 Horizontal über `paneWidth() = (m.Width - 1) / 2`, Divider bei `x == paneWidth()`.
 
@@ -267,21 +264,6 @@ zentrierte Modals muss der Offset (`(TermWidth - modalWidth) / 2` bzw. analog f�
 vom Event abgezogen werden, bevor es den Screen erreicht. Alternativ — und
 einfacher — bekommt `hostselector` in Phase 2 gar keinen Klick-Support, nur Wheel.
 Empfehlung: **auslassen**, bis jemand danach fragt.
-
----
-
-## Phase 3 — Kür (optional)
-
-Nur umsetzen, wenn Phase 1 und 2 sich im Alltag bewährt haben.
-
-- **Hover-Highlighting**: braucht `tea.WithMouseAllMotion()` statt `CellMotion` und
-  damit deutlich mehr Events. Vorher prüfen, ob `Update()` das ohne spürbare Latenz
-  verkraftet.
-- **Klickbare Statusbar**: die Hinweise wie `[@] select host` in klickbare Regionen
-  verwandeln. Erfordert, dass die Statusbar ihre Segment-Breiten kennt — aktuell
-  baut sie nur einen String.
-- **Drag-Scrolling** an einer Scrollbar. Setzt voraus, dass es überhaupt eine
-  sichtbare Scrollbar gibt — die gibt es derzeit nicht.
 
 ---
 
@@ -367,6 +349,5 @@ resultierenden Cursor prüfen — das Muster existiert bereits in den vorhandene
 3. **Branch `feature/mouse-click`** — Hit-Testing und Klick-Behandlung, Screen für
    Screen: erst `hostmanager` (einfachster Fall, etabliert das Muster), dann
    `diffview`, zuletzt `browser`.
-4. Phase 3 nur bei konkretem Bedarf.
 
 Vor jedem Merge: `go test ./...`, `go vet ./...`, `go build ./...`.

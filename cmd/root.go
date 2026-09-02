@@ -19,6 +19,7 @@ var (
 	flagNoDashboard bool
 	flagLog         string
 	flagDebug       bool
+	flagNoMouse     bool
 )
 
 var rootCmd = &cobra.Command{
@@ -57,7 +58,7 @@ Config locations:
 		if err != nil {
 			return fmt.Errorf("cannot read directory: %w", err)
 		}
-		return runProgram(app)
+		return runProgram(app, resolveMouseEnabled(cfg))
 	},
 }
 
@@ -66,6 +67,16 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagNoDashboard, "no-dashboard", false, "never start on the project dashboard")
 	rootCmd.PersistentFlags().StringVar(&flagLog, "log", "", "write diagnostics to this log file (overrides $DRIFT_LOG)")
 	rootCmd.PersistentFlags().BoolVar(&flagDebug, "debug", false, "enable debug logging (default file: <config dir>/drift.log)")
+	rootCmd.PersistentFlags().BoolVar(&flagNoMouse, "no-mouse", false, "disable mouse reporting (restores the terminal's own text selection)")
+}
+
+// resolveMouseEnabled decides whether to turn on mouse reporting.
+// Precedence: --no-mouse flag > $DRIFT_NO_MOUSE > config [ui].mouse > enabled.
+func resolveMouseEnabled(cfg *config.MergedConfig) bool {
+	if flagNoMouse || envTruthy(os.Getenv("DRIFT_NO_MOUSE")) {
+		return false
+	}
+	return cfg.MouseEnabled()
 }
 
 // resolveLogConfig derives logging options from flags and environment.
@@ -127,7 +138,7 @@ func loadAll(workDir string) (*config.MergedConfig, *project.Store, *project.Reg
 	return cfg, store, reg, nil
 }
 
-func runProgram(app tui.App) error {
+func runProgram(app tui.App, mouse bool) error {
 	if opts, enabled := resolveLogConfig(); enabled {
 		closer, err := log.Init(opts)
 		if err != nil {
@@ -139,7 +150,14 @@ func runProgram(app tui.App) error {
 		}
 	}
 
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if mouse {
+		// CellMotion, not AllMotion: clicks and wheel plus drag, but no event
+		// on every idle cursor move. Nothing here reacts to plain hover.
+		opts = append(opts, tea.WithMouseCellMotion())
+	}
+
+	p := tea.NewProgram(app, opts...)
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}

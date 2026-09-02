@@ -10,6 +10,39 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Screen layout of the split browser, top to bottom:
+//
+//	y = 0                header
+//	y = 1                separator
+//	y = paneLabelRow     pane labels
+//	y = 3                separator
+//	y = entriesTop…      entry rows, viewportHeight() of them
+//	                     separator
+//	                     status bar
+//
+// The finder overlay has its own layout:
+//
+//	y = 0                title
+//	y = 1                query prompt
+//	y = 2                separator
+//	y = finderResultsTop result rows, finderViewportHeight() of them
+//	                     separator
+//	                     help line
+//
+// hitTest in mouse.go maps clicks back through these, so a change here must be
+// a change to the constants — not to a hand-counted number in View.
+const (
+	headerLines = 4 // header, separator, pane labels, separator
+	footerLines = 2 // separator, status bar
+
+	paneLabelRow = 2
+	entriesTop   = headerLines
+
+	finderHeaderLines = 3 // title, query prompt, separator
+	finderFooterLines = 2 // separator, help line
+	finderResultsTop  = finderHeaderLines
+)
+
 // View renders the browser screen.
 func (m Model) View() string {
 	if m.finder.active {

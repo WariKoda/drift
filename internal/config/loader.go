@@ -107,6 +107,7 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *Me
 
 	merged := &MergedConfig{
 		GlobalDefaults: global.Defaults,
+		UI:             global.UI,
 		Hosts:          hosts,
 		GlobalHosts:    globalHosts,
 		ProjectHosts:   []Host{},

@@ -62,6 +62,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.HostName)
 		}
 
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
+
 	case tea.KeyMsg:
 		if m.confirmDelete {
 			return m.updateConfirm(msg)

@@ -18,14 +18,14 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	hosts := replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	cfg.GlobalHosts = hosts
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, Hosts: hosts})
+	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: hosts})
 }
 
 // DeleteGlobalHost removes a host by name from the global config file.
 func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 	cfg.GlobalHosts = removeHost(cfg.GlobalHosts, name)
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, Hosts: cfg.GlobalHosts})
+	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts})
 }
 
 // SaveProjectHost adds or replaces a host in the project config file.

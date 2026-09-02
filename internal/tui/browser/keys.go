@@ -71,6 +71,14 @@ func FullHelp() string {
   @              choose/change host for the remote pane
   Tab            switch active pane
 
+  Mouse
+  ──────────────────────────────
+  Wheel          scroll the pane under the pointer
+  Click          move the cursor there / focus that pane
+  Double click   expand dir (local) or open dir (remote)
+  Shift+Click    let the terminal select text again
+  --no-mouse     start without mouse reporting
+
   Other
   ──────────────────────────────
   H              host manager

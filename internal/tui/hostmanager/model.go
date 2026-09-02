@@ -3,6 +3,7 @@ package hostmanager
 
 import (
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -29,6 +30,9 @@ type Model struct {
 
 	// status line
 	statusMsg string
+
+	// mouse
+	clicks mouse.ClickTracker
 
 	Width  int
 	Height int

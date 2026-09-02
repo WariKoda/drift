@@ -20,6 +20,7 @@ import (
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	"github.com/WariKoda/drift/internal/tui/loading"
+	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -170,6 +171,7 @@ type Model struct {
 	host            config.Host
 	conn            remote.Client // kept open for sync ops
 	root            *fs.Root      // confines every local read, write and delete to the project
+	clicks          mouse.ClickTracker
 	Width           int
 	Height          int
 }
@@ -251,9 +253,9 @@ func (m Model) fileListHeight() int {
 }
 
 // viewportHeight returns available lines for diff content.
+// See the layout constants in view.go for the row budget.
 func (m Model) viewportHeight() int {
-	// header(1) + sep(1) + fileList(fh) + sep(1) + colLabels(1) + sep(1) + content(vh) + sep(1) + status(1) = Height
-	h := m.Height - 7 - m.fileListHeight()
+	h := m.Height - chromeLines - m.fileListHeight()
 	if h < 1 {
 		return 1
 	}
@@ -279,6 +281,22 @@ func (m *Model) clampFileList() {
 		m.fileListOffset = m.activeIdx - fh + 1
 	}
 	m.clampScroll()
+}
+
+// clampFileListOffset keeps the file list offset in range without dragging it
+// back to activeIdx. The wheel moves the viewport on its own, so the regular
+// clampFileList — which exists to follow the cursor — must not run after it.
+func (m *Model) clampFileListOffset() {
+	max := len(m.sessions) - m.fileListHeight()
+	if max < 0 {
+		max = 0
+	}
+	if m.fileListOffset > max {
+		m.fileListOffset = max
+	}
+	if m.fileListOffset < 0 {
+		m.fileListOffset = 0
+	}
 }
 
 // paneWidth returns the width of one diff pane.

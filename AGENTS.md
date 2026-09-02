@@ -10,21 +10,26 @@ drift is a standalone terminal TUI (Go + Bubble Tea) for browsing, diffing, and 
 
 The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes messages to one active screen at a time. Screens are Go packages under `internal/tui/`:
 
-| Package | Screen |
-|---------|--------|
-| `dashboard` | Project dashboard (optional landing screen) |
-| `projectform` | Create / edit a project |
-| `browser` | File browser (entry point) |
-| `hostselector` | Modal: pick sync target |
-| `hostmanager` | CRUD list of hosts |
-| `hostform` | Create / edit a host (includes mapping sub-screen) |
-| `diffview` | Side-by-side diff + sync |
+
+| Package             | Screen                                                |
+| ------------------- | ----------------------------------------------------- |
+| `dashboard`         | Project dashboard (optional landing screen)           |
+| `projectform`       | Create / edit a project                               |
+| `projectselector`   | Modal: switch project from the browser (`P`)          |
+| `browser`           | File browser (entry point)                            |
+| `hostselector`      | Modal: pick sync target                               |
+| `hostmanager`       | CRUD list of hosts                                    |
+| `hostform`          | Create / edit a host (includes mapping sub-screen)    |
+| `diffview`          | Side-by-side diff + sync                              |
+
 
 The `textfield` package holds the shared single-line input widget used by `hostform`
 and `projectform`. The project registry (slug, name, path, timestamps) lives in
 `internal/project` and is persisted to `~/.config/drift/projects.toml`; per-project hosts
-stay in `<path>/.drift/config.toml`. Selecting a project on the dashboard re-roots the app
-via `App.openProject` (`config.Load(path)` + `browser.New(path)`).
+stay in `<path>/.drift/config.toml`. Selecting a project on the dashboard or in the
+project switcher (`P`) re-roots the app via `App.openProject` (`config.Load(path)` +
+`browser.New(path)`). `P` opens the switcher as a modal and leaves the browser session
+intact until a different project is chosen.
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
 
@@ -42,6 +47,8 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 - Styles live in `internal/styles/styles.go` and `internal/tui/styles.go`. Do not inline lipgloss styles in view code.
 - Config is TOML. Types live in `internal/config/config.go`. Persistence via `internal/config/writer.go`.
 
+
+
 ## Key types
 
 ```go
@@ -53,6 +60,8 @@ diff.DiffResult     // comparison output; HasDiff() reports whether files differ
 diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
 ```
 
+
+
 ## Adding a new screen
 
 1. Create `internal/tui/<name>/model.go`, `view.go`, `update.go`.
@@ -61,6 +70,8 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 4. Add a `Screen<Name>` constant to `internal/tui/state.go`.
 5. Handle entry/exit messages and delegate `Update`/`View` in `app.go`.
 
+
+
 ## Adding a new protocol
 
 1. Implement `remote.Client` in a new package under `internal/`.
@@ -68,17 +79,21 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 3. Add the corresponding `hostform.Protocol` value and toggle option (`model.go`, `update.go`, `view.go`).
 4. Update `hostform.visibleRows()` when the protocol needs protocol-specific fields.
 
+
+
 ## File walker exclusions
 
 `internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks.
 
 ## Config locations
 
-| Scope | Path |
-|-------|------|
-| Global | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
-| Project | `.drift/config.toml` in project root (walked up from cwd) |
-| Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`) |
+
+| Scope    | Path                                                                    |
+| -------- | ----------------------------------------------------------------------- |
+| Global   | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
+| Project  | `.drift/config.toml` in project root (walked up from cwd)               |
+| Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
+
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
 
@@ -103,6 +118,8 @@ make install                  # installs to ~/.local/bin/drift
 make update                   # rebuild + reinstall (use after code changes)
 make release-build VERSION=vX.Y.Z  # version-injected ./drift binary
 ```
+
+
 
 ## Git workflow
 

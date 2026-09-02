@@ -4,9 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- project switcher (`P` in the browser): filter by name/slug/path, Esc returns to the current session, `m` opens the dashboard to manage entries
+- last-opened project is recorded and restored when `drift` starts outside a project; `--dashboard` still forces the list
+- `drift open` accepts a unique name or slug, not only an exact slug
+- mouse support on the project dashboard (click to select, double click to open, wheel moves the cursor)
 - mouse support in the file browser, diff view and host manager: the wheel scrolls the pane under the pointer, a click moves the cursor and focuses that pane, and a double click performs the row's action (expand a local directory, open a remote one, cycle a file's sync direction, edit a host)
 - clicking a browser pane label focuses that pane; the fuzzy finder supports wheel and click, with a double click marking a result
 - mouse reporting can be turned off with `--no-mouse`, `DRIFT_NO_MOUSE=1`, or `[ui] mouse = false` in the global config — it otherwise takes the terminal's own text selection away (`Shift`+Click restores it per selection)
+
+### Changed
+- dashboard Esc returns to the browser when the dashboard was opened from the project switcher; `q` still quits
+- dashboard project names grow with the terminal instead of clipping at 18 characters
+- browser header shows the registered project name next to the path
+- project list sorts by last opened, then name
 
 ### Fixed
 - host manager rendered two lines more than the terminal had, because each section header emitted a blank line the row budget never counted; the status bar was pushed off screen

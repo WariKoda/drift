@@ -103,7 +103,11 @@ func (m Model) paneWidths() (int, int) {
 }
 
 func (m Model) renderHeader() string {
-	line := styles.Header.Render("drift") + "  " + styles.Muted.Render(m.absWorkDir())
+	line := styles.Header.Render("drift")
+	if m.projectName != "" {
+		line += "  " + styles.Accent.Render(m.projectName)
+	}
+	line += "  " + styles.Muted.Render(m.absWorkDir())
 	return padRight(line, m.Width)
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/WariKoda/drift/internal/tui/dashboard"
 	"github.com/WariKoda/drift/internal/tui/diffview"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
+	"github.com/WariKoda/drift/internal/tui/projectselector"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -254,5 +255,145 @@ func TestAcceptedDiffResultUsesHostFromResult(t *testing.T) {
 	}
 	if app.state.SelectedHost == nil || app.state.SelectedHost.RootPath != host.RootPath {
 		t.Errorf("selected host = %v, want %v", app.state.SelectedHost, host)
+	}
+}
+
+// storedApp is loadingApp with a persisted registry, so the project picker can open.
+func storedApp(t *testing.T, projectDir string, reg *project.Registry, host config.Host) App {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	store := project.NewStore()
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(projectDir, cfg, store, reg, ScreenBrowser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.state.TermWidth, app.state.TermHeight = 120, 40
+
+	model, _ := app.Update(browser.MsgSyncRequested{
+		Selection:       app.state.Selection,
+		RemoteSelection: app.state.RemoteSelection,
+		Host:            &host,
+	})
+	app = model.(App)
+	if app.diffRequest == 0 {
+		t.Fatal("sync request did not start a diff request")
+	}
+	return app
+}
+
+func TestProjectPickerKeepsPendingDiff(t *testing.T) {
+	dir := makeProjectDir(t)
+	reg := &project.Registry{Projects: []project.Project{
+		{Slug: "a", Name: "Alpha", Path: dir},
+	}}
+	app := storedApp(t, dir, reg, config.Host{Name: "hostA", Hostname: "a.example"})
+	pending := app.diffRequest
+
+	model, _ := app.Update(browser.MsgOpenDashboard{})
+	app = model.(App)
+	if app.state.Screen != ScreenProjectSelector {
+		t.Fatalf("screen = %v, want ScreenProjectSelector", app.state.Screen)
+	}
+	if app.diffRequest != pending {
+		t.Fatal("opening the picker abandoned the diff request")
+	}
+	if view := ansi.Strip(app.View()); !strings.Contains(view, "Switch project") {
+		t.Fatal("picker overlay missing title")
+	}
+
+	model, _ = app.Update(projectselector.MsgSelectorCancelled{})
+	app = model.(App)
+	if app.state.Screen != ScreenBrowser {
+		t.Fatalf("after cancel screen = %v, want ScreenBrowser", app.state.Screen)
+	}
+	if app.diffRequest != pending {
+		t.Fatal("cancelling the picker abandoned the diff request")
+	}
+}
+
+func TestProjectPickerSameProjectDoesNotReroot(t *testing.T) {
+	dir := makeProjectDir(t)
+	reg := &project.Registry{Projects: []project.Project{
+		{Slug: "a", Name: "Alpha", Path: dir},
+	}}
+	app := storedApp(t, dir, reg, config.Host{Name: "hostA", Hostname: "a.example"})
+	pending := app.diffRequest
+	if app.state.ActiveProject == nil {
+		t.Fatal("expected ActiveProject to be bound from the registry")
+	}
+
+	model, _ := app.Update(projectselector.MsgProjectChosen{Project: *app.state.ActiveProject})
+	app = model.(App)
+	if app.state.Screen != ScreenBrowser {
+		t.Fatalf("screen = %v, want ScreenBrowser", app.state.Screen)
+	}
+	if app.diffRequest != pending {
+		t.Fatal("re-selecting the current project abandoned the diff request")
+	}
+	if app.state.WorkingDir != dir {
+		t.Fatalf("working dir = %q, want %q", app.state.WorkingDir, dir)
+	}
+}
+
+func TestDashboardBackReturnsToBrowser(t *testing.T) {
+	dir := makeProjectDir(t)
+	reg := &project.Registry{Projects: []project.Project{
+		{Slug: "a", Name: "Alpha", Path: dir},
+	}}
+	app := storedApp(t, dir, reg, config.Host{Name: "hostA", Hostname: "a.example"})
+	pending := app.diffRequest
+
+	model, _ := app.Update(browser.MsgOpenDashboard{})
+	app = model.(App)
+	model, _ = app.Update(projectselector.MsgOpenDashboard{})
+	app = model.(App)
+	if app.state.Screen != ScreenDashboard {
+		t.Fatalf("screen = %v, want ScreenDashboard", app.state.Screen)
+	}
+	if app.diffRequest != pending {
+		t.Fatal("opening the dashboard from the picker abandoned the diff request")
+	}
+
+	model, _ = app.Update(dashboard.MsgDashboardBack{})
+	app = model.(App)
+	if app.state.Screen != ScreenBrowser {
+		t.Fatalf("after back screen = %v, want ScreenBrowser", app.state.Screen)
+	}
+	if app.diffRequest != pending {
+		t.Fatal("Esc from the dashboard abandoned the diff request")
+	}
+}
+
+func TestBrowserHeaderShowsProjectName(t *testing.T) {
+	dir := makeProjectDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	reg := &project.Registry{Projects: []project.Project{
+		{Slug: "kunde-a", Name: "KUNDE A", Path: dir},
+	}}
+	store := project.NewStore()
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(dir, cfg, store, reg, ScreenBrowser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.state.TermWidth, app.state.TermHeight = 80, 24
+	app.browser.SetSize(80, 24)
+
+	view := ansi.Strip(app.View())
+	if !strings.Contains(view, "KUNDE A") {
+		t.Fatalf("header = %q, want project name", view)
 	}
 }

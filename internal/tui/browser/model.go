@@ -70,6 +70,9 @@ type Model struct {
 	// status message (transient)
 	statusMsg string
 
+	// projectName is the registry display name, shown in the header when set.
+	projectName string
+
 	// mouse
 	clicks mouse.ClickTracker
 }
@@ -141,6 +144,11 @@ func (m *Model) SetSize(w, h int) {
 // SetStatus sets a transient status message (e.g. error from a previous screen).
 func (m *Model) SetStatus(msg string) {
 	m.statusMsg = msg
+}
+
+// SetProjectName sets the registry display name shown in the header.
+func (m *Model) SetProjectName(name string) {
+	m.projectName = name
 }
 
 // viewportHeight returns the number of lines available for entries.

@@ -174,19 +174,19 @@ var projectsArchiveCmd = &cobra.Command{
 }
 
 var openCmd = &cobra.Command{
-	Use:   "open <slug>",
-	Short: "Open a registered project directly",
+	Use:   "open <name-or-slug>",
+	Short: "Open a registered project by name or slug",
+	Long:  "open finds a project by exact slug, exact name, unique prefix, or unique substring.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slug := args[0]
 		store := project.NewStore()
 		reg, err := store.Load()
 		if err != nil {
 			return registryError(store, err)
 		}
-		p := reg.Find(slug)
-		if p == nil {
-			return fmt.Errorf("no project with slug %q", slug)
+		p, err := reg.Match(args[0])
+		if err != nil {
+			return err
 		}
 		if info, err := os.Stat(p.Path); err != nil || !info.IsDir() {
 			return fmt.Errorf("project path does not exist: %s", p.Path)

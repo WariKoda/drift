@@ -82,7 +82,7 @@ func FullHelp() string {
   Other
   ──────────────────────────────
   H              host manager
-  P              project dashboard
+	P              switch project (Esc back, m to manage)
   r              refresh active pane
   /              filter entries
   ?              toggle this help

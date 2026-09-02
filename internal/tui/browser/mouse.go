@@ -205,8 +205,8 @@ func (m Model) click(h hit, x, y int) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// activateLocal expands or descends into the entry under the cursor, mirroring
-// what Enter does in updateNormal.
+// activateLocal toggles a directory under the cursor, or opens a file, as a
+// double click is expected to behave in a file browser.
 func (m Model) activateLocal() (Model, tea.Cmd) {
 	if m.cursor < 0 || m.cursor >= len(m.entries) {
 		return m, nil
@@ -216,11 +216,8 @@ func (m Model) activateLocal() (Model, tea.Cmd) {
 		return m, m.schedulePreview()
 	}
 	if entry.Expanded {
-		// Already open — step into the first child, as Enter does.
-		if m.cursor+1 < len(m.entries) && m.entries[m.cursor+1].Depth > entry.Depth {
-			m.cursor++
-			m.clampScroll()
-		}
+		m.collapseAt(m.cursor)
+		m.clampScroll()
 	} else if err := m.expandAt(m.cursor); err != nil {
 		m.statusMsg = "Error: " + err.Error()
 	} else {

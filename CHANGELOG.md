@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.4-alpha] - 2026-09-02
 ### Added
 - project switcher (`P` in the browser): filter by name/slug/path, Esc returns to the current session, `m` opens the dashboard to manage entries
 - last-opened project is recorded and restored when `drift` starts outside a project; `--dashboard` still forces the list
@@ -22,6 +24,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - host manager rendered two lines more than the terminal had, because each section header emitted a blank line the row budget never counted; the status bar was pushed off screen
+- stale diff results from an abandoned load (switched project or host) no longer overwrite the current view
+- FTP directory walker could deadlock when listings ran in parallel
+- local reads, writes and deletes stay inside the project root, including when a path walks through a symlink
 
 ## [0.1.3-alpha] - 2026-07-30
 ### Added

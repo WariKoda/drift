@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -211,5 +212,119 @@ func (s *protocolTestServer) serve() error {
 		if err != nil {
 			return err
 		}
+	}
+}
+
+// TestWalkQueueSurvivesWideFanOut walks a tree with far more directories than
+// any bounded queue would hold. The previous walker shared one 4096-slot
+// channel between readers and writers, so a tree this wide filled the buffer,
+// every worker blocked on its own send, and the walk never finished.
+func TestWalkQueueSurvivesWideFanOut(t *testing.T) {
+	const (
+		branches = 200
+		leaves   = 50 // 1 + 200 + 10000 directories, well past any 4096 buffer
+	)
+	tree := map[string][]string{}
+	for b := range branches {
+		branch := fmt.Sprintf("/b%d", b)
+		tree["/"] = append(tree["/"], branch)
+		for l := range leaves {
+			tree[branch] = append(tree[branch], fmt.Sprintf("%s/l%d", branch, l))
+		}
+	}
+
+	var mu sync.Mutex
+	listed := map[string]int{}
+	listers := make([]func(string) []string, 0, maxWalkWorkers)
+	for range maxWalkWorkers {
+		listers = append(listers, func(dir string) []string {
+			mu.Lock()
+			defer mu.Unlock()
+			listed[dir]++
+			return tree[dir]
+		})
+	}
+
+	done := make(chan struct{})
+	go func() {
+		walkQueue("/", listers, func() bool { return false })
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("walk did not finish: the directory queue deadlocked")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(listed) != len(tree)+branches*leaves {
+		t.Errorf("listed %d directories, want %d", len(listed), len(tree)+branches*leaves)
+	}
+	for dir, count := range listed {
+		if count != 1 {
+			t.Fatalf("directory %s listed %d times, want once", dir, count)
+		}
+	}
+}
+
+// TestWalkQueueStopsWhenCallerGivesUp checks that a failure recorded by the
+// first listing keeps the remaining directories from being visited.
+func TestWalkQueueStopsWhenCallerGivesUp(t *testing.T) {
+	children := make([]string, 1000)
+	for i := range children {
+		children[i] = fmt.Sprintf("/c%d", i)
+	}
+
+	var mu sync.Mutex
+	var listed []string
+	lister := func(dir string) []string {
+		mu.Lock()
+		defer mu.Unlock()
+		listed = append(listed, dir)
+		if dir == "/" {
+			return children
+		}
+		return nil
+	}
+	stop := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(listed) > 0
+	}
+
+	listers := make([]func(string) []string, 0, maxWalkWorkers)
+	for range maxWalkWorkers {
+		listers = append(listers, lister)
+	}
+	walkQueue("/", listers, stop)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(listed) != 1 {
+		t.Errorf("listed %d directories, want only the root", len(listed))
+	}
+}
+
+// TestWalkQueueVisitsEveryDirectoryWithOneLister covers the degenerate case:
+// when no extra connection could be opened, the single client both hands out
+// and consumes the queue.
+func TestWalkQueueVisitsEveryDirectoryWithOneLister(t *testing.T) {
+	tree := map[string][]string{
+		"/":       {"/a", "/b"},
+		"/a":      {"/a/deep"},
+		"/a/deep": {"/a/deep/deeper"},
+	}
+	var listed []string
+	walkQueue("/", []func(string) []string{
+		func(dir string) []string {
+			listed = append(listed, dir)
+			return tree[dir]
+		},
+	}, func() bool { return false })
+
+	want := []string{"/", "/a", "/b", "/a/deep", "/a/deep/deeper"}
+	if strings.Join(listed, " ") != strings.Join(want, " ") {
+		t.Errorf("listed %v, want %v", listed, want)
 	}
 }

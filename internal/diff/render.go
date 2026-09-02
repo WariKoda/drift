@@ -8,112 +8,93 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// RenderPanes converts a DiffResult into two parallel slices of rendered strings
-// (left = local, right = remote), each line padded to paneWidth columns.
-// scrollOffset is the first DiffLine index to render; count is the number of rows.
+// RenderUnified converts a DiffResult into a single column of rendered strings,
+// each line padded to width columns. scrollOffset is the first DiffLine index
+// to render; count is the number of rows.
 //
 // flip makes the colouring sync-direction-aware: with flip=false (download /
-// neutral) the local side is treated as old and the remote side as new; with
-// flip=true (upload) local is the new content being pushed, so local additions
-// turn green/+ and remote-only lines turn red/-.
-func RenderPanes(result *DiffResult, paneWidth, scrollOffset, count int, flip bool) (left, right []string) {
+// neutral) removals are local-only lines and additions are remote-only; with
+// flip=true (upload) local-only lines render as additions and remote-only as
+// removals.
+func RenderUnified(result *DiffResult, width, scrollOffset, count int, flip bool) []string {
+	out := make([]string, 0, count)
 	if result == nil {
 		for i := 0; i < count; i++ {
-			left = append(left, strings.Repeat(" ", paneWidth))
-			right = append(right, strings.Repeat(" ", paneWidth))
+			out = append(out, strings.Repeat(" ", width))
 		}
-		return
+		return out
 	}
 
 	if result.Binary {
-		localMeta := fmt.Sprintf("  binary file  %s  %d bytes", result.ModLocal.Format("2006-01-02 15:04"), result.SizeLocal)
-		remoteMeta := fmt.Sprintf("  binary file  %s  %d bytes", result.ModRemote.Format("2006-01-02 15:04"), result.SizeRemote)
-		left = append(left, pad(styles.Muted.Render(localMeta), paneWidth))
-		right = append(right, pad(styles.Muted.Render(remoteMeta), paneWidth))
+		meta := fmt.Sprintf("  binary file  local %s %d bytes  remote %s %d bytes",
+			result.ModLocal.Format("2006-01-02 15:04"), result.SizeLocal,
+			result.ModRemote.Format("2006-01-02 15:04"), result.SizeRemote)
+		out = append(out, pad(styles.Muted.Render(meta), width))
 		for i := 1; i < count; i++ {
-			left = append(left, strings.Repeat(" ", paneWidth))
-			right = append(right, strings.Repeat(" ", paneWidth))
+			out = append(out, strings.Repeat(" ", width))
 		}
-		return
+		return out
 	}
 
 	lines := result.Lines
-	numWidth := 4 // characters for line number column
+	numWidth := 4 // characters per line-number column (local and remote)
 
 	for i := 0; i < count; i++ {
 		idx := scrollOffset + i
 		if idx >= len(lines) {
-			left = append(left, strings.Repeat(" ", paneWidth))
-			right = append(right, strings.Repeat(" ", paneWidth))
+			out = append(out, strings.Repeat(" ", width))
 			continue
 		}
 
 		dl := lines[idx]
-		// layout per cell: marker(1) + " " + lineNum + " " + content
-		contentWidth := paneWidth - numWidth - 3
+		// layout: localNum + " " + remoteNum + " " + marker + " " + content
+		contentWidth := width - 2*numWidth - 4
 		if contentWidth < 1 {
 			contentWidth = 1
 		}
-
-		left = append(left, renderSide(dl.LocalLine, dl.LocalNum, dl.Kind, true, flip, paneWidth, numWidth, contentWidth))
-		right = append(right, renderSide(dl.RemoteLine, dl.RemoteNum, dl.Kind, false, flip, paneWidth, numWidth, contentWidth))
+		out = append(out, renderUnifiedLine(dl, flip, width, numWidth, contentWidth))
 	}
-	return
+	return out
 }
 
-// sideAct is what a single pane cell represents after applying sync direction.
-type sideAct int
+// lineAct is how a unified diff line should be styled after applying sync direction.
+type lineAct int
 
 const (
-	actEqual sideAct = iota
+	actEqual lineAct = iota
 	actAdd
 	actRemove
-	actBlank
 )
 
-// sideAction resolves how one side of a diff line should be rendered, taking the
-// sync direction (flip) into account. flip=false treats remote as the new state.
-func sideAction(kind LineKind, isLocal, flip bool) sideAct {
+// unifiedAction resolves marker/colour for one DiffLine given sync direction.
+// flip=false treats remote as the new state; flip=true treats local as new.
+func unifiedAction(kind LineKind, flip bool) lineAct {
 	switch kind {
 	case LineRemoved:
-		if !isLocal {
-			return actBlank
-		}
 		if flip {
 			return actAdd
 		}
 		return actRemove
 	case LineAdded:
-		if isLocal {
-			return actBlank
-		}
 		if flip {
 			return actRemove
 		}
 		return actAdd
-	case LineModified:
-		// local = old, remote = new (download / neutral); flipped for upload.
-		if isLocal == flip {
-			return actAdd
-		}
-		return actRemove
-	default: // LineEqual
+	default:
 		return actEqual
 	}
 }
 
-func renderSide(text string, lineNum int, kind LineKind, isLocal, flip bool, paneWidth, numWidth, contentWidth int) string {
-	act := sideAction(kind, isLocal, flip)
-
-	// Line number (blank when this side has no content).
-	var numStr string
-	if act == actBlank || lineNum <= 0 {
-		numStr = strings.Repeat(" ", numWidth)
-	} else {
-		numStr = fmt.Sprintf("%*d", numWidth, lineNum)
+func formatLineNum(n, width int) string {
+	if n <= 0 {
+		return strings.Repeat(" ", width)
 	}
+	return fmt.Sprintf("%*d", width, n)
+}
 
-	// marker is the git-style gutter sign: "-" removed, "+" added, " " otherwise.
+func renderUnifiedLine(dl DiffLine, flip bool, width, numWidth, contentWidth int) string {
+	act := unifiedAction(dl.Kind, flip)
+
 	var bgColor lipgloss.TerminalColor
 	var hasBg bool
 	var textColor lipgloss.Style
@@ -128,28 +109,23 @@ func renderSide(text string, lineNum int, kind LineKind, isLocal, flip bool, pan
 		bgColor, hasBg = styles.ColorDiffRemovedBg, true
 		textColor = lipgloss.NewStyle().Foreground(styles.ColorDiffRemovedText)
 		marker = "-"
-	case actBlank:
-		bgColor, hasBg = styles.ColorDiffMissingBg, true
-		textColor = styles.Muted
-		text = ""
-	default: // actEqual
+	default:
 		textColor = styles.File
 	}
 
-	// Truncate/pad content
-	content := truncateRunes(text, contentWidth)
+	content := truncateRunes(dl.Text, contentWidth)
 	content = content + strings.Repeat(" ", contentWidth-lipgloss.Width(content))
 
-	// Compose line: marker + line number + content
+	localPart := styles.Muted.Render(formatLineNum(dl.LocalNum, numWidth))
+	remotePart := styles.Muted.Render(formatLineNum(dl.RemoteNum, numWidth))
 	markerPart := textColor.Bold(true).Render(marker)
-	numPart := styles.Muted.Render(numStr)
 	contentPart := textColor.Render(content)
-	line := markerPart + " " + numPart + " " + contentPart
+	line := localPart + " " + remotePart + " " + markerPart + " " + contentPart
 
 	if hasBg {
-		line = lipgloss.NewStyle().Background(bgColor).Width(paneWidth).Render(line)
+		line = lipgloss.NewStyle().Background(bgColor).Width(width).Render(line)
 	} else {
-		line = pad(line, paneWidth)
+		line = pad(line, width)
 	}
 	return line
 }
@@ -164,7 +140,6 @@ func pad(s string, width int) string {
 
 func truncateRunes(s string, n int) string {
 	r := []rune(s)
-	// expand tabs
 	expanded := expandTabs(r, 4)
 	if len(expanded) <= n {
 		return string(expanded)

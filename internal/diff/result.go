@@ -3,23 +3,21 @@ package diff
 
 import "time"
 
-// LineKind classifies a line in a side-by-side diff.
+// LineKind classifies a line in a unified diff.
 type LineKind int
 
 const (
 	LineEqual LineKind = iota
-	LineAdded          // present on one side, absent on the other
-	LineRemoved
-	LineModified
+	LineAdded          // present on remote, absent on local
+	LineRemoved        // present on local, absent on remote
 )
 
-// DiffLine holds one line of a side-by-side diff.
+// DiffLine holds one line of a unified diff sequence.
 type DiffLine struct {
-	LocalLine  string
-	RemoteLine string
-	Kind       LineKind
-	LocalNum   int // 0 = line not present on this side
-	RemoteNum  int
+	Text      string
+	Kind      LineKind // Equal, Added, Removed
+	LocalNum  int      // 0 = this side has no number
+	RemoteNum int
 }
 
 // DiffResult is the comparison output for a single file pair.
@@ -70,10 +68,6 @@ func (r *DiffResult) ensureStats() {
 		case LineRemoved:
 			r.removed++
 			r.differs = true
-		case LineModified:
-			r.added++
-			r.removed++
-			r.differs = true
 		}
 	}
 }
@@ -84,8 +78,7 @@ func (r *DiffResult) HasDiff() bool {
 	return r.differs
 }
 
-// Counts returns the number of added and removed lines (a modified line counts
-// as one of each).
+// Counts returns the number of added and removed lines.
 func (r *DiffResult) Counts() (added, removed int) {
 	r.ensureStats()
 	return r.added, r.removed

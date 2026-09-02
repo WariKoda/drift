@@ -11,32 +11,32 @@ import (
 
 var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 
-// Screen layout, top to bottom:
+// Screen layout:
 //
-//	headerLines       header, separator
-//	fileListHeight()  file rows
-//	midLines          separator, column labels, separator
-//	viewportHeight()  diff content
-//	footerLines       separator, status
+//	headerLines   header, separator (full width)
+//	bodyHeight()  left file list │ right path chrome + unified diff
+//	footerLines   separator, status (full width)
+//
+// Right pane within the body (top to bottom):
+//
+//	pathChrome    path header, separator
+//	viewport…     unified diff content
 //
 // hitTest in mouse.go maps clicks back through these, so a change here must be
 // a change to the constants — not to a hand-counted number in View.
 const (
 	headerLines = 2
-	midLines    = 3
 	footerLines = 2
-
-	// chromeLines is every line View spends on something other than the file
-	// list and the diff content.
-	chromeLines = headerLines + midLines + footerLines
+	pathChrome  = 2 // path header + separator inside the right pane
 )
 
-// fileListTop is the first screen row occupied by the file list.
-const fileListTop = headerLines
+// bodyTop is the first screen row of the side-by-side body.
+const bodyTop = headerLines
 
-// contentTop returns the first screen row occupied by the diff content.
+// contentTop returns the first screen row occupied by the diff content
+// (below the right-pane path chrome).
 func (m Model) contentTop() int {
-	return headerLines + m.fileListHeight() + midLines
+	return bodyTop + pathChrome
 }
 
 func (m Model) View() string {
@@ -50,78 +50,28 @@ func (m Model) View() string {
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 
-	// ── File list ─────────────────────────────────────────────────────
-	sb.WriteString(m.renderFileList())
-	sb.WriteString(sepLine(m.Width))
-	sb.WriteByte('\n')
-
-	// ── Column labels (with the active file's full source/target path) ──
-	pw := m.paneWidth()
-	localPath, remotePath := "", ""
-	if s != nil {
-		localPath, remotePath = s.LocalPath, s.RemotePath
-	}
-	const localPrefix = "  LOCAL  "
-	const remotePrefix = "  REMOTE  "
-	localLabel := pad(styles.Key.Render(localPrefix)+styles.Muted.Render(truncLeft(localPath, pw-len(localPrefix))), pw)
-	remoteLabel := pad(styles.Key.Render(remotePrefix)+styles.Muted.Render(truncLeft(remotePath, pw-len(remotePrefix))), pw)
-	sb.WriteString(localLabel + dividerStyle.Render("│") + remoteLabel)
-	sb.WriteByte('\n')
-	sb.WriteString(sepLine(m.Width))
-	sb.WriteByte('\n')
-
-	// ── Diff content ──────────────────────────────────────────────────
-	vh := m.viewportHeight()
-
-	if m.showErrors {
-		sb.WriteString(m.renderErrorList(vh))
-	} else if s == nil {
-		for i := 0; i < vh; i++ {
-			sb.WriteString(strings.Repeat(" ", m.Width))
-			sb.WriteByte('\n')
+	// ── Body: file list | diff ───────────────────────────────────────
+	fw := m.fileListWidth()
+	dw := m.diffWidth()
+	left := m.renderFileListRows()
+	right := m.renderDiffPaneRows(s)
+	bh := m.bodyHeight()
+	for i := 0; i < bh; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		} else {
+			l = strings.Repeat(" ", fw)
 		}
-	} else if s.Err != nil {
-		sb.WriteString("  " + styles.Err.Render(s.Err.Error()))
+		if i < len(right) {
+			r = right[i]
+		} else {
+			r = strings.Repeat(" ", dw)
+		}
+		sb.WriteString(l)
+		sb.WriteString(dividerStyle.Render("│"))
+		sb.WriteString(r)
 		sb.WriteByte('\n')
-		for i := 1; i < vh; i++ {
-			sb.WriteString(strings.Repeat(" ", m.Width))
-			sb.WriteByte('\n')
-		}
-	} else if s.Result == nil {
-		sb.WriteString("  " + styles.Muted.Render("loading…"))
-		sb.WriteByte('\n')
-		for i := 1; i < vh; i++ {
-			sb.WriteString(strings.Repeat(" ", m.Width))
-			sb.WriteByte('\n')
-		}
-	} else if s.Result.Binary || len(s.Result.Lines) == 0 {
-		sb.WriteString(m.renderSummary(s.Result, vh))
-	} else {
-		// Colour the diff by the active file's planned sync direction:
-		// uploads flip so local (new) shows as additions.
-		flip := false
-		if m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) {
-			flip = m.syncDirs[m.activeIdx] == DirUpload
-		}
-		leftLines, rightLines := diff.RenderPanes(s.Result, pw, m.scroll, vh, flip)
-		for i := 0; i < vh; i++ {
-			l := ""
-			r := ""
-			if i < len(leftLines) {
-				l = leftLines[i]
-			} else {
-				l = strings.Repeat(" ", pw)
-			}
-			if i < len(rightLines) {
-				r = rightLines[i]
-			} else {
-				r = strings.Repeat(" ", pw)
-			}
-			sb.WriteString(l)
-			sb.WriteString(dividerStyle.Render("│"))
-			sb.WriteString(r)
-			sb.WriteByte('\n')
-		}
 	}
 
 	// ── Bottom ────────────────────────────────────────────────────────
@@ -143,92 +93,137 @@ func (m Model) renderHeader() string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-func (m Model) renderFileList() string {
-	var sb strings.Builder
-	pw := m.paneWidth()
+// renderDiffPaneRows builds the right pane: path chrome, then content rows.
+func (m Model) renderDiffPaneRows(s *diff.Session) []string {
+	dw := m.diffWidth()
+	bh := m.bodyHeight()
+	rows := make([]string, 0, bh)
+
+	localPath, remotePath := "", ""
+	if s != nil {
+		localPath, remotePath = s.LocalPath, s.RemotePath
+	}
+	rows = append(rows, m.renderPathHeader(localPath, remotePath, dw))
+	rows = append(rows, sepLine(dw))
+
+	vh := m.viewportHeight()
+	var content []string
+	switch {
+	case m.showErrors:
+		content = m.renderErrorListRows(vh, dw)
+	case s == nil:
+		content = blankRows(vh, dw)
+	case s.Err != nil:
+		content = paddedContentRows([]string{"  " + styles.Err.Render(s.Err.Error())}, vh, dw)
+	case s.Result == nil:
+		content = paddedContentRows([]string{"  " + styles.Muted.Render("loading…")}, vh, dw)
+	case s.Result.Binary || len(s.Result.Lines) == 0:
+		content = m.renderSummaryRows(s.Result, vh, dw)
+	default:
+		flip := false
+		if m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) {
+			flip = m.syncDirs[m.activeIdx] == DirUpload
+		}
+		content = diff.RenderUnified(s.Result, dw, m.scroll, vh, flip)
+		for len(content) < vh {
+			content = append(content, strings.Repeat(" ", dw))
+		}
+	}
+	rows = append(rows, content...)
+	for len(rows) < bh {
+		rows = append(rows, strings.Repeat(" ", dw))
+	}
+	return rows
+}
+
+// renderPathHeader shows both file paths on one muted line in the right pane.
+func (m Model) renderPathHeader(localPath, remotePath string, width int) string {
+	sep := " │ "
+	half := (width - len(sep)) / 2
+	if half < 1 {
+		half = 1
+	}
+	left := truncLeft(localPath, half)
+	right := truncLeft(remotePath, half)
+	return pad(styles.Muted.Render(left+sep+right), width)
+}
+
+// renderFileListRows returns bodyHeight padded rows for the left sidebar.
+func (m Model) renderFileListRows() []string {
+	fw := m.fileListWidth()
 	fh := m.fileListHeight()
+	rows := make([]string, 0, fh)
+
 	end := m.fileListOffset + fh
 	if end > len(m.sessions) {
 		end = len(m.sessions)
 	}
 
 	for i := m.fileListOffset; i < end; i++ {
-		s := &m.sessions[i]
-		active := i == m.activeIdx
+		rows = append(rows, m.renderFileRow(i, fw))
+	}
+	for len(rows) < fh {
+		rows = append(rows, strings.Repeat(" ", fw))
+	}
+	return rows
+}
 
-		// cursor (2 visible chars: indicator + space)
-		var cursor string
-		if active {
-			cursor = styles.Key.Render("▶") + " "
-		} else {
-			cursor = "  "
-		}
+func (m Model) renderFileRow(i, width int) string {
+	s := &m.sessions[i]
+	active := i == m.activeIdx
 
-		// direction arrow (center, replaces │ divider)
-		var dirChar string
-		dir := DirNone
-		if i < len(m.syncDirs) {
-			dir = m.syncDirs[i]
-		}
-		switch dir {
-		case DirUpload:
-			dirChar = styles.Marked.Render("↑")
-		case DirDownload:
-			dirChar = styles.Dir.Render("↓")
-		case DirDeleteLocal, DirDeleteRemote:
-			dirChar = styles.Err.Render("✗")
-		default:
-			dirChar = styles.Muted.Render("—")
-		}
-
-		// name style: active = File, inactive = Muted
-		var nameStyle lipgloss.Style
-		if active {
-			nameStyle = styles.File
-		} else {
-			nameStyle = styles.Muted
-		}
-
-		// Determine which sides have a file.
-		localOnly := s.Result != nil && s.Result.LocalOnly
-		remoteOnly := s.Result != nil && s.Result.RemoteOnly
-
-		// ── Left pane: cursor + local name (empty when RemoteOnly) ────
-		var leftPane string
-		if remoteOnly {
-			leftPane = pad(cursor, pw)
-		} else {
-			localName := shortPath(s.LocalPath)
-			localMaxW := pw - 2
-			if localMaxW < 2 {
-				localMaxW = 2
-			}
-			if r := []rune(localName); len(r) > localMaxW {
-				localName = "…" + string(r[len(r)-(localMaxW-1):])
-			}
-			leftPane = pad(cursor+nameStyle.Render(localName), pw)
-		}
-
-		// ── Right pane: remote name (empty when LocalOnly) ────────────
-		var rightPane string
-		if localOnly {
-			rightPane = pad("", pw)
-		} else {
-			remoteName := shortPath(s.RemotePath)
-			remoteMaxW := pw - 1
-			if remoteMaxW < 2 {
-				remoteMaxW = 2
-			}
-			if r := []rune(remoteName); len(r) > remoteMaxW {
-				remoteName = "…" + string(r[len(r)-(remoteMaxW-1):])
-			}
-			rightPane = pad(" "+nameStyle.Render(remoteName), pw)
-		}
-
-		sb.WriteString(leftPane + dirChar + rightPane + "\n")
+	var cursor string
+	if active {
+		cursor = styles.Key.Render("▶") + " "
+	} else {
+		cursor = "  "
 	}
 
-	return sb.String()
+	var dirChar string
+	dir := DirNone
+	if i < len(m.syncDirs) {
+		dir = m.syncDirs[i]
+	}
+	switch dir {
+	case DirUpload:
+		dirChar = styles.Marked.Render("↑")
+	case DirDownload:
+		dirChar = styles.Dir.Render("↓")
+	case DirDeleteLocal, DirDeleteRemote:
+		dirChar = styles.Err.Render("✗")
+	default:
+		dirChar = styles.Muted.Render("—")
+	}
+
+	var nameStyle lipgloss.Style
+	if active {
+		nameStyle = styles.File
+	} else {
+		nameStyle = styles.Muted
+	}
+
+	name := fileListName(s)
+	// cursor(2) + name + space + dir(1)
+	nameMax := width - 4
+	if nameMax < 2 {
+		nameMax = 2
+	}
+	if r := []rune(name); len(r) > nameMax {
+		name = "…" + string(r[len(r)-(nameMax-1):])
+	}
+
+	return pad(cursor+nameStyle.Render(name)+" "+dirChar, width)
+}
+
+// fileListName picks the path shown in the narrow sidebar.
+func fileListName(s *diff.Session) string {
+	if s.Result != nil && s.Result.RemoteOnly {
+		return shortPath(s.RemotePath)
+	}
+	if s.LocalPath != "" {
+		return shortPath(s.LocalPath)
+	}
+	return shortPath(s.RemotePath)
 }
 
 // sessionStatus returns the diff status string for a session.
@@ -255,20 +250,18 @@ func sessionStatus(s *diff.Session) string {
 	}
 }
 
-// renderErrorList renders the per-file errors from the last bulk sync,
-// one per line, clipped to the viewport height. Shown via the [e] toggle.
-func (m Model) renderErrorList(height int) string {
-	var sb strings.Builder
+// renderErrorListRows renders bulk-sync errors for the right pane.
+func (m Model) renderErrorListRows(height, width int) []string {
+	rows := make([]string, 0, height)
 
 	title := styles.Err.Render(fmt.Sprintf("Sync errors (%d)", len(m.syncErrors)))
-	sb.WriteString("  " + title + styles.Muted.Render("  — [e] or [q] to close") + "\n")
-	used := 1
+	rows = append(rows, pad("  "+title+styles.Muted.Render("  — [e] or [q] to close"), width))
 
 	for _, failure := range m.syncErrors {
-		if used >= height {
+		if len(rows) >= height {
 			break
 		}
-		contentWidth := max(1, m.Width-4)
+		contentWidth := max(1, width-4)
 		path := failure.Path
 		if path == "" {
 			path = "unknown file"
@@ -284,41 +277,49 @@ func (m Model) renderErrorList(height int) string {
 			reason = "unknown error"
 		}
 		reason = truncLeft(reason, max(1, contentWidth-lipgloss.Width(prefix)))
-		sb.WriteString("  " + styles.Err.Render("✗ ") + styles.File.Render(path) +
-			styles.Muted.Render(" ["+operation+"] ") + styles.Err.Render(reason) + "\n")
-		used++
+		rows = append(rows, pad("  "+styles.Err.Render("✗ ")+styles.File.Render(path)+
+			styles.Muted.Render(" ["+operation+"] ")+styles.Err.Render(reason), width))
 	}
 
-	for i := used; i < height; i++ {
-		sb.WriteString(strings.Repeat(" ", m.Width))
-		sb.WriteByte('\n')
-	}
-	return sb.String()
+	return paddedContentRows(rows, height, width)
 }
 
-func (m Model) renderSummary(r *diff.DiffResult, height int) string {
+func (m Model) renderSummaryRows(r *diff.DiffResult, height, width int) []string {
 	var lines []string
 	switch {
 	case r.Binary:
-		lines = append(lines,
-			"  "+styles.Muted.Render("Binary file — cannot show text diff"),
+		lines = []string{
+			"  " + styles.Muted.Render("Binary file — cannot show text diff"),
 			fmt.Sprintf("  local:  %s  (%d bytes)", r.ModLocal.Format("2006-01-02 15:04"), r.SizeLocal),
 			fmt.Sprintf("  remote: %s  (%d bytes)", r.ModRemote.Format("2006-01-02 15:04"), r.SizeRemote),
-		)
+		}
 	default:
-		lines = append(lines, "  "+styles.Muted.Render("Files are identical"))
+		lines = []string{"  " + styles.Muted.Render("Files are identical")}
 	}
+	return paddedContentRows(lines, height, width)
+}
 
-	var sb strings.Builder
+func paddedContentRows(lines []string, height, width int) []string {
+	rows := make([]string, 0, height)
 	for _, l := range lines {
-		sb.WriteString(l)
-		sb.WriteByte('\n')
+		if len(rows) >= height {
+			break
+		}
+		rows = append(rows, pad(l, width))
 	}
-	for i := len(lines); i < height; i++ {
-		sb.WriteString(strings.Repeat(" ", m.Width))
-		sb.WriteByte('\n')
+	for len(rows) < height {
+		rows = append(rows, strings.Repeat(" ", width))
 	}
-	return sb.String()
+	return rows
+}
+
+func blankRows(height, width int) []string {
+	rows := make([]string, height)
+	blank := strings.Repeat(" ", width)
+	for i := range rows {
+		rows[i] = blank
+	}
+	return rows
 }
 
 func (m Model) renderStatus(s *diff.Session) string {

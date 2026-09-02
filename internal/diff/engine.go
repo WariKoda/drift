@@ -73,7 +73,7 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 				} else {
 					for i, line := range splitLines(string(data)) {
 						result.Lines = append(result.Lines, DiffLine{
-							RemoteLine: line, Kind: LineAdded, RemoteNum: i + 1,
+							Text: line, Kind: LineAdded, RemoteNum: i + 1,
 						})
 					}
 				}
@@ -92,7 +92,7 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 				} else {
 					for i, line := range splitLines(string(data)) {
 						result.Lines = append(result.Lines, DiffLine{
-							LocalLine: line, Kind: LineRemoved, LocalNum: i + 1,
+							Text: line, Kind: LineRemoved, LocalNum: i + 1,
 						})
 					}
 				}
@@ -182,7 +182,9 @@ func digestAndClose(r io.ReadCloser) ([sha256.Size]byte, int64, error) {
 	return sum, size, errors.Join(readErr, closeErr)
 }
 
-// lineDiff computes a side-by-side line diff between local and remote text.
+// lineDiff computes a unified line diff between local and remote text.
+// Removals and additions are emitted as separate rows (never paired into a
+// single modified row).
 func lineDiff(local, remote string) []DiffLine {
 	dmp := diffmatchpatch.New()
 	a, b, lines := dmp.DiffLinesToChars(local, remote)
@@ -190,66 +192,33 @@ func lineDiff(local, remote string) []DiffLine {
 	diffs = dmp.DiffCharsToLines(diffs, lines)
 
 	// Pre-size the result: counting newlines on both sides is a cheap O(n) pass
-	// that avoids repeated slice growth/copy as rows are appended below. Modified
-	// rows pair two source lines into one, so this slightly over-allocates —
-	// acceptable headroom in exchange for zero reallocations.
+	// that avoids repeated slice growth/copy as rows are appended below.
 	result := make([]DiffLine, 0, strings.Count(local, "\n")+strings.Count(remote, "\n")+1)
 	localNum := 1
 	remoteNum := 1
 
-	for i := 0; i < len(diffs); i++ {
-		d := diffs[i]
+	for _, d := range diffs {
 		switch d.Type {
 		case diffmatchpatch.DiffEqual:
 			for _, t := range splitLines(d.Text) {
 				result = append(result, DiffLine{
-					LocalLine: t, RemoteLine: t,
-					Kind:     LineEqual,
+					Text: t, Kind: LineEqual,
 					LocalNum: localNum, RemoteNum: remoteNum,
 				})
 				localNum++
 				remoteNum++
 			}
 		case diffmatchpatch.DiffDelete:
-			dels := splitLines(d.Text)
-			// A Delete immediately followed by an Insert is a modification:
-			// pair the lines so old (local) and new (remote) share one row.
-			var ins []string
-			if i+1 < len(diffs) && diffs[i+1].Type == diffmatchpatch.DiffInsert {
-				ins = splitLines(diffs[i+1].Text)
-				i++ // consume the paired insert
-			}
-			n := len(dels)
-			if len(ins) > n {
-				n = len(ins)
-			}
-			for j := 0; j < n; j++ {
-				switch {
-				case j < len(dels) && j < len(ins):
-					result = append(result, DiffLine{
-						LocalLine: dels[j], RemoteLine: ins[j],
-						Kind:     LineModified,
-						LocalNum: localNum, RemoteNum: remoteNum,
-					})
-					localNum++
-					remoteNum++
-				case j < len(dels):
-					result = append(result, DiffLine{
-						LocalLine: dels[j], Kind: LineRemoved, LocalNum: localNum,
-					})
-					localNum++
-				default:
-					result = append(result, DiffLine{
-						RemoteLine: ins[j], Kind: LineAdded, RemoteNum: remoteNum,
-					})
-					remoteNum++
-				}
-			}
-		case diffmatchpatch.DiffInsert:
-			// Insert not preceded by a Delete — a pure addition.
 			for _, t := range splitLines(d.Text) {
 				result = append(result, DiffLine{
-					RemoteLine: t, Kind: LineAdded, RemoteNum: remoteNum,
+					Text: t, Kind: LineRemoved, LocalNum: localNum,
+				})
+				localNum++
+			}
+		case diffmatchpatch.DiffInsert:
+			for _, t := range splitLines(d.Text) {
+				result = append(result, DiffLine{
+					Text: t, Kind: LineAdded, RemoteNum: remoteNum,
 				})
 				remoteNum++
 			}

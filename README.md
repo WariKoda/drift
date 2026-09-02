@@ -16,7 +16,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Side-by-side local/remote file browser with multi-select (Space) and recursive directory marking
 - Safe local/remote text preview in the opposite pane (`p`), with line numbers and wrapping
 - Project-wide fuzzy file finder (`f`) for marking files
-- Side-by-side diff view for local vs. remote files
+- Unified diff view with the file list on the left for local vs. remote files
 - Per-file sync direction control: upload ↑, download ↓, delete local ✗, delete remote ✗, or skip —
 - Bulk sync direction toggle (A key cycles all files at once)
 - Auto pre-selection of sync direction based on file modification time

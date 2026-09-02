@@ -362,9 +362,6 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 		}
 	}()
 
-	dirs := make(chan string, 4096)
-	var pending sync.WaitGroup
-	var workerWG sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
 
@@ -396,37 +393,78 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 		return firstErr != nil
 	}
 
-	pending.Add(1)
-	dirs <- remoteRoot
-	go func() {
-		pending.Wait()
-		close(dirs)
-	}()
-
+	listers := make([]func(string) []string, 0, len(workers))
 	for _, worker := range workers {
-		workerWG.Add(1)
-		go func(worker *Client) {
-			defer workerWG.Done()
-			for dir := range dirs {
-				if shouldStop() {
-					pending.Done()
-					continue
-				}
-				worker.walkDirLevel(dir, dirs, &pending, handleFile, recordErr)
-				pending.Done()
-			}
-		}(worker)
+		listers = append(listers, func(dir string) []string {
+			return worker.walkDirLevel(dir, handleFile, recordErr)
+		})
 	}
-	workerWG.Wait()
+	walkQueue(remoteRoot, listers, shouldStop)
 	return firstErr
 }
 
-func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.WaitGroup, handleFile func(string), recordErr func(error)) {
+// walkQueue walks root breadth-first over len(listers) concurrent listers, one
+// per connection. A lister reports the files it finds itself and returns the
+// subdirectories it found; walkQueue schedules those.
+//
+// The pending directories live in this function, not in a channel the listers
+// write to. That is the whole point: share one bounded channel between readers
+// and writers and a wide enough tree fills the buffer, every lister blocks on
+// its own send, and nobody is left to drain it. Here only walkQueue appends to
+// the queue, so fan-out costs memory instead of the entire walk.
+//
+// walkQueue returns once every directory has been listed, or once stop reports
+// that the caller has given up.
+func walkQueue(root string, listers []func(string) []string, stop func() bool) {
+	work := make(chan string)
+	found := make(chan []string)
+
+	var listerWG sync.WaitGroup
+	for _, list := range listers {
+		listerWG.Add(1)
+		go func() {
+			defer listerWG.Done()
+			for dir := range work {
+				found <- list(dir)
+			}
+		}()
+	}
+
+	queue := []string{root}
+	next := 0    // index of the directory handed out next
+	listing := 0 // directories currently in the hands of a lister
+	for listing > 0 || (next < len(queue) && !stop()) {
+		var out chan string
+		var dir string
+		if next < len(queue) && !stop() {
+			dir, out = queue[next], work
+		}
+		// Offering work and collecting results in one select keeps this loop
+		// ready to drain found even while every lister is busy.
+		select {
+		case out <- dir:
+			next++
+			listing++
+		case subdirs := <-found:
+			listing--
+			queue = append(queue, subdirs...)
+		}
+	}
+
+	// Reaching here means listing == 0, so no lister is stuck mid-send.
+	close(work)
+	listerWG.Wait()
+}
+
+// walkDirLevel lists one directory: files go to handleFile, subdirectories are
+// returned for the caller to schedule.
+func (c *Client) walkDirLevel(dir string, handleFile func(string), recordErr func(error)) []string {
 	entries, err := c.conn.List(dir)
 	if err != nil {
 		recordErr(fmt.Errorf("list %s: %w", dir, err))
-		return
+		return nil
 	}
+	var subdirs []string
 	for _, e := range entries {
 		if e.Name == "." || e.Name == ".." {
 			continue
@@ -437,12 +475,12 @@ func (c *Client) walkDirLevel(dir string, dirs chan<- string, pending *sync.Wait
 			if fs.ShouldSkipDir(e.Name) {
 				continue
 			}
-			pending.Add(1)
-			dirs <- p
+			subdirs = append(subdirs, p)
 		case ftplib.EntryTypeFile:
 			handleFile(p)
 		}
 	}
+	return subdirs
 }
 
 // DeleteFile removes a file on the remote host.

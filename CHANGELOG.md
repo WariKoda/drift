@@ -3,12 +3,17 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.6-alpha] - 2026-09-03
 ### Added
 - project host credentials live in `~/.config/drift/secrets.toml` (mode `600`), keyed by project root and host name, instead of `.drift/config.toml` — the project config now holds only hostname, port, user, root path, protocol and mappings, and can be committed and shared
-- credentials that an older or hand-written `.drift/config.toml` still carries are moved into the secret store on startup, and the status line reports where they went and whether git can still reach the file they came from
+- credentials that an older or hand-written `.drift/config.toml` still carries are moved into the secret store on startup and on project switch, and the status line reports where they went and whether git can still reach the file they came from
 
 ### Changed
 - empty `auth` fields are no longer written to config files
+
+### Removed
+- the post-save warning about a git-reachable project config introduced in 0.1.5-alpha: the file drift writes no longer contains a credential, so the migration notice is the only place the git check is still needed
 
 ## [0.1.5-alpha] - 2026-09-03
 ### Added

@@ -16,7 +16,8 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Side-by-side local/remote file browser with multi-select (Space) and recursive directory marking
 - Safe local/remote text preview in the opposite pane (`p`), with line numbers and wrapping
 - Project-wide fuzzy file finder (`f`) for marking files
-- Unified diff view with the file list on the left for local vs. remote files
+- Unified diff view with the file list on the left for local vs. remote files, unchanged
+  stretches folded away behind `@@` hunk headers
 - Per-file sync direction control: upload ↑, download ↓, delete local ✗, delete remote ✗, or skip —
 - Bulk sync direction toggle (A key cycles all files at once)
 - Auto pre-selection of sync direction based on file modification time
@@ -175,6 +176,10 @@ other key to skip — you can always register later with `drift projects add .`.
 | `PgUp` / `PgDn` | Scroll diff content by page |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
 | `Home` / `g`, `End` / `G` | Jump to start / end of diff content |
+| `[` / `]` | Jump to the previous / next hunk |
+| `Enter` / `l` | Expand or collapse the first fold in view |
+| `h` | Collapse the fold around the top of the viewport |
+| `c` | Expand or collapse every fold in the file |
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `Space` | Cycle sync direction for current file |
 | `A` | Cycle sync direction for all files |
@@ -204,6 +209,7 @@ The mouse works in the file browser, the diff view and the host manager.
 | Wheel | Scroll the pane under the pointer |
 | Click | Move the cursor there, and focus that pane |
 | Click on a pane label | Focus that pane |
+| Click on a fold marker | Expand or collapse that fold (diff view) |
 | Double click | Expand a directory (local), open one (remote), cycle a file's sync direction (diff view), edit a host (host manager) |
 | `Shift`+Click | Select text with the terminal's own selection |
 

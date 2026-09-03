@@ -131,6 +131,11 @@ A project host is stored in two layers with different owners, and
 git can reach the project config; the migration notice uses it to tell the user
 that a moved password may still be in the repository's history.
 
+Tests in `internal/config` must never touch the real config directory: its
+`TestMain` points `$XDG_CONFIG_HOME` at a temp dir for the whole package,
+because the writers reach `access.toml` and a test without that isolation
+writes into the developer's own `~/.config/drift`.
+
 Written files: `writeToml` replaces atomically (temp file + rename) and the
 encoding-only `hostOut`/`defaultsOut` mirrors exist because BurntSushi's
 `omitempty` does not cover numeric zero — drift must trim the files it rewrites,

@@ -154,11 +154,20 @@ func (a App) Init() tea.Cmd {
 }
 
 // migrateProjectSecrets moves credentials that a hand-written or pre-0.1.6
-// .drift/config.toml still carries into the secret store. It also asks git
-// whether that config was reachable, because a migrated password may already
-// be in the repository's history.
+// .drift/config.toml still carries into the access store, and folds a
+// 0.1.6-alpha secrets.toml into it. It also asks git whether that config was
+// reachable, because a migrated password may already be in the repository's
+// history.
+//
+// Both conditions matter. Gating on the project config alone left a
+// 0.1.6-alpha secrets.toml untouched — its configs were already clean — so
+// nothing read those credentials any more and every host that relied on one
+// stopped connecting.
 func (a App) migrateProjectSecrets() tea.Cmd {
-	if a.state.Config == nil || len(a.state.Config.ProjectSecretsInFile) == 0 {
+	if a.state.Config == nil {
+		return nil
+	}
+	if len(a.state.Config.ProjectSecretsInFile) == 0 && !a.state.Config.LegacySecretStore {
 		return nil
 	}
 	root := a.state.Config.ProjectRoot

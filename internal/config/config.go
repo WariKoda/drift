@@ -91,6 +91,12 @@ type MergedConfig struct {
 	// .drift/config.toml rather than the access store, i.e. the ones
 	// MigrateProjectSecrets still has to move out of the project.
 	ProjectSecretsInFile []string
+
+	// LegacySecretStore reports that a 0.1.6-alpha secrets.toml is still on
+	// disk. Nothing reads that file any more, so until MigrateProjectSecrets
+	// folds it into access.toml its credentials are invisible and every host
+	// that relies on one fails to connect.
+	LegacySecretStore bool
 }
 
 // MouseEnabled reports whether mouse reporting should be turned on.

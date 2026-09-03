@@ -233,7 +233,13 @@ func deleteAccess(projectRoot, hostName string) error {
 // MigrateProjectSecrets moves credentials that <projectRoot>/.drift/config.toml
 // still carries into the access store, writes the config back without them, and
 // folds a 0.1.6-alpha secrets.toml into access.toml. It reports how many hosts
-// it moved a credential for; 0 means there was nothing to do.
+// it moved a credential for; 0 means no project config was rewritten, which
+// says nothing about whether the fold happened.
+//
+// The fold is not tied to projectRoot: secrets.toml holds every project's
+// credentials, so it runs even when this project has nothing left to migrate
+// and even when projectRoot is empty. A project whose config was already clean
+// would otherwise keep its credentials in a file nothing reads any more.
 //
 // It deliberately moves leaks only. User, auth type, key file and $ENV
 // references stay in the project config until that host is edited, because a
@@ -245,10 +251,6 @@ func deleteAccess(projectRoot, hostName string) error {
 // state with a running session and is safe in a goroutine. Migration is
 // idempotent: with nothing left to move, no file is touched.
 func MigrateProjectSecrets(projectRoot string) (int, error) {
-	if projectRoot == "" {
-		return 0, nil
-	}
-
 	store, err := loadAccess()
 	if err != nil {
 		return 0, err
@@ -258,9 +260,11 @@ func MigrateProjectSecrets(projectRoot string) (int, error) {
 		return 0, err
 	}
 
-	pc, err := decodeProjectConfig(projectRoot)
-	if err != nil {
-		return 0, err
+	var pc *ProjectConfig
+	if projectRoot != "" {
+		if pc, err = decodeProjectConfig(projectRoot); err != nil {
+			return 0, err
+		}
 	}
 
 	migrated := 0
@@ -355,6 +359,14 @@ func foldLegacySecrets(store *accessFile) (bool, error) {
 		store.put(a)
 	}
 	return true, nil
+}
+
+// hasLegacySecrets reports whether a 0.1.6-alpha secrets.toml is still around.
+// Nothing reads it any more, so its credentials are invisible until
+// MigrateProjectSecrets folds them in.
+func hasLegacySecrets() bool {
+	_, err := os.Stat(legacySecretsPath())
+	return err == nil
 }
 
 // AccessPathForDisplay is the access store's path, for messages that tell the

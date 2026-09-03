@@ -40,6 +40,7 @@ func Load(startDir string) (*MergedConfig, error) {
 
 	merged := merge(global, project, projectRoot)
 	merged.ProjectSecretsInFile = literalSecretHosts(merged.ProjectHosts)
+	merged.LegacySecretStore = hasLegacySecrets()
 
 	hosts, err := applyProjectAccess(merged.ProjectHosts, projectRoot)
 	if err != nil {

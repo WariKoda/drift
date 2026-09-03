@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
 - the host form groups a project host's fields under `SHARED WITH THE TEAM` and `ONLY ON THIS MACHINE`, each naming the file it writes to; a global host has one file and gets no headings
 - the host manager's `PROJECT HOSTS` header notes that access stays on this machine, where the terminal is wide enough for it
 
+### Fixed
+- credentials in a 0.1.6-alpha `secrets.toml` became unreachable: folding that file into `access.toml` only ran when a project config still held a literal credential, which after 0.1.6-alpha it never did, so every host that relied on a stored password stopped connecting. The fold now runs whenever the file is present, independently of any project
+- `go test ./...` wrote into the developer's real `~/.config/drift/access.toml`, because storing a host's access reaches the config directory and several tests did not isolate `$XDG_CONFIG_HOME`
+
 ### Changed
 - host form field order follows the two layers: name, the shared environment fields, then the fields that stay on this machine, then the scope toggle
 - `insecure_tls` is no longer written into the project config: a skip-verify flag one developer needs is not something the team should inherit by pulling

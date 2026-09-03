@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.7-alpha] - 2026-09-03
 ### Changed
 - **breaking:** nothing is stored in the project directory any more. A project's hosts and mappings live in `~/.config/drift/projects/<slug>.toml` (mode `600`), named after its registry slug. No `.drift/`, nothing to add to `.gitignore`, nothing to commit by accident
 - **breaking:** which project a directory belongs to is the registry's answer now — the registered project whose path is the directory or a parent of it, longest match first. Registering a project is what gives a directory hosts of its own, and an older drift will not find a migrated project at all, because its lookup walks up for a file that is gone

@@ -84,6 +84,14 @@ in `app.go`, an der heute `MigrateProjectSecrets` hängt.
 
 ## Schritt 1 — Per-Projekt-Store
 
+> Umgesetzt in 0.1.7-alpha. Zwei Dinge kamen beim Bauen hinzu: die Migration
+> wendet die alten Stores auf **jeden** Host im Ziel an, nicht nur auf die aus
+> der Projekt-Datei (ein Projekt, dessen `.drift/config.toml` schon gelöscht
+> war, hätte sonst seine Credentials ungelesen verloren), und sie prunt nur,
+> was sie übernommen hat. Pfade werden `filepath.Clean`-verglichen. Außerdem
+> sind die Gruppenüberschriften aus Phase 3 des alten Plans hier schon
+> gefallen, weil sie mit einer Datei pro Projekt nichts mehr beschreiben.
+
 ### Format
 
 ```toml
@@ -182,6 +190,11 @@ in eine Fußnote.
 ---
 
 ## Schritt 2 — Rooting und Registrierung
+
+> Umgesetzt in 0.1.7-alpha. Bewusst nicht gebaut: ein Gedächtnis für abgelehnte
+> Registrierungs-Prompts. Wer `n` drückt, wird beim nächsten Start wieder
+> gefragt. Das wäre neuer persistenter Zustand für ein Problem, das vielleicht
+> keins ist.
 
 1. `Registry.FindByPathPrefix` (siehe Vorentscheidung 2).
 2. `cmd/root.go`: Startmodus-Entscheidung ohne `HasProjectContext`. Registrierte

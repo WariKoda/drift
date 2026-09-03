@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added
+- writing a project host creates `.drift/.gitignore` (ignoring `config.toml`) so credentials cannot be committed by accident; an existing `.gitignore` is left alone
+- drift warns in the status line when `.drift/config.toml` stores a literal password or passphrase and git can still reach it — checked on startup and after each save, dismissed with `Esc`
+
+### Changed
+- `.drift/` is created with mode `700` instead of `755`
+
+### Fixed
+- project switcher treats digit keys as search input instead of jumping to the n-th row
 
 ## [0.1.4-alpha] - 2026-09-02
 ### Added

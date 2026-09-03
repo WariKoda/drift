@@ -142,7 +142,7 @@ other key to skip — you can always register later with `drift projects add .`.
 |-----|--------|
 | type | Filter by name, slug, or path |
 | `↑` / `↓` or `Ctrl+n` / `Ctrl+p` | Navigate |
-| `Enter` / `1`–`9` | Open the selected / n-th filtered project |
+| `Enter` | Open the selected project |
 | `m` | Open the dashboard to manage projects (empty filter only) |
 | `Esc` | Back to the browser (session kept) |
 
@@ -332,11 +332,20 @@ When effective `mappings` are configured, only files that fall under a mapping r
 
 `.drift/config.toml` lives inside your project, so it is easy to commit by accident. It
 holds hostnames, usernames and — for `password` auth — whatever you typed into the host
-form, stored verbatim. Add it to the project's `.gitignore`:
+form, stored verbatim.
 
-```gitignore
-.drift/
+drift guards against that in two ways. When it writes the file it creates
+`.drift/.gitignore` containing `config.toml` (an existing `.gitignore` is left untouched),
+and it restricts `.drift/` to mode `700` and the config to `600`. It also asks git whether
+the file is reachable — on startup and after every save that stores a literal
+password or passphrase — and warns in the status line when it is:
+
 ```
+⚠ .drift/config.toml holds credentials and is tracked by git — untrack it: git rm --cached .drift/config.toml
+```
+
+`Esc` dismisses the warning. If you keep other files under `.drift/`, they stay shareable:
+only `config.toml` is ignored.
 
 Prefer `agent` or `keyfile` auth, or write `password = "$DEPLOY_PASSWORD"` and export the
 variable in your shell: drift expands `$ENV_VAR` at connect time, so the secret itself

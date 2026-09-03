@@ -124,20 +124,33 @@ func TestEscEmitsSelectorCancelled(t *testing.T) {
 	}
 }
 
-func TestNumberKeyOpensFirstFiltered(t *testing.T) {
+func TestDigitsAreQueryCharacters(t *testing.T) {
 	dir := t.TempDir()
-	m := New([]project.Project{
-		{Slug: "a", Name: "Alpha", Path: dir},
-		{Slug: "z", Name: "Zeta", Path: dir},
-	}, "", 80, 24)
-	m, _ = dispatch(m, key("z"))
-	_, out := dispatch(m, key("1"))
-	chosen, ok := out.(MsgProjectChosen)
-	if !ok {
-		t.Fatalf("expected MsgProjectChosen, got %T", out)
+	projects := []project.Project{
+		{Slug: "alpha", Name: "Alpha", Path: dir},
+		{Slug: "kunde-2", Name: "KUNDE 2", Path: dir},
 	}
-	if chosen.Project.Slug != "z" {
-		t.Fatalf("chosen slug = %q, want z (first filtered)", chosen.Project.Slug)
+	m := New(projects, "", 80, 24)
+	m, out := dispatch(m, key("1"))
+	if out != nil {
+		t.Fatalf("1 should not emit, got %T", out)
+	}
+	if m.query != "1" {
+		t.Fatalf("query = %q, want 1", m.query)
+	}
+
+	m = New(projects, "", 80, 24)
+	for _, r := range "kunde-2" {
+		m, out = dispatch(m, key(string(r)))
+		if out != nil {
+			t.Fatalf("%q should not emit, got %T", string(r), out)
+		}
+	}
+	if m.query != "kunde-2" {
+		t.Fatalf("query = %q, want kunde-2", m.query)
+	}
+	if len(m.filtered) != 1 || m.filtered[0].proj.Slug != "kunde-2" {
+		t.Fatalf("filtered = %v, want kunde-2", m.filtered)
 	}
 }
 

@@ -38,7 +38,19 @@ func Load(startDir string) (*MergedConfig, error) {
 		}
 	}
 
-	return merge(global, project, projectRoot), nil
+	merged := merge(global, project, projectRoot)
+	merged.ProjectSecretsInFile = literalSecretHosts(merged.ProjectHosts)
+
+	hosts, err := applyProjectSecrets(merged.ProjectHosts, projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("secret store: %w", err)
+	}
+	merged.ProjectHosts = hosts
+	for _, h := range hosts {
+		merged.Hosts[h.Name] = h
+	}
+
+	return merged, nil
 }
 
 // loadGlobal reads ~/.config/drift/config.toml.
@@ -51,6 +63,32 @@ func loadGlobal() (*GlobalConfig, error) {
 		return cfg, nil
 	}
 
+	if _, err := toml.DecodeFile(path, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// literalSecretHosts names the hosts that carry a credential in the config
+// file itself. They are the ones MigrateProjectSecrets still has to move.
+func literalSecretHosts(hosts []Host) []string {
+	var names []string
+	for _, h := range hosts {
+		if h.HasPlaintextSecret() {
+			names = append(names, h.Name)
+		}
+	}
+	return names
+}
+
+// decodeProjectConfig reads .drift/config.toml from an exact project root,
+// without walking up. A missing file yields (nil, nil).
+func decodeProjectConfig(root string) (*ProjectConfig, error) {
+	path := filepath.Join(root, ".drift", "config.toml")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	cfg := &ProjectConfig{}
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, err
 	}

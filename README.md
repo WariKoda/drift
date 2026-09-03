@@ -24,7 +24,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Sync current file (s) or all marked files (S) in one keystroke
 - Per-host path mappings (like PHPStorm's Deployment Mappings tab)
 - Host manager: create, edit, delete, and test connections
-- Global config (`~/.config/drift/config.toml`) + project-level config (`.drift/config.toml`)
+- Global config (`~/.config/drift/config.toml`) + committable project config (`.drift/config.toml`), with credentials kept outside the project in `~/.config/drift/secrets.toml`
 - Skips `.git`, `node_modules`, `.idea`, and other irrelevant directories automatically
 
 ---
@@ -307,6 +307,9 @@ protocol  = "ftp"
 # For ftps with a self-signed / mismatched certificate (skips TLS verification):
 # insecure_tls = true
 
+  # A literal password typed into the host form is not written here — it goes to
+  # ~/.config/drift/secrets.toml. An $ENV_VAR reference stays, and is expanded at
+  # connect time.
   [hosts.auth]
   type     = "password"
   password = "$DEPLOY_PASSWORD"
@@ -331,35 +334,61 @@ When effective `mappings` are configured, only files that fall under a mapping r
 | Type | Fields |
 |------|--------|
 | `keyfile` | `key_file`, `passphrase` (optional) |
-| `password` | `password` (supports `$ENV_VAR`) |
+| `password` | `password` — a literal value is stored outside the project, an `$ENV_VAR` reference stays in the config |
 | `agent` | none — uses SSH agent |
 
-### Keep credentials out of version control
+### Where credentials live
 
-`.drift/config.toml` lives inside your project, so it is easy to commit by accident. It
-holds hostnames, usernames and — for `password` auth — whatever you typed into the host
-form, stored verbatim.
+A password or passphrase you type into the host form never reaches the project. drift
+writes it to `~/.config/drift/secrets.toml` (mode `600`, in a `700` directory) and keys it
+by project root and host name:
 
-drift guards against that in two ways. When it writes the file it creates
-`.drift/.gitignore` containing `config.toml` (an existing `.gitignore` is left untouched),
-and it restricts `.drift/` to mode `700` and the config to `600`. It also asks git whether
-the file is reachable — on startup and after every save that stores a literal
-password or passphrase — and warns in the status line when it is:
-
-```
-⚠ .drift/config.toml holds credentials and is tracked by git — untrack it: git rm --cached .drift/config.toml
+```toml
+[[secrets]]
+  project = "/home/you/work/myshop"
+  host = "staging"
+  password = "…"
 ```
 
-`Esc` dismisses the warning. If you keep other files under `.drift/`, they stay shareable:
-only `config.toml` is ignored.
+`.drift/config.toml` keeps everything else — hostname, port, user, root path, protocol,
+mappings — and is meant to be committed and shared with your team. A teammate who clones
+it gets the hosts and mappings, and supplies their own credentials on first connect.
 
-Prefer `agent` or `keyfile` auth, or write `password = "$DEPLOY_PASSWORD"` and export the
-variable in your shell: drift expands `$ENV_VAR` at connect time, so the secret itself
-never reaches the file. The same applies to `passphrase`.
+Two things stay in the project config on purpose:
 
-If a config with a real password was already committed, treat that password as
-compromised and rotate it — removing the file in a later commit does not remove it from
-the history.
+- `$ENV_VAR` references. `password = "$DEPLOY_PASSWORD"` is not a secret, and expanding it
+  at connect time is drift's existing behaviour. Use it if you would rather keep
+  credentials in your shell environment or a password manager than in a drift file.
+- `key_file` paths. The path is not the key.
+
+For a **global** host in `~/.config/drift/config.toml` nothing changes: that file is
+already outside every repository, so its credentials stay in it.
+
+#### Configs written before the secret store
+
+drift moves them for you. On startup it reads `.drift/config.toml`, and if a host still
+carries a literal password or passphrase it writes the credential to the secret store,
+rewrites the config without it, and says so in the status line:
+
+```
+⚠ Moved 1 credential out of .drift/config.toml into ~/.config/drift/secrets.toml — git tracks that file, so treat the old value as leaked and rotate it: git rm --cached .drift/config.toml
+```
+
+The git part of that notice matters: if the config was tracked, the old password is in the
+repository's history, and removing the file in a later commit does not remove it from the
+history. Rotate it.
+
+`Esc` dismisses the notice. Migration is idempotent — once there is nothing left to move,
+drift touches neither file again.
+
+#### Belt and braces
+
+drift also creates `.drift/.gitignore` containing `config.toml` whenever it writes the
+project config, and keeps `.drift/` at mode `700`. An existing `.gitignore` is left
+untouched, and only `config.toml` is ignored, so other files you keep under `.drift/` stay
+shareable. The ignore rule is redundant now that the file holds no credentials — it costs
+nothing and covers a config you write by hand.
+
 
 ---
 

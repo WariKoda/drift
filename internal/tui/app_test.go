@@ -398,65 +398,89 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 	}
 }
 
-func TestExposureWarning(t *testing.T) {
-	if got := exposureWarning(config.ExposureSafe); got != "" {
-		t.Fatalf("ExposureSafe produced a warning: %q", got)
+func TestMigrationNotice(t *testing.T) {
+	safe := migrationNotice(1, config.ExposureSafe)
+	if !strings.Contains(safe, "Moved 1 credential") || !strings.Contains(safe, "secrets.toml") {
+		t.Fatalf("notice does not say what moved where: %q", safe)
 	}
-	if got := exposureWarning(config.ExposureTracked); !strings.Contains(got, "git rm --cached") {
-		t.Fatalf("ExposureTracked warning lacks the fix: %q", got)
+	if strings.Contains(safe, "rotate") {
+		t.Fatalf("an unreachable config asked for a rotation: %q", safe)
 	}
-	if got := exposureWarning(config.ExposureUntracked); !strings.Contains(got, ".gitignore") {
-		t.Fatalf("ExposureUntracked warning lacks the fix: %q", got)
+	if got := migrationNotice(2, config.ExposureSafe); !strings.Contains(got, "2 credentials") {
+		t.Fatalf("notice does not pluralise: %q", got)
+	}
+	if got := migrationNotice(1, config.ExposureTracked); !strings.Contains(got, "rotate") ||
+		!strings.Contains(got, "git rm --cached") {
+		t.Fatalf("a tracked config produced no rotation advice: %q", got)
+	}
+	if got := migrationNotice(1, config.ExposureUntracked); !strings.Contains(got, "committed") {
+		t.Fatalf("an unignored config produced no history hint: %q", got)
 	}
 }
 
-func TestCheckStoredSecretsOnlyRunsWhenAConfigHoldsOne(t *testing.T) {
+func TestMigrationRunsOnlyForCredentialsFoundInTheConfigFile(t *testing.T) {
 	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd := app.checkStoredSecrets(); cmd != nil {
-		t.Fatal("a nil config scheduled an exposure check")
+	if cmd := app.migrateProjectSecrets(); cmd != nil {
+		t.Fatal("a nil config scheduled a migration")
 	}
 
+	// Credentials filled in from the secret store are already out of the
+	// project, so they leave ProjectSecretsInFile empty.
 	app.state.Config = &config.MergedConfig{
-		ProjectHosts: []config.Host{{Name: "prod", Auth: config.Auth{Type: "password", Password: "$PW"}}},
+		ProjectHosts: []config.Host{{Name: "prod", Auth: config.Auth{Type: "password", Password: "hunter2"}}},
 	}
-	if cmd := app.checkStoredSecrets(); cmd != nil {
-		t.Fatal("an $ENV password scheduled an exposure check")
+	if cmd := app.migrateProjectSecrets(); cmd != nil {
+		t.Fatal("a credential from the store scheduled a migration")
 	}
 
-	app.state.Config.ProjectHosts = append(app.state.Config.ProjectHosts,
-		config.Host{Name: "staging", Auth: config.Auth{Type: "password", Password: "hunter2"}})
-	if cmd := app.checkStoredSecrets(); cmd == nil {
-		t.Fatal("a stored plaintext password did not schedule an exposure check")
+	app.state.Config.ProjectSecretsInFile = []string{"prod"}
+	if cmd := app.migrateProjectSecrets(); cmd == nil {
+		t.Fatal("a credential found in the config file did not schedule a migration")
 	}
 }
 
-func TestSecretWarningSurvivesKeysUntilEsc(t *testing.T) {
+func TestMigrationNoticeSurvivesKeysUntilEsc(t *testing.T) {
 	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
 	if err != nil {
 		t.Fatal(err)
 	}
+	app.state.Config = &config.MergedConfig{ProjectSecretsInFile: []string{"prod"}}
+	app.state.TermWidth, app.state.TermHeight = 160, 24
 
-	app.state.TermWidth, app.state.TermHeight = 120, 24
-	model, _ := app.Update(msgSecretExposure{Exposure: config.ExposureTracked})
+	model, _ := app.Update(msgSecretsMigrated{Count: 1, Exposure: config.ExposureTracked})
 	app = model.(App)
 	if app.secretWarning == "" {
-		t.Fatal("a tracked config produced no warning")
+		t.Fatal("a completed migration produced no notice")
 	}
-	if !strings.Contains(ansi.Strip(app.View()), "git rm --cached") {
-		t.Fatal("the warning is not rendered in the status line")
+	if len(app.state.Config.ProjectSecretsInFile) != 0 {
+		t.Fatal("the migration result did not clear ProjectSecretsInFile")
+	}
+	if !strings.Contains(ansi.Strip(app.View()), "rotate") {
+		t.Fatal("the notice is not rendered in the status line")
 	}
 
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	app = model.(App)
 	if app.secretWarning == "" {
-		t.Fatal("an ordinary key dismissed the warning")
+		t.Fatal("an ordinary key dismissed the notice")
 	}
 
 	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if model.(App).secretWarning != "" {
-		t.Fatal("esc did not dismiss the warning")
+		t.Fatal("esc did not dismiss the notice")
+	}
+}
+
+func TestMigrationErrorIsSurfaced(t *testing.T) {
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, _ := app.Update(msgSecretsMigrated{Err: errors.New("disk full")})
+	if got := model.(App).globalError; !strings.Contains(got, "disk full") {
+		t.Fatalf("global error = %q, want the migration failure", got)
 	}
 }

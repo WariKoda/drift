@@ -21,12 +21,14 @@ type Host struct {
 	Mappings    []Mapping `toml:"mappings,omitempty"`     // per-host path mappings
 }
 
-// Auth configures how to authenticate with a Host.
+// Auth configures how to authenticate with a Host. The credential fields are
+// omitted when empty: for a project host they usually are, because literal
+// passwords and passphrases live in the secret store, not in the project.
 type Auth struct {
-	Type       string `toml:"type"`       // "password" | "keyfile" | "agent"
-	Password   string `toml:"password"`   // supports $ENV_VAR references
-	KeyFile    string `toml:"key_file"`   // path, ~ expanded at connect time
-	Passphrase string `toml:"passphrase"` // supports $ENV_VAR references
+	Type       string `toml:"type"`                 // "password" | "keyfile" | "agent"
+	Password   string `toml:"password,omitempty"`   // supports $ENV_VAR references
+	KeyFile    string `toml:"key_file,omitempty"`   // path, ~ expanded at connect time
+	Passphrase string `toml:"passphrase,omitempty"` // supports $ENV_VAR references
 }
 
 // Mapping maps a local directory/file to a remote path.
@@ -75,12 +77,17 @@ const (
 type MergedConfig struct {
 	GlobalDefaults  Defaults
 	ProjectDefaults Defaults
-	UI              UI // from the global config only
+	UI              UI              // from the global config only
 	GlobalHosts     []Host          // hosts from ~/.config/drift/config.toml
 	ProjectHosts    []Host          // hosts from .drift/config.toml
 	Hosts           map[string]Host // merged view: project overrides global, keyed by Name
 	Mappings        []Mapping
 	ProjectRoot     string // absolute path of the directory containing .drift/
+
+	// ProjectSecretsInFile names the project hosts whose credentials came from
+	// .drift/config.toml rather than the secret store, i.e. the ones
+	// MigrateProjectSecrets still has to move out of the project.
+	ProjectSecretsInFile []string
 }
 
 // MouseEnabled reports whether mouse reporting should be turned on.

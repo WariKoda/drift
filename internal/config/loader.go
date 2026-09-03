@@ -41,9 +41,9 @@ func Load(startDir string) (*MergedConfig, error) {
 	merged := merge(global, project, projectRoot)
 	merged.ProjectSecretsInFile = literalSecretHosts(merged.ProjectHosts)
 
-	hosts, err := applyProjectSecrets(merged.ProjectHosts, projectRoot)
+	hosts, err := applyProjectAccess(merged.ProjectHosts, projectRoot)
 	if err != nil {
-		return nil, fmt.Errorf("secret store: %w", err)
+		return nil, fmt.Errorf("access store: %w", err)
 	}
 	merged.ProjectHosts = hosts
 	for _, h := range hosts {

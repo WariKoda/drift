@@ -8,15 +8,18 @@
 // Env vars in auth fields ($VAR) are expanded at connection time.
 package config
 
-// Host represents a remote SFTP/SSH or FTP target.
+// Host represents a remote target. Empty strings, false and empty lists are
+// omitted from a written file, so a project config reads as the small,
+// reviewable description of an environment it is rather than as a form with
+// every blank filled in.
 type Host struct {
-	Name        string    `toml:"name"`     // unique identifier, e.g. "prod"
-	Hostname    string    `toml:"hostname"` // IP or domain
-	Port        int       `toml:"port"`     // default: 22 (sftp) or 21 (ftp)
-	User        string    `toml:"user"`
-	Auth        Auth      `toml:"auth"`
-	RootPath    string    `toml:"root_path"`              // remote base directory
-	Protocol    string    `toml:"protocol"`               // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
+	Name        string    `toml:"name"`               // unique identifier, e.g. "prod"
+	Hostname    string    `toml:"hostname,omitempty"` // IP or domain
+	Port        int       `toml:"port,omitempty"`     // default: 22 (sftp) or 21 (ftp)
+	User        string    `toml:"user,omitempty"`
+	Auth        Auth      `toml:"auth,omitempty"`
+	RootPath    string    `toml:"root_path,omitempty"`    // remote base directory
+	Protocol    string    `toml:"protocol,omitempty"`     // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
 	InsecureTLS bool      `toml:"insecure_tls,omitempty"` // ftps: skip TLS certificate verification (self-signed certs)
 	Mappings    []Mapping `toml:"mappings,omitempty"`     // per-host path mappings
 }
@@ -25,7 +28,7 @@ type Host struct {
 // omitted when empty: for a project host they usually are, because literal
 // passwords and passphrases live in the secret store, not in the project.
 type Auth struct {
-	Type       string `toml:"type"`                 // "password" | "keyfile" | "agent"
+	Type       string `toml:"type,omitempty"`       // "password" | "keyfile" | "agent"
 	Password   string `toml:"password,omitempty"`   // supports $ENV_VAR references
 	KeyFile    string `toml:"key_file,omitempty"`   // path, ~ expanded at connect time
 	Passphrase string `toml:"passphrase,omitempty"` // supports $ENV_VAR references
@@ -39,8 +42,8 @@ type Mapping struct {
 
 // Defaults provides fallback values for hosts that omit optional fields.
 type Defaults struct {
-	Port int    `toml:"port"` // default 22
-	User string `toml:"user"`
+	Port int    `toml:"port,omitempty"` // default 22
+	User string `toml:"user,omitempty"`
 }
 
 // UI holds terminal interface preferences. Global config only — these describe
@@ -85,7 +88,7 @@ type MergedConfig struct {
 	ProjectRoot     string // absolute path of the directory containing .drift/
 
 	// ProjectSecretsInFile names the project hosts whose credentials came from
-	// .drift/config.toml rather than the secret store, i.e. the ones
+	// .drift/config.toml rather than the access store, i.e. the ones
 	// MigrateProjectSecrets still has to move out of the project.
 	ProjectSecretsInFile []string
 }

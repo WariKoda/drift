@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added
+- `~/.config/drift/access.toml` holds your access to a project host — `user`, `auth` and `insecure_tls` — keyed by project root and host name; the project config describes the environment only (hostname, port, root path, protocol, mappings) and is meant to be committed
+- an access field written by hand into `.drift/config.toml` still wins over the store, so a value a team maintains deliberately (a deploy account, a `$DEPLOY_PASSWORD` convention) keeps working
+
+### Changed
+- `insecure_tls` is no longer written into the project config: a skip-verify flag one developer needs is not something the team should inherit by pulling
+- a 0.1.6-alpha `secrets.toml` is folded into `access.toml` on startup and removed; migration continues to move literal passwords and passphrases out of the project config, and now deliberately leaves `user`, `auth.type`, `key_file` and `$ENV` references in place — they are not leaks, and deleting them from a shared file would lose values drift never stored for anyone else
+- config files are replaced atomically (temporary file, then rename), so an interrupted write can no longer truncate `access.toml` and lose every project's credentials
+- saving or deleting a project host starts from the config file on disk instead of the merged in-memory view, so the other hosts' records stay byte-for-byte as they were: `[defaults]` values are not baked into them, and nothing from the access store leaks back into the project config
+- empty fields and zero ports are omitted from written config files
+- `~/.config/drift/` is created with mode `700` instead of `755`
 
 ## [0.1.6-alpha] - 2026-09-03
 ### Added

@@ -101,30 +101,38 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 	}
 
 	// Offer to register the current project if it isn't in the registry yet.
-	if shouldPromptRegister(workDir, cfg, reg) {
+	if root, ok := registerCandidate(workDir, cfg, reg); ok {
 		a.state.Screen = ScreenRegisterPrompt
-		a.state.PendingRegisterPath = cfg.ProjectRoot
-		a.state.PendingRegisterName = filepath.Base(cfg.ProjectRoot)
+		a.state.PendingRegisterPath = root
+		a.state.PendingRegisterName = filepath.Base(root)
 	}
 	return a, nil
 }
 
-// shouldPromptRegister reports whether drift should offer to register the
-// current directory: it still holds a .drift/config.toml from an older
-// version, and no registry entry points at it.
+// registerCandidate reports which directory drift should offer to register,
+// if any.
 //
-// Registering is now the only way into a project store, so this prompt is also
-// the gate to migrating that leftover file — MigrateProjectToStore needs a
-// slug, and the registry hands one out.
-func shouldPromptRegister(workDir string, cfg *config.MergedConfig, reg *project.Registry) bool {
-	if cfg == nil || reg == nil {
-		return false
+// Registering is the only way into a project store now, so this prompt is what
+// gives a directory hosts of its own. Two things qualify: a leftover
+// .drift/config.toml, which also needs migrating and which
+// MigrateProjectToStore cannot touch without a slug, and a repository that no
+// registry entry covers.
+//
+// A directory already inside a registered project never qualifies, and neither
+// does one that is neither a repository nor holds an old config — drift has
+// nothing to offer there.
+func registerCandidate(workDir string, cfg *config.MergedConfig, reg *project.Registry) (string, bool) {
+	if cfg == nil || reg == nil || cfg.ProjectSlug != "" {
+		return "", false
 	}
-	root, ok := config.FindLegacyProjectRoot(workDir)
-	if !ok {
-		return false
+	// A config left in the project comes first: it has data to migrate.
+	if root, ok := config.FindLegacyProjectRoot(workDir); ok && !reg.HasPath(root) {
+		return root, true
 	}
-	return !reg.HasPath(root)
+	if root, ok := project.GitRoot(workDir); ok && !reg.HasPath(root) {
+		return root, true
+	}
+	return "", false
 }
 
 // registerPending adds the pending project to the registry and persists it.
@@ -497,9 +505,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Project != nil {
 			a.projectForm = projectform.NewEdit(*msg.Project, a.state.TermWidth, a.state.TermHeight)
 		} else {
-			// Pre-fill a new project with the current working directory.
+			// Pre-fill a new project with the repository the user is in,
+			// falling back to the working directory itself.
+			suggested := project.SuggestRoot(a.state.WorkingDir)
 			a.projectForm = projectform.New(
-				filepath.Base(a.state.WorkingDir), a.state.WorkingDir,
+				filepath.Base(suggested), suggested,
 				a.state.TermWidth, a.state.TermHeight)
 		}
 		a.state.Screen = ScreenProjectForm

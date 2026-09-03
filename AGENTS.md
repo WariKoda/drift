@@ -109,6 +109,11 @@ its registry slug.
 - Which project a directory belongs to is `Registry.FindByPathPrefix(dir)`,
   longest match wins. There is no marker file any more; `cmd/root.go` resolves
   it in `loadAll` and the TUI carries it as `MergedConfig.ProjectSlug`.
+- Registering is what gives a directory hosts, so drift offers it:
+  `registerCandidate` (app.go) picks a leftover `.drift/config.toml` first
+  (it has data to migrate), then an unregistered repository. `project.GitRoot`
+  / `SuggestRoot` supply the suggested path, and `worthStayingIn` (cmd) keeps
+  startup in such a directory instead of reopening the last project.
 - `SaveProjectHost`/`DeleteProjectHost` need that slug and fail without one.
   They start from `projectStoreBase`, which re-reads the store from disk, so a
   save cannot bake `[defaults]` into the other hosts' records.

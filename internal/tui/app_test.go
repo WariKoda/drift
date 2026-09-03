@@ -33,30 +33,52 @@ func makeProjectDir(t *testing.T) string {
 	return dir
 }
 
-func TestShouldPromptRegister(t *testing.T) {
-	dir := makeProjectDir(t)
-
-	cfg := &config.MergedConfig{ProjectRoot: dir}
+func TestRegisterCandidate(t *testing.T) {
+	legacy := makeProjectDir(t)
+	cfg := &config.MergedConfig{ProjectRoot: legacy}
 	emptyReg := &project.Registry{}
 
-	if !shouldPromptRegister(dir, cfg, emptyReg) {
-		t.Fatal("unregistered project should prompt")
+	// A leftover .drift/config.toml is offered, because it also needs migrating.
+	if root, ok := registerCandidate(legacy, cfg, emptyReg); !ok || root != legacy {
+		t.Fatalf("registerCandidate for a legacy project = (%q, %v), want (%q, true)", root, ok, legacy)
 	}
 
-	registered := &project.Registry{Projects: []project.Project{{Slug: "x", Path: dir}}}
-	if shouldPromptRegister(dir, cfg, registered) {
-		t.Fatal("registered project should not prompt")
+	registered := &project.Registry{Projects: []project.Project{{Slug: "x", Path: legacy}}}
+	if _, ok := registerCandidate(legacy, cfg, registered); ok {
+		t.Fatal("a registered path was offered again")
 	}
 
-	// A directory without .drift must never prompt.
+	// A repository is offered too: registering is what gives it hosts.
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "src")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoCfg := &config.MergedConfig{ProjectRoot: sub}
+	if root, ok := registerCandidate(sub, repoCfg, emptyReg); !ok || root != repo {
+		t.Fatalf("registerCandidate inside a repository = (%q, %v), want (%q, true)", root, ok, repo)
+	}
+
+	// Neither a repository nor an old config: nothing to offer.
 	plain := t.TempDir()
-	if shouldPromptRegister(plain, &config.MergedConfig{ProjectRoot: plain}, emptyReg) {
-		t.Fatal("non-project dir should not prompt")
+	if _, ok := registerCandidate(plain, &config.MergedConfig{ProjectRoot: plain}, emptyReg); ok {
+		t.Fatal("a plain directory was offered for registration")
 	}
 
-	// Nil registry/config guards.
-	if shouldPromptRegister(dir, nil, emptyReg) || shouldPromptRegister(dir, cfg, nil) {
-		t.Fatal("nil cfg/reg should not prompt")
+	// A directory that already belongs to a project is never offered.
+	inProject := &config.MergedConfig{ProjectRoot: repo, ProjectSlug: "shop"}
+	if _, ok := registerCandidate(sub, inProject, emptyReg); ok {
+		t.Fatal("a directory inside an open project was offered")
+	}
+
+	if _, ok := registerCandidate(legacy, nil, emptyReg); ok {
+		t.Fatal("a nil config was offered")
+	}
+	if _, ok := registerCandidate(legacy, cfg, nil); ok {
+		t.Fatal("a nil registry was offered")
 	}
 }
 

@@ -106,8 +106,13 @@ project. Its hosts and mappings live next to it in `~/.config/drift/projects/<sl
 
 The registry is also how drift knows which project a directory belongs to: the registered
 project whose path is the directory or a parent of it, longest match first. Registering is
-therefore what gives a directory hosts of its own — `drift projects add .`, or the prompt
-drift shows when it finds an old `.drift/config.toml` that needs migrating.
+therefore what gives a directory hosts of its own.
+
+drift offers to do it for you. Start it in a repository that no project covers and it asks,
+suggesting the repository root rather than whatever subdirectory you were in — press `y` to
+register, any other key to skip. A directory with a leftover `.drift/config.toml` gets the
+same prompt, and answering `y` registers and migrates in one go. Otherwise:
+`drift projects add .`, or `n` on the dashboard, which prefills the repository root too.
 
 ### Typical workflow
 

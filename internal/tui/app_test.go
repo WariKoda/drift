@@ -484,3 +484,24 @@ func TestMigrationErrorIsSurfaced(t *testing.T) {
 		t.Fatalf("global error = %q, want the migration failure", got)
 	}
 }
+
+func TestMigrationRunsForA016StoreEvenWithACleanProjectConfig(t *testing.T) {
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The unit tests for the migration called it directly, so this gate was
+	// never covered: a 0.1.6-alpha store plus a project config with nothing
+	// left in it scheduled no migration, and the credentials in that store
+	// became unreachable.
+	app.state.Config = &config.MergedConfig{ProjectRoot: "/work/shop"}
+	if cmd := app.migrateProjectSecrets(); cmd != nil {
+		t.Fatal("a config with nothing to migrate scheduled a migration")
+	}
+
+	app.state.Config.LegacySecretStore = true
+	if cmd := app.migrateProjectSecrets(); cmd == nil {
+		t.Fatal("a 0.1.6-alpha secret store did not schedule a migration")
+	}
+}

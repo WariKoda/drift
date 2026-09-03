@@ -448,6 +448,87 @@ hostname = "example.com"
 	}
 }
 
+// writeLegacySecrets puts a 0.1.6-alpha store in place.
+func writeLegacySecrets(t *testing.T, projectRoot, host, password string) {
+	t.Helper()
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	body := "[[secrets]]\n  project = \"" + projectRoot + "\"\n  host = \"" + host + "\"\n  password = \"" + password + "\"\n"
+	if err := os.WriteFile(legacySecretsPath(), []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+}
+
+func TestFoldsA016StoreEvenWithNothingLeftInTheProjectConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	projectRoot := t.TempDir()
+
+	// This is the state 0.1.6-alpha left behind: the project config is already
+	// clean, every credential sits in secrets.toml. Nothing reads that file any
+	// more, so failing to fold it makes the host unusable.
+	writeProjectConfig(t, projectRoot, `[[hosts]]
+name = "prod"
+hostname = "example.com"
+
+  [hosts.auth]
+  type = "password"
+`)
+	writeLegacySecrets(t, projectRoot, "prod", "hunter2")
+
+	loaded, err := Load(projectRoot)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(loaded.ProjectSecretsInFile) != 0 {
+		t.Fatalf("ProjectSecretsInFile = %v, want empty for a clean config", loaded.ProjectSecretsInFile)
+	}
+	if !loaded.LegacySecretStore {
+		t.Fatal("Load did not report the 0.1.6-alpha store, so nothing would trigger the fold")
+	}
+
+	n, err := MigrateProjectSecrets(projectRoot)
+	if err != nil {
+		t.Fatalf("MigrateProjectSecrets returned error: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("migrated %d hosts, want 0 — the project config had nothing to move", n)
+	}
+
+	if _, err := os.Stat(legacySecretsPath()); !os.IsNotExist(err) {
+		t.Fatal("secrets.toml was not removed after being folded in")
+	}
+	reloaded, err := Load(projectRoot)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if got := reloaded.Hosts["prod"].Auth.Password; got != "hunter2" {
+		t.Fatalf("password after the fold = %q, want hunter2", got)
+	}
+	if reloaded.LegacySecretStore {
+		t.Fatal("Load still reports a 0.1.6-alpha store after the fold")
+	}
+}
+
+func TestFoldsA016StoreWithoutAProjectRoot(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeLegacySecrets(t, "/some/other/project", "prod", "hunter2")
+
+	if _, err := MigrateProjectSecrets(""); err != nil {
+		t.Fatalf("MigrateProjectSecrets returned error: %v", err)
+	}
+	if _, err := os.Stat(legacySecretsPath()); !os.IsNotExist(err) {
+		t.Fatal("the fold is tied to a project root, so another project's credentials were left behind")
+	}
+	store, err := loadAccess()
+	if err != nil {
+		t.Fatalf("loadAccess returned error: %v", err)
+	}
+	if len(store.Access) != 1 || store.Access[0].Auth.Password != "hunter2" {
+		t.Fatalf("store after the fold = %+v", store.Access)
+	}
+}
+
 func TestMigrateWithoutAConfigDoesNothing(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if n, err := MigrateProjectSecrets(t.TempDir()); err != nil || n != 0 {

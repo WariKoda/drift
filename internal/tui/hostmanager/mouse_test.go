@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -145,4 +146,28 @@ func TestHostManagerLayoutConstantsMatchView(t *testing.T) {
 				lastRow, footerLines, lastRow+footerLines, m.Height-1)
 		}
 	})
+}
+
+func TestProjectHeaderNamesBothLayersWhenItFits(t *testing.T) {
+	cfg := &config.MergedConfig{
+		ProjectRoot:  "/work/shop",
+		ProjectHosts: []config.Host{{Name: "staging", Hostname: "staging.example.com"}},
+	}
+
+	wide := ansi.Strip(New(cfg, 120, 12).View())
+	if !strings.Contains(wide, "access stays on this machine") {
+		t.Fatalf("the project section does not mention the access store:\n%s", wide)
+	}
+
+	// The note is dropped rather than wrapped: a section header is one row, and
+	// both the row budget and hitTest depend on that.
+	narrow := ansi.Strip(New(cfg, 48, 12).View())
+	if strings.Contains(narrow, "access stays") {
+		t.Fatalf("the note was kept on a line too narrow for it:\n%s", narrow)
+	}
+	for _, line := range strings.Split(narrow, "\n") {
+		if lipgloss.Width(line) > 48 {
+			t.Fatalf("line wider than the terminal (%d): %q", lipgloss.Width(line), line)
+		}
+	}
 }

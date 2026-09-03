@@ -3,12 +3,16 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.5-alpha] - 2026-09-03
 ### Added
 - writing a project host creates `.drift/.gitignore` (ignoring `config.toml`) so credentials cannot be committed by accident; an existing `.gitignore` is left alone
 - drift warns in the status line when `.drift/config.toml` stores a literal password or passphrase and git can still reach it — checked on startup and after each save, dismissed with `Esc`
+- unified diff folds unchanged stretches behind `@@` hunk headers, keeping three lines of context: `Enter`/`l` toggles the first fold in view, `h` collapses the one at the top of the viewport, `c` toggles every fold in the file, and a click on a fold marker toggles it
 
 ### Changed
 - `.drift/` is created with mode `700` instead of `755`
+- `[` / `]` walk the hunk headers of the folded view instead of re-deriving hunk starts from the line list
 
 ### Fixed
 - project switcher treats digit keys as search input instead of jumping to the n-th row

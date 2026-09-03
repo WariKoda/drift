@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -114,11 +115,31 @@ func writeProject(cfg ProjectConfig, projectRoot string) error {
 		}
 	}
 	dir := filepath.Join(projectRoot, ".drift")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := ensureProjectGitignore(dir); err != nil {
 		return err
 	}
 	return writeToml(filepath.Join(dir, "config.toml"), cfg)
 }
+
+// ensureProjectGitignore creates .drift/.gitignore if it does not exist yet.
+// The project config carries credentials, so it must never be committed;
+// other files under .drift/ stay shareable on purpose.
+func ensureProjectGitignore(dir string) error {
+	path := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(path, []byte(projectGitignore), 0o600)
+}
+
+const projectGitignore = `# Written by drift: this file holds host credentials.
+config.toml
+`
 
 func writeToml(path string, v any) error {
 	var buf bytes.Buffer

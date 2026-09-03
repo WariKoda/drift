@@ -163,3 +163,20 @@ func TestSaveProjectHostRejectsInvalidProjectMappingsWithoutMutation(t *testing.
 		t.Fatalf("invalid project config was written to disk, Stat error = %v", statErr)
 	}
 }
+
+func TestWriteProjectRestrictsDriftDirPermissions(t *testing.T) {
+	projectRoot := t.TempDir()
+	cfg := &MergedConfig{ProjectRoot: projectRoot}
+
+	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
+		t.Fatalf("SaveProjectHost returned error: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(projectRoot, ".drift"))
+	if err != nil {
+		t.Fatalf("Stat returned error: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf(".drift permissions = %o, want 700", perm)
+	}
+}

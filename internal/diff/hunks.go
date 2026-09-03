@@ -112,21 +112,22 @@ type run struct {
 }
 
 func splitRuns(lines []DiffLine) []run {
+	if len(lines) == 0 {
+		return nil
+	}
 	var runs []run
 	start := 0
 	equal := lines[0].Kind == LineEqual
-	for i := 1; i <= len(lines); i++ {
-		nextEqual := false
-		if i < len(lines) {
-			nextEqual = lines[i].Kind == LineEqual
+	for i := 1; i < len(lines); i++ {
+		isEqual := lines[i].Kind == LineEqual
+		if isEqual == equal {
+			continue
 		}
-		if i == len(lines) || nextEqual != equal {
-			runs = append(runs, run{equal: equal, start: start, end: i})
-			start = i
-			equal = nextEqual
-		}
+		runs = append(runs, run{equal: equal, start: start, end: i})
+		start = i
+		equal = isEqual
 	}
-	return runs
+	return append(runs, run{equal: equal, start: start, end: len(lines)})
 }
 
 func hasChangeRun(runs []run) bool {

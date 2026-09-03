@@ -397,3 +397,66 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 		t.Fatalf("header = %q, want project name", view)
 	}
 }
+
+func TestExposureWarning(t *testing.T) {
+	if got := exposureWarning(config.ExposureSafe); got != "" {
+		t.Fatalf("ExposureSafe produced a warning: %q", got)
+	}
+	if got := exposureWarning(config.ExposureTracked); !strings.Contains(got, "git rm --cached") {
+		t.Fatalf("ExposureTracked warning lacks the fix: %q", got)
+	}
+	if got := exposureWarning(config.ExposureUntracked); !strings.Contains(got, ".gitignore") {
+		t.Fatalf("ExposureUntracked warning lacks the fix: %q", got)
+	}
+}
+
+func TestCheckStoredSecretsOnlyRunsWhenAConfigHoldsOne(t *testing.T) {
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd := app.checkStoredSecrets(); cmd != nil {
+		t.Fatal("a nil config scheduled an exposure check")
+	}
+
+	app.state.Config = &config.MergedConfig{
+		ProjectHosts: []config.Host{{Name: "prod", Auth: config.Auth{Type: "password", Password: "$PW"}}},
+	}
+	if cmd := app.checkStoredSecrets(); cmd != nil {
+		t.Fatal("an $ENV password scheduled an exposure check")
+	}
+
+	app.state.Config.ProjectHosts = append(app.state.Config.ProjectHosts,
+		config.Host{Name: "staging", Auth: config.Auth{Type: "password", Password: "hunter2"}})
+	if cmd := app.checkStoredSecrets(); cmd == nil {
+		t.Fatal("a stored plaintext password did not schedule an exposure check")
+	}
+}
+
+func TestSecretWarningSurvivesKeysUntilEsc(t *testing.T) {
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.state.TermWidth, app.state.TermHeight = 120, 24
+	model, _ := app.Update(msgSecretExposure{Exposure: config.ExposureTracked})
+	app = model.(App)
+	if app.secretWarning == "" {
+		t.Fatal("a tracked config produced no warning")
+	}
+	if !strings.Contains(ansi.Strip(app.View()), "git rm --cached") {
+		t.Fatal("the warning is not rendered in the status line")
+	}
+
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	app = model.(App)
+	if app.secretWarning == "" {
+		t.Fatal("an ordinary key dismissed the warning")
+	}
+
+	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.(App).secretWarning != "" {
+		t.Fatal("esc did not dismiss the warning")
+	}
+}

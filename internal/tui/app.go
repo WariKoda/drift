@@ -46,6 +46,12 @@ type App struct {
 	loader      loading.Model
 	activity    networkActivity
 	globalError string
+
+	// secretWarning reports that the project config just written is reachable
+	// by Git. It stays on screen until the user leaves the host screens, since
+	// a single frame is too easy to miss.
+	secretWarning string
+
 	dashboard   dashboard.Model
 	projectForm projectform.Model
 	projectSel  projectselector.Model
@@ -144,7 +150,22 @@ func (a App) Init() tea.Cmd {
 	if a.state.Screen == ScreenDashboard {
 		return a.dashboard.Init()
 	}
-	return a.browser.Init()
+	return tea.Batch(a.browser.Init(), a.checkStoredSecrets())
+}
+
+// checkStoredSecrets runs the Git visibility check when the loaded project
+// config actually stores a credential. Configs written before drift shipped
+// the ignore file would otherwise never be flagged.
+func (a App) checkStoredSecrets() tea.Cmd {
+	if a.state.Config == nil {
+		return nil
+	}
+	for _, h := range a.state.Config.ProjectHosts {
+		if h.HasPlaintextSecret() {
+			return checkSecretExposure(a.state.Config.ProjectRoot)
+		}
+	}
+	return nil
 }
 
 func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *loading.Tracker) tea.Cmd {
@@ -231,8 +252,17 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	pc := p
 	a.state.ActiveProject = &pc
 	a.state.Screen = ScreenBrowser
+	a.secretWarning = ""
 	a.recordOpened(p.Slug)
-	return b.Init(), nil
+	return tea.Batch(b.Init(), a.checkStoredSecrets()), nil
+}
+
+// projectRoot is the loaded project root, or "" when no config is loaded.
+func (a App) projectRoot() string {
+	if a.state.Config == nil {
+		return ""
+	}
+	return a.state.Config.ProjectRoot
 }
 
 func (a App) currentSlug() string {
@@ -377,6 +407,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.globalError != "" {
 			a.globalError = ""
+		}
+		// The warning outlives ordinary keys on purpose — only esc dismisses it.
+		if key.String() == "esc" {
+			a.secretWarning = ""
 		}
 	}
 
@@ -633,6 +667,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case hostmanager.MsgBackToBrowser:
 		a.state.Screen = ScreenBrowser
+		a.secretWarning = ""
 		return a, nil
 
 	case hostmanager.MsgTestResult:
@@ -683,6 +718,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.hostManager.Refresh()
 		a.state.Screen = ScreenHostManager
+		a.secretWarning = ""
+		if msg.Scope == config.ScopeProject && msg.Host.HasPlaintextSecret() {
+			return a, checkSecretExposure(a.state.Config.ProjectRoot)
+		}
+		return a, nil
+
+	case msgSecretExposure:
+		a.secretWarning = exposureWarning(msg.Exposure)
+		if a.secretWarning != "" {
+			log.Error("project config exposed to git",
+				"root", a.projectRoot(), "warning", a.secretWarning)
+		}
 		return a, nil
 
 	case hostform.MsgFormCancelled:
@@ -844,7 +891,37 @@ func (a App) View() string {
 		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,
 			"Error: "+a.globalError, true)
 	}
+	if a.secretWarning != "" {
+		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,
+			"⚠ "+a.secretWarning, false)
+	}
 	return base
+}
+
+// msgSecretExposure carries the result of the post-save Git visibility check.
+type msgSecretExposure struct {
+	Exposure config.Exposure
+}
+
+// checkSecretExposure asks Git whether the project config that was just
+// written could end up in a commit. It shells out to git, so it runs as a Cmd.
+func checkSecretExposure(projectRoot string) tea.Cmd {
+	return func() tea.Msg {
+		return msgSecretExposure{Exposure: config.ProjectConfigExposure(projectRoot)}
+	}
+}
+
+// exposureWarning renders an exposure as an actionable one-liner, or "" when
+// there is nothing to warn about.
+func exposureWarning(e config.Exposure) string {
+	switch e {
+	case config.ExposureTracked:
+		return ".drift/config.toml holds credentials and is tracked by git — untrack it: git rm --cached .drift/config.toml"
+	case config.ExposureUntracked:
+		return ".drift/config.toml holds credentials and is not ignored by git — add it to .gitignore"
+	default:
+		return ""
+	}
 }
 
 func replaceStatusLine(view string, width, height int, text string, isError bool) string {

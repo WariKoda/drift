@@ -1,6 +1,7 @@
 package diffview
 
 import (
+	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -83,12 +84,21 @@ func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if h.zone == zoneContent && h.index >= 0 {
+		rows := m.displayRows()
+		if h.index < len(rows) && rows[h.index].Kind == diff.DisplayFold {
+			m.toggleGap(rows[h.index].GapID)
+		}
+		return m, nil
+	}
+
 	if h.zone != zoneFileList {
 		return m, nil
 	}
 
 	if h.index != m.activeIdx {
 		m.activeIdx = h.index
+		m.resetFolds(m.activeIdx)
 		m.clampFileList()
 		m.scrollToFirstDifference()
 		// Count this as the first click of a possible double click, but do not

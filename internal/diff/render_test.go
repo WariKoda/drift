@@ -118,6 +118,33 @@ func TestRenderUnifiedDualLineNumbers(t *testing.T) {
 	}
 }
 
+func TestRenderUnifiedRowsHeaderAndFold(t *testing.T) {
+	result := &DiffResult{Lines: []DiffLine{
+		{Text: "same", Kind: LineEqual, LocalNum: 1, RemoteNum: 1},
+		{Text: "old", Kind: LineRemoved, LocalNum: 2},
+	}}
+	rows := []DisplayRow{
+		{Kind: DisplayHunkHeader, Header: "@@ -1,2 +1,1 @@"},
+		{Kind: DisplayLine, LineIndex: 0},
+		{Kind: DisplayFold, Hidden: 42},
+	}
+	out := RenderUnifiedRows(result, rows, 48, 0, 3, false)
+	if len(out) != 3 {
+		t.Fatalf("got %d rows", len(out))
+	}
+	h := stripANSI(out[0])
+	if !strings.Contains(h, "@@ -1,2 +1,1 @@") || !strings.Contains(h, "┄") {
+		t.Fatalf("header row = %q", h)
+	}
+	if !strings.Contains(stripANSI(out[1]), "same") {
+		t.Fatalf("line row = %q", stripANSI(out[1]))
+	}
+	f := stripANSI(out[2])
+	if !strings.Contains(f, "▸") || !strings.Contains(f, "42 unchanged lines") {
+		t.Fatalf("fold row = %q", f)
+	}
+}
+
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

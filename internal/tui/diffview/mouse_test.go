@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/diff"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // testDiffModel builds a diff view sized 80x24 with n loaded sessions.
@@ -201,5 +202,40 @@ func TestClampFileListOffsetDoesNotFollowCursor(t *testing.T) {
 	m.clampFileListOffset()
 	if m.fileListOffset != 0 {
 		t.Errorf("offset = %d, want 0", m.fileListOffset)
+	}
+}
+
+func TestClickFoldRowTogglesGap(t *testing.T) {
+	lines := make([]diff.DiffLine, 20)
+	lines[7].Kind = diff.LineRemoved
+	m := testDiffModel(1)
+	m.sessions[0].Result = &diff.DiffResult{ContentDiff: true, Lines: lines}
+	m.Height = 24
+	m.scroll = 0
+
+	rows := m.displayRows()
+	foldAt := -1
+	var gapID int
+	for i, row := range rows {
+		if row.Kind == diff.DisplayFold {
+			foldAt = i
+			gapID = row.GapID
+			break
+		}
+	}
+	if foldAt < 0 {
+		t.Fatal("expected a fold row")
+	}
+
+	x := m.fileListWidth() + 1
+	y := m.contentTop() + foldAt
+	m, _ = m.updateMouse(tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+		X:      x,
+		Y:      y,
+	})
+	if !m.gapExpanded(gapID) {
+		t.Fatalf("click did not expand gap %d", gapID)
 	}
 }

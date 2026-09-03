@@ -59,6 +59,38 @@ func TestViewRendersSideBySideFileListAndDiff(t *testing.T) {
 	}
 }
 
+func TestViewRendersHunkHeaderAndFold(t *testing.T) {
+	lines := make([]diff.DiffLine, 20)
+	for i := range lines {
+		lines[i] = diff.DiffLine{
+			Text:      fmt.Sprintf("row-%02d", i+1),
+			LocalNum:  i + 1,
+			RemoteNum: i + 1,
+			Kind:      diff.LineEqual,
+		}
+	}
+	lines[7].Kind = diff.LineRemoved
+	model := Model{
+		sessions: []diff.Session{{
+			LocalPath:  "/local/file.txt",
+			RemotePath: "/remote/file.txt",
+			Result:     &diff.DiffResult{ContentDiff: true, Lines: lines},
+		}},
+		syncDirs: []SyncDir{DirNone},
+		Width:    100,
+		Height:   24,
+	}
+
+	rendered := model.View()
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "@@") {
+		t.Fatalf("view missing hunk header: %q", plain)
+	}
+	if !strings.Contains(plain, "unchanged lines") {
+		t.Fatalf("view missing fold label: %q", plain)
+	}
+}
+
 func TestViewRendersBulkSyncFailureContext(t *testing.T) {
 	model := Model{
 		syncErrors: []SyncFailure{{

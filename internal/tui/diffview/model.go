@@ -172,6 +172,7 @@ type Model struct {
 	conn            remote.Client // kept open for sync ops
 	root            *fs.Root      // confines every local read, write and delete to the project
 	clicks          mouse.ClickTracker
+	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
 	Width           int
 	Height          int
 }
@@ -184,13 +185,14 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 		syncDirs[i] = autoDir(&sessions[i])
 	}
 	model := Model{
-		sessions: sessions,
-		syncDirs: syncDirs,
-		host:     host,
-		conn:     conn,
-		root:     root,
-		Width:    width,
-		Height:   height,
+		sessions:     sessions,
+		syncDirs:     syncDirs,
+		host:         host,
+		conn:         conn,
+		root:         root,
+		Width:        width,
+		Height:       height,
+		expandedGaps: map[int]map[int]struct{}{},
 	}
 	model.scrollToFirstDifference()
 	return model
@@ -340,13 +342,182 @@ func (m Model) activeSession() *diff.Session {
 	return &m.sessions[m.activeIdx]
 }
 
-// totalLines returns the number of diff lines in the active session.
+// totalLines returns the number of display rows in the active session.
 func (m Model) totalLines() int {
+	return len(m.displayRows())
+}
+
+func (m Model) displayRows() []diff.DisplayRow {
 	s := m.activeSession()
 	if s == nil || s.Result == nil {
-		return 0
+		return nil
 	}
-	return len(s.Result.Lines)
+	return diff.Flatten(s.Result.Lines, diff.DefaultContext, m.expandedFor(m.activeIdx))
+}
+
+func (m Model) expandedFor(sessionIdx int) map[int]struct{} {
+	if m.expandedGaps == nil {
+		return nil
+	}
+	return m.expandedGaps[sessionIdx]
+}
+
+func (m *Model) resetFolds(sessionIdx int) {
+	if m.expandedGaps != nil {
+		delete(m.expandedGaps, sessionIdx)
+	}
+}
+
+func (m *Model) ensureExpanded(sessionIdx int) map[int]struct{} {
+	if m.expandedGaps == nil {
+		m.expandedGaps = map[int]map[int]struct{}{}
+	}
+	set := m.expandedGaps[sessionIdx]
+	if set == nil {
+		set = map[int]struct{}{}
+		m.expandedGaps[sessionIdx] = set
+	}
+	return set
+}
+
+func (m *Model) gapExpanded(gapID int) bool {
+	set := m.expandedFor(m.activeIdx)
+	if set == nil {
+		return false
+	}
+	_, ok := set[gapID]
+	return ok
+}
+
+func (m *Model) setGapExpanded(gapID int, open bool) {
+	if !open {
+		if set := m.expandedFor(m.activeIdx); set != nil {
+			delete(set, gapID)
+		}
+		return
+	}
+	m.ensureExpanded(m.activeIdx)[gapID] = struct{}{}
+}
+
+func (m *Model) remapScrollToSource(lineIdx int) {
+	m.scroll = diff.IndexOfSourceLine(m.displayRows(), lineIdx)
+	m.clampScroll()
+}
+
+func (m *Model) toggleGap(gapID int) {
+	rows := m.displayRows()
+	anchor := 0
+	if m.scroll >= 0 && m.scroll < len(rows) {
+		anchor = rows[m.scroll].SourceLine()
+	}
+	m.setGapExpanded(gapID, !m.gapExpanded(gapID))
+	m.remapScrollToSource(anchor)
+}
+
+func (m *Model) firstVisibleFold() (diff.DisplayRow, bool) {
+	rows := m.displayRows()
+	end := m.scroll + m.viewportHeight()
+	if end > len(rows) {
+		end = len(rows)
+	}
+	for i := m.scroll; i < end; i++ {
+		if rows[i].Kind == diff.DisplayFold {
+			return rows[i], true
+		}
+	}
+	return diff.DisplayRow{}, false
+}
+
+func (m *Model) toggleFirstVisibleFold() {
+	row, ok := m.firstVisibleFold()
+	if !ok {
+		return
+	}
+	m.toggleGap(row.GapID)
+}
+
+func (m *Model) collapseVisibleFold() {
+	s := m.activeSession()
+	if s == nil || s.Result == nil {
+		return
+	}
+	rows := m.displayRows()
+	if len(rows) == 0 {
+		return
+	}
+	top := m.scroll
+	if top < 0 {
+		top = 0
+	}
+	if top >= len(rows) {
+		top = len(rows) - 1
+	}
+	bottom := m.scroll + m.viewportHeight() - 1
+	if bottom >= len(rows) {
+		bottom = len(rows) - 1
+	}
+	viewStart := rows[top].SourceLine()
+	viewEnd := rows[bottom].SourceLine()
+	if rows[bottom].Kind == diff.DisplayFold {
+		viewEnd = rows[bottom].FoldEnd - 1
+	}
+	anchor := rows[top].SourceLine()
+
+	for _, id := range diff.FoldableGapIDs(s.Result.Lines, diff.DefaultContext) {
+		if !m.gapExpanded(id) {
+			continue
+		}
+		end := equalRunEnd(s.Result.Lines, id)
+		if end > viewStart && id <= viewEnd {
+			m.setGapExpanded(id, false)
+			m.remapScrollToSource(anchor)
+			return
+		}
+	}
+}
+
+func equalRunEnd(lines []diff.DiffLine, start int) int {
+	i := start
+	for i < len(lines) && lines[i].Kind == diff.LineEqual {
+		i++
+	}
+	return i
+}
+
+func (m *Model) toggleAllFolds() {
+	s := m.activeSession()
+	if s == nil || s.Result == nil {
+		return
+	}
+	ids := diff.FoldableGapIDs(s.Result.Lines, diff.DefaultContext)
+	if len(ids) == 0 {
+		return
+	}
+	rows := m.displayRows()
+	anchor := 0
+	if m.scroll >= 0 && m.scroll < len(rows) {
+		anchor = rows[m.scroll].SourceLine()
+	}
+	anyOpen := false
+	for _, id := range ids {
+		if m.gapExpanded(id) {
+			anyOpen = true
+			break
+		}
+	}
+	if anyOpen {
+		m.resetFolds(m.activeIdx)
+	} else {
+		set := make(map[int]struct{}, len(ids))
+		for _, id := range ids {
+			set[id] = struct{}{}
+		}
+		if m.expandedGaps == nil {
+			m.expandedGaps = map[int]map[int]struct{}{}
+		}
+		m.expandedGaps[m.activeIdx] = set
+	}
+	m.remapScrollToSource(anchor)
 }
 
 func (m *Model) clampScroll() {
@@ -362,16 +533,16 @@ func (m *Model) clampScroll() {
 	}
 }
 
-// scrollToFirstDifference places the first changed text row at the top of the
-// viewport, or as close to it as the remaining number of rows allows.
+// scrollToFirstDifference places the first hunk header (or changed row) at the
+// top of the viewport, or as close to it as the remaining number of rows allows.
 func (m *Model) scrollToFirstDifference() {
 	m.scroll = 0
 	session := m.activeSession()
 	if session == nil || session.Err != nil || session.Result == nil || session.Result.Binary {
 		return
 	}
-	for index, line := range session.Result.Lines {
-		if line.Kind != diff.LineEqual {
+	for index, row := range m.displayRows() {
+		if row.Kind == diff.DisplayHunkHeader {
 			m.scroll = index
 			m.clampScroll()
 			return

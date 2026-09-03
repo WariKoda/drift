@@ -107,7 +107,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.applyFocus()
 		} else if curIdx == fScope {
 			if m.scope == config.ScopeGlobal {
-				m.scope = config.ScopeProject
+				if m.projectSlug != "" {
+					m.scope = config.ScopeProject
+				}
 			} else {
 				m.scope = config.ScopeGlobal
 			}
@@ -136,7 +138,9 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.applyFocus()
 		} else if curIdx == fScope {
 			if m.scope == config.ScopeGlobal {
-				m.scope = config.ScopeProject
+				if m.projectSlug != "" {
+					m.scope = config.ScopeProject
+				}
 			} else {
 				m.scope = config.ScopeGlobal
 			}

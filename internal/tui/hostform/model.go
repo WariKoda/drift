@@ -74,7 +74,7 @@ type Model struct {
 
 	isEdit      bool
 	oldName     string
-	projectRoot string
+	projectSlug string // registry slug of the open project; empty when none is
 	errMsg      string
 
 	Width  int
@@ -93,16 +93,16 @@ type Model struct {
 }
 
 // New returns a blank form for a new host.
-func New(scope config.HostScope, projectRoot string, width, height int) Model {
-	m := Model{scope: scope, projectRoot: projectRoot, Width: width, Height: height, editIdx: -1}
+func New(scope config.HostScope, projectSlug string, width, height int) Model {
+	m := Model{scope: scope, projectSlug: projectSlug, Width: width, Height: height, editIdx: -1}
 	m.initFields()
 	m.fields[fName].Focused = true
 	return m
 }
 
 // NewEdit returns a form pre-filled with an existing host's values.
-func NewEdit(h config.Host, scope config.HostScope, projectRoot string, width, height int) Model {
-	m := Model{isEdit: true, oldName: h.Name, scope: scope, projectRoot: projectRoot, Width: width, Height: height, editIdx: -1}
+func NewEdit(h config.Host, scope config.HostScope, projectSlug string, width, height int) Model {
+	m := Model{isEdit: true, oldName: h.Name, scope: scope, projectSlug: projectSlug, Width: width, Height: height, editIdx: -1}
 	m.initFields()
 
 	m.fields[fName].SetValue(h.Name)
@@ -186,10 +186,8 @@ func (m *Model) initFields() {
 // visibleRows returns the ordered focus positions for the current protocol and
 // auth type.
 //
-// The order follows the two layers a project host is stored in: the name, then
-// the environment fields that go into the project config, then the access
-// fields that stay on this machine, then the scope toggle. sectionHeader draws
-// the boundaries. fScope stays last because Enter on the last row saves.
+// Identity first, then where the host is, then how to get in, then the scope
+// toggle. fScope stays last because Enter on the last row saves.
 func (m Model) visibleRows() []int {
 	rows := []int{fName, fHostname, fPort, fProtocol, fRootPath, fMappings, fUser}
 	switch m.protocol {

@@ -9,17 +9,23 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Load finds and merges global and project configs relative to startDir.
-// startDir is typically os.Getwd().
-func Load(startDir string) (*MergedConfig, error) {
+// Load merges the global config with the store of the project rooted at root.
+//
+// slug identifies that store; an empty slug means the caller found no
+// registered project for the directory it started in, so only global hosts are
+// available. Resolving a directory to a project is the caller's job — the
+// registry lives in internal/project, which imports this package.
+func Load(root, slug string) (*MergedConfig, error) {
 	global, err := loadGlobal()
 	if err != nil {
 		return nil, err
 	}
 
-	project, projectRoot, err := loadProject(startDir)
-	if err != nil {
-		return nil, err
+	var project *ProjectConfig
+	if slug != "" {
+		if project, err = loadProjectStore(slug); err != nil {
+			return nil, fmt.Errorf("project store: %w", err)
+		}
 	}
 
 	for _, host := range global.Hosts {
@@ -38,18 +44,9 @@ func Load(startDir string) (*MergedConfig, error) {
 		}
 	}
 
-	merged := merge(global, project, projectRoot)
-	merged.ProjectSecretsInFile = literalSecretHosts(merged.ProjectHosts)
-	merged.LegacySecretStore = hasLegacySecrets()
-
-	hosts, err := applyProjectAccess(merged.ProjectHosts, projectRoot)
-	if err != nil {
-		return nil, fmt.Errorf("access store: %w", err)
-	}
-	merged.ProjectHosts = hosts
-	for _, h := range hosts {
-		merged.Hosts[h.Name] = h
-	}
+	merged := merge(global, project, root)
+	merged.ProjectSlug = slug
+	merged.LegacyFiles = hasLegacyFiles(root)
 
 	return merged, nil
 }
@@ -68,55 +65,6 @@ func loadGlobal() (*GlobalConfig, error) {
 		return nil, err
 	}
 	return cfg, nil
-}
-
-// literalSecretHosts names the hosts that carry a credential in the config
-// file itself. They are the ones MigrateProjectSecrets still has to move.
-func literalSecretHosts(hosts []Host) []string {
-	var names []string
-	for _, h := range hosts {
-		if h.HasPlaintextSecret() {
-			names = append(names, h.Name)
-		}
-	}
-	return names
-}
-
-// decodeProjectConfig reads .drift/config.toml from an exact project root,
-// without walking up. A missing file yields (nil, nil).
-func decodeProjectConfig(root string) (*ProjectConfig, error) {
-	path := filepath.Join(root, ".drift", "config.toml")
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	cfg := &ProjectConfig{}
-	if _, err := toml.DecodeFile(path, cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-// loadProject walks from startDir upward looking for .drift/config.toml.
-// Returns nil project config (no error) if none is found.
-func loadProject(startDir string) (*ProjectConfig, string, error) {
-	dir := startDir
-	for {
-		candidate := filepath.Join(dir, ".drift", "config.toml")
-		if _, err := os.Stat(candidate); err == nil {
-			cfg := &ProjectConfig{}
-			if _, err := toml.DecodeFile(candidate, cfg); err != nil {
-				return nil, "", err
-			}
-			return cfg, dir, nil
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break // reached filesystem root
-		}
-		dir = parent
-	}
-	return nil, startDir, nil
 }
 
 // merge combines global and project configs. Project hosts override global hosts by name.
@@ -182,20 +130,4 @@ func Dir() string {
 
 func globalConfigPath() string {
 	return filepath.Join(Dir(), "config.toml")
-}
-
-// HasProjectContext reports whether startDir or any parent contains a
-// .drift/config.toml — i.e. whether drift is being invoked inside a project.
-func HasProjectContext(startDir string) bool {
-	dir := startDir
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".drift", "config.toml")); err == nil {
-			return true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return false
-		}
-		dir = parent
-	}
 }

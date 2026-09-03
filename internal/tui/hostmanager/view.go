@@ -94,14 +94,11 @@ func (m Model) renderHeader(scope config.HostScope) string {
 		sub = "~/.config/drift/config.toml"
 	case config.ScopeProject:
 		label = "PROJECT HOSTS"
-		if m.cfg.ProjectRoot != "" {
-			sub = m.cfg.ProjectRoot + "/.drift/config.toml"
+		if m.cfg.ProjectSlug != "" {
+			sub = config.ProjectStorePathForDisplay(m.cfg.ProjectSlug)
 		} else {
-			sub = ".drift/config.toml (no project root found)"
+			sub = "no project open — register one to give it hosts"
 		}
-		// A project host is described by two files: the one above, which the
-		// team shares, and the access store, which does not leave the machine.
-		sub = withAccessNote(sub, m.Width)
 	}
 	line := "  " + styles.Key.Render(label) + "  " + styles.Muted.Render(sub)
 	return padRight(line, m.Width)
@@ -165,22 +162,6 @@ func (m Model) renderStatus() string {
 	}
 	help := "  [n]new  [e]edit  [d]delete  [t]test  [Esc]back"
 	return padRight(styles.Muted.Render(help), m.Width)
-}
-
-// withAccessNote appends the reminder that a project host is described by two
-// files: the project config, which the team shares, and the access store, which
-// does not leave the machine. The host form names the exact path; here the point
-// is only that the two are not the same file.
-//
-// It is dropped when the line would not fit, because a section header is
-// exactly one row — the row budget and hitTest in mouse.go both count on that —
-// so it must not wrap.
-func withAccessNote(sub string, width int) string {
-	const note = "  ·  access stays on this machine"
-	if lipgloss.Width("  PROJECT HOSTS  "+sub+note) > width {
-		return sub
-	}
-	return sub + note
 }
 
 func padRight(s string, width int) string {

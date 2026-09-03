@@ -164,8 +164,8 @@ remote = "app"
 		},
 		{
 			name: "project mapping",
-			configPath: func(_, projectRoot string) string {
-				return filepath.Join(projectRoot, ".drift", "config.toml")
+			configPath: func(configHome, _ string) string {
+				return filepath.Join(configHome, "drift", "projects", "shop.toml")
 			},
 			content: `
 [[mappings]]
@@ -176,8 +176,8 @@ remote = "../outside"
 		},
 		{
 			name: "project host mapping",
-			configPath: func(_, projectRoot string) string {
-				return filepath.Join(projectRoot, ".drift", "config.toml")
+			configPath: func(configHome, _ string) string {
+				return filepath.Join(configHome, "drift", "projects", "shop.toml")
 			},
 			content: `
 [[hosts]]
@@ -207,7 +207,7 @@ remote = "app"
 				t.Fatalf("WriteFile returned error: %v", err)
 			}
 
-			_, err := Load(projectRoot)
+			_, err := Load(projectRoot, "shop")
 			if err == nil {
 				t.Fatalf("Load returned nil, want error containing %q", tt.wantErr)
 			}

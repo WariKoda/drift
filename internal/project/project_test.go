@@ -233,3 +233,37 @@ func TestMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestFindByPathPrefix(t *testing.T) {
+	reg := &Registry{Projects: []Project{
+		{Slug: "outer", Name: "Outer", Path: "/work/shop"},
+		{Slug: "inner", Name: "Inner", Path: "/work/shop/plugins/one"},
+		{Slug: "other", Name: "Other", Path: "/work/other"},
+	}}
+
+	cases := []struct {
+		dir  string
+		want string
+	}{
+		{"/work/shop", "outer"},
+		{"/work/shop/src/deep", "outer"},
+		{"/work/shop/plugins/one", "inner"},
+		{"/work/shop/plugins/one/src", "inner"}, // longest match wins
+		{"/work/other", "other"},
+		{"/work", ""},
+		{"/work/shopping", ""}, // a path prefix is not a directory prefix
+		{"/elsewhere", ""},
+	}
+	for _, tc := range cases {
+		got := reg.FindByPathPrefix(tc.dir)
+		if tc.want == "" {
+			if got != nil {
+				t.Fatalf("FindByPathPrefix(%q) = %q, want no project", tc.dir, got.Slug)
+			}
+			continue
+		}
+		if got == nil || got.Slug != tc.want {
+			t.Fatalf("FindByPathPrefix(%q) = %v, want %q", tc.dir, got, tc.want)
+		}
+	}
+}

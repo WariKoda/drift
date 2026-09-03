@@ -191,7 +191,7 @@ var openCmd = &cobra.Command{
 		if info, err := os.Stat(p.Path); err != nil || !info.IsDir() {
 			return fmt.Errorf("project path does not exist: %s", p.Path)
 		}
-		cfg, err := config.Load(p.Path)
+		cfg, err := config.Load(p.Path, p.Slug)
 		if err != nil {
 			return fmt.Errorf("config error: %w", err)
 		}

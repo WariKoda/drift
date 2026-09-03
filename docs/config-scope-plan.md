@@ -213,7 +213,7 @@ mit den Werten aus dem Speicher) bleibt.
 | --- | --- | --- |
 | 1 | Zugangsfelder in die Nutzer-Schicht, `secrets.toml` → `access.toml` | ja — umgesetzt |
 | 2 | `.drift/config.toml` → `.drift.toml`, `.drift/` abbauen | ja, aber Breaking Change fürs Team |
-| 3 | UI zeigt, in welche Schicht ein Feld geht | ja |
+| 3 | UI zeigt, in welche Schicht ein Feld geht | ja — umgesetzt |
 | 4 | Projekte ohne Projekt-Datei (optional) | ja |
 
 Phase 1 trägt die Substanz. Phase 2 ist Kosmetik mit Aufräum-Effekt und dem
@@ -337,24 +337,33 @@ Cache und Laufzeit-Zustand darin landen, die dann wieder ignoriert werden müsse
 
 ## Phase 3 — UI zeigt die Schichten
 
+> Umgesetzt.
+
 Ohne diesen Teil ist die Trennung unsichtbar und wirkt wie Datenverlust („mein
 `user` ist aus der Config verschwunden").
 
-- `internal/tui/hostform`: die Feldliste bleibt, bekommt aber zwei Gruppen mit
-  Überschrift — *Shared with the team* (hostname, port, root path, protocol,
-  mappings) und *Only on this machine* (user, auth, insecure TLS). Der
-  Scope-Toggle Global/Projekt bleibt daneben bestehen, er beantwortet eine andere
-  Frage.
-- `internal/tui/hostmanager`: Sektionen `Project (shared)` / `This machine` /
-  `Global`. `HostScope` braucht dafür einen dritten Wert oder eine zweite
-  Dimension — beim Umsetzen entscheiden, was weniger Verzweigungen erzeugt.
-- Herkunft sichtbar machen: eine Legendenzeile genügt, kein Feld-für-Feld-Badge.
+- `internal/tui/hostform`: die Feldliste bleibt, wird aber in der Reihenfolge der
+  Schichten sortiert und bekommt zwei Überschriften — *SHARED WITH THE TEAM*
+  (hostname, port, protocol, root path, mappings) und *ONLY ON THIS MACHINE*
+  (user, auth, insecure TLS), jeweils mit dem Dateinamen daneben. Sie erscheinen
+  nur bei `ScopeProject`: ein globaler Host hat eine Datei, für ihn wären sie
+  eine Lüge. Der Scope-Toggle bleibt letzte Zeile, weil Enter dort speichert.
+  Die Überschriften sind reine Dekoration im Render-Loop und stehen **nicht** in
+  `visibleRows()` — damit bleibt `update.go` unberührt.
+- `internal/tui/hostmanager`: **keine** dritte Sektion. Die offene Frage nach
+  einem dritten `HostScope`-Wert ist durch die Phase-1-Abweichung erledigt:
+  `access.toml` definiert keine Hosts, also gibt es keine Host-Klasse „nur auf
+  dieser Maschine". Stattdessen hängt an der `PROJECT HOSTS`-Kopfzeile ein
+  Hinweis, dass der Zugang lokal bleibt — breitenabhängig, er entfällt statt zu
+  umbrechen, weil ein Sektions-Header genau eine Zeile ist.
 
 ### Tests
 
-Bestehende `hostform`/`hostmanager`-Tests auf die neue Zeilen-/Sektionsstruktur
-ziehen (`visibleRows()`, Sektions-Header-Zählung — die Zeilenbudget-Falle aus
-0.1.4-alpha nicht wieder aufreißen).
+- `visibleRows()`-Reihenfolge, inklusive „Scope bleibt letzte Zeile"
+- Überschriften bei Projekt-Scope vorhanden, bei Global-Scope nicht
+- `sectionHeader` liefert nur für die erste Zeile ihrer Gruppe eine Überschrift
+- Hinweis in der Kopfzeile: bei 120 Spalten da, bei 48 weg, und keine Zeile
+  breiter als das Terminal (die Zeilenbudget-Falle aus 0.1.4-alpha)
 
 ---
 

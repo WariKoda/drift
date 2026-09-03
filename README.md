@@ -379,6 +379,10 @@ The access store is keyed by project root and host name:
 Global hosts in `~/.config/drift/config.toml` are unaffected: that file is
 already outside every repository, so its hosts keep their access fields.
 
+The host form shows the split: for a project host its fields are grouped under
+*SHARED WITH THE TEAM* and *ONLY ON THIS MACHINE*, each naming the file the
+values below it end up in. A global host has one file, so it gets no headings.
+
 #### Hand-written values win
 
 drift never writes an access field into the project config, but it does read one

@@ -38,6 +38,14 @@ func (m Model) viewMain() string {
 	for ri, rowIdx := range rows {
 		isFocused := ri == m.focusRow
 
+		if header, ok := m.sectionHeader(rowIdx); ok {
+			if ri > 0 {
+				sb.WriteByte('\n')
+			}
+			sb.WriteString("  " + styles.Key.Render(header.label) + "  " + styles.Muted.Render(header.file))
+			sb.WriteByte('\n')
+		}
+
 		switch rowIdx {
 		case fProtocol:
 			sb.WriteString(m.renderToggle("Protocol", []string{"sftp", "ftp", "ftps"}, int(m.protocol), isFocused))
@@ -78,6 +86,32 @@ func (m Model) viewMain() string {
 	sb.WriteString(styles.Muted.Render("  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel"))
 
 	return sb.String()
+}
+
+// section is a group heading: which layer the fields below it belong to, and
+// the file they end up in.
+type section struct {
+	label string
+	file  string
+}
+
+// sectionHeader returns the heading to draw above row, if it starts a group.
+//
+// A project host is split across two files, and without the headings the form
+// gives no hint which value ends up where — a user who watched `user` vanish
+// from a committed config deserves better than a status-line notice. A global
+// host has one file, so it gets no headings.
+func (m Model) sectionHeader(row int) (section, bool) {
+	if m.scope != config.ScopeProject {
+		return section{}, false
+	}
+	switch row {
+	case fHostname:
+		return section{label: "SHARED WITH THE TEAM", file: ".drift/config.toml"}, true
+	case fUser:
+		return section{label: "ONLY ON THIS MACHINE", file: config.AccessPathForDisplay()}, true
+	}
+	return section{}, false
 }
 
 func (m Model) viewMappingList() string {

@@ -45,6 +45,7 @@ func TestSaveGlobalHostPreservesDefaults(t *testing.T) {
 }
 
 func TestSaveProjectHostRoundTripsInsecureTLS(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	projectRoot := t.TempDir()
 	cfg := &MergedConfig{ProjectRoot: projectRoot}
 
@@ -60,12 +61,14 @@ func TestSaveProjectHostRoundTripsInsecureTLS(t *testing.T) {
 		t.Fatalf("SaveProjectHost returned error: %v", err)
 	}
 
+	// insecure_tls is a per-machine decision: skipping certificate checks is
+	// not something a teammate should inherit by pulling the project config.
 	data, err := os.ReadFile(filepath.Join(projectRoot, ".drift", "config.toml"))
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	if !strings.Contains(string(data), "insecure_tls = true") {
-		t.Fatalf("written config missing insecure_tls flag:\n%s", data)
+	if strings.Contains(string(data), "insecure_tls") {
+		t.Fatalf("insecure_tls was written into the project config:\n%s", data)
 	}
 
 	loaded, err := Load(projectRoot)
@@ -74,10 +77,29 @@ func TestSaveProjectHostRoundTripsInsecureTLS(t *testing.T) {
 	}
 	h := loaded.Hosts["staging"]
 	if !h.InsecureTLS {
-		t.Fatal("InsecureTLS did not round-trip through load")
+		t.Fatal("InsecureTLS did not round-trip through the access store")
+	}
+	if h.Protocol != "ftps" {
+		t.Fatalf("protocol = %q, want it kept in the project config", h.Protocol)
 	}
 }
 
+func TestWriteProjectRestrictsDriftDirPermissions(t *testing.T) {
+	projectRoot := t.TempDir()
+	cfg := &MergedConfig{ProjectRoot: projectRoot}
+
+	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
+		t.Fatalf("SaveProjectHost returned error: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(projectRoot, ".drift"))
+	if err != nil {
+		t.Fatalf("Stat returned error: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf(".drift permissions = %o, want 700", perm)
+	}
+}
 func TestSaveProjectHostPreservesDefaultsAndMappings(t *testing.T) {
 	projectRoot := t.TempDir()
 	cfg := &MergedConfig{
@@ -161,22 +183,5 @@ func TestSaveProjectHostRejectsInvalidProjectMappingsWithoutMutation(t *testing.
 	}
 	if _, statErr := os.Stat(filepath.Join(projectRoot, ".drift", "config.toml")); !os.IsNotExist(statErr) {
 		t.Fatalf("invalid project config was written to disk, Stat error = %v", statErr)
-	}
-}
-
-func TestWriteProjectRestrictsDriftDirPermissions(t *testing.T) {
-	projectRoot := t.TempDir()
-	cfg := &MergedConfig{ProjectRoot: projectRoot}
-
-	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
-		t.Fatalf("SaveProjectHost returned error: %v", err)
-	}
-
-	info, err := os.Stat(filepath.Join(projectRoot, ".drift"))
-	if err != nil {
-		t.Fatalf("Stat returned error: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o700 {
-		t.Fatalf(".drift permissions = %o, want 700", perm)
 	}
 }

@@ -920,7 +920,7 @@ func migrationNotice(count int, e config.Exposure) string {
 		subject = "credentials"
 	}
 	moved := fmt.Sprintf("Moved %d %s out of .drift/config.toml into %s",
-		count, subject, config.SecretsPathForDisplay())
+		count, subject, config.AccessPathForDisplay())
 	switch e {
 	case config.ExposureTracked:
 		return moved + " — git tracks that file, so treat the old value as leaked and rotate it: git rm --cached .drift/config.toml"

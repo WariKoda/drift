@@ -93,25 +93,48 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 | Global   | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
 | Project  | `.drift/config.toml` in project root (walked up from cwd)               |
 | Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
-| Secrets  | `~/.config/drift/secrets.toml` (project host credentials)               |
+| Access   | `~/.config/drift/access.toml` (per-user access to project hosts)        |
 
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
 
-## Credentials
+## Config layers
 
-A **project** host's literal password/passphrase never goes into `.drift/config.toml` —
-that file is meant to be committable. `internal/config/secrets.go` keeps credentials in
-`<config.Dir()>/secrets.toml`, keyed by project root plus host name:
-`SaveProjectHost`/`DeleteProjectHost` divert and drop them, `Load` fills them back in, and
-`MigrateProjectSecrets(projectRoot)` moves the ones an older or hand-written config still
-carries (the TUI runs it on startup and on project switch). `$ENV_VAR` references and
-`key_file` paths stay in the config — they are not secrets. **Global** hosts are
-unaffected: `~/.config/drift/config.toml` is outside every repository.
+A project host is stored in two layers with different owners, and
+`internal/config/access.go` is the seam:
 
-`config.ProjectConfigExposure` (`internal/config/gitguard.go`) reports whether git can
-reach the project config; the migration notice uses it to tell the user that a moved
-password may still be in the repository's history.
+| `.drift/config.toml` (project, committable) | `<config.Dir()>/access.toml` (per user) |
+| --- | --- |
+| `hostname`, `port`, `root_path`, `protocol`, `mappings` | `user`, `auth`, `insecure_tls` |
+
+- `splitAccess` is the **write** path: it cuts every access field out, including
+  `$ENV` references, because the mechanism is per person even when the value is
+  not a secret. `SaveProjectHost` stores that half and writes the rest.
+- `splitSecret` is the **migration** path: it moves literal passwords and
+  passphrases only. `MigrateProjectSecrets(projectRoot)` reads the config from
+  disk, moves leaks, folds a 0.1.6-alpha `secrets.toml` in, and is idempotent —
+  the TUI runs it on startup and on project switch. It deliberately leaves
+  `user`, `auth.type`, `key_file` and `$ENV` references alone: a project config
+  can be a file a team maintains, and deleting lines from it would lose values
+  drift never stored for anyone else.
+- `applyAccess` is the **read** path, and the project config wins where it
+  carries a value, so hand-written files keep working.
+- `projectFileBase` re-reads the project config from disk before every write,
+  so a write starts from what the file says instead of from the merged,
+  defaults-applied, access-filled view in memory. Without it, saving one host
+  would bake `[defaults]` into the others and copy this machine's access into a
+  file the team shares.
+- Global hosts are unaffected: `~/.config/drift/config.toml` is outside every
+  repository, so its hosts keep their access fields.
+
+`config.ProjectConfigExposure` (`internal/config/gitguard.go`) reports whether
+git can reach the project config; the migration notice uses it to tell the user
+that a moved password may still be in the repository's history.
+
+Written files: `writeToml` replaces atomically (temp file + rename) and the
+encoding-only `hostOut`/`defaultsOut` mirrors exist because BurntSushi's
+`omitempty` does not cover numeric zero — drift must trim the files it rewrites,
+not decorate them with `port = 0`.
 
 ## Logging
 

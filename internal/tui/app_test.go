@@ -400,7 +400,7 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 
 func TestMigrationNotice(t *testing.T) {
 	safe := migrationNotice(1, config.ExposureSafe)
-	if !strings.Contains(safe, "Moved 1 credential") || !strings.Contains(safe, "secrets.toml") {
+	if !strings.Contains(safe, "Moved 1 credential") || !strings.Contains(safe, "access.toml") {
 		t.Fatalf("notice does not say what moved where: %q", safe)
 	}
 	if strings.Contains(safe, "rotate") {

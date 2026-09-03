@@ -180,3 +180,31 @@ func TestFoldableGapIDs(t *testing.T) {
 		t.Fatalf("gap IDs = %v, want [0 8]", got)
 	}
 }
+
+func TestSplitRunsGroupsByKindAndClosesTheLastRun(t *testing.T) {
+	if got := splitRuns(nil); got != nil {
+		t.Fatalf("splitRuns(nil) = %v, want nil", got)
+	}
+
+	lines := []DiffLine{
+		{Kind: LineEqual},
+		{Kind: LineEqual},
+		{Kind: LineRemoved},
+		{Kind: LineAdded},
+		{Kind: LineEqual},
+	}
+	want := []run{
+		{equal: true, start: 0, end: 2},
+		{equal: false, start: 2, end: 4},
+		{equal: true, start: 4, end: 5},
+	}
+	got := splitRuns(lines)
+	if len(got) != len(want) {
+		t.Fatalf("splitRuns returned %d runs, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("run %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

@@ -82,16 +82,129 @@ Pfad als primären Schlüssel aufzugeben.
 
 ---
 
+## Migration bestehender Dateien
+
+### Quellzustände
+
+Vier Formen existieren draußen, und die Migration muss alle vier treffen:
+
+| # | Zustand | Enthält |
+| --- | --- | --- |
+| a | vor 0.1.6-alpha | `.drift/config.toml` mit Passwort/Passphrase im Klartext |
+| b | 0.1.6-alpha | `.drift/config.toml` ohne Credentials + `secrets.toml` |
+| c | handgeschrieben | beliebige Mischung, evtl. `$ENV`-Referenzen, evtl. ohne `[defaults]` |
+| d | nach Phase 1 | `.drift/config.toml` nur mit Projekt-Feldern + `access.toml` |
+
+**Ein Durchgang, nicht zwei.** `splitHost` schneidet `Auth` vollständig heraus,
+also auch das Klartext-Passwort aus (a). Es gibt keinen Grund, erst
+0.1.6-Migration und dann Phase-1-Migration hintereinander laufen zu lassen.
+Zustand (b) unterscheidet sich für die Migration nur darin, dass zusätzlich eine
+`secrets.toml` einzulesen und danach zu löschen ist.
+
+### Reihenfolge der Schreibvorgänge
+
+Bei mehreren Dateien entscheidet die Reihenfolge, was ein Abbruch kostet:
+
+1. `access.toml` schreiben — die Nutzer-Schicht zuerst, weil ein Abbruch danach
+   höchstens ein doppelt vorhandenes Credential kostet, die andere Reihenfolge
+   dagegen verliert es.
+2. `.drift.toml` schreiben (Phase 2) bzw. `.drift/config.toml` neu schreiben
+   (Phase 1).
+3. Alte Datei löschen: `secrets.toml`, und in Phase 2 `.drift/config.toml`.
+4. `.drift/` entfernen — **nur** wenn danach höchstens noch drift's eigenes
+   `.gitignore` darin liegt, byte-identisch mit der `projectGitignore`-Konstante.
+   Ein `.drift/` mit fremdem Inhalt bleibt unangetastet.
+
+### Atomar schreiben
+
+`writeToml` benutzt heute `os.WriteFile`. Ein Abbruch mitten im Schreiben
+hinterlässt eine abgeschnittene Datei — bei `access.toml` heißt das: die Zugänge
+**aller** Projekte sind weg, nicht nur die des migrierten. Das ist heute schon so
+und wird mit jedem Feld schlimmer, das in die Datei wandert.
+
+Phase 1 schreibt deshalb über temporäre Datei plus `os.Rename` im selben
+Verzeichnis. Das deckt zugleich den Fall ab, dass zwei drift-Instanzen in zwei
+Projekten gleichzeitig migrieren: `access.toml` ist eine globale Datei, und
+Read-modify-write ohne Rename verliert dabei den Eintrag des jeweils anderen.
+
+### Kollision: neue und alte Datei gleichzeitig
+
+`.drift.toml` liegt schon da, weil ein Teamkollege sie gepullt hat, und
+`.drift/config.toml` ist noch nicht migriert. Auflösung: `.drift.toml` gewinnt
+für die Projekt-Schicht, die Zugangsfelder der alten Datei gehen in
+`access.toml`, die alte Datei wird gelöscht. Kein Merge der Projekt-Felder — die
+gepullte Datei ist die Wahrheit des Teams.
+
+### Einbahnstraße, und was das für Teams heißt
+
+Die Migration ist nicht rückwärts fahrbar. Für eine getrackte Datei hat git die
+alte Fassung, für eine ungetrackte ist sie weg — die Daten stecken dann in
+`access.toml`, die eine ältere drift-Version nicht liest.
+
+Daraus folgt der unangenehme Teil, und er betrifft nur **Phase 2**: der
+Dateiname ist geteilter Zustand. Sobald jemand `.drift.toml` committet, findet
+ein Teamkollege mit älterem drift kein Projekt mehr, weil dessen Walk-up nach
+`.drift/config.toml` sucht. Das ist ein Breaking Change für gemeinsame
+Repositories, kein internes Detail.
+
+Konsequenzen, die vor Phase 2 zu entscheiden sind:
+
+- Phase 2 als eigener Release mit dem Hinweis im CHANGELOG, dass im Team alle
+  aktualisieren müssen, bevor die neue Datei committet wird.
+- Der Walk-up liest während einer Übergangszeit **beide** Namen, damit die
+  Migration überhaupt greifen kann. Wie lange „Übergangszeit" heißt, gehört in
+  den CHANGELOG-Eintrag, nicht in ein Kommentar.
+- Phase 1 ist davon frei: sie entfernt nur Felder aus einer Datei, die ältere
+  Versionen weiterhin lesen. Eine ältere Version verbindet dann ohne `user` —
+  auffällig, aber kein Datenverlust.
+
+Wer diesen Preis nicht zahlen will, kann Phase 2 streichen, ohne Phase 1
+anzufassen. Das Verzeichnis bleibt dann bestehen, mit einer einzigen Datei darin
+und einem `.gitignore`, das nichts mehr schützt.
+
+### Wo die Migration läuft
+
+Unverändert im TUI: `App.Init` und `App.openProject`, als `tea.Cmd`, über einen
+Projekt-Root von Platte gelesen statt über den geladenen `MergedConfig` — so
+teilt der Aufruf keinen State mit der laufenden Session. Alle `config.Load`-Pfade
+(`cmd/root.go`, `cmd/projects.go`) münden im TUI, es gibt keinen zweiten
+Einstieg, der eine eigene Migration bräuchte.
+
+Ein Fehlschlag darf den Start **nicht** blockieren: Nur-Lese-Dateisystem, kein
+Schreibrecht auf `~/.config`, kaputte TOML-Datei. Das Verhalten von heute
+(Fehler als `globalError` in der Statuszeile, `log.Error`, Session läuft weiter
+mit den Werten aus dem Speicher) bleibt.
+
+### Tests
+
+- Migration aus jedem der vier Quellzustände (a)–(d), inklusive: (d) schreibt
+  nichts
+- ein Lauf, nicht zwei: (a) landet in einem Durchgang vollständig in `access.toml`
+- Idempotenz: zweiter Lauf lässt beide Dateien unangetastet
+- `$ENV`-Referenz bleibt in der Projekt-Datei, erzeugt keinen Access-Eintrag
+- Kollisionsfall neue + alte Datei
+- `.drift/` mit nur drift's `.gitignore` wird entfernt, mit fremder Datei nicht
+- abgebrochener Schreibvorgang: nach `os.Rename`-Umstellung ist entweder die alte
+  oder die neue Datei vollständig da
+- zwei Projekte hintereinander migrieren, ohne sich die Einträge zu überschreiben
+- Migration bei nicht schreibbarem Config-Verzeichnis: Fehler sichtbar, Start
+  läuft weiter
+
+---
+
 ## Phasen
 
 | Phase | Inhalt | Eigenständig auslieferbar |
 | --- | --- | --- |
 | 1 | Zugangsfelder in die Nutzer-Schicht, `secrets.toml` → `access.toml` | ja |
-| 2 | `.drift/config.toml` → `.drift.toml`, `.drift/` abbauen | ja |
+| 2 | `.drift/config.toml` → `.drift.toml`, `.drift/` abbauen | ja, aber Breaking Change fürs Team |
 | 3 | UI zeigt, in welche Schicht ein Feld geht | ja |
 | 4 | Projekte ohne Projekt-Datei (optional) | ja |
 
-Phase 1 trägt die Substanz. Phase 2 ist Kosmetik mit Aufräum-Effekt. Phase 3 ist
+Phase 1 trägt die Substanz. Phase 2 ist Kosmetik mit Aufräum-Effekt und dem
+einzigen Kompatibilitätsbruch des Plans (siehe
+[Einbahnstraße](#einbahnstraße-und-was-das-für-teams-heißt)) — sie ist
+streichbar, ohne Phase 1 anzufassen. Phase 3 ist
 der Teil, ohne den Nutzer die Trennung nicht verstehen. Phase 4 ist offen, ob
 gewünscht.
 
@@ -154,10 +267,7 @@ bricht jede bestehende Datei für nichts als Wortwahl.
    `MergedConfig` entsprechend umbenennen (`ProjectSecretsInFile` →
    `ProjectAccessInFile`).
 6. Migration: `MigrateProjectSecrets` → `MigrateProjectAccess(projectRoot)`.
-   Zusätzlich zum heutigen Verhalten: bestehende `secrets.toml` einlesen und ihre
-   Einträge in `access.toml` überführen, danach `secrets.toml` löschen.
-   Idempotenz und „liest von Platte, teilt keinen State mit der Session"
-   beibehalten — der Aufruf läuft weiter in einem `tea.Cmd`.
+   Details in [Migration bestehender Dateien](#migration-bestehender-dateien).
 7. `internal/tui/app.go`: Nachricht und Notice-Text anpassen. Die
    git-Erreichbarkeitsprüfung bleibt genau hier sinnvoll: eine getrackte alte
    Config hat das Passwort in der History.
@@ -190,26 +300,17 @@ Cache und Laufzeit-Zustand darin landen, die dann wieder ignoriert werden müsse
    sich — `Load(startDir)` verhält sich sonst identisch.
 3. `writeProject` schreibt `<root>/.drift.toml` mit Mode `600`.
    `ensureProjectGitignore` und die `0700`-Verzeichnisrechte fallen weg.
-4. Migration, im selben Durchgang wie Phase 1: existiert `.drift/config.toml`,
-   wird der Projekt-Teil nach `.drift.toml` geschrieben, die alte Datei gelöscht
-   und `.drift/` **nur dann** entfernt, wenn danach höchstens noch drift's eigenes
-   `.gitignore` darin liegt (byte-identisch mit `projectGitignore`). Ein `.drift/`
-   mit fremdem Inhalt bleibt unangetastet.
-5. Sonderfall: `.drift.toml` existiert schon (vom Teamkollegen gepullt) **und**
-   `.drift/config.toml` liegt noch da. Dann gewinnt `.drift.toml` für die
-   Projekt-Schicht, die Zugangsfelder der alten Datei gehen in `access.toml`, die
-   alte Datei wird gelöscht.
-6. `gitguard.go`: `projectConfigRel` zeigt auf die **alte** Datei, weil nur die
+4. Migration inklusive Aufräumen von `.drift/`: siehe
+   [Migration bestehender Dateien](#migration-bestehender-dateien).
+5. `gitguard.go`: `projectConfigRel` zeigt auf die **alte** Datei, weil nur die
    je Credentials enthielt. Die Datei ist damit reines Migrations-Zubehör und kann
    verschwinden, sobald die Migration ausläuft — als Kommentar festhalten.
 
 ### Tests
 
 - Walk-up findet `.drift.toml` aus einem Unterverzeichnis
-- Migration löscht `.drift/` mit nur drift's `.gitignore`
-- Migration lässt `.drift/` mit fremder Datei stehen
-- Kollisionsfall aus Schritt 5
 - `HasProjectContext` für beide Dateinamen während der Übergangszeit
+- Migrationsfälle: siehe [Migration bestehender Dateien](#migration-bestehender-dateien)
 
 ---
 

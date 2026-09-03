@@ -24,16 +24,19 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - `go test ./...` wrote into the developer's real `~/.config/drift`, because storing a host reaches the config directory and several tests did not isolate `$XDG_CONFIG_HOME`
 
-## [0.1.6-alpha] - 2026-09-03
-### Added
-- project host credentials live in `~/.config/drift/secrets.toml` (mode `600`), keyed by project root and host name, instead of `.drift/config.toml` — the project config now holds only hostname, port, user, root path, protocol and mappings, and can be committed and shared
-- credentials that an older or hand-written `.drift/config.toml` still carries are moved into the secret store on startup and on project switch, and the status line reports where they went and whether git can still reach the file they came from
+## [0.1.6-alpha] — never released
 
-### Changed
-- empty `auth` fields are no longer written to config files
+Prepared but never tagged, and superseded by 0.1.7-alpha before it was. It moved
+credentials into `~/.config/drift/secrets.toml` and kept a committable project
+config; 0.1.7-alpha moves the whole project config out of the repository
+instead, which reverses the part of this that users would have seen. Kept here
+because the repository went through it, and because 0.1.7-alpha migrates a
+`secrets.toml` written by a build from this period.
 
-### Removed
-- the post-save warning about a git-reachable project config introduced in 0.1.5-alpha: the file drift writes no longer contains a credential, so the migration notice is the only place the git check is still needed
+- project host credentials in `~/.config/drift/secrets.toml` (mode `600`), keyed by project root and host name, instead of `.drift/config.toml`
+- credentials still in a `.drift/config.toml` moved into that store on startup, with a status-line report of where they went and whether git could reach the file they came from
+- empty `auth` fields no longer written to config files
+- the post-save warning about a git-reachable project config from 0.1.5-alpha removed
 
 ## [0.1.5-alpha] - 2026-09-03
 ### Added

@@ -39,14 +39,18 @@ müsste. Damit entfällt der Grund für den Apparat aus 0.1.5-alpha
 Regeln:
 
 - Die Projekt-Datei definiert **Umgebungen**, nicht Zugänge.
-- `access.toml` definiert **Zugänge** und darf eigene Hosts enthalten, die in der
-  Projekt-Datei nicht vorkommen (private VM, oder ein öffentliches Repo, in dem
-  auch der Hostname nichts zu suchen hat).
+- `access.toml` definiert **Zugänge**, keine Hosts. Ein Eintrag ohne passenden
+  Host in der Projekt-Datei hätte weder `hostname` noch `port` noch `root_path`
+  und wäre unbenutzbar. Der Fall, den das abdecken sollte — private VM, oder ein
+  öffentliches Repo, in dem auch der Hostname nichts zu suchen hat — ist bereits
+  durch einen globalen Host in `~/.config/drift/config.toml` abgedeckt.
 - Gleicher Name in beiden Schichten: die Nutzer-Schicht gewinnt, sie ist die
   spezifischere.
-- `$ENV_VAR`-Referenzen und `key_file`-Pfade sind keine Secrets, wandern aber
-  mit, weil sie zur Zugangsschicht gehören: der Pfad meines Schlüssels ist nicht
-  der Pfad deines Schlüssels.
+- `$ENV_VAR`-Referenzen und `key_file`-Pfade sind keine Secrets, gehören aber
+  zur Zugangsschicht: der Pfad meines Schlüssels ist nicht der Pfad deines
+  Schlüssels. Beim **Schreiben** wandern sie deshalb mit. Beim **Migrieren**
+  nicht, siehe unten — und was in der Projekt-Datei steht, gewinnt beim Lesen,
+  damit ein Team eine `$DEPLOY_PASSWORD`-Konvention weiter teilen kann.
 - Globale Hosts in `~/.config/drift/config.toml` bleiben wie sie sind. Sie sind
   Nutzer-Schicht ohne Projektbezug und brauchen keine Migration.
 
@@ -60,8 +64,10 @@ sehen weiterhin einen vollständigen `config.Host` und ändern sich nicht.
 
 Der Mechanismus dafür existiert bereits: `splitSecret` / `applySecret` in
 `internal/config/secrets.go` schneiden heute schon Felder aus einem `Host` heraus
-und setzen sie beim Laden wieder ein. Phase 1 verbreitert genau diese beiden
-Funktionen. Zwei neue Typen (`Environment`, `HostAccess`) wären die Alternative;
+und setzen sie beim Laden wieder ein. Phase 1 verbreitert `applySecret` zu
+`applyAccess` und stellt `splitSecret` ein zweites, breiteres `splitAccess` zur
+Seite: `splitAccess` ist der Schreibpfad und schneidet alle Zugangsfelder heraus,
+`splitSecret` bleibt der Migrationspfad und bewegt nur Lecks. Zwei neue Typen (`Environment`, `HostAccess`) wären die Alternative;
 sie ziehen Umbenennungen durch `remote`, `sftp`, `ftp` und `diffview` nach sich,
 ohne dass irgendwo ein Verhalten davon profitiert.
 
@@ -95,11 +101,20 @@ Vier Formen existieren draußen, und die Migration muss alle vier treffen:
 | c | handgeschrieben | beliebige Mischung, evtl. `$ENV`-Referenzen, evtl. ohne `[defaults]` |
 | d | nach Phase 1 | `.drift/config.toml` nur mit Projekt-Feldern + `access.toml` |
 
-**Ein Durchgang, nicht zwei.** `splitHost` schneidet `Auth` vollständig heraus,
-also auch das Klartext-Passwort aus (a). Es gibt keinen Grund, erst
-0.1.6-Migration und dann Phase-1-Migration hintereinander laufen zu lassen.
+**Die Migration bewegt nur Lecks.** Ein literales Passwort oder eine literale
+Passphrase muss raus. `user`, `auth.type`, `key_file` und `$ENV`-Referenzen
+bleiben liegen, wo sie sind — eine Projekt-Config kann eine Datei sein, die ein
+Team pflegt, und Zeilen daraus stillschweigend zu löschen wäre schlimmer als sie
+stehen zu lassen: der Nächste, der pullt, verliert einen Wert, den drift für ihn
+nie gespeichert hat. Diese Felder wandern von selbst raus, sobald der Host das
+nächste Mal gespeichert wird.
+
+Preis dieser Entscheidung: der `insecure_tls`-Footgun ist für neu geschriebene
+und bearbeitete Hosts behoben, für einen bereits committeten nicht rückwirkend.
+
 Zustand (b) unterscheidet sich für die Migration nur darin, dass zusätzlich eine
-`secrets.toml` einzulesen und danach zu löschen ist.
+`secrets.toml` einzulesen und nach dem Schreiben von `access.toml` zu löschen
+ist.
 
 ### Reihenfolge der Schreibvorgänge
 
@@ -123,7 +138,7 @@ hinterlässt eine abgeschnittene Datei — bei `access.toml` heißt das: die Zug
 und wird mit jedem Feld schlimmer, das in die Datei wandert.
 
 Phase 1 schreibt deshalb über temporäre Datei plus `os.Rename` im selben
-Verzeichnis. Das deckt zugleich den Fall ab, dass zwei drift-Instanzen in zwei
+Verzeichnis — umgesetzt in `writeToml`. Das deckt zugleich den Fall ab, dass zwei drift-Instanzen in zwei
 Projekten gleichzeitig migrieren: `access.toml` ist eine globale Datei, und
 Read-modify-write ohne Rename verliert dabei den Eintrag des jeweils anderen.
 
@@ -196,7 +211,7 @@ mit den Werten aus dem Speicher) bleibt.
 
 | Phase | Inhalt | Eigenständig auslieferbar |
 | --- | --- | --- |
-| 1 | Zugangsfelder in die Nutzer-Schicht, `secrets.toml` → `access.toml` | ja |
+| 1 | Zugangsfelder in die Nutzer-Schicht, `secrets.toml` → `access.toml` | ja — umgesetzt |
 | 2 | `.drift/config.toml` → `.drift.toml`, `.drift/` abbauen | ja, aber Breaking Change fürs Team |
 | 3 | UI zeigt, in welche Schicht ein Feld geht | ja |
 | 4 | Projekte ohne Projekt-Datei (optional) | ja |
@@ -211,6 +226,14 @@ gewünscht.
 ---
 
 ## Phase 1 — Zugangsfelder in die Nutzer-Schicht
+
+> Umgesetzt. Zwei Abweichungen gegenüber der ersten Fassung dieses Plans sind
+> oben eingearbeitet: die Migration bewegt nur Lecks, und `access.toml`
+> definiert keine eigenen Hosts. Dazu kamen zwei Defekte, die beim Umsetzen
+> auffielen und in derselben Änderung behoben sind: Schreiben ging vom
+> zusammengeführten Speicherabbild aus statt von der Datei (und buk damit
+> `[defaults]` und gespeicherte Zugänge in fremde Host-Records), und `writeToml`
+> schrieb nicht atomar.
 
 ### Format
 
@@ -256,9 +279,7 @@ bricht jede bestehende Datei für nichts als Wortwahl.
    `applySecret` → `applyAccess`, füllt sie zurück; ein Wert, der in der
    Projekt-Datei steht, gewinnt weiterhin, damit handgeschriebene Dateien
    funktionieren.
-3. `applyProjectSecrets` → `applyProjectAccess`, zusätzlich: Einträge in
-   `access.toml`, deren Host-Name in der Projekt-Datei **nicht** vorkommt, werden
-   als eigene Projekt-Hosts ergänzt (der Fall „private VM").
+3. `applyProjectSecrets` → `applyProjectAccess`.
 4. `writer.go`: `strippedHosts` nutzt `splitHost`. `SaveProjectHost` und
    `DeleteProjectHost` bleiben strukturell, schreiben nur mehr Felder in die
    Nutzer-Schicht.

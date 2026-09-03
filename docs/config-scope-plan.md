@@ -1,5 +1,12 @@
 # Plan: Config-Schichten nach Zuständigkeit trennen
 
+> **Überholt ab Phase 2.** Die Entscheidung ist gefallen, dass im
+> Projekt-Repository nichts landen soll: siehe
+> [`config-dir-only-plan.md`](config-dir-only-plan.md). Phase 1 (umgesetzt in
+> 0.1.7-alpha) und Phase 3 sind Geschichte dieses Plans, Phase 2 und 4 werden
+> nicht mehr gebaut. Der Abschnitt über die Migration bestehender Dateien bleibt
+> lesenswert, der neue Plan verweist darauf.
+
 ## Ziel
 
 `.drift/config.toml` enthält heute zwei Arten von Daten, die verschiedenen Leuten

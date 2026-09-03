@@ -13,9 +13,11 @@ All notable changes to this project will be documented in this file.
 - `~/.config/drift/` is created with mode `700` instead of `755`
 
 ### Added
+- drift offers to register a repository that no project covers, suggesting the repository root instead of the subdirectory you happened to start in; `n` on the dashboard prefills the same
 - configuration from older versions is migrated on startup and on project switch: `.drift/config.toml` in the project, `~/.config/drift/secrets.toml` (0.1.6-alpha) and `~/.config/drift/access.toml`, all folded into the project store, then removed. `.drift/` goes with them when nothing but drift's own `.gitignore` is left in it; a `.drift/` holding anything else is left alone
 - the migration reports what moved, and says once that a committed `.drift/config.toml` still has its password in the repository's history, where deleting the file later does not reach it
 - an unregistered directory with a leftover `.drift/config.toml` is offered for registration first, since the store is named after the slug; answering `y` registers and migrates in one go
+- drift stays in the working directory instead of reopening the last project when that directory is one it can offer to register, so the offer is not hidden
 
 ### Fixed
 - `go test ./...` wrote into the developer's real `~/.config/drift`, because storing a host reaches the config directory and several tests did not isolate `$XDG_CONFIG_HOME`

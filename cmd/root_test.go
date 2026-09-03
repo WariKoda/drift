@@ -121,3 +121,42 @@ func TestUsableLastProject(t *testing.T) {
 		t.Fatalf("never opened: got %v", p)
 	}
 }
+
+func TestWorthStayingIn(t *testing.T) {
+	empty := &project.Registry{}
+
+	// Inside an open project: stay, obviously.
+	if !worthStayingIn(t.TempDir(), &config.MergedConfig{ProjectSlug: "shop"}, empty) {
+		t.Fatal("an open project is not worth staying in")
+	}
+
+	// A repository drift could register: stay, or the offer never appears.
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !worthStayingIn(repo, &config.MergedConfig{}, empty) {
+		t.Fatal("an unregistered repository is not worth staying in")
+	}
+	registered := &project.Registry{Projects: []project.Project{{Slug: "x", Path: repo}}}
+	if worthStayingIn(repo, &config.MergedConfig{}, registered) {
+		t.Fatal("a repository that is registered but not open kept drift in the directory")
+	}
+
+	// A leftover .drift/config.toml: stay, it needs migrating.
+	legacy := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(legacy, ".drift"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, ".drift", "config.toml"), []byte("# old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !worthStayingIn(legacy, &config.MergedConfig{}, empty) {
+		t.Fatal("a directory with an unmigrated config is not worth staying in")
+	}
+
+	// Nothing here: let the last project or the dashboard win.
+	if worthStayingIn(t.TempDir(), &config.MergedConfig{}, empty) {
+		t.Fatal("a plain directory kept drift in the directory")
+	}
+}

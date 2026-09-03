@@ -32,3 +32,40 @@ func ExpandPath(p string) (string, error) {
 	}
 	return abs, nil
 }
+
+// GitRoot walks up from dir looking for a .git entry and returns the directory
+// holding it.
+//
+// A project usually is a repository, so this is what drift suggests as the
+// project path: it beats the working directory, which is often some
+// subdirectory the user happened to be in. .git is matched as a file too, since
+// that is how a worktree or submodule links to its repository.
+func GitRoot(dir string) (string, bool) {
+	current, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(current, ".git")); err == nil {
+			return current, true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", false
+		}
+		current = parent
+	}
+}
+
+// SuggestRoot is the directory drift proposes as a project path for dir: its
+// repository root when there is one, otherwise dir itself.
+func SuggestRoot(dir string) string {
+	if root, ok := GitRoot(dir); ok {
+		return root
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	return abs
+}

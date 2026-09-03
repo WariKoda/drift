@@ -1,6 +1,7 @@
 package project
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -265,5 +266,41 @@ func TestFindByPathPrefix(t *testing.T) {
 		if got == nil || got.Slug != tc.want {
 			t.Fatalf("FindByPathPrefix(%q) = %v, want %q", tc.dir, got, tc.want)
 		}
+	}
+}
+
+func TestGitRootAndSuggestRoot(t *testing.T) {
+	repo := t.TempDir()
+	deep := filepath.Join(repo, "src", "plugins")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// No repository yet: the suggestion is the directory itself.
+	if _, ok := GitRoot(deep); ok {
+		t.Fatal("GitRoot found a repository where there is none")
+	}
+	if got := SuggestRoot(deep); got != deep {
+		t.Fatalf("SuggestRoot(%q) = %q, want the directory itself", deep, got)
+	}
+
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := GitRoot(deep)
+	if !ok || got != repo {
+		t.Fatalf("GitRoot(%q) = (%q, %v), want (%q, true)", deep, got, ok, repo)
+	}
+	if got := SuggestRoot(deep); got != repo {
+		t.Fatalf("SuggestRoot(%q) = %q, want the repository root", deep, got)
+	}
+
+	// A worktree links to its repository with a .git file, not a directory.
+	worktree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: /elsewhere\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := GitRoot(worktree); !ok || got != worktree {
+		t.Fatalf("GitRoot of a worktree = (%q, %v), want (%q, true)", got, ok, worktree)
 	}
 }

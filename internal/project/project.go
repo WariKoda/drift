@@ -1,7 +1,7 @@
 // Package project manages the global registry of drift projects.
 //
 // A project is a named pointer to a local directory whose hosts and mappings
-// live in <path>/.drift/config.toml (the existing per-project config mechanism).
+// live in <config.Dir()>/projects/<slug>.toml, keyed by the slug below.
 // The registry itself only stores slug, display name, path and timestamps, and
 // is persisted to <config-dir>/projects.toml.
 package project
@@ -50,6 +50,27 @@ func (r *Registry) FindByPath(path string) *Project {
 		}
 	}
 	return nil
+}
+
+// FindByPathPrefix returns the registered project containing dir: the one whose
+// Path is dir itself or a parent of it, preferring the longest match so a
+// project nested inside another resolves to the inner one.
+//
+// This is how drift roots itself. There is no marker file in the project any
+// more, so a directory belongs to a project exactly when the registry says so.
+func (r *Registry) FindByPathPrefix(dir string) *Project {
+	cd := filepath.Clean(dir)
+	var best *Project
+	for i := range r.Projects {
+		cp := filepath.Clean(r.Projects[i].Path)
+		if cd != cp && !strings.HasPrefix(cd, cp+string(filepath.Separator)) {
+			continue
+		}
+		if best == nil || len(cp) > len(filepath.Clean(best.Path)) {
+			best = &r.Projects[i]
+		}
+	}
+	return best
 }
 
 // HasPath reports whether any project (cleaned) points at the given path.

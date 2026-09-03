@@ -17,7 +17,7 @@ var dashCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("cannot determine working directory: %w", err)
 		}
-		cfg, store, reg, err := loadAll(workDir)
+		cfg, _, store, reg, err := loadAll(workDir)
 		if err != nil {
 			return err
 		}

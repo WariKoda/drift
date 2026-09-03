@@ -1,10 +1,12 @@
 // Package config defines drift's configuration types and loading logic.
 //
 // Config resolution order:
-//  1. ~/.config/drift/config.toml  (global hosts)
-//  2. .drift/config.toml           (project hosts + mappings, walked up from cwd)
+//  1. ~/.config/drift/config.toml            (global hosts)
+//  2. ~/.config/drift/projects/<slug>.toml   (a project's hosts + mappings)
 //
-// Project config hosts with the same name override global hosts.
+// Nothing is stored in the project directory. Which project a directory belongs
+// to is the registry's answer, so the caller passes the slug in.
+// Project hosts with the same name override global hosts.
 // Env vars in auth fields ($VAR) are expanded at connection time.
 package config
 
@@ -61,7 +63,7 @@ type GlobalConfig struct {
 	Hosts    []Host   `toml:"hosts"`
 }
 
-// ProjectConfig is the structure of .drift/config.toml.
+// ProjectConfig is the structure of a project store, <config.Dir()>/projects/<slug>.toml.
 type ProjectConfig struct {
 	Defaults Defaults  `toml:"defaults"`
 	Hosts    []Host    `toml:"hosts"`
@@ -82,21 +84,22 @@ type MergedConfig struct {
 	ProjectDefaults Defaults
 	UI              UI              // from the global config only
 	GlobalHosts     []Host          // hosts from ~/.config/drift/config.toml
-	ProjectHosts    []Host          // hosts from .drift/config.toml
+	ProjectHosts    []Host          // hosts from the project store
 	Hosts           map[string]Host // merged view: project overrides global, keyed by Name
 	Mappings        []Mapping
-	ProjectRoot     string // absolute path of the directory containing .drift/
+	ProjectRoot     string // the project directory, from the registry
 
-	// ProjectSecretsInFile names the project hosts whose credentials came from
-	// .drift/config.toml rather than the access store, i.e. the ones
-	// MigrateProjectSecrets still has to move out of the project.
-	ProjectSecretsInFile []string
+	// ProjectSlug is the registry slug of the open project, and with it the
+	// name of its store under <config.Dir()>/projects/. Empty when the caller
+	// found no registered project: there are only global hosts then, and
+	// nothing to write.
+	ProjectSlug string
 
-	// LegacySecretStore reports that a 0.1.6-alpha secrets.toml is still on
-	// disk. Nothing reads that file any more, so until MigrateProjectSecrets
-	// folds it into access.toml its credentials are invisible and every host
-	// that relies on one fails to connect.
-	LegacySecretStore bool
+	// LegacyFiles reports that configuration for this project is still in one
+	// of the places drift used before the store: .drift/config.toml in the
+	// project, access.toml, or secrets.toml. Nothing reads those any more, so
+	// until MigrateProjectToStore moves them the project looks empty.
+	LegacyFiles bool
 }
 
 // MouseEnabled reports whether mouse reporting should be turned on.

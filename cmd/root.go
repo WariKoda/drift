@@ -30,14 +30,14 @@ var rootCmd = &cobra.Command{
 	Long: `drift opens a file browser in the current directory.
 Select files or folders, then sync them with a configured remote host over SFTP/SSH.
 
-When started outside a project (no .drift/ found), drift reopens the last project
+When started outside a registered project, drift reopens the last project
 you opened, if that path still exists. Otherwise it shows the dashboard when
 projects are registered. --dashboard forces the list; --no-dashboard stays in
 the current directory.
 
-Config locations:
+Config locations (nothing is written into your project):
   global:   ~/.config/drift/config.toml
-  project:  .drift/config.toml  (in current or any parent directory)
+  project:  ~/.config/drift/projects/<slug>.toml
   registry: ~/.config/drift/projects.toml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		workDir, err := os.Getwd()
@@ -45,22 +45,25 @@ Config locations:
 			return fmt.Errorf("cannot determine working directory: %w", err)
 		}
 
-		cfg, store, reg, err := loadAll(workDir)
+		cfg, root, store, reg, err := loadAll(workDir)
 		if err != nil {
 			return err
 		}
 
+		// A directory with a leftover .drift/config.toml counts as a project
+		// context too: staying in it is what lets drift offer to register and
+		// then migrate it.
+		_, hasLegacy := config.FindLegacyProjectRoot(workDir)
 		last := usableLastProject(reg)
-		mode := resolveStart(flagDashboard, flagNoDashboard, config.HasProjectContext(workDir), last, len(reg.Projects))
+		mode := resolveStart(flagDashboard, flagNoDashboard, cfg.ProjectSlug != "" || hasLegacy, last, len(reg.Projects))
 
-		root := workDir
 		initial := tui.ScreenBrowser
 		switch mode {
 		case startDashboard:
 			initial = tui.ScreenDashboard
 		case startLastProject:
 			root = last.Path
-			cfg, err = config.Load(root)
+			cfg, err = config.Load(last.Path, last.Slug)
 			if err != nil {
 				return fmt.Errorf("config error: %w", err)
 			}
@@ -168,17 +171,25 @@ func usableLastProject(reg *project.Registry) *project.Project {
 }
 
 // loadAll loads the merged config and the project registry for workDir.
-func loadAll(workDir string) (*config.MergedConfig, *project.Store, *project.Registry, error) {
-	cfg, err := config.Load(workDir)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("config error: %w", err)
-	}
+func loadAll(workDir string) (*config.MergedConfig, string, *project.Store, *project.Registry, error) {
 	store := project.NewStore()
 	reg, err := store.Load()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot read project registry (%s): %w", store.Path(), err)
+		return nil, "", nil, nil, fmt.Errorf("cannot read project registry (%s): %w", store.Path(), err)
 	}
-	return cfg, store, reg, nil
+
+	// The registry decides which project a directory belongs to; there is no
+	// marker file in the project any more.
+	root, slug := workDir, ""
+	if p := reg.FindByPathPrefix(workDir); p != nil {
+		root, slug = p.Path, p.Slug
+	}
+
+	cfg, err := config.Load(root, slug)
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("config error: %w", err)
+	}
+	return cfg, root, store, reg, nil
 }
 
 func runProgram(app tui.App, mouse bool) error {

@@ -136,7 +136,7 @@ func loadingApp(t *testing.T, projectDir string, reg *project.Registry, host con
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	cfg, err := config.Load(projectDir)
+	cfg, err := config.Load(projectDir, "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func storedApp(t *testing.T, projectDir string, reg *project.Registry, host conf
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(projectDir)
+	cfg, err := config.Load(projectDir, "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(dir)
+	cfg, err := config.Load(dir, "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,26 +399,36 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 }
 
 func TestMigrationNotice(t *testing.T) {
-	safe := migrationNotice(1, config.ExposureSafe)
-	if !strings.Contains(safe, "Moved 1 credential") || !strings.Contains(safe, "access.toml") {
+	safe := migrationNotice(config.MigrationResult{Hosts: 1, ProjectFile: true}, "shop")
+	if !strings.Contains(safe, "Moved 1 host") || !strings.Contains(safe, "projects/shop.toml") {
 		t.Fatalf("notice does not say what moved where: %q", safe)
 	}
 	if strings.Contains(safe, "rotate") {
 		t.Fatalf("an unreachable config asked for a rotation: %q", safe)
 	}
-	if got := migrationNotice(2, config.ExposureSafe); !strings.Contains(got, "2 credentials") {
+	if got := migrationNotice(config.MigrationResult{Hosts: 2}, "shop"); !strings.Contains(got, "2 hosts") {
 		t.Fatalf("notice does not pluralise: %q", got)
 	}
-	if got := migrationNotice(1, config.ExposureTracked); !strings.Contains(got, "rotate") ||
-		!strings.Contains(got, "git rm --cached") {
+	if got := migrationNotice(config.MigrationResult{}, "shop"); got != "" {
+		t.Fatalf("a migration that moved nothing produced %q", got)
+	}
+
+	tracked := config.MigrationResult{Hosts: 1, ProjectFile: true, Exposure: config.ExposureTracked}
+	if got := migrationNotice(tracked, "shop"); !strings.Contains(got, "rotate") {
 		t.Fatalf("a tracked config produced no rotation advice: %q", got)
 	}
-	if got := migrationNotice(1, config.ExposureUntracked); !strings.Contains(got, "committed") {
+	untracked := config.MigrationResult{Hosts: 1, ProjectFile: true, Exposure: config.ExposureUntracked}
+	if got := migrationNotice(untracked, "shop"); !strings.Contains(got, "committed") {
 		t.Fatalf("an unignored config produced no history hint: %q", got)
+	}
+	// Nothing was read from the project, so git has nothing to say.
+	fromStore := config.MigrationResult{Hosts: 1, Exposure: config.ExposureTracked}
+	if got := migrationNotice(fromStore, "shop"); strings.Contains(got, "rotate") {
+		t.Fatalf("a migration that read no project file mentioned git: %q", got)
 	}
 }
 
-func TestMigrationRunsOnlyForCredentialsFoundInTheConfigFile(t *testing.T) {
+func TestMigrationNeedsLeftoversAndASlug(t *testing.T) {
 	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
 	if err != nil {
 		t.Fatal(err)
@@ -427,18 +437,21 @@ func TestMigrationRunsOnlyForCredentialsFoundInTheConfigFile(t *testing.T) {
 		t.Fatal("a nil config scheduled a migration")
 	}
 
-	// Credentials filled in from the secret store are already out of the
-	// project, so they leave ProjectSecretsInFile empty.
-	app.state.Config = &config.MergedConfig{
-		ProjectHosts: []config.Host{{Name: "prod", Auth: config.Auth{Type: "password", Password: "hunter2"}}},
-	}
+	app.state.Config = &config.MergedConfig{ProjectRoot: "/work/shop", ProjectSlug: "shop"}
 	if cmd := app.migrateProjectSecrets(); cmd != nil {
-		t.Fatal("a credential from the store scheduled a migration")
+		t.Fatal("a project with nothing left in the old places scheduled a migration")
 	}
 
-	app.state.Config.ProjectSecretsInFile = []string{"prod"}
+	app.state.Config.LegacyFiles = true
 	if cmd := app.migrateProjectSecrets(); cmd == nil {
-		t.Fatal("a credential found in the config file did not schedule a migration")
+		t.Fatal("leftovers in the old places did not schedule a migration")
+	}
+
+	// Without a slug there is no store to write, so the register prompt has to
+	// come first.
+	app.state.Config.ProjectSlug = ""
+	if cmd := app.migrateProjectSecrets(); cmd != nil {
+		t.Fatal("an unregistered project scheduled a migration it cannot finish")
 	}
 }
 
@@ -447,16 +460,17 @@ func TestMigrationNoticeSurvivesKeysUntilEsc(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.state.Config = &config.MergedConfig{ProjectSecretsInFile: []string{"prod"}}
-	app.state.TermWidth, app.state.TermHeight = 160, 24
+	app.state.Config = &config.MergedConfig{LegacyFiles: true}
+	app.state.TermWidth, app.state.TermHeight = 200, 24
 
-	model, _ := app.Update(msgSecretsMigrated{Count: 1, Exposure: config.ExposureTracked})
+	res := config.MigrationResult{Hosts: 1, ProjectFile: true, Exposure: config.ExposureTracked}
+	model, _ := app.Update(msgSecretsMigrated{Result: res, Slug: "shop"})
 	app = model.(App)
 	if app.secretWarning == "" {
 		t.Fatal("a completed migration produced no notice")
 	}
-	if len(app.state.Config.ProjectSecretsInFile) != 0 {
-		t.Fatal("the migration result did not clear ProjectSecretsInFile")
+	if app.state.Config.LegacyFiles {
+		t.Fatal("the migration result did not clear LegacyFiles")
 	}
 	if !strings.Contains(ansi.Strip(app.View()), "rotate") {
 		t.Fatal("the notice is not rendered in the status line")
@@ -482,26 +496,5 @@ func TestMigrationErrorIsSurfaced(t *testing.T) {
 	model, _ := app.Update(msgSecretsMigrated{Err: errors.New("disk full")})
 	if got := model.(App).globalError; !strings.Contains(got, "disk full") {
 		t.Fatalf("global error = %q, want the migration failure", got)
-	}
-}
-
-func TestMigrationRunsForA016StoreEvenWithACleanProjectConfig(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// The unit tests for the migration called it directly, so this gate was
-	// never covered: a 0.1.6-alpha store plus a project config with nothing
-	// left in it scheduled no migration, and the credentials in that store
-	// became unreachable.
-	app.state.Config = &config.MergedConfig{ProjectRoot: "/work/shop"}
-	if cmd := app.migrateProjectSecrets(); cmd != nil {
-		t.Fatal("a config with nothing to migrate scheduled a migration")
-	}
-
-	app.state.Config.LegacySecretStore = true
-	if cmd := app.migrateProjectSecrets(); cmd == nil {
-		t.Fatal("a 0.1.6-alpha secret store did not schedule a migration")
 	}
 }

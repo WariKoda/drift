@@ -23,7 +23,7 @@ func (m Model) View() string {
 
 	sb.WriteString("  " + styles.Muted.Render("Name — display name, e.g. KUNDE A"))
 	sb.WriteByte('\n')
-	sb.WriteString("  " + styles.Muted.Render("Path — local project directory (hosts live in <path>/.drift/config.toml)"))
+	sb.WriteString("  " + styles.Muted.Render("Path — local project directory (hosts live in ~/.config/drift/projects/)"))
 	sb.WriteByte('\n')
 	sb.WriteByte('\n')
 

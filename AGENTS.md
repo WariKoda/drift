@@ -26,9 +26,9 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 The `textfield` package holds the shared single-line input widget used by `hostform`
 and `projectform`. The project registry (slug, name, path, timestamps) lives in
 `internal/project` and is persisted to `~/.config/drift/projects.toml`; per-project hosts
-stay in `<path>/.drift/config.toml`. Selecting a project on the dashboard or in the
-project switcher (`P`) re-roots the app via `App.openProject` (`config.Load(path)` +
-`browser.New(path)`). `P` opens the switcher as a modal and leaves the browser session
+stay in `<config.Dir()>/projects/<slug>.toml`. Selecting a project on the dashboard or in
+the project switcher (`P`) re-roots the app via `App.openProject`
+(`config.Load(path, slug)` + `browser.New(path)`). `P` opens the switcher as a modal and leaves the browser session
 intact until a different project is chosen.
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
@@ -91,55 +91,48 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 | Scope    | Path                                                                    |
 | -------- | ----------------------------------------------------------------------- |
 | Global   | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
-| Project  | `.drift/config.toml` in project root (walked up from cwd)               |
+| Project  | `~/.config/drift/projects/<slug>.toml` (hosts + mappings, mode 600)     |
 | Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
-| Access   | `~/.config/drift/access.toml` (per-user access to project hosts)        |
 
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
 
-## Config layers
+## Nothing in the project directory
 
-A project host is stored in two layers with different owners, and
-`internal/config/access.go` is the seam:
+drift writes no file into a working tree. A project's hosts and mappings live in
+`<config.Dir()>/projects/<slug>.toml` (`internal/config/store.go`), named after
+its registry slug.
 
-| `.drift/config.toml` (project, committable) | `<config.Dir()>/access.toml` (per user) |
-| --- | --- |
-| `hostname`, `port`, `root_path`, `protocol`, `mappings` | `user`, `auth`, `insecure_tls` |
+- `config.Load(root, slug)` takes the identity rather than looking it up:
+  `internal/project` imports `internal/config` for `config.Dir()`, so config
+  cannot ask the registry. An empty slug means no project, so only global hosts.
+- Which project a directory belongs to is `Registry.FindByPathPrefix(dir)`,
+  longest match wins. There is no marker file any more; `cmd/root.go` resolves
+  it in `loadAll` and the TUI carries it as `MergedConfig.ProjectSlug`.
+- `SaveProjectHost`/`DeleteProjectHost` need that slug and fail without one.
+  They start from `projectStoreBase`, which re-reads the store from disk, so a
+  save cannot bake `[defaults]` into the other hosts' records.
+- Global hosts still live in `~/.config/drift/config.toml`, so `HostScope`
+  stays a real distinction.
 
-- `splitAccess` is the **write** path: it cuts every access field out, including
-  `$ENV` references, because the mechanism is per person even when the value is
-  not a secret. `SaveProjectHost` stores that half and writes the rest.
-- `splitSecret` is the **migration** path: it moves literal passwords and
-  passphrases only. `MigrateProjectSecrets(projectRoot)` reads the config from
-  disk, moves leaks, folds a 0.1.6-alpha `secrets.toml` in, and is idempotent —
-  the TUI runs it on startup and on project switch. It deliberately leaves
-  `user`, `auth.type`, `key_file` and `$ENV` references alone: a project config
-  can be a file a team maintains, and deleting lines from it would lose values
-  drift never stored for anyone else.
-- `applyAccess` is the **read** path, and the project config wins where it
-  carries a value, so hand-written files keep working.
-- `projectFileBase` re-reads the project config from disk before every write,
-  so a write starts from what the file says instead of from the merged,
-  defaults-applied, access-filled view in memory. Without it, saving one host
-  would bake `[defaults]` into the others and copy this machine's access into a
-  file the team shares.
-- Global hosts are unaffected: `~/.config/drift/config.toml` is outside every
-  repository, so its hosts keep their access fields.
-
-`config.ProjectConfigExposure` (`internal/config/gitguard.go`) reports whether
-git can reach the project config; the migration notice uses it to tell the user
-that a moved password may still be in the repository's history.
+`internal/config/legacy.go` is migration-only: it reads the three places drift
+used before (`<project>/.drift/config.toml`, `access.toml`, `secrets.toml`),
+writes the store, and deletes them. `MigrateProjectToStore(root, slug)` reads
+from disk, shares no state with a session, and is idempotent. It needs a slug,
+which is why the register prompt (`shouldPromptRegister` →
+`config.FindLegacyProjectRoot`) comes first for an unregistered directory.
+`gitguard.go` survives only to tell the user that a committed `.drift/config.toml`
+still has the old password in the repository's history. Both files go away once
+no installation has legacy files left.
 
 Tests in `internal/config` must never touch the real config directory: its
-`TestMain` points `$XDG_CONFIG_HOME` at a temp dir for the whole package,
-because the writers reach `access.toml` and a test without that isolation
-writes into the developer's own `~/.config/drift`.
+`TestMain` points `$XDG_CONFIG_HOME` at a temp dir for the whole package, and
+`isolate(t)` gives one test its own, since the store is keyed by slug and two
+tests sharing a slug would share a file.
 
 Written files: `writeToml` replaces atomically (temp file + rename) and the
 encoding-only `hostOut`/`defaultsOut` mirrors exist because BurntSushi's
-`omitempty` does not cover numeric zero — drift must trim the files it rewrites,
-not decorate them with `port = 0`.
+`omitempty` does not cover numeric zero.
 
 ## Logging
 

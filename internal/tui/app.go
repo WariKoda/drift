@@ -110,16 +110,21 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 }
 
 // shouldPromptRegister reports whether drift should offer to register the
-// current directory: it is inside a real .drift project that has no matching
-// registry entry yet.
+// current directory: it still holds a .drift/config.toml from an older
+// version, and no registry entry points at it.
+//
+// Registering is now the only way into a project store, so this prompt is also
+// the gate to migrating that leftover file — MigrateProjectToStore needs a
+// slug, and the registry hands one out.
 func shouldPromptRegister(workDir string, cfg *config.MergedConfig, reg *project.Registry) bool {
 	if cfg == nil || reg == nil {
 		return false
 	}
-	if !config.HasProjectContext(workDir) {
+	root, ok := config.FindLegacyProjectRoot(workDir)
+	if !ok {
 		return false
 	}
-	return cfg.ProjectRoot != "" && !reg.HasPath(cfg.ProjectRoot)
+	return !reg.HasPath(root)
 }
 
 // registerPending adds the pending project to the registry and persists it.
@@ -153,27 +158,21 @@ func (a App) Init() tea.Cmd {
 	return tea.Batch(a.browser.Init(), a.migrateProjectSecrets())
 }
 
-// migrateProjectSecrets moves credentials that a hand-written or pre-0.1.6
-// .drift/config.toml still carries into the access store, and folds a
-// 0.1.6-alpha secrets.toml into it. It also asks git whether that config was
-// reachable, because a migrated password may already be in the repository's
-// history.
+// migrateProjectSecrets moves a project's configuration out of the places drift
+// used before the per-project store: .drift/config.toml in the project itself,
+// access.toml, secrets.toml. Nothing reads those any more, so a project that
+// still has them looks like it has no hosts at all.
 //
-// Both conditions matter. Gating on the project config alone left a
-// 0.1.6-alpha secrets.toml untouched — its configs were already clean — so
-// nothing read those credentials any more and every host that relied on one
-// stopped connecting.
+// It needs a slug, because the store is named after it. An unregistered project
+// gets none, which is what the register prompt is for.
 func (a App) migrateProjectSecrets() tea.Cmd {
-	if a.state.Config == nil {
+	if a.state.Config == nil || !a.state.Config.LegacyFiles || a.state.Config.ProjectSlug == "" {
 		return nil
 	}
-	if len(a.state.Config.ProjectSecretsInFile) == 0 && !a.state.Config.LegacySecretStore {
-		return nil
-	}
-	root := a.state.Config.ProjectRoot
+	root, slug := a.state.Config.ProjectRoot, a.state.Config.ProjectSlug
 	return func() tea.Msg {
-		n, err := config.MigrateProjectSecrets(root)
-		return msgSecretsMigrated{Count: n, Exposure: config.ProjectConfigExposure(root), Err: err}
+		res, err := config.MigrateProjectToStore(root, slug)
+		return msgSecretsMigrated{Result: res, Slug: slug, Err: err}
 	}
 }
 
@@ -242,7 +241,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	a.abandonDiffRequest()
 	a.state.SelectedHost = nil
 	a.browser.CloseRemote()
-	cfg, err := config.Load(p.Path)
+	cfg, err := config.Load(p.Path, p.Slug)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +271,35 @@ func (a App) projectRoot() string {
 		return ""
 	}
 	return a.state.Config.ProjectRoot
+}
+
+// migrateAfterRegister re-roots the loaded config on the project that was just
+// registered, then migrates whatever the old locations still hold for it.
+func (a *App) migrateAfterRegister() tea.Cmd {
+	if a.state.Config == nil || a.state.ActiveProject == nil {
+		return nil
+	}
+	a.state.Config.ProjectRoot = a.state.ActiveProject.Path
+	a.state.Config.ProjectSlug = a.state.ActiveProject.Slug
+	a.state.Config.LegacyFiles = true
+	return a.migrateProjectSecrets()
+}
+
+// reloadProjectConfig re-reads the config after a migration, so the session
+// uses the store rather than the state it was loaded with.
+func (a *App) reloadProjectConfig() tea.Cmd {
+	if a.state.Config == nil || a.state.Config.ProjectSlug == "" {
+		return nil
+	}
+	cfg, err := config.Load(a.state.Config.ProjectRoot, a.state.Config.ProjectSlug)
+	if err != nil {
+		a.globalError = "Reloading the migrated configuration failed: " + err.Error()
+		log.Error("reload after migration failed", "root", a.projectRoot(), "err", err)
+		return nil
+	}
+	a.state.Config = cfg
+	a.hostManager = hostmanager.New(cfg, a.state.TermWidth, a.state.TermHeight)
+	return nil
 }
 
 func (a App) currentSlug() string {
@@ -691,10 +719,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostmanager.MsgOpenForm:
 		if msg.Host != nil {
 			a.hostForm = hostform.NewEdit(*msg.Host, msg.Scope,
-				a.state.Config.ProjectRoot, a.state.TermWidth, a.state.TermHeight)
+				a.state.Config.ProjectSlug, a.state.TermWidth, a.state.TermHeight)
 		} else {
 			a.hostForm = hostform.New(msg.Scope,
-				a.state.Config.ProjectRoot, a.state.TermWidth, a.state.TermHeight)
+				a.state.Config.ProjectSlug, a.state.TermWidth, a.state.TermHeight)
 		}
 		a.state.Screen = ScreenHostForm
 		return a, nil
@@ -731,20 +759,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case msgSecretsMigrated:
 		if a.state.Config != nil {
-			a.state.Config.ProjectSecretsInFile = nil
+			a.state.Config.LegacyFiles = false
 		}
 		if msg.Err != nil {
-			a.globalError = "Moving credentials out of the project failed: " + msg.Err.Error()
-			log.Error("secret migration failed", "root", a.projectRoot(), "err", msg.Err)
+			a.globalError = "Moving the project configuration failed: " + msg.Err.Error()
+			log.Error("project migration failed", "root", a.projectRoot(), "err", msg.Err)
 			return a, nil
 		}
-		if msg.Count == 0 {
+		if !msg.Result.Moved() {
 			return a, nil
 		}
-		a.secretWarning = migrationNotice(msg.Count, msg.Exposure)
-		log.Info("moved project credentials to the secret store",
-			"root", a.projectRoot(), "hosts", msg.Count, "notice", a.secretWarning)
-		return a, nil
+		a.secretWarning = migrationNotice(msg.Result, msg.Slug)
+		log.Info("moved project configuration into the project store",
+			"root", a.projectRoot(), "slug", msg.Slug, "hosts", msg.Result.Hosts,
+			"notice", a.secretWarning)
+		// The store is the source of truth now, so the session reloads from it.
+		return a, a.reloadProjectConfig()
 
 	case hostform.MsgFormCancelled:
 		a.state.Screen = ScreenHostManager
@@ -764,6 +794,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.browser.SetStatus("Register failed: " + err.Error())
 			} else {
 				a.browser.SetStatus("Registered project: " + a.state.PendingRegisterName)
+				// The project now has a slug, which is what the migration of a
+				// leftover .drift/config.toml was waiting for.
+				a.state.Screen = ScreenBrowser
+				return a, a.migrateAfterRegister()
 			}
 		}
 		// any other key dismisses without registering
@@ -912,29 +946,34 @@ func (a App) View() string {
 	return base
 }
 
-// msgSecretsMigrated reports what the startup migration did, together with
-// how reachable by git the config it read was.
+// msgSecretsMigrated reports what the startup migration did.
 type msgSecretsMigrated struct {
-	Count    int
-	Exposure config.Exposure
-	Err      error
+	Result config.MigrationResult
+	Slug   string
+	Err    error
 }
 
-// migrationNotice tells the user where their credentials went, and — when the
-// config they came from was reachable by git — that the old value may be in
-// the repository's history and belongs rotated.
-func migrationNotice(count int, e config.Exposure) string {
-	subject := "credential"
-	if count != 1 {
-		subject = "credentials"
+// migrationNotice tells the user where the project's configuration went, and —
+// when it came from a config git could reach — that a password in that file is
+// in the repository's history and belongs rotated.
+func migrationNotice(res config.MigrationResult, slug string) string {
+	if !res.Moved() {
+		return ""
 	}
-	moved := fmt.Sprintf("Moved %d %s out of .drift/config.toml into %s",
-		count, subject, config.AccessPathForDisplay())
-	switch e {
+	subject := "host"
+	if res.Hosts != 1 {
+		subject = "hosts"
+	}
+	moved := fmt.Sprintf("Moved %d %s into %s; nothing of drift's is left in the project",
+		res.Hosts, subject, config.ProjectStorePathForDisplay(slug))
+	if !res.ProjectFile {
+		return moved
+	}
+	switch res.Exposure {
 	case config.ExposureTracked:
-		return moved + " — git tracks that file, so treat the old value as leaked and rotate it: git rm --cached .drift/config.toml"
+		return moved + ". git tracked .drift/config.toml, so treat any password in it as leaked and rotate it"
 	case config.ExposureUntracked:
-		return moved + " — that file was not ignored by git; check whether it ever got committed"
+		return moved + ". .drift/config.toml was not ignored by git; check whether it ever got committed"
 	default:
 		return moved
 	}

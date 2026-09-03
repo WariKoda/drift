@@ -28,61 +28,54 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
-func TestProjectConfigExposureOutsideRepo(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &MergedConfig{ProjectRoot: dir}
-	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
-		t.Fatalf("SaveProjectHost returned error: %v", err)
+// writeLegacyProjectConfig puts a pre-store .drift/config.toml in place, the
+// only file ProjectConfigExposure still asks git about.
+func writeLegacyProjectConfig(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, ".drift"), 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
 	}
+	body := "[[hosts]]\n  name = \"prod\"\n  hostname = \"example.com\"\n"
+	if err := os.WriteFile(filepath.Join(root, ".drift", "config.toml"), []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+}
+
+func TestProjectConfigExposureOutsideRepo(t *testing.T) {
+	isolate(t)
+	dir := t.TempDir()
+	writeLegacyProjectConfig(t, dir)
 	if got := ProjectConfigExposure(dir); got != ExposureSafe {
 		t.Fatalf("exposure outside a work tree = %v, want ExposureSafe", got)
 	}
 }
 
 func TestProjectConfigExposureIgnoredByWrittenGitignore(t *testing.T) {
+	isolate(t)
 	dir := initRepo(t)
-	cfg := &MergedConfig{ProjectRoot: dir}
-	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
-		t.Fatalf("SaveProjectHost returned error: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(dir, ".drift", ".gitignore"))
-	if err != nil {
-		t.Fatalf("drift did not write .drift/.gitignore: %v", err)
-	}
-	if got := string(data); got != projectGitignore {
-		t.Fatalf("unexpected .gitignore content: %q", got)
+	writeLegacyProjectConfig(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, ".drift", ".gitignore"), []byte(projectGitignore), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
 	}
 	if got := ProjectConfigExposure(dir); got != ExposureSafe {
-		t.Fatalf("exposure with drift's own .gitignore = %v, want ExposureSafe", got)
+		t.Fatalf("exposure of an ignored config = %v, want ExposureSafe", got)
 	}
 }
 
 func TestProjectConfigExposureUntracked(t *testing.T) {
+	isolate(t)
 	dir := initRepo(t)
-	// A pre-existing .gitignore is left alone, so the config stays visible.
-	if err := os.MkdirAll(filepath.Join(dir, ".drift"), 0o700); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".drift", ".gitignore"), []byte("*.log\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	cfg := &MergedConfig{ProjectRoot: dir}
-	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
-		t.Fatalf("SaveProjectHost returned error: %v", err)
-	}
+	writeLegacyProjectConfig(t, dir)
 	if got := ProjectConfigExposure(dir); got != ExposureUntracked {
 		t.Fatalf("exposure of an unignored config = %v, want ExposureUntracked", got)
 	}
 }
 
 func TestProjectConfigExposureTracked(t *testing.T) {
+	isolate(t)
 	dir := initRepo(t)
-	cfg := &MergedConfig{ProjectRoot: dir}
-	if err := SaveProjectHost(cfg, Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
-		t.Fatalf("SaveProjectHost returned error: %v", err)
-	}
-	// Simulate a config that was committed before drift wrote the ignore file.
+	writeLegacyProjectConfig(t, dir)
+	// A config that was committed before drift stopped writing into projects.
 	add := exec.Command("git", "-C", dir, "add", "-f", "--", projectConfigRel)
 	if out, err := add.CombinedOutput(); err != nil {
 		t.Fatalf("git add failed: %v\n%s", err, out)
@@ -93,6 +86,7 @@ func TestProjectConfigExposureTracked(t *testing.T) {
 }
 
 func TestHasPlaintextSecret(t *testing.T) {
+	isolate(t)
 	cases := []struct {
 		name string
 		auth Auth

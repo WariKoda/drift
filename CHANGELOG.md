@@ -3,24 +3,22 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
-### Added
-- `~/.config/drift/access.toml` holds your access to a project host — `user`, `auth` and `insecure_tls` — keyed by project root and host name; the project config describes the environment only (hostname, port, root path, protocol, mappings) and is meant to be committed
-- an access field written by hand into `.drift/config.toml` still wins over the store, so a value a team maintains deliberately (a deploy account, a `$DEPLOY_PASSWORD` convention) keeps working
-- the host form groups a project host's fields under `SHARED WITH THE TEAM` and `ONLY ON THIS MACHINE`, each naming the file it writes to; a global host has one file and gets no headings
-- the host manager's `PROJECT HOSTS` header notes that access stays on this machine, where the terminal is wide enough for it
-
-### Fixed
-- credentials in a 0.1.6-alpha `secrets.toml` became unreachable: folding that file into `access.toml` only ran when a project config still held a literal credential, which after 0.1.6-alpha it never did, so every host that relied on a stored password stopped connecting. The fold now runs whenever the file is present, independently of any project
-- `go test ./...` wrote into the developer's real `~/.config/drift/access.toml`, because storing a host's access reaches the config directory and several tests did not isolate `$XDG_CONFIG_HOME`
-
 ### Changed
-- host form field order follows the two layers: name, the shared environment fields, then the fields that stay on this machine, then the scope toggle
-- `insecure_tls` is no longer written into the project config: a skip-verify flag one developer needs is not something the team should inherit by pulling
-- a 0.1.6-alpha `secrets.toml` is folded into `access.toml` on startup and removed; migration continues to move literal passwords and passphrases out of the project config, and now deliberately leaves `user`, `auth.type`, `key_file` and `$ENV` references in place — they are not leaks, and deleting them from a shared file would lose values drift never stored for anyone else
-- config files are replaced atomically (temporary file, then rename), so an interrupted write can no longer truncate `access.toml` and lose every project's credentials
-- saving or deleting a project host starts from the config file on disk instead of the merged in-memory view, so the other hosts' records stay byte-for-byte as they were: `[defaults]` values are not baked into them, and nothing from the access store leaks back into the project config
+- **breaking:** nothing is stored in the project directory any more. A project's hosts and mappings live in `~/.config/drift/projects/<slug>.toml` (mode `600`), named after its registry slug. No `.drift/`, nothing to add to `.gitignore`, nothing to commit by accident
+- **breaking:** which project a directory belongs to is the registry's answer now — the registered project whose path is the directory or a parent of it, longest match first. Registering a project is what gives a directory hosts of its own, and an older drift will not find a migrated project at all, because its lookup walks up for a file that is gone
+- mappings no longer travel with a clone. That is the point of the change and the cost of it: every developer enters them once per machine, and moving a directory in the repo no longer has a commit that fixes the mapping for everyone
+- config files are replaced atomically (temporary file, then rename), so an interrupted write leaves either the old file or the new one
+- saving one project host no longer rewrites the others' records: `[defaults]` values stay in `[defaults]` instead of being baked into every host
 - empty fields and zero ports are omitted from written config files
 - `~/.config/drift/` is created with mode `700` instead of `755`
+
+### Added
+- configuration from older versions is migrated on startup and on project switch: `.drift/config.toml` in the project, `~/.config/drift/secrets.toml` (0.1.6-alpha) and `~/.config/drift/access.toml`, all folded into the project store, then removed. `.drift/` goes with them when nothing but drift's own `.gitignore` is left in it; a `.drift/` holding anything else is left alone
+- the migration reports what moved, and says once that a committed `.drift/config.toml` still has its password in the repository's history, where deleting the file later does not reach it
+- an unregistered directory with a leftover `.drift/config.toml` is offered for registration first, since the store is named after the slug; answering `y` registers and migrates in one go
+
+### Fixed
+- `go test ./...` wrote into the developer's real `~/.config/drift`, because storing a host reaches the config directory and several tests did not isolate `$XDG_CONFIG_HOME`
 
 ## [0.1.6-alpha] - 2026-09-03
 ### Added

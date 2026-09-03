@@ -29,9 +29,7 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts})
 }
 
-// SaveProjectHost adds or replaces a host in the project config file. Its
-// access fields — user, auth, insecure TLS — are diverted to the access store,
-// so the file drift writes into the project describes the environment only.
+// SaveProjectHost adds or replaces a host in the project's store.
 func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := ValidateMappings(h.Mappings); err != nil {
 		return fmt.Errorf("host %q mappings: %w", h.Name, err)
@@ -40,71 +38,53 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 		return fmt.Errorf("project mappings: %w", err)
 	}
 
-	base, err := projectFileBase(cfg)
+	base, err := projectStoreBase(cfg)
 	if err != nil {
 		return err
 	}
 
-	environment, access := splitAccess(h, cfg.ProjectRoot)
-	if err := storeAccess(access, oldName); err != nil {
-		return fmt.Errorf("access store: %w", err)
-	}
-
-	// The in-memory host keeps its access fields — the session connects with it.
 	cfg.ProjectHosts = replaceOrAppend(cfg.ProjectHosts, h, oldName)
 	rebuildMerged(cfg)
 
-	base.Hosts = replaceOrAppend(base.Hosts, environment, oldName)
-	return writeProject(base, cfg.ProjectRoot)
+	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
+	return writeProjectStore(cfg.ProjectSlug, base)
 }
 
-// DeleteProjectHost removes a host by name from the project config file and
-// drops its stored access.
+// DeleteProjectHost removes a host by name from the project's store.
 func DeleteProjectHost(cfg *MergedConfig, name string) error {
-	base, err := projectFileBase(cfg)
+	base, err := projectStoreBase(cfg)
 	if err != nil {
 		return err
-	}
-	if err := deleteAccess(cfg.ProjectRoot, name); err != nil {
-		return fmt.Errorf("access store: %w", err)
 	}
 	cfg.ProjectHosts = removeHost(cfg.ProjectHosts, name)
 	rebuildMerged(cfg)
 
 	base.Hosts = removeHost(base.Hosts, name)
-	return writeProject(base, cfg.ProjectRoot)
+	return writeProjectStore(cfg.ProjectSlug, base)
 }
 
-// projectFileBase is the project config a write starts from: the file as it is
-// on disk, not the merged view in memory. The merged view has defaults applied
-// and access filled in from the store, so writing it back would bake
-// [defaults] into every host record and copy this machine's access into a file
-// the team shares.
+// projectStoreBase is the project config a write starts from: the store as it
+// is on disk, not the merged view in memory. The merged view has [defaults]
+// applied to every host, so writing it back would bake them into each record
+// and leave the defaults section with nothing left to do.
 //
-// Without a file yet, the in-memory values are the only source — their access
-// fields are stripped, since those belong to the store.
-func projectFileBase(cfg *MergedConfig) (ProjectConfig, error) {
-	pc, err := decodeProjectConfig(cfg.ProjectRoot)
+// Without a store yet, the in-memory values are the only source.
+func projectStoreBase(cfg *MergedConfig) (ProjectConfig, error) {
+	if cfg.ProjectSlug == "" {
+		return ProjectConfig{}, errors.New("no project is open, so there is no project store to write")
+	}
+	pc, err := loadProjectStore(cfg.ProjectSlug)
 	if err != nil {
-		return ProjectConfig{}, fmt.Errorf("project config: %w", err)
+		return ProjectConfig{}, fmt.Errorf("project store: %w", err)
 	}
 	if pc != nil {
 		return *pc, nil
 	}
 	return ProjectConfig{
 		Defaults: cfg.ProjectDefaults,
-		Hosts:    environmentsOf(cfg.ProjectHosts, cfg.ProjectRoot),
+		Hosts:    cfg.ProjectHosts,
 		Mappings: cfg.Mappings,
 	}, nil
-}
-
-// environmentsOf is hosts without their access fields.
-func environmentsOf(hosts []Host, projectRoot string) []Host {
-	out := make([]Host, len(hosts))
-	for i, h := range hosts {
-		out[i], _ = splitAccess(h, projectRoot)
-	}
-	return out
 }
 
 // rebuildMerged reconstructs cfg.Hosts from GlobalHosts + ProjectHosts.
@@ -165,46 +145,6 @@ func writeGlobal(cfg GlobalConfig) error {
 		Hosts:    hostsOut(cfg.Hosts),
 	})
 }
-
-func writeProject(cfg ProjectConfig, projectRoot string) error {
-	if err := ValidateMappings(cfg.Mappings); err != nil {
-		return fmt.Errorf("project mappings: %w", err)
-	}
-	for _, host := range cfg.Hosts {
-		if err := ValidateMappings(host.Mappings); err != nil {
-			return fmt.Errorf("host %q mappings: %w", host.Name, err)
-		}
-	}
-	dir := filepath.Join(projectRoot, ".drift")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := ensureProjectGitignore(dir); err != nil {
-		return err
-	}
-	return writeToml(filepath.Join(dir, "config.toml"), projectConfigOut{
-		Defaults: defaultsOut{Port: optionalInt(cfg.Defaults.Port), User: cfg.Defaults.User},
-		Hosts:    hostsOut(cfg.Hosts),
-		Mappings: cfg.Mappings,
-	})
-}
-
-// ensureProjectGitignore creates .drift/.gitignore if it does not exist yet.
-// The project config carries credentials, so it must never be committed;
-// other files under .drift/ stay shareable on purpose.
-func ensureProjectGitignore(dir string) error {
-	path := filepath.Join(dir, ".gitignore")
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.WriteFile(path, []byte(projectGitignore), 0o600)
-}
-
-const projectGitignore = `# Written by drift: this file holds host credentials.
-config.toml
-`
 
 // Encoding-only mirrors of the config types. BurntSushi's `omitempty` skips
 // empty strings, false and empty lists, but not a numeric zero — a host whose

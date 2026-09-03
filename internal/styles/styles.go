@@ -45,6 +45,8 @@ var (
 	Accent          lipgloss.Style
 	LoadingBackdrop lipgloss.Style
 	LoadingBox      lipgloss.Style
+	DiffFold        lipgloss.Style
+	DiffHunkHeader  lipgloss.Style
 )
 
 func init() {
@@ -92,4 +94,6 @@ func ApplyPalette(p Palette) {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorAccent).
 		Padding(1, 2)
+	DiffFold = lipgloss.NewStyle().Foreground(ColorMuted)
+	DiffHunkHeader = lipgloss.NewStyle().Foreground(ColorSep)
 }

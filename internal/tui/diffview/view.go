@@ -124,7 +124,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 		if m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) {
 			flip = m.syncDirs[m.activeIdx] == DirUpload
 		}
-		content = diff.RenderUnified(s.Result, dw, m.scroll, vh, flip)
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, flip)
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}
@@ -346,7 +346,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 	case m.showErrors:
 		keys = styles.Muted.Render("[e/q]close errors")
 	default:
-		keys = styles.Muted.Render("[Tab]file  [j/k/Pg/g/G]scroll  [Space]dir  [s]sync  [S]sync-all  [r]refresh  [u/d]quick  [q]back")
+		keys = styles.Muted.Render("[Tab]file  [j/k/Pg/g/G]scroll  [[]/[]]hunk  [Enter]fold  [c]folds  [Space]dir  [s]sync  [S]sync-all  [r]refresh  [u/d]quick  [q]back")
 		if len(m.syncErrors) > 0 {
 			keys = styles.Err.Render("[e]errors  ") + keys
 		}

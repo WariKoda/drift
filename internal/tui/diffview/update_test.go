@@ -230,8 +230,9 @@ func TestHunkNavigationClampsToLastFullViewport(t *testing.T) {
 	}
 
 	model, _ = model.handleKey(keyMsg("]"))
-	if model.scroll != 14 {
-		t.Fatalf("hunk navigation set offset to %d, want last full viewport at 14", model.scroll)
+	want := clampedHeader(lines, 12)
+	if model.scroll != want {
+		t.Fatalf("hunk navigation set offset to %d, want last full viewport at %d", model.scroll, want)
 	}
 }
 
@@ -279,12 +280,12 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 		{
 			name:   "first difference",
 			result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 7)},
-			want:   7,
+			want:   firstHunkHeader(linesWithDifference(20, 7)),
 		},
 		{
 			name:   "difference clamped to final viewport",
 			result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 19)},
-			want:   14,
+			want:   clampedHeader(linesWithDifference(20, 19), 12),
 		},
 		{
 			name:   "no textual difference",
@@ -320,8 +321,8 @@ func TestRefreshScrollsToFirstDifference(t *testing.T) {
 	model, _ = model.Update(MsgRefreshed{Sessions: []diff.Session{{
 		Result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 8)},
 	}}})
-	if model.scroll != 8 {
-		t.Fatalf("refresh scroll = %d, want first difference at 8", model.scroll)
+	if model.scroll != firstHunkHeader(linesWithDifference(20, 8)) {
+		t.Fatalf("refresh scroll = %d, want first hunk header at %d", model.scroll, firstHunkHeader(linesWithDifference(20, 8)))
 	}
 }
 
@@ -339,8 +340,8 @@ func TestSessionReloadScrollsToFirstDifferenceWhenActive(t *testing.T) {
 		SessionIdx: 0,
 		Result:     &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 9)},
 	})
-	if model.scroll != 9 {
-		t.Fatalf("active session reload scroll = %d, want first difference at 9", model.scroll)
+	if model.scroll != clampedHeader(linesWithDifference(20, 9), 13) {
+		t.Fatalf("active session reload scroll = %d, want first hunk header at %d", model.scroll, clampedHeader(linesWithDifference(20, 9), 13))
 	}
 
 	model.scroll = 4
@@ -367,8 +368,8 @@ func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
 	if model.activeIdx != 1 {
 		t.Fatalf("Tab selected file %d, want 1", model.activeIdx)
 	}
-	if model.scroll != 7 {
-		t.Fatalf("Tab scroll = %d, want first difference at 7", model.scroll)
+	if model.scroll != clampedHeader(linesWithDifference(20, 7), 13) {
+		t.Fatalf("Tab scroll = %d, want first hunk header at %d", model.scroll, clampedHeader(linesWithDifference(20, 7), 13))
 	}
 
 	model.scroll = 5
@@ -376,8 +377,8 @@ func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
 	if model.activeIdx != 0 {
 		t.Fatalf("Shift+Tab selected file %d, want 0", model.activeIdx)
 	}
-	if model.scroll != 2 {
-		t.Fatalf("Shift+Tab scroll = %d, want first difference at 2", model.scroll)
+	if model.scroll != clampedHeader(linesWithDifference(20, 2), 13) {
+		t.Fatalf("Shift+Tab scroll = %d, want first hunk header at %d", model.scroll, clampedHeader(linesWithDifference(20, 2), 13))
 	}
 }
 
@@ -410,20 +411,101 @@ func TestHunkJumpLandsOnRunStart(t *testing.T) {
 		scroll: 0,
 	}
 
-	model, _ = model.handleKey(keyMsg("]"))
-	if model.scroll != 1 {
-		t.Fatalf("] jumped to %d, want first hunk start at 1", model.scroll)
+	headers := hunkHeaders(lines)
+	if len(headers) < 2 {
+		t.Fatalf("need two hunk headers, got %v", headers)
 	}
 
 	model, _ = model.handleKey(keyMsg("]"))
-	if model.scroll != 4 {
-		t.Fatalf("] jumped to %d, want second hunk start at 4 (not the Added mid-run)", model.scroll)
+	if model.scroll != headers[0] {
+		t.Fatalf("] jumped to %d, want first hunk header at %d", model.scroll, headers[0])
+	}
+
+	model, _ = model.handleKey(keyMsg("]"))
+	if model.scroll != headers[1] {
+		t.Fatalf("] jumped to %d, want second hunk header at %d", model.scroll, headers[1])
 	}
 
 	model, _ = model.handleKey(keyMsg("["))
-	if model.scroll != 1 {
-		t.Fatalf("[ jumped to %d, want previous hunk start at 1", model.scroll)
+	if model.scroll != headers[0] {
+		t.Fatalf("[ jumped to %d, want previous hunk header at %d", model.scroll, headers[0])
 	}
+}
+
+func TestEnterExpandsFirstVisibleFold(t *testing.T) {
+	lines := linesWithDifference(20, 7)
+	ids := diff.FoldableGapIDs(lines, diff.DefaultContext)
+	if len(ids) == 0 {
+		t.Fatal("fixture has no foldable gaps")
+	}
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
+		}},
+		Height: 24,
+		scroll: 0,
+	}
+	if _, ok := model.firstVisibleFold(); !ok {
+		t.Fatal("expected a fold at the top of the viewport")
+	}
+
+	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.gapExpanded(ids[0]) {
+		t.Fatalf("Enter did not expand gap %d", ids[0])
+	}
+
+	model, _ = model.handleKey(keyMsg("c"))
+	if model.gapExpanded(ids[0]) {
+		t.Fatal("c did not collapse expanded folds")
+	}
+
+	model, _ = model.handleKey(keyMsg("c"))
+	for _, id := range ids {
+		if !model.gapExpanded(id) {
+			t.Fatalf("c did not expand gap %d", id)
+		}
+	}
+
+	model, _ = model.handleKey(keyMsg("h"))
+	if model.gapExpanded(ids[0]) {
+		t.Fatal("h did not collapse the visible expanded gap")
+	}
+}
+
+func firstHunkHeader(lines []diff.DiffLine) int {
+	hs := hunkHeaders(lines)
+	if len(hs) == 0 {
+		return 0
+	}
+	return hs[0]
+}
+
+func hunkHeaders(lines []diff.DiffLine) []int {
+	var out []int
+	for i, row := range diff.Flatten(lines, diff.DefaultContext, nil) {
+		if row.Kind == diff.DisplayHunkHeader {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func clampedHeader(lines []diff.DiffLine, height int) int {
+	model := Model{
+		sessions: []diff.Session{{
+			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
+		}},
+		Height: height,
+	}
+	want := firstHunkHeader(lines)
+	max := model.totalLines() - model.viewportHeight()
+	if max < 0 {
+		max = 0
+	}
+	if want > max {
+		return max
+	}
+	return want
 }
 
 func keyMsg(key string) tea.KeyMsg {

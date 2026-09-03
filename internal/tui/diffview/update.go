@@ -57,6 +57,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		for i := range m.sessions {
 			m.syncDirs[i] = autoDir(&m.sessions[i])
 		}
+		m.expandedGaps = map[int]map[int]struct{}{}
 		m.refreshing = false
 		m.finishActivity()
 		m.clampFileList()
@@ -73,6 +74,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.sessions[msg.SessionIdx].Result = msg.Result
 			m.sessions[msg.SessionIdx].Err = msg.Err
 			if reloadedActiveSession {
+				m.resetFolds(msg.SessionIdx)
 				m.scrollToFirstDifference()
 			}
 		}
@@ -112,6 +114,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "tab", "n":
 		if m.activeIdx < len(m.sessions)-1 {
 			m.activeIdx++
+			m.resetFolds(m.activeIdx)
 			m.clampFileList()
 			m.scrollToFirstDifference()
 		}
@@ -119,6 +122,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "shift+tab", "p":
 		if m.activeIdx > 0 {
 			m.activeIdx--
+			m.resetFolds(m.activeIdx)
 			m.clampFileList()
 			m.scrollToFirstDifference()
 		}
@@ -171,6 +175,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.jumpNextHunk()
 	case "[":
 		m.jumpPrevHunk()
+
+	case "enter", "l":
+		m.toggleFirstVisibleFold()
+	case "h":
+		m.collapseVisibleFold()
+	case "c":
+		m.toggleAllFolds()
 
 	// ── Sync: current file with planned direction ──────────────────────
 	case "s":
@@ -234,26 +245,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// isHunkStart reports whether lines[i] begins a contiguous non-equal run.
-func isHunkStart(lines []diff.DiffLine, i int) bool {
-	if i < 0 || i >= len(lines) {
-		return false
-	}
-	if lines[i].Kind == diff.LineEqual {
-		return false
-	}
-	return i == 0 || lines[i-1].Kind == diff.LineEqual
-}
-
-// jumpNextHunk moves scroll to the next diff hunk start.
 func (m *Model) jumpNextHunk() {
-	s := m.activeSession()
-	if s == nil || s.Result == nil {
-		return
-	}
-	lines := s.Result.Lines
-	for i := m.scroll + 1; i < len(lines); i++ {
-		if isHunkStart(lines, i) {
+	rows := m.displayRows()
+	for i := m.scroll + 1; i < len(rows); i++ {
+		if rows[i].Kind == diff.DisplayHunkHeader {
 			m.scroll = i
 			m.clampScroll()
 			return
@@ -261,15 +256,10 @@ func (m *Model) jumpNextHunk() {
 	}
 }
 
-// jumpPrevHunk moves scroll to the previous diff hunk start.
 func (m *Model) jumpPrevHunk() {
-	s := m.activeSession()
-	if s == nil || s.Result == nil {
-		return
-	}
-	lines := s.Result.Lines
+	rows := m.displayRows()
 	for i := m.scroll - 1; i >= 0; i-- {
-		if isHunkStart(lines, i) {
+		if rows[i].Kind == diff.DisplayHunkHeader {
 			m.scroll = i
 			m.clampScroll()
 			return

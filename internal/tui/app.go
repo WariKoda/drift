@@ -150,22 +150,22 @@ func (a App) Init() tea.Cmd {
 	if a.state.Screen == ScreenDashboard {
 		return a.dashboard.Init()
 	}
-	return tea.Batch(a.browser.Init(), a.checkStoredSecrets())
+	return tea.Batch(a.browser.Init(), a.migrateProjectSecrets())
 }
 
-// checkStoredSecrets runs the Git visibility check when the loaded project
-// config actually stores a credential. Configs written before drift shipped
-// the ignore file would otherwise never be flagged.
-func (a App) checkStoredSecrets() tea.Cmd {
-	if a.state.Config == nil {
+// migrateProjectSecrets moves credentials that a hand-written or pre-0.1.6
+// .drift/config.toml still carries into the secret store. It also asks git
+// whether that config was reachable, because a migrated password may already
+// be in the repository's history.
+func (a App) migrateProjectSecrets() tea.Cmd {
+	if a.state.Config == nil || len(a.state.Config.ProjectSecretsInFile) == 0 {
 		return nil
 	}
-	for _, h := range a.state.Config.ProjectHosts {
-		if h.HasPlaintextSecret() {
-			return checkSecretExposure(a.state.Config.ProjectRoot)
-		}
+	root := a.state.Config.ProjectRoot
+	return func() tea.Msg {
+		n, err := config.MigrateProjectSecrets(root)
+		return msgSecretsMigrated{Count: n, Exposure: config.ProjectConfigExposure(root), Err: err}
 	}
-	return nil
 }
 
 func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *loading.Tracker) tea.Cmd {
@@ -254,7 +254,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	a.state.Screen = ScreenBrowser
 	a.secretWarning = ""
 	a.recordOpened(p.Slug)
-	return tea.Batch(b.Init(), a.checkStoredSecrets()), nil
+	return tea.Batch(b.Init(), a.migrateProjectSecrets()), nil
 }
 
 // projectRoot is the loaded project root, or "" when no config is loaded.
@@ -718,18 +718,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.hostManager.Refresh()
 		a.state.Screen = ScreenHostManager
-		a.secretWarning = ""
-		if msg.Scope == config.ScopeProject && msg.Host.HasPlaintextSecret() {
-			return a, checkSecretExposure(a.state.Config.ProjectRoot)
-		}
 		return a, nil
 
-	case msgSecretExposure:
-		a.secretWarning = exposureWarning(msg.Exposure)
-		if a.secretWarning != "" {
-			log.Error("project config exposed to git",
-				"root", a.projectRoot(), "warning", a.secretWarning)
+	case msgSecretsMigrated:
+		if a.state.Config != nil {
+			a.state.Config.ProjectSecretsInFile = nil
 		}
+		if msg.Err != nil {
+			a.globalError = "Moving credentials out of the project failed: " + msg.Err.Error()
+			log.Error("secret migration failed", "root", a.projectRoot(), "err", msg.Err)
+			return a, nil
+		}
+		if msg.Count == 0 {
+			return a, nil
+		}
+		a.secretWarning = migrationNotice(msg.Count, msg.Exposure)
+		log.Info("moved project credentials to the secret store",
+			"root", a.projectRoot(), "hosts", msg.Count, "notice", a.secretWarning)
 		return a, nil
 
 	case hostform.MsgFormCancelled:
@@ -898,29 +903,31 @@ func (a App) View() string {
 	return base
 }
 
-// msgSecretExposure carries the result of the post-save Git visibility check.
-type msgSecretExposure struct {
+// msgSecretsMigrated reports what the startup migration did, together with
+// how reachable by git the config it read was.
+type msgSecretsMigrated struct {
+	Count    int
 	Exposure config.Exposure
+	Err      error
 }
 
-// checkSecretExposure asks Git whether the project config that was just
-// written could end up in a commit. It shells out to git, so it runs as a Cmd.
-func checkSecretExposure(projectRoot string) tea.Cmd {
-	return func() tea.Msg {
-		return msgSecretExposure{Exposure: config.ProjectConfigExposure(projectRoot)}
+// migrationNotice tells the user where their credentials went, and — when the
+// config they came from was reachable by git — that the old value may be in
+// the repository's history and belongs rotated.
+func migrationNotice(count int, e config.Exposure) string {
+	subject := "credential"
+	if count != 1 {
+		subject = "credentials"
 	}
-}
-
-// exposureWarning renders an exposure as an actionable one-liner, or "" when
-// there is nothing to warn about.
-func exposureWarning(e config.Exposure) string {
+	moved := fmt.Sprintf("Moved %d %s out of .drift/config.toml into %s",
+		count, subject, config.SecretsPathForDisplay())
 	switch e {
 	case config.ExposureTracked:
-		return ".drift/config.toml holds credentials and is tracked by git — untrack it: git rm --cached .drift/config.toml"
+		return moved + " — git tracks that file, so treat the old value as leaked and rotate it: git rm --cached .drift/config.toml"
 	case config.ExposureUntracked:
-		return ".drift/config.toml holds credentials and is not ignored by git — add it to .gitignore"
+		return moved + " — that file was not ignored by git; check whether it ever got committed"
 	default:
-		return ""
+		return moved
 	}
 }
 

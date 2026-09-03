@@ -29,7 +29,9 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts})
 }
 
-// SaveProjectHost adds or replaces a host in the project config file.
+// SaveProjectHost adds or replaces a host in the project config file. Literal
+// credentials are diverted to the secret store, so the file drift writes into
+// the project never contains one.
 func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := ValidateMappings(h.Mappings); err != nil {
 		return fmt.Errorf("host %q mappings: %w", h.Name, err)
@@ -37,17 +39,46 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := ValidateMappings(cfg.Mappings); err != nil {
 		return fmt.Errorf("project mappings: %w", err)
 	}
-	hosts := replaceOrAppend(cfg.ProjectHosts, h, oldName)
-	cfg.ProjectHosts = hosts
+
+	_, secret := splitSecret(h, cfg.ProjectRoot)
+	if err := storeSecret(secret, oldName); err != nil {
+		return fmt.Errorf("secret store: %w", err)
+	}
+
+	// The in-memory host keeps its credentials — the session connects with it.
+	cfg.ProjectHosts = replaceOrAppend(cfg.ProjectHosts, h, oldName)
 	rebuildMerged(cfg)
-	return writeProject(ProjectConfig{Defaults: cfg.ProjectDefaults, Hosts: hosts, Mappings: cfg.Mappings}, cfg.ProjectRoot)
+
+	return writeProject(ProjectConfig{
+		Defaults: cfg.ProjectDefaults,
+		Hosts:    strippedHosts(cfg.ProjectHosts, cfg.ProjectRoot),
+		Mappings: cfg.Mappings,
+	}, cfg.ProjectRoot)
 }
 
-// DeleteProjectHost removes a host by name from the project config file.
+// DeleteProjectHost removes a host by name from the project config file and
+// drops its stored credentials.
 func DeleteProjectHost(cfg *MergedConfig, name string) error {
+	if err := deleteSecret(cfg.ProjectRoot, name); err != nil {
+		return fmt.Errorf("secret store: %w", err)
+	}
 	cfg.ProjectHosts = removeHost(cfg.ProjectHosts, name)
 	rebuildMerged(cfg)
-	return writeProject(ProjectConfig{Defaults: cfg.ProjectDefaults, Hosts: cfg.ProjectHosts, Mappings: cfg.Mappings}, cfg.ProjectRoot)
+	return writeProject(ProjectConfig{
+		Defaults: cfg.ProjectDefaults,
+		Hosts:    strippedHosts(cfg.ProjectHosts, cfg.ProjectRoot),
+		Mappings: cfg.Mappings,
+	}, cfg.ProjectRoot)
+}
+
+// strippedHosts is hosts without their literal credentials, ready to be
+// written into the project. The stored copies are written separately.
+func strippedHosts(hosts []Host, projectRoot string) []Host {
+	out := make([]Host, len(hosts))
+	for i, h := range hosts {
+		out[i], _ = splitSecret(h, projectRoot)
+	}
+	return out
 }
 
 // rebuildMerged reconstructs cfg.Hosts from GlobalHosts + ProjectHosts.

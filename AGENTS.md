@@ -110,25 +110,22 @@ its registry slug.
   longest match wins. There is no marker file any more; `cmd/root.go` resolves
   it in `loadAll` and the TUI carries it as `MergedConfig.ProjectSlug`.
 - Registering is what gives a directory hosts, so drift offers it:
-  `registerCandidate` (app.go) picks a leftover `.drift/config.toml` first
-  (it has data to migrate), then an unregistered repository. `project.GitRoot`
-  / `SuggestRoot` supply the suggested path, and `worthStayingIn` (cmd) keeps
-  startup in such a directory instead of reopening the last project.
+  `registerCandidate` (app.go) proposes an unregistered repository,
+  `project.GitRoot` / `SuggestRoot` supply the path, and `worthStayingIn` (cmd)
+  keeps startup in such a directory instead of reopening the last project.
+  `adoptRegisteredProject` reloads the config afterwards, so the new project's
+  store is in reach without a restart.
 - `SaveProjectHost`/`DeleteProjectHost` need that slug and fail without one.
   They start from `projectStoreBase`, which re-reads the store from disk, so a
   save cannot bake `[defaults]` into the other hosts' records.
 - Global hosts still live in `~/.config/drift/config.toml`, so `HostScope`
   stays a real distinction.
 
-`internal/config/legacy.go` is migration-only: it reads the three places drift
-used before (`<project>/.drift/config.toml`, `access.toml`, `secrets.toml`),
-writes the store, and deletes them. `MigrateProjectToStore(root, slug)` reads
-from disk, shares no state with a session, and is idempotent. It needs a slug,
-which is why the register prompt (`shouldPromptRegister` →
-`config.FindLegacyProjectRoot`) comes first for an unregistered directory.
-`gitguard.go` survives only to tell the user that a committed `.drift/config.toml`
-still has the old password in the repository's history. Both files go away once
-no installation has legacy files left.
+There is no migration path left in the code: 0.1.7-alpha was the release that
+moved `<project>/.drift/config.toml`, `secrets.toml` and `access.toml` into the
+store, and this version does not read them. An installation coming from
+0.1.6-alpha or earlier has to pass through 0.1.7-alpha first. `gitguard.go` and
+`legacy.go` are gone with it.
 
 Tests in `internal/config` must never touch the real config directory: its
 `TestMain` points `$XDG_CONFIG_HOME` at a temp dir for the whole package, and

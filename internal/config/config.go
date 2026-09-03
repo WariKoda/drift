@@ -94,12 +94,6 @@ type MergedConfig struct {
 	// found no registered project: there are only global hosts then, and
 	// nothing to write.
 	ProjectSlug string
-
-	// LegacyFiles reports that configuration for this project is still in one
-	// of the places drift used before the store: .drift/config.toml in the
-	// project, access.toml, or secrets.toml. Nothing reads those any more, so
-	// until MigrateProjectToStore moves them the project looks empty.
-	LegacyFiles bool
 }
 
 // MouseEnabled reports whether mouse reporting should be turned on.

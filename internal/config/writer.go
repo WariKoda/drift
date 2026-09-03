@@ -207,11 +207,11 @@ func hostsOut(hosts []Host) []hostOut {
 
 // writeToml encodes v and replaces path atomically: a temporary file in the
 // same directory, then a rename. A crash or a full disk therefore leaves either
-// the old file or the new one, never a truncated one — access.toml holds every
-// project's credentials, and half of it is worse than none.
+// the old file or the new one, never a truncated one — a project store holds
+// that project's credentials, and half of it is worse than none.
 //
-// It also makes two drift instances writing the store at the same time lose one
-// of the two writes instead of interleaving into a broken file.
+// It also makes two drift instances writing the same file lose one of the two
+// writes instead of interleaving into a broken one.
 func writeToml(path string, v any) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(v); err != nil {

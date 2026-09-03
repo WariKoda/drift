@@ -110,9 +110,8 @@ therefore what gives a directory hosts of its own.
 
 drift offers to do it for you. Start it in a repository that no project covers and it asks,
 suggesting the repository root rather than whatever subdirectory you were in — press `y` to
-register, any other key to skip. A directory with a leftover `.drift/config.toml` gets the
-same prompt, and answering `y` registers and migrates in one go. Otherwise:
-`drift projects add .`, or `n` on the dashboard, which prefills the repository root too.
+register, any other key to skip. Otherwise: `drift projects add .`, or `n` on the dashboard,
+which prefills the repository root too.
 
 ### Typical workflow
 
@@ -365,27 +364,21 @@ The trade-off is deliberate: mappings do not travel with a clone. Every develope
 them once per machine, and when someone moves a directory in the repo there is no commit
 that fixes the mapping for everyone.
 
-#### Migrating from an older drift
+#### Coming from 0.1.6-alpha or earlier
 
-Versions up to 0.1.7-alpha kept a `.drift/config.toml` in the project, with credentials
-either in it (before 0.1.6-alpha) or in `~/.config/drift/secrets.toml` and later
-`access.toml`. drift moves all three into the project store on startup and reports it:
+Those versions kept a `.drift/config.toml` in the project, with credentials either in it or
+in `~/.config/drift/secrets.toml`. **0.1.7-alpha is the release that moves all of it into
+the project store**, and it is the only one that can: this version no longer reads those
+files at all.
 
-```
-⚠ Moved 2 hosts into ~/.config/drift/projects/myshop.toml; nothing of drift's is left in the project. git tracked .drift/config.toml, so treat any password in it as leaked and rotate it
-```
+So if you are upgrading from 0.1.6-alpha or earlier, install
+[0.1.7-alpha](https://github.com/WariKoda/drift/releases/tag/v0.1.7-alpha) first and start
+it once in each project — it migrates and reports what it moved — then upgrade to the
+current version. Skipping it leaves your hosts in files nothing reads, and drift will look
+like it has no hosts for those projects.
 
-It needs a registered project to name the store after, so an unregistered directory with a
-leftover `.drift/config.toml` gets the register prompt first; answering `y` registers and
-migrates in one go.
-
-The migration deletes `.drift/config.toml` and, if nothing but drift's own `.gitignore` is
-left beside it, the `.drift/` directory too. A `.drift/` holding anything else stays. If
-that config was ever committed, the password in it is in your repository's history, where
-deleting the file later does not reach it. Rotate it.
-
-`Esc` dismisses the notice. Migration is idempotent, and after it an older drift will no
-longer find the project: its lookup walks up for a file that no longer exists.
+If such a config was ever committed, the password in it is in your repository's history,
+where deleting the file later does not reach it. Rotate it.
 
 
 ---

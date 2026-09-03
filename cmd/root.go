@@ -134,14 +134,10 @@ const (
 // worthStayingIn reports whether the working directory is a place drift should
 // open the browser in rather than jumping to the last project.
 //
-// It belongs to a registered project, or it is one drift can offer to register:
-// a repository, or a directory with a leftover .drift/config.toml that still
-// needs migrating. Jumping away from either would hide the offer.
+// It belongs to a registered project, or it is a repository drift can offer to
+// register. Jumping away from the latter would hide the offer.
 func worthStayingIn(workDir string, cfg *config.MergedConfig, reg *project.Registry) bool {
 	if cfg.ProjectSlug != "" {
-		return true
-	}
-	if root, ok := config.FindLegacyProjectRoot(workDir); ok && !reg.HasPath(root) {
 		return true
 	}
 	root, ok := project.GitRoot(workDir)

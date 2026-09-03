@@ -34,21 +34,9 @@ func makeProjectDir(t *testing.T) string {
 }
 
 func TestRegisterCandidate(t *testing.T) {
-	legacy := makeProjectDir(t)
-	cfg := &config.MergedConfig{ProjectRoot: legacy}
 	emptyReg := &project.Registry{}
 
-	// A leftover .drift/config.toml is offered, because it also needs migrating.
-	if root, ok := registerCandidate(legacy, cfg, emptyReg); !ok || root != legacy {
-		t.Fatalf("registerCandidate for a legacy project = (%q, %v), want (%q, true)", root, ok, legacy)
-	}
-
-	registered := &project.Registry{Projects: []project.Project{{Slug: "x", Path: legacy}}}
-	if _, ok := registerCandidate(legacy, cfg, registered); ok {
-		t.Fatal("a registered path was offered again")
-	}
-
-	// A repository is offered too: registering is what gives it hosts.
+	// A repository is offered: registering is what gives it hosts.
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -57,12 +45,17 @@ func TestRegisterCandidate(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	repoCfg := &config.MergedConfig{ProjectRoot: sub}
-	if root, ok := registerCandidate(sub, repoCfg, emptyReg); !ok || root != repo {
+	cfg := &config.MergedConfig{ProjectRoot: sub}
+	if root, ok := registerCandidate(sub, cfg, emptyReg); !ok || root != repo {
 		t.Fatalf("registerCandidate inside a repository = (%q, %v), want (%q, true)", root, ok, repo)
 	}
 
-	// Neither a repository nor an old config: nothing to offer.
+	registered := &project.Registry{Projects: []project.Project{{Slug: "x", Path: repo}}}
+	if _, ok := registerCandidate(sub, cfg, registered); ok {
+		t.Fatal("a registered repository was offered again")
+	}
+
+	// Not a repository: nothing to offer.
 	plain := t.TempDir()
 	if _, ok := registerCandidate(plain, &config.MergedConfig{ProjectRoot: plain}, emptyReg); ok {
 		t.Fatal("a plain directory was offered for registration")
@@ -74,10 +67,10 @@ func TestRegisterCandidate(t *testing.T) {
 		t.Fatal("a directory inside an open project was offered")
 	}
 
-	if _, ok := registerCandidate(legacy, nil, emptyReg); ok {
+	if _, ok := registerCandidate(sub, nil, emptyReg); ok {
 		t.Fatal("a nil config was offered")
 	}
-	if _, ok := registerCandidate(legacy, cfg, nil); ok {
+	if _, ok := registerCandidate(sub, cfg, nil); ok {
 		t.Fatal("a nil registry was offered")
 	}
 }
@@ -417,106 +410,5 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 	view := ansi.Strip(app.View())
 	if !strings.Contains(view, "KUNDE A") {
 		t.Fatalf("header = %q, want project name", view)
-	}
-}
-
-func TestMigrationNotice(t *testing.T) {
-	safe := migrationNotice(config.MigrationResult{Hosts: 1, ProjectFile: true}, "shop")
-	if !strings.Contains(safe, "Moved 1 host") || !strings.Contains(safe, "projects/shop.toml") {
-		t.Fatalf("notice does not say what moved where: %q", safe)
-	}
-	if strings.Contains(safe, "rotate") {
-		t.Fatalf("an unreachable config asked for a rotation: %q", safe)
-	}
-	if got := migrationNotice(config.MigrationResult{Hosts: 2}, "shop"); !strings.Contains(got, "2 hosts") {
-		t.Fatalf("notice does not pluralise: %q", got)
-	}
-	if got := migrationNotice(config.MigrationResult{}, "shop"); got != "" {
-		t.Fatalf("a migration that moved nothing produced %q", got)
-	}
-
-	tracked := config.MigrationResult{Hosts: 1, ProjectFile: true, Exposure: config.ExposureTracked}
-	if got := migrationNotice(tracked, "shop"); !strings.Contains(got, "rotate") {
-		t.Fatalf("a tracked config produced no rotation advice: %q", got)
-	}
-	untracked := config.MigrationResult{Hosts: 1, ProjectFile: true, Exposure: config.ExposureUntracked}
-	if got := migrationNotice(untracked, "shop"); !strings.Contains(got, "committed") {
-		t.Fatalf("an unignored config produced no history hint: %q", got)
-	}
-	// Nothing was read from the project, so git has nothing to say.
-	fromStore := config.MigrationResult{Hosts: 1, Exposure: config.ExposureTracked}
-	if got := migrationNotice(fromStore, "shop"); strings.Contains(got, "rotate") {
-		t.Fatalf("a migration that read no project file mentioned git: %q", got)
-	}
-}
-
-func TestMigrationNeedsLeftoversAndASlug(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cmd := app.migrateProjectSecrets(); cmd != nil {
-		t.Fatal("a nil config scheduled a migration")
-	}
-
-	app.state.Config = &config.MergedConfig{ProjectRoot: "/work/shop", ProjectSlug: "shop"}
-	if cmd := app.migrateProjectSecrets(); cmd != nil {
-		t.Fatal("a project with nothing left in the old places scheduled a migration")
-	}
-
-	app.state.Config.LegacyFiles = true
-	if cmd := app.migrateProjectSecrets(); cmd == nil {
-		t.Fatal("leftovers in the old places did not schedule a migration")
-	}
-
-	// Without a slug there is no store to write, so the register prompt has to
-	// come first.
-	app.state.Config.ProjectSlug = ""
-	if cmd := app.migrateProjectSecrets(); cmd != nil {
-		t.Fatal("an unregistered project scheduled a migration it cannot finish")
-	}
-}
-
-func TestMigrationNoticeSurvivesKeysUntilEsc(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	app.state.Config = &config.MergedConfig{LegacyFiles: true}
-	app.state.TermWidth, app.state.TermHeight = 200, 24
-
-	res := config.MigrationResult{Hosts: 1, ProjectFile: true, Exposure: config.ExposureTracked}
-	model, _ := app.Update(msgSecretsMigrated{Result: res, Slug: "shop"})
-	app = model.(App)
-	if app.secretWarning == "" {
-		t.Fatal("a completed migration produced no notice")
-	}
-	if app.state.Config.LegacyFiles {
-		t.Fatal("the migration result did not clear LegacyFiles")
-	}
-	if !strings.Contains(ansi.Strip(app.View()), "rotate") {
-		t.Fatal("the notice is not rendered in the status line")
-	}
-
-	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	app = model.(App)
-	if app.secretWarning == "" {
-		t.Fatal("an ordinary key dismissed the notice")
-	}
-
-	model, _ = app.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if model.(App).secretWarning != "" {
-		t.Fatal("esc did not dismiss the notice")
-	}
-}
-
-func TestMigrationErrorIsSurfaced(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	model, _ := app.Update(msgSecretsMigrated{Err: errors.New("disk full")})
-	if got := model.(App).globalError; !strings.Contains(got, "disk full") {
-		t.Fatalf("global error = %q, want the migration failure", got)
 	}
 }

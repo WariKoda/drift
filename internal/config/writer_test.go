@@ -44,6 +44,16 @@ func TestSaveGlobalHostPreservesDefaults(t *testing.T) {
 	}
 }
 
+// hostIndex finds a host by name in a store's host list.
+func hostIndex(hosts []Host, name string) int {
+	for i, h := range hosts {
+		if h.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestSaveProjectHostWritesTheStore(t *testing.T) {
 	isolate(t)
 	cfg := &MergedConfig{ProjectRoot: t.TempDir(), ProjectSlug: "shop"}

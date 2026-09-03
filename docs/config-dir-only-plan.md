@@ -212,6 +212,12 @@ Root ist der git-Root, wenn es einen gibt.
 
 ## Schritt 3 — Aufräumen
 
+> Umgesetzt. Mit dem Legacy-Pfad ist auch das Warnungs-Feld in der Statuszeile
+> gefallen (`secretWarning`), das nur die Migrationsmeldung getragen hat, und
+> `registerCandidate` kennt nur noch unregistrierte Repositories. Neu dazu kam
+> `adoptRegisteredProject`: ohne die Migration danach müsste man nach dem
+> Registrieren neu starten, bevor der Store erreichbar ist.
+
 Weg damit, wenn Schritt 1 und 2 stehen:
 
 - `internal/config/gitguard.go` samt `ProjectConfigExposure` und `HasPlaintextSecret`

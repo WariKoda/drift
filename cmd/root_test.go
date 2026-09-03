@@ -143,18 +143,6 @@ func TestWorthStayingIn(t *testing.T) {
 		t.Fatal("a repository that is registered but not open kept drift in the directory")
 	}
 
-	// A leftover .drift/config.toml: stay, it needs migrating.
-	legacy := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(legacy, ".drift"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(legacy, ".drift", "config.toml"), []byte("# old\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if !worthStayingIn(legacy, &config.MergedConfig{}, empty) {
-		t.Fatal("a directory with an unmigrated config is not worth staying in")
-	}
-
 	// Nothing here: let the last project or the dashboard win.
 	if worthStayingIn(t.TempDir(), &config.MergedConfig{}, empty) {
 		t.Fatal("a plain directory kept drift in the directory")

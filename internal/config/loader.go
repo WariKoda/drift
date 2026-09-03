@@ -46,7 +46,6 @@ func Load(root, slug string) (*MergedConfig, error) {
 
 	merged := merge(global, project, root)
 	merged.ProjectSlug = slug
-	merged.LegacyFiles = hasLegacyFiles(root)
 
 	return merged, nil
 }

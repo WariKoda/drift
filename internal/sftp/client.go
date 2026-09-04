@@ -67,9 +67,16 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 			return nil, fmt.Errorf("connect to %s: %w", addr, err)
 		}
 	}
+	// NewClientConn ignores ctx; closing the TCP conn aborts a stuck handshake.
+	stop := closeWhenCanceled(ctx, tcpConn)
+	defer stop()
 	sshC, chans, reqs, err := gossh.NewClientConn(tcpConn, addr, cfg)
 	if err != nil {
 		tcpConn.Close()
+		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+	}
+	if err := ctx.Err(); err != nil {
+		sshC.Close()
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
 	sshConn := gossh.NewClient(sshC, chans, reqs)
@@ -81,6 +88,20 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	}
 
 	return &Client{sshConn: sshConn, sftp: sftpSession, authClose: authCloser, Host: host}, nil
+}
+
+// closeWhenCanceled closes c when ctx is canceled and returns a stop function
+// that must be called once the caller no longer wants that side effect.
+func closeWhenCanceled(ctx context.Context, c io.Closer) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = c.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
 }
 
 // Close closes both the SFTP session and SSH connection.

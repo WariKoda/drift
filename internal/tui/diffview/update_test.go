@@ -1,11 +1,16 @@
 package diffview
 
 import (
+	"context"
 	"errors"
+	"io"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/fs"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -99,6 +104,51 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 	if len(model.syncErrors) != 1 || model.syncErrors[0] != failure {
 		t.Fatalf("sync errors = %#v, want %#v", model.syncErrors, failure)
 	}
+}
+
+func TestCancelledBulkSyncKeepsCompletedFiles(t *testing.T) {
+	tracker := NewLoadProgressTracker()
+	tracker.Cancel()
+	model := Model{
+		syncing:         true,
+		activityTracker: tracker,
+		sessions:        []diff.Session{{LocalPath: "/project/file.php"}},
+		syncDirs:        []SyncDir{DirUpload},
+	}
+
+	model, cmd := model.Update(MsgBulkSyncDone{Done: 1})
+	if cmd != nil {
+		t.Fatal("cancelled bulk sync started a refresh")
+	}
+	if model.syncing {
+		t.Fatal("cancelled bulk sync left syncing set")
+	}
+	if !strings.Contains(model.syncStatus, "cancelled") || !strings.Contains(model.syncStatus, "1") {
+		t.Fatalf("status = %q, want cancelled with the completed count", model.syncStatus)
+	}
+	if _, _, busy := model.LoadingActivity(); busy {
+		t.Fatal("cancelled bulk sync left the remote connection busy")
+	}
+}
+
+func TestCancelledQuickSyncErrorIsSilent(t *testing.T) {
+	model := Model{
+		quickSyncing: true,
+		sessions:     []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}},
+		syncDirs:     []SyncDir{DirUpload},
+	}
+
+	model, _ = model.Update(MsgSyncError{Err: contextCanceled()})
+	if model.quickSyncing {
+		t.Fatal("cancelled quick-sync state remained active")
+	}
+	if model.sessions[0].Err != nil {
+		t.Fatal("cancelled quick sync recorded an error on the session")
+	}
+}
+
+func contextCanceled() error {
+	return context.Canceled
 }
 
 func TestBulkSyncAndRefreshBlockQuickSync(t *testing.T) {
@@ -514,3 +564,38 @@ func clampedHeader(lines []diff.DiffLine, height int) int {
 func keyMsg(key string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }
+
+func TestBulkSyncCmdSkipsRemainingAfterCancel(t *testing.T) {
+	tracker := NewLoadProgressTracker()
+	tracker.Cancel()
+	conn := &countingRemote{}
+	model := Model{
+		sessions: []diff.Session{
+			{RemotePath: "/a"},
+			{RemotePath: "/b"},
+		},
+		syncDirs:     []SyncDir{DirDeleteRemote, DirDeleteRemote},
+		conn:         conn,
+		syncProgress: tracker,
+	}
+
+	msg := model.bulkSyncCmd([]int{0, 1})()
+	done, ok := msg.(MsgBulkSyncDone)
+	if !ok {
+		t.Fatalf("got %T, want MsgBulkSyncDone", msg)
+	}
+	if done.Done != 0 || conn.deletes != 0 {
+		t.Fatalf("cancelled sync still ran (done=%d deletes=%d)", done.Done, conn.deletes)
+	}
+}
+
+type countingRemote struct{ deletes int }
+
+func (c *countingRemote) Stat(string) (os.FileInfo, error)           { return nil, errors.New("unused") }
+func (c *countingRemote) ReadDir(string) ([]*fs.FileEntry, error)    { return nil, errors.New("unused") }
+func (c *countingRemote) Open(string) (io.ReadCloser, error)         { return nil, errors.New("unused") }
+func (c *countingRemote) ReadFile(string) ([]byte, error)            { return nil, errors.New("unused") }
+func (c *countingRemote) Upload(string, io.Reader) error             { return errors.New("unused") }
+func (c *countingRemote) WalkFiles(string, func(string) error) error { return errors.New("unused") }
+func (c *countingRemote) DeleteFile(string) error                    { c.deletes++; return nil }
+func (c *countingRemote) Close() error                               { return nil }

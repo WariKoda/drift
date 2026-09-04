@@ -9,6 +9,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -66,6 +67,8 @@ type Model struct {
 	remoteReading        bool
 	remotePreviewReading bool
 	remoteStatus         string
+	remoteLoadID         uint64
+	remoteTracker        *loading.Tracker
 
 	// status message (transient)
 	statusMsg string
@@ -129,14 +132,27 @@ func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
 }
 
 // LoadingActivity reports an in-flight remote connection/root listing.
-func (m Model) LoadingActivity() (string, bool) {
+func (m Model) LoadingActivity() (string, *loading.Tracker, bool) {
 	if !m.remoteLoading {
-		return "", false
+		return "", nil, false
 	}
 	if m.remoteHost == nil {
-		return "Connecting to remote…", true
+		return "Connecting to remote…", m.remoteTracker, true
 	}
-	return "Connecting to " + m.remoteHost.Name + "…", true
+	return "Connecting to " + m.remoteHost.Name + "…", m.remoteTracker, true
+}
+
+// CancelRemote aborts an in-flight root listing and ignores its result.
+func (m *Model) CancelRemote() {
+	if m.remoteTracker != nil {
+		m.remoteTracker.Cancel()
+	}
+	m.remoteLoadID++
+	if !m.remoteLoading {
+		return
+	}
+	m.remoteLoading = false
+	m.remoteStatus = "Cancelled"
 }
 
 // SetSize updates terminal dimensions.

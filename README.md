@@ -22,6 +22,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Bulk sync direction toggle (A key cycles all files at once)
 - Auto pre-selection of sync direction based on file modification time
 - Sync current file (s) or all marked files (S) in one keystroke
+- Esc hides a running connect or sync; `q` / `Ctrl+C` cancel it. Files already transferred stay; the rest is skipped
 - Per-host path mappings (like PHPStorm's Deployment Mappings tab)
 - Host manager: create, edit, delete, and test connections
 - Nothing is written into your project: global hosts in `~/.config/drift/config.toml`, per-project hosts and mappings in `~/.config/drift/projects/<slug>.toml`
@@ -171,7 +172,9 @@ which prefills the repository root too.
 | `H` | Open host manager |
 | `P` | Switch project (filterable picker; `m` opens the dashboard) |
 | `Esc` | Clear filter and selections |
-| `q` / `Ctrl+C` | Quit |
+| `q` / `Ctrl+C` | Quit (cancels a running connect or sync first) |
+
+While a connect or sync overlay is up, `Esc` hides it (the work keeps going, with `[q] cancel` on the status line) and `q` / `Ctrl+C` abort it. Already-transferred files are kept.
 
 ### Diff View
 

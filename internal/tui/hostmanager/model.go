@@ -3,6 +3,7 @@ package hostmanager
 
 import (
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,8 +26,10 @@ type Model struct {
 	deleteTarget  entry
 
 	// connection test
-	testing    bool   // true while async test is in flight
-	testTarget string // host name being tested
+	testing     bool   // true while async test is in flight
+	testTarget  string // host name being tested
+	testID      uint64
+	testTracker *loading.Tracker
 
 	// status line
 	statusMsg string
@@ -49,8 +52,21 @@ func New(cfg *config.MergedConfig, width, height int) Model {
 func (m Model) Init() tea.Cmd { return nil }
 
 // Testing reports whether a connection test is in flight.
-func (m Model) Testing() (string, bool) {
-	return m.testTarget, m.testing
+func (m Model) Testing() (string, *loading.Tracker, bool) {
+	return m.testTarget, m.testTracker, m.testing
+}
+
+// CancelTest aborts an in-flight connection test and ignores its result.
+func (m *Model) CancelTest() {
+	if m.testTracker != nil {
+		m.testTracker.Cancel()
+	}
+	m.testID++
+	if !m.testing {
+		return
+	}
+	m.testing = false
+	m.statusMsg = "Cancelled"
 }
 
 // StartsNetworkOperation reports whether key would start a connection test.

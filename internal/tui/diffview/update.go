@@ -5,6 +5,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -26,10 +27,22 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case MsgBulkSyncDone:
+		canceled := m.activityTracker.Canceled()
 		m.syncing = false
 		m.syncProgress = nil
 		m.syncErrors = msg.Errors
-		log.Info("bulk sync done", "done", msg.Done, "errors", len(msg.Errors))
+		log.Info("bulk sync done", "done", msg.Done, "errors", len(msg.Errors), "cancelled", canceled)
+		if canceled {
+			if len(msg.Errors) == 0 {
+				m.syncStatus = fmt.Sprintf("cancelled — %d file(s) synced", msg.Done)
+				m.showErrors = false
+			} else {
+				m.syncStatus = fmt.Sprintf("cancelled — ✓ %d  ✗ %d — [e] to view", msg.Done, len(msg.Errors))
+				m.showErrors = true
+			}
+			m.finishActivity()
+			return m, nil
+		}
 		if len(msg.Errors) == 0 {
 			m.syncStatus = fmt.Sprintf("✓ synced %d file(s)", msg.Done)
 			m.showErrors = false
@@ -70,6 +83,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case MsgSessionReloaded:
 		reloadedActiveSession := msg.SessionIdx == m.activeIdx
+		if loading.IsCanceled(msg.Err) {
+			m.quickSyncing = false
+			m.finishActivity()
+			return m, nil
+		}
 		if msg.SessionIdx >= 0 && msg.SessionIdx < len(m.sessions) {
 			m.sessions[msg.SessionIdx].Result = msg.Result
 			m.sessions[msg.SessionIdx].Err = msg.Err
@@ -84,6 +102,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case MsgSyncError:
 		m.quickSyncing = false
 		m.finishActivity()
+		if loading.IsCanceled(msg.Err) {
+			return m, nil
+		}
 		log.Error("sync error", "err", msg.Err)
 		if s := m.activeSession(); s != nil {
 			s.Err = msg.Err

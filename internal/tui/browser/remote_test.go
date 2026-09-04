@@ -115,6 +115,28 @@ func TestRemotePreviewWaitsForDirectoryRead(t *testing.T) {
 	}
 }
 
+func TestCancelRemoteIgnoresStaleResult(t *testing.T) {
+	model := Model{
+		remoteHost:      &config.Host{Name: "staging"},
+		remoteLoading:   true,
+		remoteLoadID:    1,
+		Selection:       fs.NewSelectionState(),
+		RemoteSelection: fs.NewSelectionState(),
+	}
+	model.CancelRemote()
+	if model.remoteLoading {
+		t.Fatal("cancel left the remote pane loading")
+	}
+
+	model.applyRemoteLoaded(MsgRemoteLoaded{
+		Host: config.Host{Name: "staging"},
+		ID:   1,
+	})
+	if model.remoteConn != nil {
+		t.Fatal("cancelled connect still installed a connection")
+	}
+}
+
 func TestRemoteBrowserBlocksConnectionReplacementDuringPreviewRead(t *testing.T) {
 	model := Model{
 		activePane:           PaneRemote,

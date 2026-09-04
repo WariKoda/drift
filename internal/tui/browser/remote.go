@@ -10,6 +10,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -20,6 +21,7 @@ type MsgRemoteLoaded struct {
 	Conn    remote.Client
 	Entries []*fs.FileEntry
 	Err     error
+	ID      uint64
 }
 
 // MsgRemoteChildrenLoaded is emitted after expanding a remote directory.
@@ -48,30 +50,37 @@ func (m *Model) StartRemote(host config.Host) tea.Cmd {
 	m.remoteReading = false
 	m.remoteStatus = "Connecting to " + host.Name + "…"
 	m.activePane = PaneRemote
-	return loadRemoteCmd(host)
+	m.remoteLoadID++
+	id := m.remoteLoadID
+	m.remoteTracker = loading.NewTracker(m.remoteStatus)
+	return loadRemoteCmd(host, m.remoteTracker.Context(), id)
 }
 
-func loadRemoteCmd(host config.Host) tea.Cmd {
+func loadRemoteCmd(host config.Host, parent context.Context, id uint64) tea.Cmd {
 	return func() tea.Msg {
 		root := remoteRoot(host)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
 
 		conn, err := remote.Connect(ctx, host)
 		if err != nil {
 			log.Error("remote browser connect failed", "host", host.Name, "hostname", host.Hostname, "err", err)
-			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("connect to %s: %w", host.Hostname, err)}
+			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("connect to %s: %w", host.Hostname, err), ID: id}
+		}
+		if err := ctx.Err(); err != nil {
+			_ = conn.Close()
+			return MsgRemoteLoaded{Host: host, Root: root, Err: err, ID: id}
 		}
 		entries, err := conn.ReadDir(root)
 		if err != nil {
 			log.Error("remote browser root read failed", "host", host.Name, "remote", root, "err", err)
 			_ = conn.Close()
-			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("read %s: %w", root, err)}
+			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("read %s: %w", root, err), ID: id}
 		}
 		for _, e := range entries {
 			e.Depth = 0
 		}
-		return MsgRemoteLoaded{Host: host, Root: root, Conn: conn, Entries: entries}
+		return MsgRemoteLoaded{Host: host, Root: root, Conn: conn, Entries: entries, ID: id}
 	}
 }
 
@@ -94,14 +103,21 @@ func remoteRoot(host config.Host) string {
 }
 
 func (m *Model) applyRemoteLoaded(msg MsgRemoteLoaded) {
-	// Ignore stale connection results after the user picked another host.
-	if m.remoteHost == nil || m.remoteHost.Name != msg.Host.Name {
+	// Ignore stale connection results after the user picked another host or cancelled.
+	if msg.ID != m.remoteLoadID || m.remoteHost == nil || m.remoteHost.Name != msg.Host.Name {
 		if msg.Conn != nil {
 			_ = msg.Conn.Close()
 		}
 		return
 	}
 	m.remoteLoading = false
+	m.remoteTracker = nil
+	if loading.IsCanceled(msg.Err) {
+		m.remoteConn = nil
+		m.remoteEntries = nil
+		m.remoteStatus = "Cancelled"
+		return
+	}
 	if msg.Err != nil {
 		m.remoteConn = nil
 		m.remoteEntries = nil

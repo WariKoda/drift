@@ -8,6 +8,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -15,20 +16,21 @@ import (
 type MsgTestResult struct {
 	HostName string
 	Err      error
+	ID       uint64
 }
 
 // testCmd dials SSH+SFTP for host and immediately closes, returning the result.
-func testCmd(host config.Host) tea.Cmd {
+func testCmd(host config.Host, parent context.Context, id uint64) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 		defer cancel()
 		conn, err := remote.Connect(ctx, host)
 		if err != nil {
 			log.Error("host connection test failed", "host", host.Name, "hostname", host.Hostname, "err", err)
-			return MsgTestResult{HostName: host.Name, Err: err}
+			return MsgTestResult{HostName: host.Name, Err: err, ID: id}
 		}
 		conn.Close()
-		return MsgTestResult{HostName: host.Name}
+		return MsgTestResult{HostName: host.Name, ID: id}
 	}
 }
 
@@ -55,8 +57,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.Height = msg.Height
 
 	case MsgTestResult:
+		if msg.ID != m.testID {
+			return m, nil
+		}
 		m.testing = false
-		if msg.Err != nil {
+		m.testTracker = nil
+		if loading.IsCanceled(msg.Err) {
+			m.statusMsg = "Cancelled"
+		} else if msg.Err != nil {
 			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.HostName, msg.Err.Error())
 		} else {
 			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.HostName)
@@ -127,8 +135,11 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if e != nil && !m.testing {
 			m.testing = true
 			m.testTarget = e.host.Name
+			m.testID++
+			id := m.testID
+			m.testTracker = loading.NewTracker("Testing " + e.host.Name + "…")
 			m.statusMsg = ""
-			return m, testCmd(e.host)
+			return m, testCmd(e.host, m.testTracker.Context(), id)
 		}
 
 	case "esc", "q":

@@ -169,6 +169,37 @@ func (a *App) finishNetworkActivity(kind networkActivity) {
 	a.activity = activityNone
 }
 
+func isActivityCancelKey(key tea.KeyMsg) bool {
+	switch key.String() {
+	case "ctrl+c", "q":
+		return true
+	default:
+		return false
+	}
+}
+
+// cancelNetworkActivity stops the current connect/sync. Files already written
+// stay written; remaining work is skipped. Late results are discarded.
+func (a *App) cancelNetworkActivity() {
+	if !a.loader.Active() {
+		return
+	}
+	kind := a.activity
+	log.Info("cancelled network activity")
+	a.loader.Cancel()
+	a.activity = activityNone
+	switch kind {
+	case activityDiffLoad:
+		a.diffRequest = 0
+	case activityRemoteLoad:
+		a.browser.CancelRemote()
+	case activityHostTest:
+		a.hostManager.CancelTest()
+	case activityDiffView:
+		a.diffView.CancelActivity()
+	}
+}
+
 // beginDiffRequest issues the ID for a new diff request and makes it the only
 // one whose result the app will accept.
 func (a *App) beginDiffRequest() uint64 {
@@ -184,7 +215,10 @@ func (a *App) abandonDiffRequest() {
 		return
 	}
 	a.diffRequest = 0
-	a.finishNetworkActivity(activityDiffLoad)
+	if a.activity == activityDiffLoad {
+		a.loader.Cancel()
+		a.activity = activityNone
+	}
 }
 
 // acceptsDiffResult reports whether a result with requestID belongs to the
@@ -389,8 +423,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if key, ok := msg.(tea.KeyMsg); ok {
-		if a.loader.Active() && key.String() == "ctrl+c" {
-			return a, tea.Quit
+		if a.loader.Active() && isActivityCancelKey(key) {
+			a.cancelNetworkActivity()
+			return a, nil
 		}
 		if a.loader.Visible() {
 			if key.String() == "esc" {
@@ -562,7 +597,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenBrowser
 		if a.state.HostSelectorPurpose == HostSelectorForRemoteBrowse {
 			cmd := a.browser.StartRemote(h)
-			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", nil))
+			_, tracker, _ := a.browser.LoadingActivity()
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
 		tracker := diffview.NewLoadProgressTracker()
 		return a, tea.Batch(
@@ -577,7 +613,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case browser.MsgRemoteLoaded:
 		a.finishNetworkActivity(activityRemoteLoad)
-		if msg.Err != nil {
+		if msg.Err != nil && !loading.IsCanceled(msg.Err) {
 			a.globalError = msg.Err.Error()
 		}
 		var cmd tea.Cmd
@@ -635,7 +671,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.diffRequest = 0
 		a.finishNetworkActivity(activityDiffLoad)
-		a.globalError = "Diff comparison failed: " + msg.Err.Error()
+		if !loading.IsCanceled(msg.Err) {
+			a.globalError = "Diff comparison failed: " + msg.Err.Error()
+		}
 		return a, nil
 
 	// ── Diff view → back to browser ───────────────────────────────────
@@ -649,7 +687,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.state.SelectedHost != nil {
 			h := *a.state.SelectedHost
 			cmd := a.browser.StartRemote(h)
-			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", nil))
+			_, tracker, _ := a.browser.LoadingActivity()
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
 		return a, nil
 
@@ -665,7 +704,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case hostmanager.MsgTestResult:
 		a.finishNetworkActivity(activityHostTest)
-		if msg.Err != nil {
+		if msg.Err != nil && !loading.IsCanceled(msg.Err) {
 			a.globalError = "Connection test failed: " + msg.Err.Error()
 		}
 		var cmd tea.Cmd
@@ -750,12 +789,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.projectSel, cmd = a.projectSel.Update(msg)
 		return a, cmd
 	case ScreenBrowser:
-		_, wasLoading := a.browser.LoadingActivity()
+		_, _, wasLoading := a.browser.LoadingActivity()
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
-		label, isLoading := a.browser.LoadingActivity()
+		label, tracker, isLoading := a.browser.LoadingActivity()
 		if !wasLoading && isLoading && !a.loader.Active() {
-			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, label, nil))
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, label, tracker))
 		}
 		return a, cmd
 	case ScreenHostSelector:
@@ -763,12 +802,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hostSel, cmd = a.hostSel.Update(msg)
 		return a, cmd
 	case ScreenHostManager:
-		_, wasTesting := a.hostManager.Testing()
+		_, _, wasTesting := a.hostManager.Testing()
 		var cmd tea.Cmd
 		a.hostManager, cmd = a.hostManager.Update(msg)
-		target, isTesting := a.hostManager.Testing()
+		target, tracker, isTesting := a.hostManager.Testing()
 		if !wasTesting && isTesting && !a.loader.Active() {
-			return a, tea.Batch(cmd, a.startNetworkActivity(activityHostTest, "Testing "+target+"…", nil))
+			return a, tea.Batch(cmd, a.startNetworkActivity(activityHostTest, "Testing "+target+"…", tracker))
 		}
 		return a, cmd
 	case ScreenHostForm:
@@ -788,9 +827,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch result := msg.(type) {
 		case diffview.MsgSyncError:
-			a.globalError = result.Err.Error()
+			if !loading.IsCanceled(result.Err) {
+				a.globalError = result.Err.Error()
+			}
 		case diffview.MsgSessionReloaded:
-			if result.Err != nil {
+			if result.Err != nil && !loading.IsCanceled(result.Err) {
 				a.globalError = "Diff refresh failed: " + result.Err.Error()
 			}
 		case diffview.MsgRefreshed:
@@ -867,7 +908,7 @@ func (a App) View() string {
 	}
 	if a.loader.BackgroundVisible() {
 		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,
-			"⏳ "+a.loader.Status()+" — running in background", false)
+			"⏳ "+a.loader.Status()+" — running in background  [q] cancel", false)
 	}
 	if a.globalError != "" {
 		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,

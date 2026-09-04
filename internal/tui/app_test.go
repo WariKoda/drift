@@ -16,6 +16,7 @@ import (
 	"github.com/WariKoda/drift/internal/tui/dashboard"
 	"github.com/WariKoda/drift/internal/tui/diffview"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
+	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/projectselector"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -75,27 +76,61 @@ func TestRegisterCandidate(t *testing.T) {
 	}
 }
 
-func TestActiveNetworkOperationBlocksQuitAndSecondOperation(t *testing.T) {
+func TestActiveNetworkOperationBlocksSecondOperation(t *testing.T) {
 	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	app.startNetworkActivity(activityHostTest, "Testing host…", nil)
 
-	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
-	if cmd != nil {
-		t.Fatal("q was not blocked during a network operation")
-	}
-	app = model.(App)
-	model, cmd = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
+	model, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
 	if cmd != nil {
 		t.Fatal("a second network operation was not blocked")
 	}
 
 	app = model.(App)
-	_, cmd = app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !app.loader.Active() {
+		t.Fatal("blocked key finished the network activity")
+	}
+}
+
+func TestNetworkActivityCancelStopsLoader(t *testing.T) {
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune("q")},
+		{Type: tea.KeyCtrlC},
+	} {
+		t.Run(key.String(), func(t *testing.T) {
+			app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tracker := loading.NewTracker("Testing host…")
+			app.startNetworkActivity(activityHostTest, "Testing host…", tracker)
+
+			model, cmd := app.Update(key)
+			if cmd != nil {
+				t.Fatal("cancel returned a command")
+			}
+			next := model.(App)
+			if next.loader.Active() {
+				t.Fatal("cancel left the loader running")
+			}
+			if !tracker.Canceled() {
+				t.Fatal("cancel did not abort the tracker")
+			}
+		})
+	}
+}
+
+func TestCtrlCQuitsWhenIdle(t *testing.T) {
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
-		t.Fatal("Ctrl+C did not quit during a network operation")
+		t.Fatal("Ctrl+C did not quit when idle")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatal("Ctrl+C command did not return tea.QuitMsg")

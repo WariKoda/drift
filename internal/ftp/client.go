@@ -56,11 +56,19 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
+	if err := ctx.Err(); err != nil {
+		_ = conn.Quit()
+		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+	}
 
 	pass := os.ExpandEnv(host.Auth.Password)
 	if err := conn.Login(host.User, pass); err != nil {
 		_ = conn.Quit()
 		return nil, fmt.Errorf("login to %s: %w", addr, err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = conn.Quit()
+		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
 
 	return &Client{conn: conn, Host: host}, nil

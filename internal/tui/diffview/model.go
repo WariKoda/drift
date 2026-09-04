@@ -206,6 +206,14 @@ func (m Model) LoadingActivity() (string, *LoadProgressTracker, bool) {
 	return m.activityLabel, m.activityTracker, m.remoteBusy()
 }
 
+// CancelActivity asks an in-flight sync, refresh, or upload to stop. Work
+// already written is kept; remaining files are left alone.
+func (m *Model) CancelActivity() {
+	if m.activityTracker != nil {
+		m.activityTracker.Cancel()
+	}
+}
+
 func (m *Model) beginActivity(label string, total int) *LoadProgressTracker {
 	tracker := loading.NewTracker(label)
 	if total > 0 {
@@ -559,7 +567,7 @@ func (m *Model) scrollToFirstDifference() {
 func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker) tea.Cmd {
 	return func() tea.Msg {
 		defer progress.Finish()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
 		defer cancel()
 
 		root, err := fs.OpenRoot(cfg.ProjectRoot)
@@ -572,6 +580,14 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		conn := existingConn
+		openedConn := false
+		abort := func(err error) tea.Msg {
+			if openedConn && conn != nil {
+				_ = conn.Close()
+			}
+			_ = root.Close()
+			return MsgDiffError{RequestID: requestID, Host: host, Err: err}
+		}
 		if conn == nil {
 			progress.Set("Connecting…", 0, 0, true)
 			conn, err = remote.Connect(ctx, host)
@@ -584,7 +600,11 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 					Err:       fmt.Errorf("connect to %s: %w", host.Hostname, err),
 				}
 			}
+			openedConn = true
 			log.Info("remote connect", "host", host.Name, "hostname", host.Hostname)
+		}
+		if err := ctx.Err(); err != nil {
+			return abort(err)
 		}
 
 		progress.Set("Scanning selections…", 0, 0, true)
@@ -608,6 +628,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		for _, localPath := range sortedMarkedPaths(localSel) {
+			if err := ctx.Err(); err != nil {
+				return abort(err)
+			}
 			info, statErr := root.Stat(localPath)
 			if statErr != nil {
 				addError(localPath, "", statErr)
@@ -661,6 +684,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		for _, remotePath := range sortedMarkedPaths(remoteSel) {
+			if err := ctx.Err(); err != nil {
+				return abort(err)
+			}
 			localPath, mapErr := mapper.RemoteToLocal(remotePath)
 			if mapErr != nil {
 				addError("", remotePath, mapErr)
@@ -721,10 +747,19 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			}
 		}
 
+		if err := ctx.Err(); err != nil {
+			return abort(err)
+		}
+
+		sessions := loadDiffItems(root, host, conn, items, progress)
+		if err := ctx.Err(); err != nil {
+			return abort(err)
+		}
+
 		return MsgDiffLoaded{
 			RequestID: requestID,
 			Host:      host,
-			Sessions:  loadDiffItems(root, host, conn, items, progress),
+			Sessions:  sessions,
 			Conn:      conn,
 			Root:      root,
 		}
@@ -782,6 +817,9 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 	var wg stdsync.WaitGroup
 	work := func(workerConn remote.Client) {
 		for idx := range jobCh {
+			if progress.Canceled() {
+				continue
+			}
 			fn(idx, workerConn)
 			if progress != nil {
 				progress.Inc()
@@ -803,7 +841,7 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 				work(conn)
 				return
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
 			defer cancel()
 			extraConn, err := remote.Connect(ctx, host)
 			if err != nil {
@@ -817,6 +855,9 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 	}
 
 	for _, idx := range jobs {
+		if progress.Canceled() {
+			break
+		}
 		jobCh <- idx
 	}
 	close(jobCh)
@@ -927,6 +968,9 @@ func (m Model) uploadCmd(idx int) tea.Cmd {
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
+		if tracker.Canceled() {
+			return MsgSyncError{Err: context.Canceled}
+		}
 		if err := uploadFile(conn, root, s.LocalPath, s.RemotePath); err != nil {
 			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
@@ -943,6 +987,9 @@ func (m Model) downloadCmd(idx int) tea.Cmd {
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
+		if tracker.Canceled() {
+			return MsgSyncError{Err: context.Canceled}
+		}
 		if err := downloadFile(conn, root, s.RemotePath, s.LocalPath); err != nil {
 			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
 			return MsgSyncError{Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
@@ -963,6 +1010,9 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 		done := 0
 		var errs []SyncFailure
 		for _, i := range indices {
+			if tracker.Canceled() {
+				break
+			}
 			if i >= len(sessions) || i >= len(syncDirs) {
 				tracker.Inc()
 				continue
@@ -1024,7 +1074,7 @@ func (m Model) refreshCmd() tea.Cmd {
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
-		refreshed := make([]diff.Session, len(sessions))
+		refreshed := append([]diff.Session(nil), sessions...)
 		jobs := make([]int, len(sessions))
 		for i := range sessions {
 			jobs[i] = i
@@ -1055,6 +1105,9 @@ func (m Model) reloadSessionCmd(idx int) tea.Cmd {
 	tracker := m.activityTracker
 	return func() tea.Msg {
 		defer tracker.Finish()
+		if tracker.Canceled() {
+			return MsgSessionReloaded{SessionIdx: idx, Result: s.Result, Err: context.Canceled}
+		}
 		result, err := diff.Compare(root, s.LocalPath, s.RemotePath, conn)
 		if err != nil {
 			log.Error("diff refresh failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)

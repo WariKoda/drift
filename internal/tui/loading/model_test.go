@@ -79,7 +79,36 @@ func TestOverlayKeepsTerminalDimensionsAndBackground(t *testing.T) {
 	if !strings.Contains(plain, "visible background") {
 		t.Fatal("overlay removed the underlying view")
 	}
-	if !strings.Contains(plain, "Comparing files…") || !strings.Contains(plain, "[Esc] hide") {
+	if !strings.Contains(plain, "Comparing files…") || !strings.Contains(plain, "[Esc] hide") || !strings.Contains(plain, "[q] cancel") {
 		t.Fatal("overlay does not contain its activity content")
+	}
+}
+
+func TestCancelStopsTrackerAndClearsIndicator(t *testing.T) {
+	tracker := NewTracker("Connecting…")
+	var model Model
+	model.Start("Connecting…", tracker)
+	model.Update(showMsg{id: model.id})
+
+	model.Cancel()
+	if !tracker.Canceled() {
+		t.Fatal("cancel did not abort the tracker")
+	}
+	if model.Active() || model.Visible() || model.BackgroundVisible() {
+		t.Fatal("cancelled indicator remained visible")
+	}
+}
+
+func TestHideDoesNotCancelTracker(t *testing.T) {
+	tracker := NewTracker("Connecting…")
+	var model Model
+	model.Start("Connecting…", tracker)
+	model.Update(showMsg{id: model.id})
+	model.Hide()
+	if tracker.Canceled() {
+		t.Fatal("hide aborted the tracker")
+	}
+	if !model.BackgroundVisible() {
+		t.Fatal("hidden indicator did not stay active in the background")
 	}
 }

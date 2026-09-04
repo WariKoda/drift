@@ -2,6 +2,8 @@
 package loading
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,13 +27,55 @@ type Tracker struct {
 	mu       sync.Mutex
 	progress Progress
 	done     bool
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewTracker creates an indeterminate tracker with the given initial phase.
 func NewTracker(phase string) *Tracker {
-	t := &Tracker{}
+	ctx, cancel := context.WithCancel(context.Background())
+	t := &Tracker{ctx: ctx, cancel: cancel}
 	t.Set(phase, 0, 0, true)
 	return t
+}
+
+// Context is canceled when the user aborts the operation.
+func (t *Tracker) Context() context.Context {
+	if t == nil {
+		return context.Background()
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ctx == nil {
+		return context.Background()
+	}
+	return t.ctx
+}
+
+// Cancel asks the running operation to stop. Already-finished work is kept.
+func (t *Tracker) Cancel() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	cancel := t.cancel
+	t.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// Canceled reports whether Cancel has been called.
+func (t *Tracker) Canceled() bool {
+	if t == nil {
+		return false
+	}
+	return t.Context().Err() != nil
+}
+
+// IsCanceled reports whether err is a user abort rather than a real failure.
+func IsCanceled(err error) bool {
+	return err != nil && errors.Is(err, context.Canceled)
 }
 
 // Set replaces the current progress values.
@@ -91,6 +135,9 @@ type tickMsg struct{ id uint64 }
 
 // Start begins a new activity and schedules its delayed display.
 func (m *Model) Start(label string, tracker *Tracker) tea.Cmd {
+	if tracker == nil {
+		tracker = NewTracker(label)
+	}
 	m.id++
 	m.active = true
 	m.visible = false
@@ -99,9 +146,7 @@ func (m *Model) Start(label string, tracker *Tracker) tea.Cmd {
 	m.tracker = tracker
 	m.frame = 0
 	m.progress = Progress{Phase: label, Indeterminate: true}
-	if tracker != nil {
-		m.progress, _ = tracker.Snapshot()
-	}
+	m.progress, _ = tracker.Snapshot()
 	id := m.id
 	return tea.Tick(showDelay, func(time.Time) tea.Msg { return showMsg{id: id} })
 }
@@ -122,6 +167,17 @@ func (m *Model) Finish() {
 func (m *Model) Hide() {
 	m.visible = false
 }
+
+// Cancel aborts the running operation and clears the indicator immediately.
+func (m *Model) Cancel() {
+	if m.tracker != nil {
+		m.tracker.Cancel()
+	}
+	m.Finish()
+}
+
+// Tracker returns the tracker for the current activity, if any.
+func (m Model) Tracker() *Tracker { return m.tracker }
 
 // Update advances delayed display, spinner animation, and tracked progress.
 func (m *Model) Update(msg tea.Msg) tea.Cmd {

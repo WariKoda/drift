@@ -76,7 +76,7 @@ func TestRegisterCandidate(t *testing.T) {
 }
 
 func TestActiveNetworkOperationBlocksQuitAndSecondOperation(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestActiveNetworkOperationBlocksQuitAndSecondOperation(t *testing.T) {
 }
 
 func TestBackgroundErrorIsShownInCurrentView(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser)
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func loadingApp(t *testing.T, projectDir string, reg *project.Registry, host con
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(projectDir, cfg, nil, reg, ScreenBrowser)
+	app, err := New(projectDir, cfg, nil, reg, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func storedApp(t *testing.T, projectDir string, reg *project.Registry, host conf
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(projectDir, cfg, store, reg, ScreenBrowser)
+	app, err := New(projectDir, cfg, store, reg, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(dir, cfg, store, reg, ScreenBrowser)
+	app, err := New(dir, cfg, store, reg, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}

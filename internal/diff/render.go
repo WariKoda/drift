@@ -215,6 +215,9 @@ func expandTabs(r []rune, tabWidth int) []rune {
 	var out []rune
 	col := 0
 	for _, c := range r {
+		if c == '\r' {
+			continue
+		}
 		if c == '\t' {
 			spaces := tabWidth - (col % tabWidth)
 			for i := 0; i < spaces; i++ {

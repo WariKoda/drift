@@ -37,15 +37,16 @@ const (
 
 // App is the root bubbletea Model.
 type App struct {
-	state       AppState
-	browser     browser.Model
-	hostManager hostmanager.Model
-	hostForm    hostform.Model
-	hostSel     hostselector.Model
-	diffView    diffview.Model
-	loader      loading.Model
-	activity    networkActivity
-	globalError string
+	state        AppState
+	browser      browser.Model
+	hostManager  hostmanager.Model
+	hostForm     hostform.Model
+	hostSel      hostselector.Model
+	diffView     diffview.Model
+	loader       loading.Model
+	activity     networkActivity
+	globalError  string
+	mouseEnabled bool
 
 	dashboard   dashboard.Model
 	projectForm projectform.Model
@@ -67,15 +68,16 @@ type App struct {
 // starts on the project dashboard; otherwise it opens the file browser in
 // workDir (the classic behaviour). store and reg may be nil when the registry
 // is unavailable — the dashboard is then simply unreachable.
-func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *project.Registry, initial Screen) (App, error) {
+func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *project.Registry, initial Screen, mouseEnabled bool) (App, error) {
 	a := App{
 		state: AppState{
 			Screen:     initial,
 			WorkingDir: workDir,
 			Config:     cfg,
 		},
-		store:    store,
-		registry: reg,
+		store:        store,
+		registry:     reg,
+		mouseEnabled: mouseEnabled,
 	}
 
 	if initial == ScreenDashboard {
@@ -88,6 +90,7 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 		return App{}, err
 	}
 	a.browser = b
+	a.browser.SetMouseEnabled(mouseEnabled)
 	a.state.Selection = b.Selection
 	a.state.RemoteSelection = b.RemoteSelection
 	a.bindActiveProject(workDir, cfg)
@@ -227,6 +230,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	}
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
 	b.SetProjectName(p.Name)
+	b.SetMouseEnabled(a.mouseEnabled)
 
 	a.browser = b
 	a.state.Config = cfg

@@ -228,7 +228,11 @@ func lineDiff(local, remote string) []DiffLine {
 }
 
 // splitLines splits text into lines, discarding a trailing empty line.
+// CRLF and bare CR are normalised first: a leftover '\r' printed in the TUI
+// sends the cursor back to column 0 and punches holes in the layout.
 func splitLines(s string) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
 	lines := strings.Split(s, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]

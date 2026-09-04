@@ -74,8 +74,7 @@ type filePreview struct {
 
 func (m *Model) togglePreview() tea.Cmd {
 	if m.preview.active {
-		m.disablePreview()
-		return nil
+		return m.disablePreview()
 	}
 
 	generation := m.preview.generation + 1
@@ -85,15 +84,24 @@ func (m *Model) togglePreview() tea.Cmd {
 		generation: generation,
 		message:    "Select a regular file to preview",
 	}
-	return m.schedulePreview()
+	loadCmd := m.schedulePreview()
+	if !m.mouseEnabled {
+		return loadCmd
+	}
+	return tea.Batch(loadCmd, tea.DisableMouse)
 }
 
-func (m *Model) disablePreview() {
+func (m *Model) disablePreview() tea.Cmd {
+	wasActive := m.preview.active
 	generation := m.preview.generation + 1
 	m.preview = filePreview{generation: generation}
 	if strings.HasPrefix(m.statusMsg, "Preview failed: ") {
 		m.statusMsg = ""
 	}
+	if wasActive && m.mouseEnabled {
+		return tea.EnableMouseCellMotion
+	}
+	return nil
 }
 
 func (m *Model) schedulePreview() tea.Cmd {

@@ -21,11 +21,12 @@ var dashCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		app, err := tui.New(workDir, cfg, store, reg, tui.ScreenDashboard)
+		mouseEnabled := resolveMouseEnabled(cfg)
+		app, err := tui.New(workDir, cfg, store, reg, tui.ScreenDashboard, mouseEnabled)
 		if err != nil {
 			return err
 		}
-		return runProgram(app, resolveMouseEnabled(cfg))
+		return runProgram(app, mouseEnabled)
 	},
 }
 

@@ -186,12 +186,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Pane focus ─────────────────────────────────────
 	case keyTab:
-		m.disablePreview()
+		mouseCmd := m.disablePreview()
 		if m.activePane == PaneLocal && m.remoteHost != nil {
 			m.activePane = PaneRemote
 		} else {
 			m.activePane = PaneLocal
 		}
+		return m, mouseCmd
 
 	// ── Navigation ────────────────────────────────────
 	case keyJ, keyDown:
@@ -350,7 +351,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.statusMsg = "No files marked — use [Space] to mark files first"
 			break
 		}
-		m.disablePreview()
+		mouseCmd := m.disablePreview()
 		var host *config.Host
 		var conn remote.Client
 		if m.remoteHost != nil {
@@ -359,9 +360,9 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			conn = m.remoteConn
 			m.remoteConn = nil // hand connection ownership to the diff view
 		}
-		return m, func() tea.Msg {
+		return m, tea.Batch(mouseCmd, func() tea.Msg {
 			return MsgSyncRequested{Selection: m.Selection, RemoteSelection: m.RemoteSelection, Host: host, Conn: conn}
-		}
+		})
 
 	// ── Remote browser host ────────────────────────────
 	case keyAt:
@@ -369,8 +370,8 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
-		m.disablePreview()
-		return m, func() tea.Msg { return MsgBrowseRemoteRequested{} }
+		mouseCmd := m.disablePreview()
+		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgBrowseRemoteRequested{} })
 
 	// ── Host Manager ───────────────────────────────────
 	case "H":
@@ -378,8 +379,8 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
-		m.disablePreview()
-		return m, func() tea.Msg { return MsgOpenHostManager{} }
+		mouseCmd := m.disablePreview()
+		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgOpenHostManager{} })
 
 	// ── Project Dashboard ──────────────────────────────
 	case "P":
@@ -387,20 +388,21 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
 		}
-		m.disablePreview()
-		return m, func() tea.Msg { return MsgOpenDashboard{} }
+		mouseCmd := m.disablePreview()
+		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgOpenDashboard{} })
 
 	// ── Fuzzy file finder ──────────────────────────────
 	case "f":
-		m.disablePreview()
+		mouseCmd := m.disablePreview()
 		m.finder = finder{active: true, loading: true}
-		return m, buildFinderIndexCmd(m.WorkDir)
+		return m, tea.Batch(mouseCmd, buildFinderIndexCmd(m.WorkDir))
 
 	// ── Filter ────────────────────────────────────────
 	case keySlash:
-		m.disablePreview()
+		mouseCmd := m.disablePreview()
 		m.filterMode = true
 		m.filter = ""
+		return m, mouseCmd
 
 	// ── Refresh ───────────────────────────────────────
 	case keyR:
@@ -422,8 +424,9 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Help ──────────────────────────────────────────
 	case keyQuestion:
-		m.disablePreview()
+		mouseCmd := m.disablePreview()
 		m.showHelp = !m.showHelp
+		return m, mouseCmd
 	}
 
 	return m, nil

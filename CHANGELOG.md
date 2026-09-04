@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 ### Added
-- `c` copies the complete loaded file preview to the terminal clipboard without line numbers or display wrapping
+- `c` copies the complete loaded file preview to the terminal clipboard without line numbers or display wrapping; while a preview is open, drift releases the mouse to the terminal so its text can also be selected directly
 
 ### Removed
 - **breaking:** the migration path for configuration from 0.1.6-alpha and earlier. drift no longer reads `<project>/.drift/config.toml`, `~/.config/drift/secrets.toml` or `~/.config/drift/access.toml`. 0.1.7-alpha is the release that moves them into the project store, so an installation coming from 0.1.6-alpha or earlier has to run 0.1.7-alpha once per project before upgrading; skipping it leaves those hosts in files nothing reads

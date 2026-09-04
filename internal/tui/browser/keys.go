@@ -55,6 +55,7 @@ func FullHelp() string {
   ──────────────────────────────
   p              toggle file preview in opposite pane
   c              copy loaded preview to clipboard
+  Mouse drag     select preview text with the terminal
   PgUp / PgDown  scroll preview by page
   Home / End     jump to preview start / end
 

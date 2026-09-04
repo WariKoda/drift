@@ -216,10 +216,12 @@ The mouse works in the file browser, the diff view and the host manager.
 | Click on a pane label | Focus that pane |
 | Click on a fold marker | Expand or collapse that fold (diff view) |
 | Double click | Expand a directory (local), open one (remote), cycle a file's sync direction (diff view), edit a host (host manager) |
+| Drag while previewing | Select preview text with the terminal; mouse reporting resumes when the preview closes |
 | `Shift`+Click | Select text with the terminal's own selection |
 
-Mouse reporting takes the terminal's native text selection away, so it can be
-turned off:
+Mouse reporting pauses while a file preview is open, so preview text can be
+selected without holding `Shift`. It resumes when the preview closes. Outside
+the preview, it can be turned off entirely:
 
 ```bash
 drift --no-mouse              # this run only

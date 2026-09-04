@@ -74,7 +74,8 @@ type Model struct {
 	projectName string
 
 	// mouse
-	clicks mouse.ClickTracker
+	mouseEnabled bool
+	clicks       mouse.ClickTracker
 }
 
 // New creates a browser Model for the given directory.
@@ -100,6 +101,12 @@ func New(workDir string) (Model, error) {
 // Init satisfies the tea.Model interface (root app calls this).
 func (m Model) Init() tea.Cmd {
 	return nil
+}
+
+// SetMouseEnabled remembers whether drift should restore mouse reporting after
+// temporarily releasing the mouse to the terminal while a preview is open.
+func (m *Model) SetMouseEnabled(enabled bool) {
+	m.mouseEnabled = enabled
 }
 
 // StartsNetworkOperation reports whether key could perform network I/O and

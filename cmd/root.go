@@ -65,11 +65,12 @@ Config locations (nothing is written into your project):
 			}
 		}
 
-		app, err := tui.New(root, cfg, store, reg, initial)
+		mouseEnabled := resolveMouseEnabled(cfg)
+		app, err := tui.New(root, cfg, store, reg, initial, mouseEnabled)
 		if err != nil {
 			return fmt.Errorf("cannot read directory: %w", err)
 		}
-		return runProgram(app, resolveMouseEnabled(cfg))
+		return runProgram(app, mouseEnabled)
 	},
 }
 

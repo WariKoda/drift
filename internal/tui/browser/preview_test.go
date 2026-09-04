@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -274,6 +275,38 @@ func TestPreviewScrollAndTabLifecycle(t *testing.T) {
 	model, _ = model.updateNormal(tea.KeyMsg{Type: tea.KeyTab})
 	if model.preview.active {
 		t.Fatal("tab did not disable preview mode")
+	}
+}
+
+func TestPreviewTemporarilyReleasesConfiguredMouse(t *testing.T) {
+	model := previewTestModel(nil)
+	model.SetMouseEnabled(true)
+
+	openCmd := model.togglePreview()
+	if openCmd == nil {
+		t.Fatal("opening the preview did not disable mouse reporting")
+	}
+	if got := reflect.TypeOf(openCmd()).String(); got != "tea.disableMouseMsg" {
+		t.Fatalf("opening preview returned %s, want mouse disable command", got)
+	}
+
+	closeCmd := model.togglePreview()
+	if closeCmd == nil {
+		t.Fatal("closing the preview did not restore mouse reporting")
+	}
+	if got := reflect.TypeOf(closeCmd()).String(); got != "tea.enableMouseCellMotionMsg" {
+		t.Fatalf("closing preview returned %s, want cell-motion mouse command", got)
+	}
+}
+
+func TestPreviewDoesNotEnableMouseWhenConfiguredOff(t *testing.T) {
+	model := previewTestModel(nil)
+
+	if cmd := model.togglePreview(); cmd != nil {
+		t.Fatal("opening preview changed mouse reporting although mouse support is off")
+	}
+	if cmd := model.togglePreview(); cmd != nil {
+		t.Fatal("closing preview enabled mouse reporting although mouse support is off")
 	}
 }
 

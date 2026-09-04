@@ -3,6 +3,9 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Fixed
+- a directory marked in the remote pane of an FTP or FTPS host ended up in the diff view as a file, with a red "is a directory" where the diff belongs, instead of being expanded into the files below it. `Stat` treated a successful `SIZE` as proof of a file, but vsftpd, ProFTPD and others answer `SIZE` for directories too. It asks `MLST` first now, which reports the entry type. One command also replaces `SIZE` plus `MDTM`, and its timestamps have second precision, so the diff loader skips more downloads on files that match. Servers without `MLST` keep the old behaviour and the old ambiguity
+
 ### Removed
 - **breaking:** the migration path for configuration from 0.1.6-alpha and earlier. drift no longer reads `<project>/.drift/config.toml`, `~/.config/drift/secrets.toml` or `~/.config/drift/access.toml`. 0.1.7-alpha is the release that moves them into the project store, so an installation coming from 0.1.6-alpha or earlier has to run 0.1.7-alpha once per project before upgrading; skipping it leaves those hosts in files nothing reads
 - `internal/config/gitguard.go` and the notice about a committed project config still holding its password in git history, along with the status-line warning they fed

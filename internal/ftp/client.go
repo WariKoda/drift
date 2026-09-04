@@ -77,9 +77,29 @@ func (c *Client) Close() error {
 }
 
 // Stat returns file info for a remote path.
+//
+// MLST is the only reliable way to tell a directory from a file here. SIZE
+// cannot do it: many servers (vsftpd and ProFTPD among them) answer it for
+// directories with the allocation size instead of refusing, so a successful
+// SIZE says nothing about the entry type. A directory that Stat reports as a
+// file reaches diff.Compare as a file pair, where reading it fails with
+// "is a directory".
+//
+// MLST also carries size and modification time, so one control-connection
+// command replaces SIZE plus MDTM, and its timestamps have second precision.
+// Servers without MLST fall back to SIZE and keep that ambiguity.
 func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
+
+	if entry, err := c.conn.GetEntry(remotePath); err == nil {
+		return &ftpFileInfo{
+			name:    path.Base(remotePath),
+			size:    int64(entry.Size),
+			modTime: entry.Time,
+			isDir:   entry.Type == ftplib.EntryTypeFolder,
+		}, nil
+	}
 
 	size, err := c.conn.FileSize(remotePath)
 	if err != nil {

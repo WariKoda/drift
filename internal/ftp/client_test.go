@@ -17,30 +17,8 @@ import (
 )
 
 func TestClientSerializesStreamingReadAndStat(t *testing.T) {
-	server := startProtocolTestServer(t)
-	host, portString, err := net.SplitHostPort(server.Addr().String())
-	if err != nil {
-		t.Fatalf("split server address: %v", err)
-	}
-	port, err := strconv.Atoi(portString)
-	if err != nil {
-		t.Fatalf("parse server port: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	client, err := Connect(ctx, config.Host{
-		Name:     "test",
-		Hostname: host,
-		Port:     port,
-		User:     "drift",
-		Auth:     config.Auth{Password: "secret"},
-		Protocol: "ftp",
-	})
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer client.Close()
+	server := startProtocolTestServer(t, nil)
+	client := connectTestClient(t, server)
 
 	reader, err := client.Open("/file.txt")
 	if err != nil {
@@ -90,10 +68,19 @@ func TestClientSerializesStreamingReadAndStat(t *testing.T) {
 type protocolTestServer struct {
 	net.Listener
 	sizeSeen chan struct{}
+	mdtmSeen chan struct{}
 	done     chan error
+
+	// mlst maps a path to its MLST facts. An empty map makes the server deny
+	// FEAT, so the client treats MLST as unsupported.
+	mlst map[string]string
 }
 
-func startProtocolTestServer(t *testing.T) *protocolTestServer {
+// startProtocolTestServer starts a server that speaks enough FTP over a real
+// TCP connection for a client to log in and issue commands. Its SIZE answers
+// with a number for every path, directories included, the way vsftpd and
+// ProFTPD do.
+func startProtocolTestServer(t *testing.T, mlst map[string]string) *protocolTestServer {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -102,7 +89,9 @@ func startProtocolTestServer(t *testing.T) *protocolTestServer {
 	server := &protocolTestServer{
 		Listener: listener,
 		sizeSeen: make(chan struct{}, 1),
+		mdtmSeen: make(chan struct{}, 1),
 		done:     make(chan error, 1),
+		mlst:     mlst,
 	}
 	go func() {
 		server.done <- server.serve()
@@ -161,7 +150,27 @@ func (s *protocolTestServer) serve() error {
 		case "PASS":
 			err = reply("230 logged in")
 		case "FEAT":
-			err = reply("500 features unavailable")
+			if len(s.mlst) == 0 {
+				err = reply("500 features unavailable")
+				break
+			}
+			// MDTM is announced alongside MLST so that a fallback to SIZE
+			// would really send it. That makes its absence evidence.
+			err = reply("211-Features:\r\n MLST type*;size*;modify*;\r\n MDTM\r\n211 End")
+		case "MLST":
+			_, argument, _ := strings.Cut(line, " ")
+			facts, ok := s.mlst[argument]
+			if !ok {
+				err = reply("550 no such file or directory")
+				break
+			}
+			err = reply("250-Listing %s\r\n %s %s\r\n250 End", argument, facts, argument)
+		case "MDTM":
+			select {
+			case s.mdtmSeen <- struct{}{}:
+			default:
+			}
+			err = reply("213 20240102030405")
 		case "TYPE":
 			err = reply("200 transfer type set")
 		case "EPSV":
@@ -212,6 +221,94 @@ func (s *protocolTestServer) serve() error {
 		if err != nil {
 			return err
 		}
+	}
+}
+
+func connectTestClient(t *testing.T, server *protocolTestServer) *Client {
+	t.Helper()
+	host, portString, err := net.SplitHostPort(server.Addr().String())
+	if err != nil {
+		t.Fatalf("split server address: %v", err)
+	}
+	port, err := strconv.Atoi(portString)
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, err := Connect(ctx, config.Host{
+		Name:     "test",
+		Hostname: host,
+		Port:     port,
+		User:     "drift",
+		Auth:     config.Auth{Password: "secret"},
+		Protocol: "ftp",
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+// TestStatReportsDirectoryFromMLST pins the fix for a directory that Stat
+// reported as a file. SIZE answers for directories on many servers, so the old
+// Stat took the first successful SIZE as proof of a file. The directory then
+// reached diff.Compare as one half of a file pair, where reading it failed with
+// "is a directory" — a red error in the diff pane instead of a file listing.
+func TestStatReportsDirectoryFromMLST(t *testing.T) {
+	server := startProtocolTestServer(t, map[string]string{
+		"/dir": "Type=dir;Size=4096;Modify=20240102030405;",
+	})
+	client := connectTestClient(t, server)
+
+	info, err := client.Stat("/dir")
+	if err != nil {
+		t.Fatalf("stat directory: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatal("Stat reported a directory as a file")
+	}
+	select {
+	case <-server.sizeSeen:
+		t.Fatal("Stat fell back to SIZE although the server supports MLST")
+	default:
+	}
+}
+
+// TestStatTakesSizeAndTimeFromMLST checks that one MLST replaces SIZE plus
+// MDTM. The modification time matters beyond the round trip saved: diff.Compare
+// skips the download when size and mtime match on both sides.
+func TestStatTakesSizeAndTimeFromMLST(t *testing.T) {
+	server := startProtocolTestServer(t, map[string]string{
+		"/file.txt": "Type=file;Size=1024;Modify=20240102030405;",
+	})
+	client := connectTestClient(t, server)
+
+	info, err := client.Stat("/file.txt")
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("Stat reported a file as a directory")
+	}
+	if info.Size() != 1024 {
+		t.Errorf("size = %d, want 1024", info.Size())
+	}
+	want := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	if !info.ModTime().Equal(want) {
+		t.Errorf("mod time = %s, want %s", info.ModTime(), want)
+	}
+	select {
+	case <-server.sizeSeen:
+		t.Error("Stat sent SIZE although MLST already carried the size")
+	default:
+	}
+	select {
+	case <-server.mdtmSeen:
+		t.Error("Stat sent MDTM although MLST already carried the time")
+	default:
 	}
 }
 

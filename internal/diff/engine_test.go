@@ -7,6 +7,7 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,5 +248,27 @@ func TestCompare_LargeFilesWithDifferentSizesAlwaysDiffer(t *testing.T) {
 	}
 	if !result.HasDiff() || !result.ContentDiff {
 		t.Fatal("Compare did not mark different large-file sizes as changed")
+	}
+}
+
+func TestSplitLinesNormalisesCRLF(t *testing.T) {
+	got := splitLines("a\r\nb\r\n}\r\n")
+	want := []string{"a", "b", "}"}
+	if len(got) != len(want) {
+		t.Fatalf("splitLines returned %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("splitLines[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestLineDiffDropsCarriageReturns(t *testing.T) {
+	lines := lineDiff("{\r\n  \"a\": 1\r\n}\r\n", "{\r\n  \"a\": 2\r\n}\r\n")
+	for _, line := range lines {
+		if strings.Contains(line.Text, "\r") {
+			t.Fatalf("diff line still contains CR: %q", line.Text)
+		}
 	}
 }

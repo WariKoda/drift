@@ -160,6 +160,7 @@ which prefills the repository root too.
 | `g` / `G` | Jump to top / bottom |
 | `Tab` | Switch local / remote pane |
 | `p` | Toggle a text preview in the opposite pane |
+| `c` | Copy the loaded preview content to the clipboard |
 | `PgUp` / `PgDn`, `Home` / `End` | Scroll / jump within an active preview |
 | `@` | Choose or change the remote host |
 | `Space` | Mark / unmark file or directory in the active pane |

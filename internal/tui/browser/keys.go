@@ -20,6 +20,7 @@ const (
 	keyS         = "s"
 	keyR         = "r"
 	keyP         = "p"
+	keyC         = "c"
 	keyPgUp      = "pgup"
 	keyPgDown    = "pgdown"
 	keyHome      = "home"
@@ -53,6 +54,7 @@ func FullHelp() string {
   Preview
   ──────────────────────────────
   p              toggle file preview in opposite pane
+  c              copy loaded preview to clipboard
   PgUp / PgDown  scroll preview by page
   Home / End     jump to preview start / end
 

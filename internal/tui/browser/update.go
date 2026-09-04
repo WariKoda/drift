@@ -1,10 +1,16 @@
 package browser
 
 import (
+	"os"
+	"strings"
+
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/muesli/termenv"
 )
 
 // MsgSyncRequested is emitted when the user presses [s] with marked entries.
@@ -26,6 +32,11 @@ type MsgBrowseRemoteRequested struct{}
 // MsgOpenDashboard is emitted when the user presses [P] to return to the
 // project dashboard. The root app ignores it when no project registry is active.
 type MsgOpenDashboard struct{}
+
+type msgPreviewCopied struct {
+	path string
+	err  error
+}
 
 // Update handles key events and returns the updated model plus any command.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -66,6 +77,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case msgPreviewLoaded:
 		return m, m.applyPreviewLoaded(msg)
+
+	case msgPreviewCopied:
+		if msg.err != nil {
+			m.statusMsg = "Copy failed: " + sanitizePreviewError(msg.err)
+			log.Error("copy preview failed", "path", msg.path, "err", msg.err)
+		} else {
+			m.statusMsg = "Copied preview to clipboard"
+		}
 
 	case msgFinderIndex:
 		if m.finder.active && msg.base == m.WorkDir {
@@ -145,6 +164,20 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// ── File preview ───────────────────────────────────
 	case keyP:
 		return m, m.togglePreview()
+
+	case keyC:
+		if m.preview.active && m.preview.loaded {
+			content := strings.Join(m.preview.lines, "\n")
+			previewPath := m.preview.path
+			return m, func() tea.Msg {
+				sequence := osc52.New(content)
+				if strings.HasPrefix(os.Getenv("TERM"), "screen") {
+					sequence = sequence.Screen()
+				}
+				_, err := sequence.WriteTo(termenv.DefaultOutput())
+				return msgPreviewCopied{path: previewPath, err: err}
+			}
+		}
 
 	case keyPgUp, keyPgDown, keyHome, keyEnd:
 		if m.preview.active {

@@ -301,7 +301,7 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 
 	help := HelpText()
 	if m.preview.active {
-		help = "[p]close  [PgUp/PgDown]scroll  [Home/End]jump"
+		help = "[p]close  [c]copy  [PgUp/PgDown]scroll  [Home/End]jump"
 	}
 	right := styles.Muted.Render(help)
 	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2

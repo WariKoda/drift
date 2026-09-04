@@ -2,6 +2,7 @@ package browser
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 func TestReadPreviewTextSanitizesUnsafeContent(t *testing.T) {
@@ -272,6 +274,80 @@ func TestPreviewScrollAndTabLifecycle(t *testing.T) {
 	model, _ = model.updateNormal(tea.KeyMsg{Type: tea.KeyTab})
 	if model.preview.active {
 		t.Fatal("tab did not disable preview mode")
+	}
+}
+
+func TestCopyPreviewWritesUnwrappedContentToClipboard(t *testing.T) {
+	model := previewTestModel(nil)
+	model.Width = 31
+	model.preview = filePreview{
+		active: true,
+		source: PaneLocal,
+		loaded: true,
+		lines:  []string{"abcdefghijklmnopqrst", "second line"},
+	}
+	model.layoutPreview(false)
+
+	var output bytes.Buffer
+	originalOutput := termenv.DefaultOutput()
+	termenv.SetDefaultOutput(termenv.NewOutput(&output))
+	t.Cleanup(func() { termenv.SetDefaultOutput(originalOutput) })
+
+	model, cmd := model.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keyC)})
+	if cmd == nil {
+		t.Fatal("copy key did not send the loaded preview to the clipboard")
+	}
+	result, ok := cmd().(msgPreviewCopied)
+	if !ok {
+		t.Fatal("copy command did not report its result")
+	}
+	model, _ = model.Update(result)
+
+	want := base64.StdEncoding.EncodeToString([]byte("abcdefghijklmnopqrst\nsecond line"))
+	if !strings.Contains(output.String(), "\x1b]52;c;"+want+"\a") {
+		t.Fatalf("clipboard sequence does not contain the unwrapped preview: %q", output.String())
+	}
+	if model.statusMsg != "Copied preview to clipboard" {
+		t.Fatalf("copy status = %q", model.statusMsg)
+	}
+}
+
+func TestCopyPreviewReportsTerminalWriteFailure(t *testing.T) {
+	model := previewTestModel(nil)
+	model.preview = filePreview{
+		active: true,
+		loaded: true,
+		path:   "/project/file.txt",
+		lines:  []string{"content"},
+	}
+
+	closedOutput, err := os.CreateTemp(t.TempDir(), "closed-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedOutput.Close(); err != nil {
+		t.Fatal(err)
+	}
+	originalOutput := termenv.DefaultOutput()
+	termenv.SetDefaultOutput(termenv.NewOutput(closedOutput))
+	t.Cleanup(func() { termenv.SetDefaultOutput(originalOutput) })
+
+	model, cmd := model.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keyC)})
+	result := cmd().(msgPreviewCopied)
+	model, _ = model.Update(result)
+
+	if !strings.HasPrefix(model.statusMsg, "Copy failed: ") {
+		t.Fatalf("copy status = %q, want terminal write failure", model.statusMsg)
+	}
+}
+
+func TestCopyPreviewRequiresLoadedContent(t *testing.T) {
+	model := previewTestModel(nil)
+	model.preview = filePreview{active: true, loading: true}
+
+	_, cmd := model.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keyC)})
+	if cmd != nil {
+		t.Fatal("copy key sent an incomplete preview to the clipboard")
 	}
 }
 

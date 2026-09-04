@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 ### Fixed
+- unified diff `@@` headers sat after their context lines, so a hunk starting at line 1 showed a block of unchanged lines and then the marker. The header is the first row of the hunk now, with context underneath
 - a directory marked in the remote pane of an FTP or FTPS host ended up in the diff view as a file, with a red "is a directory" where the diff belongs, instead of being expanded into the files below it. `Stat` treated a successful `SIZE` as proof of a file, but vsftpd, ProFTPD and others answer `SIZE` for directories too. It asks `MLST` first now, which reports the entry type. One command also replaces `SIZE` plus `MDTM`, and its timestamps have second precision, so the diff loader skips more downloads on files that match. Servers without `MLST` keep the old behaviour and the old ambiguity
 
 ### Removed

@@ -36,6 +36,7 @@ func (r DisplayRow) SourceLine() int {
 }
 
 // Flatten builds display rows: hunk headers, limited context, and fold markers.
+// Each @@ header is the first row of its hunk, followed by context then changes.
 // expanded holds GapIDs whose equal runs should be shown in full.
 func Flatten(lines []DiffLine, context int, expanded map[int]struct{}) []DisplayRow {
 	if context < 0 {
@@ -56,9 +57,13 @@ func Flatten(lines []DiffLine, context int, expanded map[int]struct{}) []Display
 
 	foldBudget := 2 * context
 	out := make([]DisplayRow, 0, len(lines)+len(runs))
+	var leading []DisplayRow
 	for i, r := range runs {
 		if r.equal {
-			out = append(out, flattenEqualRun(runs, i, context, foldBudget, expanded)...)
+			prefix, fold, suffix := splitEqualRun(runs, i, context, foldBudget, expanded)
+			out = append(out, prefix...)
+			out = append(out, fold...)
+			leading = suffix
 			continue
 		}
 		hStart, hEnd := hunkRange(runs, i, context, foldBudget, expanded)
@@ -67,6 +72,8 @@ func Flatten(lines []DiffLine, context int, expanded map[int]struct{}) []Display
 			LineIndex: r.start,
 			Header:    formatHunkHeader(lines, hStart, hEnd),
 		})
+		out = append(out, leading...)
+		leading = nil
 		for idx := r.start; idx < r.end; idx++ {
 			out = append(out, DisplayRow{Kind: DisplayLine, LineIndex: idx})
 		}
@@ -139,34 +146,55 @@ func hasChangeRun(runs []run) bool {
 	return false
 }
 
-func flattenEqualRun(runs []run, i, context, foldBudget int, expanded map[int]struct{}) []DisplayRow {
+// splitEqualRun splits an equal run into trailing context of the previous hunk
+// (prefix), an optional fold, and leading context of the next hunk (suffix).
+// Flatten emits the next @@ header between fold and suffix so the header is
+// the first row of its hunk.
+func splitEqualRun(runs []run, i, context, foldBudget int, expanded map[int]struct{}) (prefix, fold, suffix []DisplayRow) {
 	r := runs[i]
 	length := r.end - r.start
 	_, shown := expanded[r.start]
-	if length <= foldBudget || shown {
-		out := make([]DisplayRow, 0, length)
-		for idx := r.start; idx < r.end; idx++ {
-			out = append(out, DisplayRow{Kind: DisplayLine, LineIndex: idx})
+	preN, sufN := equalContext(runs, i, context)
+
+	if length > foldBudget && !shown {
+		hiddenStart := r.start + preN
+		hiddenEnd := r.end - sufN
+		prefix = lineRows(r.start, hiddenStart)
+		if hiddenEnd > hiddenStart {
+			fold = []DisplayRow{{
+				Kind:      DisplayFold,
+				GapID:     r.start,
+				Hidden:    hiddenEnd - hiddenStart,
+				FoldStart: hiddenStart,
+				FoldEnd:   hiddenEnd,
+			}}
 		}
-		return out
+		suffix = lineRows(hiddenEnd, r.end)
+		return prefix, fold, suffix
 	}
 
-	prefix, suffix := equalContext(runs, i, context)
-	out := make([]DisplayRow, 0, prefix+suffix+1)
-	for idx := r.start; idx < r.start+prefix; idx++ {
-		out = append(out, DisplayRow{Kind: DisplayLine, LineIndex: idx})
+	switch {
+	case preN == 0 && sufN > 0:
+		return nil, nil, lineRows(r.start, r.end)
+	case sufN == 0:
+		return lineRows(r.start, r.end), nil, nil
+	default:
+		if sufN > length {
+			sufN = length
+		}
+		split := r.end - sufN
+		return lineRows(r.start, split), nil, lineRows(split, r.end)
 	}
-	hiddenStart := r.start + prefix
-	hiddenEnd := r.end - suffix
-	out = append(out, DisplayRow{
-		Kind:      DisplayFold,
-		GapID:     r.start,
-		Hidden:    hiddenEnd - hiddenStart,
-		FoldStart: hiddenStart,
-		FoldEnd:   hiddenEnd,
-	})
-	for idx := hiddenEnd; idx < r.end; idx++ {
-		out = append(out, DisplayRow{Kind: DisplayLine, LineIndex: idx})
+}
+
+func lineRows(start, end int) []DisplayRow {
+	n := end - start
+	if n <= 0 {
+		return nil
+	}
+	out := make([]DisplayRow, n)
+	for i := 0; i < n; i++ {
+		out[i] = DisplayRow{Kind: DisplayLine, LineIndex: start + i}
 	}
 	return out
 }

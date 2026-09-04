@@ -57,6 +57,14 @@ func TestFlattenShortGapStaysOpen(t *testing.T) {
 			t.Fatalf("6-line gap should not fold: %+v", rows)
 		}
 	}
+	headers := headerIndexes(rows)
+	if len(headers) != 2 {
+		t.Fatalf("headers at %v, want 2", headers)
+	}
+	// Gap is indices 3–8. The second header sits before the last 3 of those.
+	if rows[headers[1]+1].LineIndex != 6 {
+		t.Fatalf("second header at %d is followed by line %d, want 6", headers[1], rows[headers[1]+1].LineIndex)
+	}
 }
 
 func TestFlattenSevenLineGapFoldsMiddle(t *testing.T) {
@@ -97,8 +105,9 @@ func TestFlattenLeadingAndTrailingFolds(t *testing.T) {
 		kinds[i] = r.Kind
 	}
 	want := []DisplayKind{
-		DisplayFold, DisplayLine, DisplayLine, DisplayLine,
-		DisplayHunkHeader, DisplayLine,
+		DisplayFold, DisplayHunkHeader,
+		DisplayLine, DisplayLine, DisplayLine,
+		DisplayLine,
 		DisplayLine, DisplayLine, DisplayLine, DisplayFold,
 	}
 	if !reflect.DeepEqual(kinds, want) {
@@ -151,8 +160,35 @@ func TestFlattenHunkHeaderIncludesContext(t *testing.T) {
 		{Text: "c", Kind: LineEqual, LocalNum: 3, RemoteNum: 3},
 	}
 	rows := Flatten(lines, DefaultContext, nil)
-	if rows[1].Kind != DisplayHunkHeader || rows[1].Header != "@@ -1,3 +1,3 @@" {
-		t.Fatalf("header = %+v, want @@ -1,3 +1,3 @@ after first context line", rows[1])
+	if rows[0].Kind != DisplayHunkHeader || rows[0].Header != "@@ -1,3 +1,3 @@" {
+		t.Fatalf("header = %+v, want @@ -1,3 +1,3 @@ as first row", rows[0])
+	}
+	if rows[1].Kind != DisplayLine || rows[1].LineIndex != 0 {
+		t.Fatalf("row after header = %+v, want first context line", rows[1])
+	}
+}
+
+func TestFlattenHeaderComesBeforeLeadingContext(t *testing.T) {
+	lines := numberedEquals(12, 1)
+	lines = append(lines, DiffLine{Text: "old", Kind: LineRemoved, LocalNum: 13})
+
+	collapsed := Flatten(lines, DefaultContext, nil)
+	if collapsed[0].Kind != DisplayFold {
+		t.Fatalf("row 0 = %+v, want leading fold", collapsed[0])
+	}
+	if collapsed[1].Kind != DisplayHunkHeader || collapsed[1].Header != "@@ -10,4 +10,3 @@" {
+		t.Fatalf("header = %+v, want @@ -10,4 +10,3 @@ after the fold", collapsed[1])
+	}
+	if collapsed[2].LineIndex != 9 {
+		t.Fatalf("first context line index = %d, want 9", collapsed[2].LineIndex)
+	}
+
+	expanded := Flatten(lines, DefaultContext, map[int]struct{}{0: {}})
+	if expanded[0].Kind != DisplayHunkHeader || expanded[0].Header != "@@ -1,13 +1,12 @@" {
+		t.Fatalf("expanded header = %+v, want @@ -1,13 +1,12 @@ first", expanded[0])
+	}
+	if expanded[1].Kind != DisplayLine || expanded[1].LineIndex != 0 {
+		t.Fatalf("expanded row 1 = %+v, want file line 1 under the header", expanded[1])
 	}
 }
 
@@ -179,6 +215,16 @@ func TestFoldableGapIDs(t *testing.T) {
 	if !reflect.DeepEqual(got, []int{0, 8}) {
 		t.Fatalf("gap IDs = %v, want [0 8]", got)
 	}
+}
+
+func headerIndexes(rows []DisplayRow) []int {
+	var out []int
+	for i, r := range rows {
+		if r.Kind == DisplayHunkHeader {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 func TestSplitRunsGroupsByKindAndClosesTheLastRun(t *testing.T) {

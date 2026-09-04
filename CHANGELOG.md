@@ -3,6 +3,9 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Added
+- `c` copies the complete loaded file preview to the terminal clipboard without line numbers or display wrapping; while a preview is open, drift releases the mouse to the terminal so its text can also be selected directly
+
 ### Fixed
 - tabbing through the diff file list could punch large black holes in the layout when a file used CRLF line endings. A leftover `\r` sent the terminal cursor back to column 0, so the padded diff background painted over the file list. Line splits now drop CR, and the renderer ignores any that remain
 - a directory marked in the remote pane of an FTP or FTPS host ended up in the diff view as a file, with a red "is a directory" where the diff belongs, instead of being expanded into the files below it. `Stat` treated a successful `SIZE` as proof of a file, but vsftpd, ProFTPD and others answer `SIZE` for directories too. It asks `MLST` first now, which reports the entry type. One command also replaces `SIZE` plus `MDTM`, and its timestamps have second precision, so the diff loader skips more downloads on files that match. Servers without `MLST` keep the old behaviour and the old ambiguity

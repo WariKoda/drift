@@ -151,16 +151,17 @@ func (m Model) wheel(h hit, delta int) (Model, tea.Cmd) {
 func (m Model) click(h hit, x, y int) (Model, tea.Cmd) {
 	switch h.zone {
 	case zoneLocalLabel:
-		m.disablePreview()
+		mouseCmd := m.disablePreview()
 		m.activePane = PaneLocal
-		return m, nil
+		return m, mouseCmd
 
 	case zoneRemoteLabel:
+		var mouseCmd tea.Cmd
 		if m.remoteHost != nil {
-			m.disablePreview()
+			mouseCmd = m.disablePreview()
 			m.activePane = PaneRemote
 		}
-		return m, nil
+		return m, mouseCmd
 
 	case zoneFinder:
 		m.finder.cursor = h.index
@@ -175,31 +176,37 @@ func (m Model) click(h hit, x, y int) (Model, tea.Cmd) {
 		return m, nil
 
 	case zoneLocal:
+		var mouseCmd tea.Cmd
 		if m.activePane != PaneLocal {
-			m.disablePreview()
+			mouseCmd = m.disablePreview()
 			m.activePane = PaneLocal
 		}
 		m.cursor = h.index
 		m.clampScroll()
 		if m.clicks.Register(x, y) {
-			return m.activateLocal()
+			var cmd tea.Cmd
+			m, cmd = m.activateLocal()
+			return m, tea.Batch(mouseCmd, cmd)
 		}
-		return m, m.schedulePreview()
+		return m, tea.Batch(mouseCmd, m.schedulePreview())
 
 	case zoneRemote:
 		if m.remoteHost == nil {
 			return m, nil
 		}
+		var mouseCmd tea.Cmd
 		if m.activePane != PaneRemote {
-			m.disablePreview()
+			mouseCmd = m.disablePreview()
 			m.activePane = PaneRemote
 		}
 		m.remoteCursor = h.index
 		m.clampRemoteScroll()
 		if m.clicks.Register(x, y) && !m.remoteBusy() {
-			return m.updateRemoteOpen()
+			var cmd tea.Cmd
+			m, cmd = m.updateRemoteOpen()
+			return m, tea.Batch(mouseCmd, cmd)
 		}
-		return m, m.schedulePreview()
+		return m, tea.Batch(mouseCmd, m.schedulePreview())
 	}
 
 	return m, nil

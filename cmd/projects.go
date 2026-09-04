@@ -195,11 +195,12 @@ var openCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config error: %w", err)
 		}
-		app, err := tui.New(p.Path, cfg, store, reg, tui.ScreenBrowser)
+		mouseEnabled := resolveMouseEnabled(cfg)
+		app, err := tui.New(p.Path, cfg, store, reg, tui.ScreenBrowser, mouseEnabled)
 		if err != nil {
 			return fmt.Errorf("cannot read directory: %w", err)
 		}
-		return runProgram(app, resolveMouseEnabled(cfg))
+		return runProgram(app, mouseEnabled)
 	},
 }
 

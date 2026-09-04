@@ -415,10 +415,8 @@ func TestHunkJumpLandsOnRunStart(t *testing.T) {
 	if len(headers) < 2 {
 		t.Fatalf("need two hunk headers, got %v", headers)
 	}
-
-	model, _ = model.handleKey(keyMsg("]"))
-	if model.scroll != headers[0] {
-		t.Fatalf("] jumped to %d, want first hunk header at %d", model.scroll, headers[0])
+	if headers[0] != 0 {
+		t.Fatalf("first header at %d, want 0 (leading context sits under it)", headers[0])
 	}
 
 	model, _ = model.handleKey(keyMsg("]"))
@@ -428,7 +426,12 @@ func TestHunkJumpLandsOnRunStart(t *testing.T) {
 
 	model, _ = model.handleKey(keyMsg("["))
 	if model.scroll != headers[0] {
-		t.Fatalf("[ jumped to %d, want previous hunk header at %d", model.scroll, headers[0])
+		t.Fatalf("[ jumped to %d, want first hunk header at %d", model.scroll, headers[0])
+	}
+
+	model, _ = model.handleKey(keyMsg("]"))
+	if model.scroll != headers[1] {
+		t.Fatalf("] jumped to %d, want second hunk header at %d", model.scroll, headers[1])
 	}
 }
 

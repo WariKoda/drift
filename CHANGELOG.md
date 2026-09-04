@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 - `c` copies the complete loaded file preview to the terminal clipboard without line numbers or display wrapping; while a preview is open, drift releases the mouse to the terminal so its text can also be selected directly
 
 ### Fixed
+- opening a directory near the bottom of the local or remote browser now scrolls enough to show all newly loaded children when they fit, or keeps the directory at the top when they do not
 - a running connect or sync could only be hidden, not stopped. Esc still hides the overlay. `q` and `Ctrl+C` cancel it. Files already transferred stay, remaining work is skipped. A hidden overlay keeps `[q] cancel` on the status line
 - unified diff `@@` headers sat after their context lines, so a hunk starting at line 1 showed a block of unchanged lines and then the marker. The header is the first row of the hunk now, with context underneath
 - tabbing through the diff file list could punch large black holes in the layout when a file used CRLF line endings. A leftover `\r` sent the terminal cursor back to column 0, so the padded diff background painted over the file list. Line splits now drop CR, and the renderer ignores any that remain

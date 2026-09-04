@@ -31,6 +31,25 @@ func (m *Model) expandAt(i int) error {
 	newEntries = append(newEntries, children...)
 	newEntries = append(newEntries, m.entries[i+1:]...)
 	m.entries = newEntries
+
+	// Keep the directory and as many of its newly inserted children visible as
+	// the viewport allows. If the whole group fits, move only far enough to
+	// reveal its last child. Larger groups start at the directory itself.
+	if len(children) > 0 {
+		viewportHeight := m.viewportHeight()
+		if len(children)+1 >= viewportHeight {
+			m.offset = i
+		} else {
+			minimumOffset := i + len(children) - viewportHeight + 1
+			if m.offset < minimumOffset {
+				m.offset = minimumOffset
+			}
+			if m.offset > i {
+				m.offset = i
+			}
+		}
+		m.clampLocalOffset()
+	}
 	return nil
 }
 

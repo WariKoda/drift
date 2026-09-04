@@ -158,3 +158,14 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+func TestRenderUnifiedLineDropsCarriageReturn(t *testing.T) {
+	row := renderUnifiedLine(DiffLine{Text: "}\r", Kind: LineAdded, RemoteNum: 25}, false, 80, 4, 68)
+	if strings.Contains(row, "\r") {
+		t.Fatal("rendered add line still contains CR")
+	}
+	equal := renderUnifiedLine(DiffLine{Text: "same\r", Kind: LineEqual, LocalNum: 1, RemoteNum: 1}, false, 80, 4, 68)
+	if strings.Contains(equal, "\r") {
+		t.Fatal("rendered equal line still contains CR")
+	}
+}

@@ -135,6 +135,34 @@ func TestSyncProgressLabel(t *testing.T) {
 	}
 }
 
+func TestViewDropsCarriageReturnsInDiffLines(t *testing.T) {
+	lines := make([]diff.DiffLine, 12)
+	for i := range lines {
+		n := i + 1
+		text := fmt.Sprintf("  \"key-%02d\": \"value\",\r", n)
+		if i == 0 {
+			text = "{\r"
+		}
+		if i == 11 {
+			text = "}\r"
+		}
+		lines[i] = diff.DiffLine{Text: text, Kind: diff.LineAdded, RemoteNum: n}
+	}
+	model := Model{
+		sessions: []diff.Session{{
+			LocalPath:  "/local/storefront.de-DE.json",
+			RemotePath: "/remote/storefront.de-DE.json",
+			Result:     &diff.DiffResult{ContentDiff: true, Lines: lines},
+		}},
+		syncDirs: []SyncDir{DirUpload},
+		Width:    120,
+		Height:   24,
+	}
+	if view := model.View(); strings.Contains(view, "\r") {
+		t.Fatal("diff view still contains CR; the terminal would reset the cursor mid-row")
+	}
+}
+
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

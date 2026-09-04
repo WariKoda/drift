@@ -42,6 +42,64 @@ func TestRemoteBrowserQueuesOnlyOneDirectoryRead(t *testing.T) {
 	}
 }
 
+func TestRemoteBrowserRevealsLoadedDirectoryChildren(t *testing.T) {
+	entries := []*fs.FileEntry{
+		{Name: "a", Path: "/a", Kind: fs.EntryDir},
+		{Name: "b", Path: "/b", Kind: fs.EntryDir},
+		{Name: "c", Path: "/c", Kind: fs.EntryDir},
+		{Name: "d", Path: "/d", Kind: fs.EntryDir},
+		{Name: "target", Path: "/target", Kind: fs.EntryDir, Expanded: true},
+	}
+	model := Model{
+		Height:        11, // five entry rows
+		remoteEntries: entries,
+		remoteCursor:  4,
+		remoteReading: true,
+	}
+
+	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{
+		ParentPath: "/target",
+		Children: []*fs.FileEntry{
+			{Name: "one", Path: "/target/one", Kind: fs.EntryFile},
+			{Name: "two", Path: "/target/two", Kind: fs.EntryFile},
+			{Name: "three", Path: "/target/three", Kind: fs.EntryFile},
+		},
+	})
+
+	if model.remoteOffset != 3 {
+		t.Fatalf("remote offset = %d, want 3 so the directory and all children are visible", model.remoteOffset)
+	}
+}
+
+func TestRemoteBrowserDoesNotJumpAfterCursorLeavesLoadingDirectory(t *testing.T) {
+	entries := []*fs.FileEntry{
+		{Name: "active", Path: "/active", Kind: fs.EntryDir},
+		{Name: "b", Path: "/b", Kind: fs.EntryDir},
+		{Name: "c", Path: "/c", Kind: fs.EntryDir},
+		{Name: "d", Path: "/d", Kind: fs.EntryDir},
+		{Name: "loading", Path: "/loading", Kind: fs.EntryDir, Expanded: true},
+	}
+	model := Model{
+		Height:        11, // five entry rows
+		remoteEntries: entries,
+		remoteCursor:  0,
+		remoteReading: true,
+	}
+
+	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{
+		ParentPath: "/loading",
+		Children: []*fs.FileEntry{
+			{Name: "one", Path: "/loading/one", Kind: fs.EntryFile},
+			{Name: "two", Path: "/loading/two", Kind: fs.EntryFile},
+			{Name: "three", Path: "/loading/three", Kind: fs.EntryFile},
+		},
+	})
+
+	if model.remoteOffset != 0 {
+		t.Fatalf("remote offset = %d, want 0 after the cursor left the loading directory", model.remoteOffset)
+	}
+}
+
 func TestRemoteBrowserBlocksDirectoryReadDuringPreviewRead(t *testing.T) {
 	model := Model{
 		activePane:           PaneRemote,

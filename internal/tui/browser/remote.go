@@ -138,6 +138,7 @@ func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
 		return
 	}
 	parent := m.remoteEntries[idx]
+	revealChildren := m.remoteCursor == idx
 	parent.Expanded = false
 	if msg.Err != nil {
 		m.remoteStatus = "Remote error: " + msg.Err.Error()
@@ -156,6 +157,23 @@ func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
 	newEntries = append(newEntries, m.remoteEntries[idx+1:]...)
 	m.remoteEntries = newEntries
 	m.remoteStatus = "Remote loaded: " + parent.Name
+
+	// A remote read can finish after the user has moved elsewhere. Reveal the
+	// children only while the directory that started the read is still active.
+	if revealChildren && len(msg.Children) > 0 {
+		viewportHeight := m.viewportHeight()
+		if len(msg.Children)+1 >= viewportHeight {
+			m.remoteOffset = idx
+		} else {
+			minimumOffset := idx + len(msg.Children) - viewportHeight + 1
+			if m.remoteOffset < minimumOffset {
+				m.remoteOffset = minimumOffset
+			}
+			if m.remoteOffset > idx {
+				m.remoteOffset = idx
+			}
+		}
+	}
 	m.clampRemoteScroll()
 }
 

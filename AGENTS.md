@@ -10,7 +10,6 @@ drift is a standalone terminal TUI (Go + Bubble Tea) for browsing, diffing, and 
 
 The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes messages to one active screen at a time. Screens are Go packages under `internal/tui/`:
 
-
 | Package             | Screen                                                |
 | ------------------- | ----------------------------------------------------- |
 | `dashboard`         | Project dashboard (optional landing screen)           |
@@ -22,7 +21,6 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
 | `diffview`          | File list + unified diff + sync                       |
-
 
 The `textfield` package holds the shared single-line input widget used by `hostform`
 and `projectform`. The project registry (slug, name, path, timestamps) lives in
@@ -50,8 +48,6 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 - Styles live in `internal/styles/styles.go` and `internal/tui/styles.go`. Do not inline lipgloss styles in view code.
 - Config is TOML. Types live in `internal/config/config.go`. Persistence via `internal/config/writer.go`.
 
-
-
 ## Key types
 
 ```go
@@ -64,8 +60,6 @@ diff.DiffResult     // comparison output; HasDiff() reports whether files differ
 diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
 ```
 
-
-
 ## Adding a new screen
 
 1. Create `internal/tui/<name>/model.go`, `view.go`, `update.go`.
@@ -74,8 +68,6 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 4. Add a `Screen<Name>` constant to `internal/tui/state.go`.
 5. Handle entry/exit messages and delegate `Update`/`View` in `app.go`.
 
-
-
 ## Adding a new protocol
 
 1. Implement `remote.Client` in a new package under `internal/`.
@@ -83,14 +75,11 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 3. Add the corresponding `hostform.Protocol` value and toggle option (`model.go`, `update.go`, `view.go`).
 4. Update `hostform.visibleRows()` when the protocol needs protocol-specific fields.
 
-
-
 ## File walker exclusions
 
 `internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks.
 
 ## Config locations
-
 
 | Scope    | Path                                                                    |
 | -------- | ----------------------------------------------------------------------- |
@@ -98,7 +87,6 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 | Project  | `~/.config/drift/projects/<slug>.toml` (hosts + mappings, mode 600)     |
 | Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
 | FTPS trust | `~/.config/drift/trusted-certificates.toml` (mode 600)                |
-
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
 
@@ -162,8 +150,6 @@ make install                  # installs to ~/.local/bin/drift
 make update                   # rebuild + reinstall (use after code changes)
 make release-build VERSION=vX.Y.Z  # version-injected ./drift binary
 ```
-
-
 
 ## Git workflow
 

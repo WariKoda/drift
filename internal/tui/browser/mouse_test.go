@@ -50,72 +50,72 @@ func TestHitTest(t *testing.T) {
 		wantIndex    int
 	}{
 		{
-			name: "first entry in the local pane",
+			name:       "first entry in the local pane",
 			localCount: 10, x: 5, y: 4,
 			wantZone: zoneLocal, wantIndex: 0,
 		},
 		{
-			name: "last visible entry in the local pane",
+			name:       "last visible entry in the local pane",
 			localCount: 30, x: 5, y: 21,
 			wantZone: zoneLocal, wantIndex: 17,
 		},
 		{
-			name: "a scrolled local pane adds its offset",
+			name:       "a scrolled local pane adds its offset",
 			localCount: 30, offset: 7, x: 5, y: 4,
 			wantZone: zoneLocal, wantIndex: 7,
 		},
 		{
-			name: "the divider column belongs to no pane",
+			name:       "the divider column belongs to no pane",
 			localCount: 10, remoteCount: 10, x: 39, y: 4,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "first entry in the remote pane",
+			name:       "first entry in the remote pane",
 			localCount: 10, remoteCount: 10, x: 50, y: 4,
 			wantZone: zoneRemote, wantIndex: 0,
 		},
 		{
-			name: "a scrolled remote pane adds its own offset",
+			name:       "a scrolled remote pane adds its own offset",
 			localCount: 10, remoteCount: 30, remoteOffset: 4, x: 50, y: 6,
 			wantZone: zoneRemote, wantIndex: 6,
 		},
 		{
-			name: "the remote pane is empty without a host",
+			name:       "the remote pane is empty without a host",
 			localCount: 10, x: 50, y: 4,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "blank filler below the last entry",
+			name:       "blank filler below the last entry",
 			localCount: 2, x: 5, y: 10,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "the header row is not selectable",
+			name:       "the header row is not selectable",
 			localCount: 10, x: 5, y: 0,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "the separator above the entries is not selectable",
+			name:       "the separator above the entries is not selectable",
 			localCount: 10, x: 5, y: 3,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "the separator below the entries is not selectable",
+			name:       "the separator below the entries is not selectable",
 			localCount: 30, x: 5, y: 22,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "the status bar is not selectable",
+			name:       "the status bar is not selectable",
 			localCount: 30, x: 5, y: 23,
 			wantZone: zoneNone, wantIndex: -1,
 		},
 		{
-			name: "the local pane label activates the local pane",
+			name:       "the local pane label activates the local pane",
 			localCount: 10, x: 5, y: paneLabelRow,
 			wantZone: zoneLocalLabel, wantIndex: -1,
 		},
 		{
-			name: "the remote pane label activates the remote pane",
+			name:       "the remote pane label activates the remote pane",
 			localCount: 10, remoteCount: 10, x: 50, y: paneLabelRow,
 			wantZone: zoneRemoteLabel, wantIndex: -1,
 		},

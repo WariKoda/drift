@@ -7,9 +7,9 @@ import "time"
 type LineKind int
 
 const (
-	LineEqual LineKind = iota
-	LineAdded          // present on remote, absent on local
-	LineRemoved        // present on local, absent on remote
+	LineEqual   LineKind = iota
+	LineAdded            // present on remote, absent on local
+	LineRemoved          // present on local, absent on remote
 )
 
 // DiffLine holds one line of a unified diff sequence.

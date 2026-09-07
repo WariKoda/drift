@@ -130,7 +130,7 @@ which prefills the repository root too.
 ### Project Dashboard
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | `j` / `k` or `↑` / `↓` | Navigate |
 | `Enter` | Open project (re-root drift into it) |
 | `1`–`9` | Jump to / open the n-th project |
@@ -146,7 +146,7 @@ which prefills the repository root too.
 ### Project switcher (`P` in the file browser)
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | type | Filter by name, slug, or path |
 | `↑` / `↓` or `Ctrl+n` / `Ctrl+p` | Navigate |
 | `Enter` | Open the selected project |
@@ -156,7 +156,7 @@ which prefills the repository root too.
 ### File Browser
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | `j` / `k` or `↑` / `↓` | Navigate in the active pane |
 | `h` / `←`, `l` / `→` / `Enter` | Collapse / open directory |
 | `g` / `G` | Jump to top / bottom |
@@ -180,7 +180,7 @@ While a connect or sync overlay is up, `Esc` hides it (the work keeps going, wit
 ### Diff View
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | `j` / `k` or `↑` / `↓` | Scroll diff content by line |
 | `PgUp` / `PgDn` | Scroll diff content by page |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
@@ -202,7 +202,7 @@ While a connect or sync overlay is up, `Esc` hides it (the work keeps going, wit
 ### Host Manager
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | `n` | New host |
 | `e` / `Enter` | Edit host |
 | `d` | Delete host |
@@ -214,7 +214,7 @@ While a connect or sync overlay is up, `Esc` hides it (the work keeps going, wit
 The mouse works in the file browser, the diff view and the host manager.
 
 | Action | Effect |
-|--------|--------|
+| -------- | -------- |
 | Wheel | Scroll the pane under the pointer |
 | Click | Move the cursor there, and focus that pane |
 | Click on a pane label | Focus that pane |
@@ -363,7 +363,7 @@ When effective `mappings` are configured, only files that fall under a mapping r
 ### Auth types
 
 | Type | Fields |
-|------|--------|
+| ------ | -------- |
 | `keyfile` | `key_file`, `passphrase` (optional) |
 | `password` | `password` (supports `$ENV_VAR`) |
 | `agent` | none — uses SSH agent |
@@ -402,7 +402,6 @@ like it has no hosts for those projects.
 
 If such a config was ever committed, the password in it is in your repository's history,
 where deleting the file later does not reach it. Rotate it.
-
 
 ---
 

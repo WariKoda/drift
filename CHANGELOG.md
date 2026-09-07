@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 ### Added
 - `c` copies the complete loaded file preview to the terminal clipboard without line numbers or display wrapping; while a preview is open, drift releases the mouse to the terminal so its text can also be selected directly
+- FTPS certificate failures now open a modal with the endpoint, verification problems, certificate identity, validity, and SHA-256 fingerprint. The exact certificate can be trusted for the current process or permanently in `~/.config/drift/trusted-certificates.toml`
+- `r` on an FTPS host in the host manager resets its session and persistent certificate trust after confirmation
+
+### Changed
+- connection tests now list the configured remote root, so FTPS data-channel certificate failures are checked as well as the control connection
+- certificate trust applies only to the exact hostname, port, fingerprint, and displayed problem set. Certificate changes ask again, and failed sync writes are never retried automatically
 
 ### Fixed
 - opening a directory near the bottom of the local or remote browser now scrolls enough to show all newly loaded children when they fit, or keeps the directory at the top when they do not
@@ -12,8 +18,10 @@ All notable changes to this project will be documented in this file.
 - unified diff `@@` headers sat after their context lines, so a hunk starting at line 1 showed a block of unchanged lines and then the marker. The header is the first row of the hunk now, with context underneath
 - tabbing through the diff file list could punch large black holes in the layout when a file used CRLF line endings. A leftover `\r` sent the terminal cursor back to column 0, so the padded diff background painted over the file list. Line splits now drop CR, and the renderer ignores any that remain
 - a directory marked in the remote pane of an FTP or FTPS host ended up in the diff view as a file, with a red "is a directory" where the diff belongs, instead of being expanded into the files below it. `Stat` treated a successful `SIZE` as proof of a file, but vsftpd, ProFTPD and others answer `SIZE` for directories too. It asks `MLST` first now, which reports the entry type. One command also replaces `SIZE` plus `MDTM`, and its timestamps have second precision, so the diff loader skips more downloads on files that match. Servers without `MLST` keep the old behaviour and the old ambiguity
+- delayed FTPS certificate failures from directory listings, previews, comparisons, extra workers, and sync operations now retain their typed error instead of being hidden as a missing file, reduced parallelism, or plain display text
 
 ### Removed
+- **breaking:** the per-host `insecure_tls` option and host-form toggle. Existing TOML entries are ignored and grant no trust; use the fingerprint-bound certificate prompt instead
 - **breaking:** the migration path for configuration from 0.1.6-alpha and earlier. drift no longer reads `<project>/.drift/config.toml`, `~/.config/drift/secrets.toml` or `~/.config/drift/access.toml`. 0.1.7-alpha is the release that moves them into the project store, so an installation coming from 0.1.6-alpha or earlier has to run 0.1.7-alpha once per project before upgrading; skipping it leaves those hosts in files nothing reads
 - `internal/config/gitguard.go` and the notice about a committed project config still holding its password in git history, along with the status-line warning they fed
 

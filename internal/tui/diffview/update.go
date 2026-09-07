@@ -1,10 +1,12 @@
 package diffview
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -32,6 +34,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.syncProgress = nil
 		m.syncErrors = msg.Errors
 		log.Info("bulk sync done", "done", msg.Done, "errors", len(msg.Errors), "cancelled", canceled)
+		for _, failure := range msg.Errors {
+			var verificationErr *tlstrust.VerificationError
+			if failure.Err != nil && errors.As(failure.Err, &verificationErr) {
+				m.syncStatus = fmt.Sprintf("stopped after certificate error — ✓ %d  ✗ %d", msg.Done, len(msg.Errors))
+				m.showErrors = true
+				m.finishActivity()
+				return m, nil
+			}
+		}
 		if canceled {
 			if len(msg.Errors) == 0 {
 				m.syncStatus = fmt.Sprintf("cancelled — %d file(s) synced", msg.Done)
@@ -65,6 +76,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, syncProgressTickCmd(m.syncProgress)
 
 	case MsgRefreshed:
+		if msg.Err != nil {
+			m.refreshing = false
+			m.finishActivity()
+			return m, nil
+		}
 		m.sessions = msg.Sessions
 		m.syncDirs = make([]SyncDir, len(m.sessions))
 		for i := range m.sessions {

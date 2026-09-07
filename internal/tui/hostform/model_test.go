@@ -1,6 +1,7 @@
 package hostform
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,6 +85,16 @@ func TestToHostRejectsPreexistingInvalidMappings(t *testing.T) {
 
 // rowOrder is the visible field order, for asserting the grouping.
 func rowOrder(m Model) []int { return m.visibleRows() }
+
+func TestFTPSFieldOrderHasNoCertificateBypass(t *testing.T) {
+	m := New(config.ScopeGlobal, "", 100, 30)
+	m.protocol = ProtoFTPS
+	rows := rowOrder(m)
+	want := []int{fName, fHostname, fPort, fProtocol, fRootPath, fMappings, fUser, fPassword, fScope}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("visibleRows() = %v, want %v", rows, want)
+	}
+}
 
 func TestFieldOrderKeepsTheScopeToggleLast(t *testing.T) {
 	m := New(config.ScopeProject, "/workspace/project", 100, 40)

@@ -450,7 +450,7 @@ func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
 	entry.Expanded = true // optimistic spinner/guard against duplicate expand
 	m.remoteReading = true
 	m.remoteStatus = "Loading remote: " + entry.Path
-	return m, readRemoteDirCmd(m.remoteConn, entry.Path)
+	return m, readRemoteDirCmd(m.remoteConn, *m.remoteHost, m.remoteLoadID, entry.Path)
 }
 
 func (m Model) updateRemoteClose() (Model, tea.Cmd) {

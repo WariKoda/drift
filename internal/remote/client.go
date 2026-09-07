@@ -5,6 +5,8 @@ package remote
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	driftftp "github.com/WariKoda/drift/internal/ftp"
 	"github.com/WariKoda/drift/internal/sftp"
+	"github.com/WariKoda/drift/internal/tlstrust"
 )
 
 // Client abstracts all remote file operations needed by drift.
@@ -33,10 +36,33 @@ type Client interface {
 
 // Connect dials the host using the protocol specified in host.Protocol.
 // An empty or "sftp" protocol uses SSH/SFTP; "ftp" uses plain FTP; "ftps" uses FTP over explicit TLS.
-func Connect(ctx context.Context, host config.Host) (Client, error) {
+func Connect(ctx context.Context, host config.Host, trust *tlstrust.Manager, required *tlstrust.Challenge) (Client, error) {
 	switch host.Protocol {
-	case "ftp", "ftps":
-		return driftftp.Connect(ctx, host)
+	case "ftp":
+		return driftftp.Connect(ctx, host, tlstrust.NewPolicy(nil))
+	case "ftps":
+		endpoint, err := tlstrust.NormalizeEndpoint(host.Protocol, host.Hostname, host.Port)
+		if err != nil {
+			return nil, err
+		}
+		if required != nil && required.Endpoint != endpoint {
+			return nil, fmt.Errorf("FTPS retry certificate belongs to %s, not %s", required.Endpoint.Address(), endpoint.Address())
+		}
+		if required != nil && trust == nil {
+			return nil, errors.New("FTPS retry certificate requires a trust manager")
+		}
+		policy := tlstrust.NewPolicy(nil)
+		if trust != nil {
+			if required == nil {
+				policy, err = trust.Policy()
+			} else {
+				policy, err = trust.PolicyForRetry(*required)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("load trusted FTPS certificates: %w", err)
+			}
+		}
+		return driftftp.Connect(ctx, host, policy)
 	default:
 		return sftp.Connect(ctx, host)
 	}

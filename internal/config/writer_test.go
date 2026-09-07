@@ -59,14 +59,13 @@ func TestSaveProjectHostWritesTheStore(t *testing.T) {
 	cfg := &MergedConfig{ProjectRoot: t.TempDir(), ProjectSlug: "shop"}
 
 	if err := SaveProjectHost(cfg, Host{
-		Name:        "staging",
-		Hostname:    "shop.example.com",
-		Port:        21,
-		User:        "webuser",
-		Protocol:    "ftps",
-		InsecureTLS: true,
-		Auth:        Auth{Type: "password", Password: "hunter2"},
-		RootPath:    "/var/www",
+		Name:     "staging",
+		Hostname: "shop.example.com",
+		Port:     21,
+		User:     "webuser",
+		Protocol: "ftps",
+		Auth:     Auth{Type: "password", Password: "hunter2"},
+		RootPath: "/var/www",
 	}, ""); err != nil {
 		t.Fatalf("SaveProjectHost returned error: %v", err)
 	}
@@ -84,7 +83,7 @@ func TestSaveProjectHostWritesTheStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	for _, want := range []string{`hostname = "shop.example.com"`, `user = "webuser"`, "insecure_tls = true", `password = "hunter2"`} {
+	for _, want := range []string{`hostname = "shop.example.com"`, `user = "webuser"`, `password = "hunter2"`} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("the store is missing %q:\n%s", want, data)
 		}
@@ -95,7 +94,7 @@ func TestSaveProjectHostWritesTheStore(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 	h := loaded.Hosts["staging"]
-	if h.User != "webuser" || !h.InsecureTLS || h.Auth.Password != "hunter2" || h.Protocol != "ftps" {
+	if h.User != "webuser" || h.Auth.Password != "hunter2" || h.Protocol != "ftps" {
 		t.Fatalf("host did not round-trip through the store: %+v", h)
 	}
 }

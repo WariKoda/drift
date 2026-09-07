@@ -12,7 +12,9 @@ import (
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/project"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
+	"github.com/WariKoda/drift/internal/tui/certtrust"
 	"github.com/WariKoda/drift/internal/tui/dashboard"
 	"github.com/WariKoda/drift/internal/tui/diffview"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
@@ -138,13 +140,19 @@ func TestCtrlCQuitsWhenIdle(t *testing.T) {
 }
 
 func TestBackgroundErrorIsShownInCurrentView(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+	host := config.Host{Name: "staging"}
+	cfg := &config.MergedConfig{GlobalHosts: []config.Host{host}}
+	app, err := New(t.TempDir(), cfg, nil, nil, ScreenBrowser, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.startNetworkActivity(activityHostTest, "Testing host…", nil)
+	app.state.Screen = ScreenHostManager
+	app.hostManager = hostmanager.New(cfg, 80, 24)
+	app.hostManager.SetTrustManager(app.trust)
+	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	app = model.(App)
 
-	model, _ := app.Update(hostmanager.MsgTestResult{HostName: "staging", Err: errors.New("connection refused")})
+	model, _ = app.Update(hostmanager.MsgTestResult{Host: host, ID: 1, Err: errors.New("connection refused")})
 	next := model.(App)
 	if next.loader.Active() {
 		t.Fatal("connection test result did not finish the global activity")
@@ -445,5 +453,90 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 	view := ansi.Strip(app.View())
 	if !strings.Contains(view, "KUNDE A") {
 		t.Fatalf("header = %q, want project name", view)
+	}
+}
+
+func TestCertificatePromptGrantsSessionTrust(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := appTestChallenge(t)
+	verificationErr := &tlstrust.VerificationError{Challenge: challenge}
+	if !app.openCertificatePrompt(trustOperationNoRetry, config.Host{Name: "staging", Protocol: "ftps"}, verificationErr) {
+		t.Fatal("certificate error did not open a prompt")
+	}
+
+	model, _ := app.Update(certtrust.MsgDecision{Decision: certtrust.TrustSession, Challenge: challenge})
+	next := model.(App)
+	if next.certPrompt != nil {
+		t.Fatal("prompt remained open after session trust")
+	}
+	trusted, err := next.trust.HasTrust(challenge.Endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !trusted {
+		t.Fatal("session trust was not recorded")
+	}
+}
+
+func TestDelayedDiffCertificateFailureInvalidatesConnectionBeforeDecision(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := config.Host{Name: "staging", Hostname: "server.example", Port: 21, Protocol: "ftps"}
+	app.state.Screen = ScreenDiffView
+	app.state.SelectedHost = &host
+	if !app.openDiffCertificatePrompt(&tlstrust.VerificationError{Challenge: appTestChallenge(t)}) {
+		t.Fatal("certificate error did not open the prompt")
+	}
+	if app.state.Screen != ScreenBrowser || app.state.SelectedHost != nil {
+		t.Fatal("affected diff connection was not invalidated before the decision")
+	}
+	if app.certPrompt == nil {
+		t.Fatal("certificate prompt is missing")
+	}
+}
+
+func TestCertificatePromptKeepsOpenWhenPermanentSaveFails(t *testing.T) {
+	root := t.TempDir()
+	notDirectory := filepath.Join(root, "config-file")
+	if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", notDirectory)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := appTestChallenge(t)
+	app.openCertificatePrompt(trustOperationNoRetry, config.Host{Name: "staging", Protocol: "ftps"}, &tlstrust.VerificationError{Challenge: challenge})
+
+	model, cmd := app.Update(certtrust.MsgDecision{Decision: certtrust.TrustPermanently, Challenge: challenge})
+	if cmd == nil {
+		t.Fatal("permanent trust did not start persistence")
+	}
+	next := model.(App)
+	model, _ = next.Update(cmd())
+	next = model.(App)
+	if next.certPrompt == nil || next.certPrompt.Err == "" {
+		t.Fatal("persistence failure did not keep the prompt open with an error")
+	}
+}
+
+func appTestChallenge(t *testing.T) tlstrust.Challenge {
+	t.Helper()
+	endpoint, err := tlstrust.NormalizeEndpoint("ftps", "server.example", 21)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tlstrust.Challenge{
+		Endpoint:    endpoint,
+		Fingerprint: "AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA:AA",
+		Problems:    []tlstrust.Problem{tlstrust.ProblemUnknownAuthority},
 	}
 }

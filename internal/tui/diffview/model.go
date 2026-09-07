@@ -19,6 +19,7 @@ import (
 	"github.com/WariKoda/drift/internal/pathmap"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
@@ -54,13 +55,17 @@ type MsgDiffError struct {
 }
 
 // MsgRefreshed is sent when a full diff refresh has completed.
-type MsgRefreshed struct{ Sessions []diff.Session }
+type MsgRefreshed struct {
+	Sessions []diff.Session
+	Err      error
+}
 
 // SyncFailure describes one failed operation in a bulk sync.
 type SyncFailure struct {
 	Operation string
 	Path      string
 	Reason    string
+	Err       error
 }
 
 // MsgBulkSyncDone is sent when bulk sync has finished.
@@ -171,6 +176,7 @@ type Model struct {
 	host            config.Host
 	conn            remote.Client // kept open for sync ops
 	root            *fs.Root      // confines every local read, write and delete to the project
+	trust           *tlstrust.Manager
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
 	Width           int
@@ -196,6 +202,11 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 	}
 	model.scrollToFirstDifference()
 	return model
+}
+
+// SetTrustManager provides certificate trust for additional FTPS diff workers.
+func (m *Model) SetTrustManager(trust *tlstrust.Manager) {
+	m.trust = trust
 }
 
 // Init satisfies the sub-model convention.
@@ -564,7 +575,7 @@ func (m *Model) scrollToFirstDifference() {
 // inverse and walk the mapped local directory to catch local-only files.
 // requestID is echoed back in the result so the caller can discard results of
 // requests it has abandoned in the meantime.
-func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker) tea.Cmd {
+func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
 	return func() tea.Msg {
 		defer progress.Finish()
 		ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
@@ -580,9 +591,8 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		conn := existingConn
-		openedConn := false
 		abort := func(err error) tea.Msg {
-			if openedConn && conn != nil {
+			if conn != nil {
 				_ = conn.Close()
 			}
 			_ = root.Close()
@@ -590,7 +600,7 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 		if conn == nil {
 			progress.Set("Connecting…", 0, 0, true)
-			conn, err = remote.Connect(ctx, host)
+			conn, err = remote.Connect(ctx, host, trust, required)
 			if err != nil {
 				log.Error("remote connect failed", "hostname", host.Hostname, "err", err)
 				_ = root.Close()
@@ -600,7 +610,6 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 					Err:       fmt.Errorf("connect to %s: %w", host.Hostname, err),
 				}
 			}
-			openedConn = true
 			log.Info("remote connect", "host", host.Name, "hostname", host.Hostname)
 		}
 		if err := ctx.Err(); err != nil {
@@ -751,7 +760,10 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			return abort(err)
 		}
 
-		sessions := loadDiffItems(root, host, conn, items, progress)
+		sessions, securityErr := loadDiffItems(root, host, conn, items, progress, trust, required)
+		if securityErr != nil {
+			return abort(securityErr)
+		}
 		if err := ctx.Err(); err != nil {
 			return abort(err)
 		}
@@ -804,9 +816,9 @@ type compareFunc func(idx int, conn remote.Client)
 // connection and is therefore best-effort — a worker that cannot connect simply
 // exits and lowers parallelism. fn must only write to data owned by its idx,
 // making the pool race-free without locking. progress may be nil.
-func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *LoadProgressTracker, fn compareFunc) {
+func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, fn compareFunc) error {
 	if len(jobs) == 0 {
-		return
+		return nil
 	}
 	workerCount := minInt(diffLoadWorkers(host), len(jobs))
 	if workerCount < 1 {
@@ -815,9 +827,16 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 
 	jobCh := make(chan int)
 	var wg stdsync.WaitGroup
+	var securityMu stdsync.Mutex
+	var securityErr error
+	hasSecurityFailure := func() bool {
+		securityMu.Lock()
+		defer securityMu.Unlock()
+		return securityErr != nil
+	}
 	work := func(workerConn remote.Client) {
 		for idx := range jobCh {
-			if progress.Canceled() {
+			if progress.Canceled() || hasSecurityFailure() {
 				continue
 			}
 			fn(idx, workerConn)
@@ -843,8 +862,16 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 			}
 			ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
 			defer cancel()
-			extraConn, err := remote.Connect(ctx, host)
+			extraConn, err := remote.Connect(ctx, host, trust, required)
 			if err != nil {
+				var verificationErr *tlstrust.VerificationError
+				if errors.As(err, &verificationErr) {
+					securityMu.Lock()
+					if securityErr == nil {
+						securityErr = err
+					}
+					securityMu.Unlock()
+				}
 				log.Debug("extra diff worker connect failed, reducing parallelism",
 					"host", host.Name, "hostname", host.Hostname, "err", err)
 				return
@@ -855,16 +882,17 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 	}
 
 	for _, idx := range jobs {
-		if progress.Canceled() {
+		if progress.Canceled() || hasSecurityFailure() {
 			break
 		}
 		jobCh <- idx
 	}
 	close(jobCh)
 	wg.Wait()
+	return securityErr
 }
 
-func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker) []diff.Session {
+func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) ([]diff.Session, error) {
 	results := make([]*diff.Session, len(items))
 	var jobs []int
 	for i, item := range items {
@@ -873,6 +901,10 @@ func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []
 			continue
 		}
 		if item.Err != nil {
+			var verificationErr *tlstrust.VerificationError
+			if errors.As(item.Err, &verificationErr) {
+				return nil, fmt.Errorf("scan selected paths: %w", item.Err)
+			}
 			results[i] = &diff.Session{
 				LocalPath:  item.LocalPath,
 				RemotePath: item.RemotePath,
@@ -883,7 +915,7 @@ func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []
 	}
 
 	progress.Set("Comparing files…", 0, len(jobs), len(jobs) == 0)
-	forEachCompare(host, conn, jobs, progress, func(idx int, workerConn remote.Client) {
+	securityErr := forEachCompare(host, conn, jobs, progress, trust, required, func(idx int, workerConn remote.Client) {
 		item := items[idx]
 		result, diffErr := diff.Compare(root, item.LocalPath, item.RemotePath, workerConn)
 		if diffErr != nil {
@@ -900,8 +932,19 @@ func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []
 			Loaded:     true,
 		}
 	})
-
-	return sessionsFromResults(results)
+	if securityErr != nil {
+		return nil, securityErr
+	}
+	for _, session := range results {
+		if session == nil || session.Err == nil {
+			continue
+		}
+		var verificationErr *tlstrust.VerificationError
+		if errors.As(session.Err, &verificationErr) {
+			return nil, session.Err
+		}
+	}
+	return sessionsFromResults(results), nil
 }
 
 func sessionsFromResults(results []*diff.Session) []diff.Session {
@@ -943,10 +986,14 @@ func sortedMarkedPaths(sel *fs.SelectionState) []string {
 func uploadFile(conn remote.Client, root *fs.Root, localPath, remotePath string) error {
 	src, err := root.Open(localPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("open local %s: %w", localPath, err)
 	}
-	defer src.Close()
-	return conn.Upload(remotePath, src)
+	uploadErr := conn.Upload(remotePath, src)
+	closeErr := src.Close()
+	if err := errors.Join(uploadErr, closeErr); err != nil {
+		return fmt.Errorf("upload %s to %s: %w", localPath, remotePath, err)
+	}
+	return nil
 }
 
 // downloadFile writes the remote file at remotePath to localPath inside the
@@ -955,9 +1002,12 @@ func uploadFile(conn remote.Client, root *fs.Root, localPath, remotePath string)
 func downloadFile(conn remote.Client, root *fs.Root, remotePath, localPath string) error {
 	src, err := conn.Open(remotePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("open remote %s: %w", remotePath, err)
 	}
-	return root.WriteAtomic(localPath, src)
+	if err := root.WriteAtomic(localPath, src); err != nil {
+		return fmt.Errorf("download %s to %s: %w", remotePath, localPath, err)
+	}
+	return nil
 }
 
 // uploadCmd uploads the local file of sessions[idx] to remote.
@@ -1053,7 +1103,13 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 					Operation: op,
 					Path:      failurePath,
 					Reason:    reason,
+					Err:       err,
 				})
+				var verificationErr *tlstrust.VerificationError
+				if errors.As(err, &verificationErr) {
+					tracker.Inc()
+					break
+				}
 			} else {
 				log.Debug("sync file ok", "op", op, "local", s.LocalPath, "remote", s.RemotePath)
 				done++
@@ -1072,6 +1128,7 @@ func (m Model) refreshCmd() tea.Cmd {
 	conn := m.conn
 	root := m.root
 	tracker := m.activityTracker
+	trust := m.trust
 	return func() tea.Msg {
 		defer tracker.Finish()
 		refreshed := append([]diff.Session(nil), sessions...)
@@ -1079,7 +1136,7 @@ func (m Model) refreshCmd() tea.Cmd {
 		for i := range sessions {
 			jobs[i] = i
 		}
-		forEachCompare(host, conn, jobs, tracker, func(idx int, workerConn remote.Client) {
+		securityErr := forEachCompare(host, conn, jobs, tracker, trust, nil, func(idx int, workerConn remote.Client) {
 			s := sessions[idx]
 			result, err := diff.Compare(root, s.LocalPath, s.RemotePath, workerConn)
 			if err != nil {
@@ -1093,6 +1150,15 @@ func (m Model) refreshCmd() tea.Cmd {
 				Loaded:     true,
 			}
 		})
+		if securityErr != nil {
+			return MsgRefreshed{Sessions: refreshed, Err: securityErr}
+		}
+		for _, session := range refreshed {
+			var verificationErr *tlstrust.VerificationError
+			if session.Err != nil && errors.As(session.Err, &verificationErr) {
+				return MsgRefreshed{Sessions: refreshed, Err: session.Err}
+			}
+		}
 		return MsgRefreshed{Sessions: refreshed}
 	}
 }

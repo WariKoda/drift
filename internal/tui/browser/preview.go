@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
@@ -36,6 +37,8 @@ type previewRequest struct {
 	path       string
 	size       int64
 	force      bool
+	host       config.Host
+	remoteID   uint64
 }
 
 type msgPreviewDebounced struct {
@@ -46,6 +49,24 @@ type msgPreviewLoaded struct {
 	request previewRequest
 	lines   []string
 	err     error
+}
+
+// MsgPreviewLoaded exposes preview failures to the root model while keeping
+// preview rendering state private to the browser package.
+type MsgPreviewLoaded = msgPreviewLoaded
+
+// Failure returns the preview read error, if any.
+func (m msgPreviewLoaded) Failure() error { return m.err }
+
+// Remote reports whether this result came from the FTPS/SFTP pane.
+func (m msgPreviewLoaded) Remote() bool { return m.request.source == PaneRemote }
+
+// Host returns the remote host snapshot attached to this preview request.
+func (m msgPreviewLoaded) Host() (config.Host, bool) {
+	if !m.Remote() {
+		return config.Host{}, false
+	}
+	return m.request.host, true
 }
 
 type previewRow struct {
@@ -161,6 +182,9 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 	var entry *fs.FileEntry
 	switch m.preview.source {
 	case PaneRemote:
+		if m.remoteHost == nil {
+			return previewRequest{}, false
+		}
 		entry = m.remoteCurrent()
 	default:
 		entries := m.filteredEntries()
@@ -178,12 +202,17 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 			filePath = absolute
 		}
 	}
-	return previewRequest{
+	request := previewRequest{
 		generation: generation,
 		source:     m.preview.source,
 		path:       filePath,
 		size:       entry.Size,
-	}, true
+	}
+	if m.preview.source == PaneRemote {
+		request.host = *m.remoteHost
+		request.remoteID = m.remoteLoadID
+	}
+	return request, true
 }
 
 func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
@@ -221,12 +250,24 @@ func (m *Model) resumePreviewLoad() tea.Cmd {
 	return m.beginPreviewLoad(m.preview.pending)
 }
 
+// AcceptsPreviewResult reports whether a preview result is still current.
+func (m Model) AcceptsPreviewResult(msg MsgPreviewLoaded) bool {
+	if !m.preview.active || msg.request.generation != m.preview.generation || msg.request.source != m.preview.source {
+		return false
+	}
+	if !msg.Remote() {
+		return true
+	}
+	return msg.request.remoteID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.request.host.Name
+}
+
 func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
-	if msg.request.source == PaneRemote {
+	accepted := m.AcceptsPreviewResult(msg)
+	if accepted && msg.request.source == PaneRemote {
 		m.remotePreviewReading = false
 	}
 
-	if m.preview.active && msg.request.generation == m.preview.generation && msg.request.source == m.preview.source {
+	if accepted {
 		m.preview.loading = false
 		m.preview.waiting = false
 		if msg.err != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -26,6 +27,8 @@ type MsgRemoteLoaded struct {
 
 // MsgRemoteChildrenLoaded is emitted after expanding a remote directory.
 type MsgRemoteChildrenLoaded struct {
+	Host       config.Host
+	ID         uint64
 	ParentPath string
 	Children   []*fs.FileEntry
 	Err        error
@@ -33,6 +36,16 @@ type MsgRemoteChildrenLoaded struct {
 
 // StartRemote switches the right pane to host and starts loading its root.
 func (m *Model) StartRemote(host config.Host) tea.Cmd {
+	return m.startRemote(host, nil)
+}
+
+// RetryRemote repeats a failed load while pinning the certificate shown in the
+// trust prompt for the first reconnect.
+func (m *Model) RetryRemote(host config.Host, challenge tlstrust.Challenge) tea.Cmd {
+	return m.startRemote(host, &challenge)
+}
+
+func (m *Model) startRemote(host config.Host, required *tlstrust.Challenge) tea.Cmd {
 	sameHost := m.remoteHost != nil && m.remoteHost.Name == host.Name
 	m.CloseRemote()
 	m.remoteHost = &host
@@ -53,16 +66,16 @@ func (m *Model) StartRemote(host config.Host) tea.Cmd {
 	m.remoteLoadID++
 	id := m.remoteLoadID
 	m.remoteTracker = loading.NewTracker(m.remoteStatus)
-	return loadRemoteCmd(host, m.remoteTracker.Context(), id)
+	return loadRemoteCmd(host, m.remoteTracker.Context(), id, m.trust, required)
 }
 
-func loadRemoteCmd(host config.Host, parent context.Context, id uint64) tea.Cmd {
+func loadRemoteCmd(host config.Host, parent context.Context, id uint64, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
 	return func() tea.Msg {
 		root := remoteRoot(host)
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
 
-		conn, err := remote.Connect(ctx, host)
+		conn, err := remote.Connect(ctx, host, trust, required)
 		if err != nil {
 			log.Error("remote browser connect failed", "host", host.Name, "hostname", host.Hostname, "err", err)
 			return MsgRemoteLoaded{Host: host, Root: root, Err: fmt.Errorf("connect to %s: %w", host.Hostname, err), ID: id}
@@ -84,14 +97,14 @@ func loadRemoteCmd(host config.Host, parent context.Context, id uint64) tea.Cmd 
 	}
 }
 
-func readRemoteDirCmd(conn remote.Client, parentPath string) tea.Cmd {
+func readRemoteDirCmd(conn remote.Client, host config.Host, id uint64, parentPath string) tea.Cmd {
 	return func() tea.Msg {
 		children, err := conn.ReadDir(parentPath)
 		if err != nil {
 			log.Error("remote browser directory read failed", "remote", parentPath, "err", err)
-			return MsgRemoteChildrenLoaded{ParentPath: parentPath, Err: fmt.Errorf("read %s: %w", parentPath, err)}
+			return MsgRemoteChildrenLoaded{Host: host, ID: id, ParentPath: parentPath, Err: fmt.Errorf("read %s: %w", parentPath, err)}
 		}
-		return MsgRemoteChildrenLoaded{ParentPath: parentPath, Children: children}
+		return MsgRemoteChildrenLoaded{Host: host, ID: id, ParentPath: parentPath, Children: children}
 	}
 }
 
@@ -132,6 +145,9 @@ func (m *Model) applyRemoteLoaded(msg MsgRemoteLoaded) {
 }
 
 func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
+	if !m.AcceptsRemoteChildrenResult(msg) {
+		return
+	}
 	m.remoteReading = false
 	idx := m.remoteIndexByPath(msg.ParentPath)
 	if idx < 0 {

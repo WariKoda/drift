@@ -152,15 +152,14 @@ func writeGlobal(cfg GlobalConfig) error {
 // project configs that humans and teams maintain, it must trim those files, not
 // decorate them.
 type hostOut struct {
-	Name        string    `toml:"name"`
-	Hostname    string    `toml:"hostname,omitempty"`
-	Port        *int      `toml:"port,omitempty"`
-	User        string    `toml:"user,omitempty"`
-	Auth        Auth      `toml:"auth,omitempty"`
-	RootPath    string    `toml:"root_path,omitempty"`
-	Protocol    string    `toml:"protocol,omitempty"`
-	InsecureTLS bool      `toml:"insecure_tls,omitempty"`
-	Mappings    []Mapping `toml:"mappings,omitempty"`
+	Name     string    `toml:"name"`
+	Hostname string    `toml:"hostname,omitempty"`
+	Port     *int      `toml:"port,omitempty"`
+	User     string    `toml:"user,omitempty"`
+	Auth     Auth      `toml:"auth,omitempty"`
+	RootPath string    `toml:"root_path,omitempty"`
+	Protocol string    `toml:"protocol,omitempty"`
+	Mappings []Mapping `toml:"mappings,omitempty"`
 }
 
 type defaultsOut struct {
@@ -191,15 +190,14 @@ func hostsOut(hosts []Host) []hostOut {
 	out := make([]hostOut, len(hosts))
 	for i, h := range hosts {
 		out[i] = hostOut{
-			Name:        h.Name,
-			Hostname:    h.Hostname,
-			Port:        optionalInt(h.Port),
-			User:        h.User,
-			Auth:        h.Auth,
-			RootPath:    h.RootPath,
-			Protocol:    h.Protocol,
-			InsecureTLS: h.InsecureTLS,
-			Mappings:    h.Mappings,
+			Name:     h.Name,
+			Hostname: h.Hostname,
+			Port:     optionalInt(h.Port),
+			User:     h.User,
+			Auth:     h.Auth,
+			RootPath: h.RootPath,
+			Protocol: h.Protocol,
+			Mappings: h.Mappings,
 		}
 	}
 	return out

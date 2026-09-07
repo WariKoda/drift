@@ -38,19 +38,18 @@ func (a AuthType) String() string {
 
 // Field indices for m.fields slice and focus tracking.
 const (
-	fName        = 0
-	fHostname    = 1
-	fPort        = 2
-	fUser        = 3
-	fAuthType    = 4 // toggle — no text field
-	fKeyFile     = 5
-	fPassphrase  = 6
-	fPassword    = 7
-	fRootPath    = 8
-	fScope       = 9  // toggle — no text field
-	fProtocol    = 10 // toggle — no text field
-	fMappings    = 11 // virtual row — opens mapping sub-screen
-	fInsecureTLS = 12 // toggle — no text field (ftps only)
+	fName       = 0
+	fHostname   = 1
+	fPort       = 2
+	fUser       = 3
+	fAuthType   = 4 // toggle — no text field
+	fKeyFile    = 5
+	fPassphrase = 6
+	fPassword   = 7
+	fRootPath   = 8
+	fScope      = 9  // toggle — no text field
+	fProtocol   = 10 // toggle — no text field
+	fMappings   = 11 // virtual row — opens mapping sub-screen
 )
 
 // subScreen tracks which panel is currently shown.
@@ -64,11 +63,10 @@ const (
 
 // Model is the host create/edit form.
 type Model struct {
-	fields      [9]*textfield.TextField // indices 0–8 (fName..fRootPath); toggles have no text field
-	authType    AuthType
-	protocol    Protocol
-	insecureTLS bool
-	scope       config.HostScope
+	fields   [9]*textfield.TextField // indices 0–8 (fName..fRootPath); toggles have no text field
+	authType AuthType
+	protocol Protocol
+	scope    config.HostScope
 
 	focusRow int // which row is active (maps to visibleRows())
 
@@ -119,8 +117,6 @@ func NewEdit(h config.Host, scope config.HostScope, projectSlug string, width, h
 	case "ftps":
 		m.protocol = ProtoFTPS
 	}
-	m.insecureTLS = h.InsecureTLS
-
 	switch h.Auth.Type {
 	case "password":
 		m.authType = AuthPassword
@@ -201,9 +197,6 @@ func (m Model) visibleRows() []int {
 		}
 	case ProtoFTP, ProtoFTPS:
 		rows = append(rows, fPassword)
-		if m.protocol == ProtoFTPS {
-			rows = append(rows, fInsecureTLS)
-		}
 	}
 	return append(rows, fScope)
 }
@@ -311,9 +304,6 @@ func (m Model) toHost() (config.Host, error) {
 	}
 	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		h.Auth = config.Auth{Type: "password", Password: m.fields[fPassword].Value()}
-		if m.protocol == ProtoFTPS {
-			h.InsecureTLS = m.insecureTLS
-		}
 		return h, nil
 	}
 	switch m.authType {

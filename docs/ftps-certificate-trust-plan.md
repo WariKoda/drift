@@ -1,6 +1,6 @@
 # Implementierungsplan: FTPS-Zertifikaten gezielt vertrauen
 
-Status: geplant, noch nicht implementiert.
+Status: implementiert auf `feature/ftps-certificate-trust`.
 Branch: `feature/ftps-certificate-trust`
 Ausgangspunkt: `fc1f3c0` auf `main`.
 

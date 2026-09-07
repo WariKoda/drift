@@ -25,6 +25,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Esc hides a running connect or sync; `q` / `Ctrl+C` cancel it. Files already transferred stay; the rest is skipped
 - Per-host path mappings (like PHPStorm's Deployment Mappings tab)
 - Host manager: create, edit, delete, and test connections
+- Interactive FTPS certificate verification with session-only or persistent, fingerprint-bound trust
 - Nothing is written into your project: global hosts in `~/.config/drift/config.toml`, per-project hosts and mappings in `~/.config/drift/projects/<slug>.toml`
 - Skips `.git`, `node_modules`, `.idea`, and other irrelevant directories automatically
 
@@ -316,10 +317,7 @@ hostname  = "shopdev.example.com"
 port      = 21
 user      = "webuser"
 root_path = "/var/www"
-protocol  = "ftp"
-
-# For ftps with a self-signed / mismatched certificate (skips TLS verification):
-# insecure_tls = true
+protocol  = "ftps"
 
   [hosts.auth]
   type     = "password"
@@ -337,6 +335,24 @@ remote = "html"
 The file holds credentials verbatim, so it is mode `600` in a `700` directory. Use
 `$ENV_VAR` for a password or passphrase if you would rather keep the secret in your shell
 environment or a password manager; drift expands it at connect time.
+
+### FTPS certificate trust
+
+FTPS certificates are checked against the operating system trust store, including
+the configured hostname and validity period. If that check fails, drift stops the
+connection and shows the certificate subject, issuer, validity, problem, and full
+SHA-256 fingerprint. `Reject` is selected by default.
+
+After checking the fingerprint through a trusted channel, you can trust that exact
+certificate for the current drift process or permanently. Permanent exceptions are
+bound to the normalized hostname and port and stored in
+`~/.config/drift/trusted-certificates.toml` with mode `600`. A certificate change or
+a newly occurring validation problem asks again. Use `r` on an FTPS host in the host
+manager to reset both session and persistent trust for its endpoint.
+
+The former `insecure_tls` host option is ignored and no longer written. It does not
+grant trust. Custom CA files and client certificates are not supported yet. FTPS
+continues to use explicit TLS on the FTP control port and TLS 1.2.
 
 ### Path Mappings
 
@@ -365,6 +381,7 @@ add to `.gitignore` and nothing to commit by accident:
 | `~/.config/drift/config.toml` | global hosts, `[ui]` |
 | `~/.config/drift/projects.toml` | the registry: slug, name, path, timestamps |
 | `~/.config/drift/projects/<slug>.toml` | one project's hosts and mappings, mode `600` |
+| `~/.config/drift/trusted-certificates.toml` | persistent FTPS certificate exceptions, mode `600` |
 
 The trade-off is deliberate: mappings do not travel with a clone. Every developer enters
 them once per machine, and when someone moves a directory in the repo there is no commit
@@ -401,6 +418,7 @@ internal/
   log/          optional file-based diagnostics
   pathmap/      local ↔ remote path resolution with mapping rules
   remote/       protocol-agnostic Client interface and connection factory
+  tlstrust/     FTPS certificate verification and trust policy
   sftp/         SFTP client
   ssh/          SSH auth and known_hosts verification
   styles/       shared palettes and lipgloss styles
@@ -408,6 +426,7 @@ internal/
   tui/
     app.go      root Bubble Tea model, screen routing
     browser/    file browser screen
+    certtrust/  FTPS certificate trust modal
     dashboard/  project dashboard screen
     projectform/ project create/edit form
     projectselector/ project switcher modal

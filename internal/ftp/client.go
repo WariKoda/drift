@@ -4,11 +4,11 @@ package ftp
 import (
 	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"sort"
@@ -20,36 +20,37 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/tlstrust"
 )
 
 // Client wraps an FTP connection.
 type Client struct {
-	conn *ftplib.ServerConn
-	opMu sync.Mutex
-	Host config.Host
+	conn   *ftplib.ServerConn
+	opMu   sync.Mutex
+	Host   config.Host
+	policy tlstrust.Policy
 }
 
 // Connect dials an FTP server and logs in.
-func Connect(ctx context.Context, host config.Host) (*Client, error) {
+func Connect(ctx context.Context, host config.Host, policy tlstrust.Policy) (*Client, error) {
 	port := host.Port
 	if port == 0 {
 		port = 21
 	}
-	addr := fmt.Sprintf("%s:%d", host.Hostname, port)
+	addr := net.JoinHostPort(strings.Trim(host.Hostname, "[]"), fmt.Sprintf("%d", port))
 
 	opts := []ftplib.DialOption{
 		ftplib.DialWithContext(ctx),
 		ftplib.DialWithTimeout(15 * time.Second),
 	}
 	if host.Protocol == "ftps" {
-		opts = append(opts, ftplib.DialWithExplicitTLS(&tls.Config{
-			ServerName: host.Hostname,
-			// Some FTP servers negotiate TLS 1.3 successfully on the control
-			// connection but abort larger data transfers with status 426.
-			MinVersion:         tls.VersionTLS12,
-			MaxVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: host.InsecureTLS, //nolint:gosec // opt-in per host for self-signed certs
-		}))
+		endpoint, err := tlstrust.NormalizeEndpoint(host.Protocol, host.Hostname, port)
+		if err != nil {
+			return nil, err
+		}
+		// TLS 1.2 remains pinned because some FTP servers complete a TLS 1.3
+		// control handshake but abort larger data transfers with status 426.
+		opts = append(opts, ftplib.DialWithExplicitTLS(policy.TLSConfig(endpoint)))
 	}
 
 	conn, err := ftplib.Dial(addr, opts...)
@@ -71,7 +72,7 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
 
-	return &Client{conn: conn, Host: host}, nil
+	return &Client{conn: conn, Host: host, policy: policy}, nil
 }
 
 // Close logs out and closes the connection.
@@ -114,7 +115,7 @@ func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
 		// Check if it's a directory by attempting to list it.
 		entries, listErr := c.conn.List(remotePath)
 		if listErr != nil {
-			return nil, err
+			return nil, errors.Join(err, listErr)
 		}
 		_ = entries
 		return &ftpFileInfo{name: path.Base(remotePath), isDir: true}, nil
@@ -245,11 +246,16 @@ func (c *Client) WalkFiles(remoteRoot string, fn func(string) error) error {
 
 func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) error {
 	workers := []*Client{c}
+	var workerConnectErr error
 	for len(workers) < maxWalkWorkers {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		worker, err := Connect(ctx, c.Host)
+		worker, err := Connect(ctx, c.Host, c.policy)
 		cancel()
 		if err != nil {
+			var verificationErr *tlstrust.VerificationError
+			if errors.As(err, &verificationErr) {
+				workerConnectErr = err
+			}
 			break
 		}
 		workers = append(workers, worker)
@@ -259,6 +265,9 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 			_ = worker.Close()
 		}
 	}()
+	if workerConnectErr != nil {
+		return workerConnectErr
+	}
 
 	var mu sync.Mutex
 	var firstErr error

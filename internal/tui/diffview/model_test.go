@@ -37,10 +37,10 @@ func TestLoadDiffItemsUsesSingleFTPSession(t *testing.T) {
 		items[i] = diffLoadItem{LocalPath: localPath, RemotePath: remotePath, Compare: true}
 	}
 
-	host := server.host()
+	host := server.host(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, err := remote.Connect(ctx, host)
+	conn, err := remote.Connect(ctx, host, nil, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -52,7 +52,10 @@ func TestLoadDiffItemsUsesSingleFTPSession(t *testing.T) {
 	}
 	defer root.Close()
 
-	sessions := loadDiffItems(root, host, conn, items, NewLoadProgressTracker())
+	sessions, err := loadDiffItems(root, host, conn, items, NewLoadProgressTracker(), nil, nil)
+	if err != nil {
+		t.Fatalf("load diff items: %v", err)
+	}
 
 	if len(sessions) != len(items) {
 		t.Fatalf("sessions = %d, want %d", len(sessions), len(items))
@@ -76,11 +79,11 @@ func TestLoadDiffItemsUsesSingleFTPSession(t *testing.T) {
 // accepts more sessions, additional workers still connect on their own.
 func TestForEachCompareAddsExtraFTPConnections(t *testing.T) {
 	server := startFTPTestServer(t, maxFTPDiffLoadWorkers)
-	host := server.host()
+	host := server.host(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, err := remote.Connect(ctx, host)
+	conn, err := remote.Connect(ctx, host, nil, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -93,7 +96,7 @@ func TestForEachCompareAddsExtraFTPConnections(t *testing.T) {
 
 	jobs := []int{0, 1, 2, 3}
 	ran := make([]bool, len(jobs))
-	forEachCompare(host, conn, jobs, nil, func(idx int, workerConn remote.Client) {
+	forEachCompare(host, conn, jobs, nil, nil, nil, func(idx int, workerConn remote.Client) {
 		ran[idx] = true
 		mu.Lock()
 		distinct[workerConn] = struct{}{}
@@ -179,14 +182,15 @@ func (s *ftpTestServer) file(remotePath string) (string, bool) {
 	return content, ok
 }
 
-func (s *ftpTestServer) host() config.Host {
+func (s *ftpTestServer) host(t *testing.T) config.Host {
+	t.Helper()
 	hostname, portString, err := net.SplitHostPort(s.listener.Addr().String())
 	if err != nil {
-		panic(fmt.Sprintf("split server address: %v", err))
+		t.Fatalf("split server address: %v", err)
 	}
 	port, err := strconv.Atoi(portString)
 	if err != nil {
-		panic(fmt.Sprintf("parse server port: %v", err))
+		t.Fatalf("parse server port: %v", err)
 	}
 	return config.Host{
 		Name:     "test",

@@ -10,8 +10,10 @@ import (
 )
 
 func TestRemoteBrowserQueuesOnlyOneDirectoryRead(t *testing.T) {
+	host := config.Host{Name: "test"}
 	model := Model{
 		activePane: PaneRemote,
+		remoteHost: &host,
 		remoteConn: &driftftp.Client{},
 		remoteEntries: []*fs.FileEntry{
 			{Name: "one", Path: "/one", Kind: fs.EntryDir},
@@ -36,13 +38,14 @@ func TestRemoteBrowserQueuesOnlyOneDirectoryRead(t *testing.T) {
 		t.Fatal("blocked directory read changed the second directory state")
 	}
 
-	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{ParentPath: "/one"})
+	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{Host: host, ParentPath: "/one"})
 	if model.remoteReading {
 		t.Fatal("completed directory read did not release the connection")
 	}
 }
 
 func TestRemoteBrowserRevealsLoadedDirectoryChildren(t *testing.T) {
+	host := config.Host{Name: "test"}
 	entries := []*fs.FileEntry{
 		{Name: "a", Path: "/a", Kind: fs.EntryDir},
 		{Name: "b", Path: "/b", Kind: fs.EntryDir},
@@ -52,12 +55,14 @@ func TestRemoteBrowserRevealsLoadedDirectoryChildren(t *testing.T) {
 	}
 	model := Model{
 		Height:        11, // five entry rows
+		remoteHost:    &host,
 		remoteEntries: entries,
 		remoteCursor:  4,
 		remoteReading: true,
 	}
 
 	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{
+		Host:       host,
 		ParentPath: "/target",
 		Children: []*fs.FileEntry{
 			{Name: "one", Path: "/target/one", Kind: fs.EntryFile},
@@ -72,6 +77,7 @@ func TestRemoteBrowserRevealsLoadedDirectoryChildren(t *testing.T) {
 }
 
 func TestRemoteBrowserDoesNotJumpAfterCursorLeavesLoadingDirectory(t *testing.T) {
+	host := config.Host{Name: "test"}
 	entries := []*fs.FileEntry{
 		{Name: "active", Path: "/active", Kind: fs.EntryDir},
 		{Name: "b", Path: "/b", Kind: fs.EntryDir},
@@ -81,12 +87,14 @@ func TestRemoteBrowserDoesNotJumpAfterCursorLeavesLoadingDirectory(t *testing.T)
 	}
 	model := Model{
 		Height:        11, // five entry rows
+		remoteHost:    &host,
 		remoteEntries: entries,
 		remoteCursor:  0,
 		remoteReading: true,
 	}
 
 	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{
+		Host:       host,
 		ParentPath: "/loading",
 		Children: []*fs.FileEntry{
 			{Name: "one", Path: "/loading/one", Kind: fs.EntryFile},
@@ -141,9 +149,11 @@ func TestRemoteBrowserBlocksConnectionReplacementDuringDirectoryRead(t *testing.
 }
 
 func TestRemotePreviewWaitsForDirectoryRead(t *testing.T) {
-	request := previewRequest{generation: 1, source: PaneRemote, path: "/file.txt"}
+	host := config.Host{Name: "test"}
+	request := previewRequest{generation: 1, source: PaneRemote, path: "/file.txt", host: host}
 	model := Model{
 		activePane:    PaneRemote,
+		remoteHost:    &host,
 		remoteConn:    &driftftp.Client{},
 		remoteReading: true,
 		remoteEntries: []*fs.FileEntry{

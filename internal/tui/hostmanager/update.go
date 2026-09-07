@@ -3,34 +3,55 @@ package hostmanager
 import (
 	"context"
 	"fmt"
+	"path"
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // MsgTestResult carries the outcome of an async connection test.
 type MsgTestResult struct {
-	HostName string
-	Err      error
-	ID       uint64
+	Host config.Host
+	Err  error
+	ID   uint64
+}
+
+// MsgTrustReset carries the result of removing certificate trust for a host.
+type MsgTrustReset struct {
+	Host config.Host
+	Err  error
 }
 
 // testCmd dials SSH+SFTP for host and immediately closes, returning the result.
-func testCmd(host config.Host, parent context.Context, id uint64) tea.Cmd {
+func testCmd(host config.Host, parent context.Context, id uint64, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 		defer cancel()
-		conn, err := remote.Connect(ctx, host)
+		conn, err := remote.Connect(ctx, host, trust, required)
 		if err != nil {
 			log.Error("host connection test failed", "host", host.Name, "hostname", host.Hostname, "err", err)
-			return MsgTestResult{HostName: host.Name, Err: err, ID: id}
+			return MsgTestResult{Host: host, Err: err, ID: id}
 		}
-		conn.Close()
-		return MsgTestResult{HostName: host.Name, ID: id}
+		root := host.RootPath
+		if root == "" {
+			root = "/"
+		} else {
+			root = path.Clean(root)
+		}
+		if _, err := conn.ReadDir(root); err != nil {
+			_ = conn.Close()
+			log.Error("host root listing failed", "host", host.Name, "remote", root, "err", err)
+			return MsgTestResult{Host: host, Err: fmt.Errorf("list %s: %w", root, err), ID: id}
+		}
+		if err := conn.Close(); err != nil {
+			return MsgTestResult{Host: host, Err: fmt.Errorf("close connection: %w", err), ID: id}
+		}
+		return MsgTestResult{Host: host, ID: id}
 	}
 }
 
@@ -65,9 +86,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if loading.IsCanceled(msg.Err) {
 			m.statusMsg = "Cancelled"
 		} else if msg.Err != nil {
-			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.HostName, msg.Err.Error())
+			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.Host.Name, msg.Err.Error())
 		} else {
-			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.HostName)
+			m.statusMsg = fmt.Sprintf("✓ %s: connection successful", msg.Host.Name)
+		}
+
+	case MsgTrustReset:
+		if msg.Err != nil {
+			m.statusMsg = fmt.Sprintf("✗ %s: reset certificate trust: %s", msg.Host.Name, msg.Err)
+		} else {
+			m.statusMsg = fmt.Sprintf("✓ %s: certificate trust reset", msg.Host.Name)
 		}
 
 	case tea.MouseMsg:
@@ -76,6 +104,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.confirmDelete {
 			return m.updateConfirm(msg)
+		}
+		if m.confirmReset {
+			return m.updateResetConfirm(msg)
 		}
 		return m.updateNormal(msg)
 	}
@@ -130,16 +161,15 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		m.confirmDelete = true
 
+	case "r":
+		if e := m.currentEntry(); e != nil && e.host.Protocol == "ftps" {
+			m.confirmReset = true
+		}
+
 	case "t":
 		e := m.currentEntry()
 		if e != nil && !m.testing {
-			m.testing = true
-			m.testTarget = e.host.Name
-			m.testID++
-			id := m.testID
-			m.testTracker = loading.NewTracker("Testing " + e.host.Name + "…")
-			m.statusMsg = ""
-			return m, testCmd(e.host, m.testTracker.Context(), id)
+			return m, m.startTest(e.host, nil)
 		}
 
 	case "esc", "q":
@@ -147,6 +177,43 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// RetryTest repeats a failed test while pinning the certificate shown in the
+// trust prompt for the first reconnect.
+func (m *Model) RetryTest(host config.Host, challenge tlstrust.Challenge) tea.Cmd {
+	return m.startTest(host, &challenge)
+}
+
+func (m *Model) startTest(host config.Host, required *tlstrust.Challenge) tea.Cmd {
+	m.testing = true
+	m.testTarget = host.Name
+	m.testID++
+	id := m.testID
+	m.testTracker = loading.NewTracker("Testing " + host.Name + "…")
+	m.statusMsg = ""
+	return testCmd(host, m.testTracker.Context(), id, m.trust, required)
+}
+
+func (m Model) updateResetConfirm(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.String() != "y" && msg.String() != "enter" {
+		m.confirmReset = false
+		return m, nil
+	}
+	e := m.currentEntry()
+	m.confirmReset = false
+	if e == nil || e.host.Protocol != "ftps" || m.trust == nil {
+		return m, nil
+	}
+	host := e.host
+	trust := m.trust
+	return m, func() tea.Msg {
+		endpoint, err := tlstrust.NormalizeEndpoint(host.Protocol, host.Hostname, host.Port)
+		if err == nil {
+			err = trust.Reset(endpoint)
+		}
+		return MsgTrustReset{Host: host, Err: err}
+	}
 }
 
 func (m Model) updateConfirm(msg tea.KeyMsg) (Model, tea.Cmd) {

@@ -67,15 +67,17 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 	if localMissing {
 		result.RemoteOnly = true
 		if result.SizeRemote <= maxTextSize {
-			if data, err := client.ReadFile(remotePath); err == nil {
-				if isBinary(data) {
-					result.Binary = true
-				} else {
-					for i, line := range splitLines(string(data)) {
-						result.Lines = append(result.Lines, DiffLine{
-							Text: line, Kind: LineAdded, RemoteNum: i + 1,
-						})
-					}
+			data, err := client.ReadFile(remotePath)
+			if err != nil {
+				return result, err
+			}
+			if isBinary(data) {
+				result.Binary = true
+			} else {
+				for i, line := range splitLines(string(data)) {
+					result.Lines = append(result.Lines, DiffLine{
+						Text: line, Kind: LineAdded, RemoteNum: i + 1,
+					})
 				}
 			}
 		} else {
@@ -86,15 +88,17 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 	if remoteMissing {
 		result.LocalOnly = true
 		if result.SizeLocal <= maxTextSize {
-			if data, err := root.ReadFile(localPath); err == nil {
-				if isBinary(data) {
-					result.Binary = true
-				} else {
-					for i, line := range splitLines(string(data)) {
-						result.Lines = append(result.Lines, DiffLine{
-							Text: line, Kind: LineRemoved, LocalNum: i + 1,
-						})
-					}
+			data, err := root.ReadFile(localPath)
+			if err != nil {
+				return result, err
+			}
+			if isBinary(data) {
+				result.Binary = true
+			} else {
+				for i, line := range splitLines(string(data)) {
+					result.Lines = append(result.Lines, DiffLine{
+						Text: line, Kind: LineRemoved, LocalNum: i + 1,
+					})
 				}
 			}
 		} else {
@@ -179,7 +183,10 @@ func digestAndClose(r io.ReadCloser) ([sha256.Size]byte, int64, error) {
 
 	var sum [sha256.Size]byte
 	copy(sum[:], h.Sum(nil))
-	return sum, size, errors.Join(readErr, closeErr)
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return sum, size, fmt.Errorf("read and close remote content: %w", err)
+	}
+	return sum, size, nil
 }
 
 // lineDiff computes a unified line diff between local and remote text.

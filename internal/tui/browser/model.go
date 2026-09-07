@@ -9,6 +9,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
@@ -69,6 +70,7 @@ type Model struct {
 	remoteStatus         string
 	remoteLoadID         uint64
 	remoteTracker        *loading.Tracker
+	trust                *tlstrust.Manager
 
 	// status message (transient)
 	statusMsg string
@@ -112,6 +114,11 @@ func (m *Model) SetMouseEnabled(enabled bool) {
 	m.mouseEnabled = enabled
 }
 
+// SetTrustManager provides certificate trust for new FTPS connections.
+func (m *Model) SetTrustManager(trust *tlstrust.Manager) {
+	m.trust = trust
+}
+
 // StartsNetworkOperation reports whether key could perform network I/O and
 // must be blocked while another global activity is running.
 func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
@@ -140,6 +147,25 @@ func (m Model) LoadingActivity() (string, *loading.Tracker, bool) {
 		return "Connecting to remote…", m.remoteTracker, true
 	}
 	return "Connecting to " + m.remoteHost.Name + "…", m.remoteTracker, true
+}
+
+// AcceptsRemoteResult reports whether a root-load result is still current.
+func (m Model) AcceptsRemoteResult(id uint64, hostName string) bool {
+	return m.remoteLoading && id == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == hostName
+}
+
+// AcceptsRemoteChildrenResult reports whether a directory result belongs to
+// the active remote connection generation.
+func (m Model) AcceptsRemoteChildrenResult(msg MsgRemoteChildrenLoaded) bool {
+	return m.remoteReading && msg.ID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.Host.Name
+}
+
+// RemoteHost returns the host currently assigned to the remote pane.
+func (m Model) RemoteHost() (config.Host, bool) {
+	if m.remoteHost == nil {
+		return config.Host{}, false
+	}
+	return *m.remoteHost, true
 }
 
 // CancelRemote aborts an in-flight root listing and ignores its result.

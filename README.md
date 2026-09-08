@@ -41,13 +41,53 @@ cd drift
 make install
 ```
 
-This builds the binary and installs it to `~/.local/bin/drift`.
+This builds your checked-out tree and installs it to `$(go env GOBIN)`, or to
+`~/.local/bin/drift` when no `GOBIN` is set.
 
 ### Directly with Go
 
 ```bash
 go install github.com/WariKoda/drift@latest
 ```
+
+This builds the latest published tag — not your working tree — and installs it to
+`$(go env GOBIN)`, or to `$(go env GOPATH)/bin` when no `GOBIN` is set.
+
+### Where the binary goes
+
+The two routes above install to different directories unless you name one. Used
+together, they leave two `drift` binaries, and whichever directory comes first in
+`$PATH` wins — so after a `make install` you can still be launching the older
+tagged build without noticing, because both report a version starting with the
+same tag.
+
+Name the directory once, in Go's own environment:
+
+```bash
+go env -w GOBIN=$HOME/.local/bin   # persisted in $(go env GOENV)
+go env GOBIN                       # check what is in effect
+go env -u GOBIN                    # revert to the default
+```
+
+`-w` "changes the default settings of the named environment variables" (`go help
+env`), written to the file `go env GOENV` names, so it survives new shells and
+does not touch any shell profile. `make install` picks that value up, and so does
+`go install github.com/WariKoda/drift@latest` — one directory, one binary, no
+shadowing.
+
+This carries better than the alternatives:
+
+- **Setting it in the Makefile** would only cover `make install`. The `go install`
+  route ignores the Makefile entirely, so the two could still diverge — and where
+  binaries live in your home directory is your decision, not this repository's.
+- **Exporting `GOBIN` in `.bashrc`** works but only for interactive shells, and it
+  adds another line to a file that tends to accumulate them. `go env -w` applies to
+  every Go invocation, including from editors, cron, and other tools.
+- **Reordering `$PATH`** hides the symptom while both binaries stay on disk, so the
+  next stale one bites again.
+
+Whatever directory you choose has to be in your `$PATH`. Without a `GOBIN`,
+`make install` uses `~/.local/bin` and `go install` uses `$(go env GOPATH)/bin`.
 
 ### Update after code changes
 

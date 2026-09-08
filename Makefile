@@ -1,11 +1,3 @@
-# Install target. A GOBIN set in the environment or via `go env -w GOBIN=…` wins,
-# so `make install` and `go install <module>@latest` cannot leave two binaries
-# shadowing each other in $PATH. Without one, install where the docs say.
-BIN ?= $(shell go env GOBIN)
-ifeq ($(strip $(BIN)),)
-BIN := $(HOME)/.local/bin
-endif
-
 VERSION ?= dev
 
 .PHONY: build test vet install update release-build
@@ -20,7 +12,7 @@ vet:
 	go vet ./...
 
 install:
-	GOBIN="$(BIN)" go install .
+	go install .
 
 update: install
 

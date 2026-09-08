@@ -43,6 +43,9 @@ func certificateChallenge(err error) (tlstrust.Challenge, bool) {
 }
 
 func (a *App) openCertificatePrompt(kind trustOperationKind, host config.Host, err error) bool {
+	if a.certPrompt != nil {
+		return false
+	}
 	challenge, ok := certificateChallenge(err)
 	if !ok {
 		return false
@@ -56,17 +59,18 @@ func (a *App) openCertificatePrompt(kind trustOperationKind, host config.Host, e
 	return true
 }
 
-func (a *App) openDiffCertificatePrompt(err error) bool {
+func (a *App) openDiffCertificatePrompt(err error) (tea.Cmd, bool) {
 	if a.state.SelectedHost == nil {
-		return false
+		return nil, false
 	}
 	if !a.openCertificatePrompt(trustOperationNoRetry, *a.state.SelectedHost, err) {
-		return false
+		return nil, false
 	}
-	a.diffView.Close()
+	a.watchConnection(nil)
+	closeCmd := a.diffView.Close()
 	a.state.Screen = ScreenBrowser
 	a.state.SelectedHost = nil
-	return true
+	return closeCmd, true
 }
 
 func (a *App) handleCertificateDecision(msg certtrust.MsgDecision) (tea.Model, tea.Cmd) {
@@ -155,19 +159,21 @@ func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 	}
 }
 
-func (a *App) closeConnectionsFor(host config.Host) {
+func (a *App) closeConnectionsFor(host config.Host) tea.Cmd {
 	target, err := tlstrust.NormalizeEndpoint(host.Protocol, host.Hostname, host.Port)
 	if err != nil {
-		return
+		return nil
 	}
 	remoteHost, ok := a.browser.RemoteHost()
 	if !ok {
-		return
+		return nil
 	}
 	current, err := tlstrust.NormalizeEndpoint(remoteHost.Protocol, remoteHost.Hostname, remoteHost.Port)
 	if err == nil && current == target {
-		a.browser.CloseRemote()
+		a.watchConnection(nil)
+		return a.browser.CloseRemote()
 	}
+	return nil
 }
 
 func (a *App) closeCertificatePrompt() {

@@ -143,7 +143,10 @@ type ftpTestServer struct {
 	files    map[string]string
 	accepted int
 	rejected int
-	wg       stdsync.WaitGroup
+	commands []string
+	// Returning true drops this real control connection before its reply.
+	dropCommand func(command, argument string) bool
+	wg          stdsync.WaitGroup
 }
 
 func startFTPTestServer(t *testing.T, maxSessions int) *ftpTestServer {
@@ -208,6 +211,18 @@ func (s *ftpTestServer) rejectedSessions() int {
 	return s.rejected
 }
 
+func (s *ftpTestServer) commandCount(command string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, got := range s.commands {
+		if got == command {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *ftpTestServer) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()
@@ -266,7 +281,15 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 			return
 		}
 		command, argument, _ := strings.Cut(strings.TrimSpace(line), " ")
-		switch strings.ToUpper(command) {
+		command = strings.ToUpper(command)
+		s.mu.Lock()
+		s.commands = append(s.commands, command)
+		drop := s.dropCommand
+		s.mu.Unlock()
+		if drop != nil && drop(command, argument) {
+			return
+		}
+		switch command {
 		case "USER":
 			err = reply("331 password required")
 		case "PASS":
@@ -275,6 +298,18 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 			err = reply("500 features unavailable")
 		case "TYPE":
 			err = reply("200 transfer type set")
+		case "NOOP":
+			err = reply("200 alive")
+		case "DELE":
+			s.mu.Lock()
+			_, exists := s.files[argument]
+			delete(s.files, argument)
+			s.mu.Unlock()
+			if exists {
+				err = reply("250 deleted")
+			} else {
+				err = reply("550 file not found")
+			}
 		case "SIZE":
 			content, ok := s.file(argument)
 			if !ok {

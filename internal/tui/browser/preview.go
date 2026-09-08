@@ -232,7 +232,7 @@ func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
 			m.preview.waiting = true
 			return nil
 		}
-		if m.remoteConn == nil {
+		if m.remoteConn == nil || m.remoteConn.Err() != nil {
 			return func() tea.Msg {
 				return previewLoadFailure(request, errors.New("remote is not connected"))
 			}

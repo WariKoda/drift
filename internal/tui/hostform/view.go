@@ -51,6 +51,16 @@ func (m Model) viewMain() string {
 			sb.WriteString(m.renderToggle("Scope", scopeLabels, int(m.scope), isFocused))
 		case fMappings:
 			sb.WriteString(m.renderMappingsRow(isFocused))
+		case fKeepAliveDisabled:
+			selected := 0
+			if m.keepAliveDisabled {
+				selected = 1
+			}
+			sb.WriteString(m.renderToggle("Disable keep-alive", []string{"no", "yes"}, selected, isFocused))
+		case fKeepAliveInterval:
+			sb.WriteString(m.fields[rowIdx].View())
+			sb.WriteByte('\n')
+			sb.WriteString(styles.Muted.Render(fmt.Sprintf("  Blank uses %.0f seconds.", config.DefaultKeepAliveInterval.Seconds())))
 		default:
 			if rowIdx < len(m.fields) && m.fields[rowIdx] != nil {
 				sb.WriteString(m.fields[rowIdx].View())

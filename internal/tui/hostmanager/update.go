@@ -51,6 +51,9 @@ func testCmd(host config.Host, parent context.Context, id uint64, trust *tlstrus
 		if err := conn.Close(); err != nil {
 			return MsgTestResult{Host: host, Err: fmt.Errorf("close connection: %w", err), ID: id}
 		}
+		if err := conn.Err(); err != nil {
+			return MsgTestResult{Host: host, Err: err, ID: id}
+		}
 		return MsgTestResult{Host: host, ID: id}
 	}
 }

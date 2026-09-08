@@ -109,7 +109,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 
 	// A double click on the already-active file cycles its sync direction,
 	// matching Space — the only per-row action the diff view has.
-	if m.clicks.Register(msg.X, msg.Y) && !m.remoteBusy() {
+	if m.clicks.Register(msg.X, msg.Y) && !m.remoteBusy() && m.connectionError() == nil {
 		m.syncDirs[m.activeIdx] = nextDir(m.syncDirs[m.activeIdx], &m.sessions[m.activeIdx])
 	}
 

@@ -13,6 +13,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	pkgsftp "github.com/pkg/sftp"
@@ -29,11 +30,29 @@ type Client struct {
 	sftp      *pkgsftp.Client
 	authClose io.Closer // optional closer for auth resources (e.g. SSH agent socket)
 	Host      config.Host
+
+	transport net.Conn
+	stop      chan struct{}
+	done      chan struct{}
+	stopOnce  sync.Once
+	errMu     sync.RWMutex
+	err       error
+	closeErr  error // written during shutdown, read only after done closes
 }
 
 // Connect dials SSH and opens an SFTP subsystem session.
 func Connect(ctx context.Context, host config.Host) (*Client, error) {
+	return connect(ctx, host, host.KeepAliveDuration(), config.KeepAliveTimeout)
+}
+
+func connect(ctx context.Context, host config.Host, interval, timeout time.Duration) (*Client, error) {
 	methods, authCloser, err := ssh.AuthMethods(host.Auth)
+	connected := false
+	defer func() {
+		if !connected && authCloser != nil {
+			_ = authCloser.Close()
+		}
+	}()
 	if err != nil {
 		return nil, fmt.Errorf("auth setup: %w", err)
 	}
@@ -87,34 +106,53 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 		return nil, fmt.Errorf("open SFTP session: %w", err)
 	}
 
-	return &Client{sshConn: sshConn, sftp: sftpSession, authClose: authCloser, Host: host}, nil
+	// Join the cancellation watcher before handing ownership to the client.
+	// Canceling the connect context after this point must not stop keepalive.
+	stop()
+	if err := ctx.Err(); err != nil {
+		_ = tcpConn.Close()
+		_ = sftpSession.Close()
+		return nil, fmt.Errorf("open SFTP session: %w", err)
+	}
+
+	client := &Client{
+		sshConn: sshConn, sftp: sftpSession, authClose: authCloser, Host: host,
+		transport: tcpConn, stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	connected = true
+	go client.monitor(interval, timeout)
+	return client, nil
 }
 
 // closeWhenCanceled closes c when ctx is canceled and returns a stop function
 // that must be called once the caller no longer wants that side effect.
 func closeWhenCanceled(ctx context.Context, c io.Closer) func() {
 	done := make(chan struct{})
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		select {
 		case <-ctx.Done():
 			_ = c.Close()
 		case <-done:
 		}
 	}()
-	return func() { close(done) }
+	var once sync.Once
+	return func() {
+		once.Do(func() { close(done) })
+		<-finished
+	}
 }
 
-// Close closes both the SFTP session and SSH connection.
+// Close stops all monitoring and closes the transport, SFTP and auth resources.
+// Concurrent calls wait for the same cleanup, including any in-flight probe.
 func (c *Client) Close() error {
 	if c == nil {
 		return nil
 	}
-	_ = c.sftp.Close()
-	err := c.sshConn.Close()
-	if c.authClose != nil {
-		_ = c.authClose.Close()
-	}
-	return err
+	c.terminate(nil)
+	<-c.done
+	return c.closeErr
 }
 
 // Stat returns file info for a remote path.

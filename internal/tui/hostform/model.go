@@ -38,18 +38,20 @@ func (a AuthType) String() string {
 
 // Field indices for m.fields slice and focus tracking.
 const (
-	fName       = 0
-	fHostname   = 1
-	fPort       = 2
-	fUser       = 3
-	fAuthType   = 4 // toggle — no text field
-	fKeyFile    = 5
-	fPassphrase = 6
-	fPassword   = 7
-	fRootPath   = 8
-	fScope      = 9  // toggle — no text field
-	fProtocol   = 10 // toggle — no text field
-	fMappings   = 11 // virtual row — opens mapping sub-screen
+	fName              = 0
+	fHostname          = 1
+	fPort              = 2
+	fUser              = 3
+	fAuthType          = 4 // toggle — no text field
+	fKeyFile           = 5
+	fPassphrase        = 6
+	fPassword          = 7
+	fRootPath          = 8
+	fKeepAliveInterval = 9
+	fScope             = 10 // toggle — no text field
+	fProtocol          = 11 // toggle — no text field
+	fMappings          = 12 // virtual row — opens mapping sub-screen
+	fKeepAliveDisabled = 13 // toggle — no text field
 )
 
 // subScreen tracks which panel is currently shown.
@@ -63,10 +65,11 @@ const (
 
 // Model is the host create/edit form.
 type Model struct {
-	fields   [9]*textfield.TextField // indices 0–8 (fName..fRootPath); toggles have no text field
-	authType AuthType
-	protocol Protocol
-	scope    config.HostScope
+	fields            [10]*textfield.TextField // text fields through fKeepAliveInterval; toggles have no text field
+	authType          AuthType
+	protocol          Protocol
+	scope             config.HostScope
+	keepAliveDisabled bool
 
 	focusRow int // which row is active (maps to visibleRows())
 
@@ -110,6 +113,12 @@ func NewEdit(h config.Host, scope config.HostScope, projectSlug string, width, h
 	}
 	m.fields[fUser].SetValue(h.User)
 	m.fields[fRootPath].SetValue(h.RootPath)
+	if h.KeepAliveInterval != nil {
+		m.keepAliveDisabled = *h.KeepAliveInterval == 0
+		if !m.keepAliveDisabled {
+			m.fields[fKeepAliveInterval].SetValue(strconv.Itoa(*h.KeepAliveInterval))
+		}
+	}
 
 	switch h.Protocol {
 	case "ftp":
@@ -150,7 +159,7 @@ func (m *Model) SetSize(w, h int) {
 		bw = 20
 	}
 	for i, f := range m.fields {
-		if f != nil && i != fPort {
+		if f != nil && i != fPort && i != fKeepAliveInterval {
 			f.Width = bw
 		}
 	}
@@ -177,6 +186,7 @@ func (m *Model) initFields() {
 	m.fields[fPassphrase] = &textfield.TextField{Label: "Passphrase", Width: bw, Password: true}
 	m.fields[fPassword] = &textfield.TextField{Label: "Password", Width: bw, Password: true, Placeholder: "or $ENV_VAR"}
 	m.fields[fRootPath] = &textfield.TextField{Label: "Root Path", Width: bw, Placeholder: "/var/www"}
+	m.fields[fKeepAliveInterval] = &textfield.TextField{Label: "Keep-alive interval (seconds)", Width: 6, Placeholder: strconv.Itoa(int(config.DefaultKeepAliveInterval.Seconds()))}
 }
 
 // visibleRows returns the ordered focus positions for the current protocol and
@@ -185,7 +195,11 @@ func (m *Model) initFields() {
 // Identity first, then where the host is, then how to get in, then the scope
 // toggle. fScope stays last because Enter on the last row saves.
 func (m Model) visibleRows() []int {
-	rows := []int{fName, fHostname, fPort, fProtocol, fRootPath, fMappings, fUser}
+	rows := []int{fName, fHostname, fPort, fProtocol, fKeepAliveDisabled}
+	if !m.keepAliveDisabled {
+		rows = append(rows, fKeepAliveInterval)
+	}
+	rows = append(rows, fRootPath, fMappings, fUser)
 	switch m.protocol {
 	case ProtoSFTP:
 		rows = append(rows, fAuthType)
@@ -289,18 +303,30 @@ func (m Model) toHost() (config.Host, error) {
 		}
 		port = n
 	}
+	var keepAliveInterval *int
+	if m.keepAliveDisabled {
+		zero := 0
+		keepAliveInterval = &zero
+	} else if value := m.fields[fKeepAliveInterval].Value(); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || config.ValidateKeepAliveInterval(&n) != nil {
+			return config.Host{}, fmt.Errorf("Keep-alive interval must be an integer between 1 and 86400 seconds; use Disable keep-alive to turn it off")
+		}
+		keepAliveInterval = &n
+	}
 	if err := config.ValidateMappings(m.mappings); err != nil {
 		return config.Host{}, fmt.Errorf("Mappings: %w", err)
 	}
 
 	h := config.Host{
-		Name:     name,
-		Hostname: hostname,
-		Port:     port,
-		User:     m.fields[fUser].Value(),
-		RootPath: root,
-		Protocol: m.protocol.String(),
-		Mappings: append([]config.Mapping(nil), m.mappings...),
+		Name:              name,
+		Hostname:          hostname,
+		Port:              port,
+		User:              m.fields[fUser].Value(),
+		RootPath:          root,
+		Protocol:          m.protocol.String(),
+		Mappings:          append([]config.Mapping(nil), m.mappings...),
+		KeepAliveInterval: keepAliveInterval,
 	}
 	if m.protocol == ProtoFTP || m.protocol == ProtoFTPS {
 		h.Auth = config.Auth{Type: "password", Password: m.fields[fPassword].Value()}

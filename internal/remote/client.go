@@ -31,6 +31,10 @@ type Client interface {
 	Upload(remotePath string, src io.Reader) error
 	WalkFiles(root string, fn func(string) error) error
 	DeleteFile(path string) error
+	// Done closes when the connection is closed or its keep-alive monitor fails.
+	Done() <-chan struct{}
+	// Err returns the terminal monitor error; normal Close leaves it nil.
+	Err() error
 	Close() error
 }
 

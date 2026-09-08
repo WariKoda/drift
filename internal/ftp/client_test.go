@@ -101,7 +101,7 @@ func startProtocolTestServer(t *testing.T, mlst map[string]string) *protocolTest
 		_ = server.Listener.Close()
 		select {
 		case err := <-server.done:
-			if err != nil && !errors.Is(err, net.ErrClosed) {
+			if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
 				t.Errorf("FTP server: %v", err)
 			}
 		case <-time.After(2 * time.Second):

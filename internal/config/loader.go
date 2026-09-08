@@ -63,6 +63,11 @@ func loadGlobal() (*GlobalConfig, error) {
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, err
 	}
+	for _, host := range cfg.Hosts {
+		if err := ValidateKeepAliveInterval(host.KeepAliveInterval); err != nil {
+			return nil, fmt.Errorf("global host %q: %w", host.Name, err)
+		}
+	}
 	return cfg, nil
 }
 

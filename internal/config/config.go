@@ -10,19 +10,48 @@
 // Env vars in auth fields ($VAR) are expanded at connection time.
 package config
 
+import (
+	"fmt"
+	"time"
+)
+
+const (
+	// DefaultKeepAliveInterval applies when a host omits keep_alive_interval.
+	DefaultKeepAliveInterval = 60 * time.Second
+	// KeepAliveTimeout limits how long protocol clients wait for a probe reply.
+	KeepAliveTimeout = 15 * time.Second
+)
+
 // Host represents a remote target. Empty strings, false and empty lists are
 // omitted from a written file, so a project config reads as the small,
 // reviewable description of an environment it is rather than as a form with
 // every blank filled in.
 type Host struct {
-	Name     string    `toml:"name"`               // unique identifier, e.g. "prod"
-	Hostname string    `toml:"hostname,omitempty"` // IP or domain
-	Port     int       `toml:"port,omitempty"`     // default: 22 (sftp) or 21 (ftp)
-	User     string    `toml:"user,omitempty"`
-	Auth     Auth      `toml:"auth,omitempty"`
-	RootPath string    `toml:"root_path,omitempty"` // remote base directory
-	Protocol string    `toml:"protocol,omitempty"`  // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
-	Mappings []Mapping `toml:"mappings,omitempty"`  // per-host path mappings
+	Name              string    `toml:"name"`               // unique identifier, e.g. "prod"
+	Hostname          string    `toml:"hostname,omitempty"` // IP or domain
+	Port              int       `toml:"port,omitempty"`     // default: 22 (sftp) or 21 (ftp)
+	User              string    `toml:"user,omitempty"`
+	Auth              Auth      `toml:"auth,omitempty"`
+	RootPath          string    `toml:"root_path,omitempty"`           // remote base directory
+	Protocol          string    `toml:"protocol,omitempty"`            // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
+	Mappings          []Mapping `toml:"mappings,omitempty"`            // per-host path mappings
+	KeepAliveInterval *int      `toml:"keep_alive_interval,omitempty"` // seconds; nil uses default, zero disables
+}
+
+// KeepAliveDuration resolves the interval without changing the stored value.
+func (h Host) KeepAliveDuration() time.Duration {
+	if h.KeepAliveInterval == nil {
+		return DefaultKeepAliveInterval
+	}
+	return time.Duration(*h.KeepAliveInterval) * time.Second
+}
+
+// ValidateKeepAliveInterval checks an optional interval in whole seconds.
+func ValidateKeepAliveInterval(interval *int) error {
+	if interval != nil && (*interval < 0 || *interval > 86400) {
+		return fmt.Errorf("keep_alive_interval must be between 0 and 86400 seconds")
+	}
+	return nil
 }
 
 // Auth configures how to authenticate with a Host. The credential fields are

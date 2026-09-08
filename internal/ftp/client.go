@@ -4,6 +4,7 @@ package ftp
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/tlstrust"
 )
 
@@ -29,20 +31,40 @@ type Client struct {
 	opMu   sync.Mutex
 	Host   config.Host
 	policy tlstrust.Policy
+
+	// opMu protects the library connection and lastActivity. lifeMu never
+	// waits for opMu, so shutdown can interrupt a blocked command or stream.
+	lastActivity time.Time
+	lifeMu       sync.Mutex
+	closed       bool
+	err          error
+	done         chan struct{}
+	monitorDone  chan struct{}
+	opReleased   chan struct{}
+	lifeCtx      context.Context
+	cancel       context.CancelFunc
+	transports   map[*trackedConn]struct{}
+	children     map[*Client]struct{}
+	control      net.Conn
+	closeOnce    sync.Once
+	dialWG       sync.WaitGroup
 }
 
 // Connect dials an FTP server and logs in.
 func Connect(ctx context.Context, host config.Host, policy tlstrust.Policy) (*Client, error) {
+	return connect(ctx, host, policy, host.KeepAliveDuration(), config.KeepAliveTimeout)
+}
+
+// connect accepts short probe timings for loopback tests, not user options.
+func connect(ctx context.Context, host config.Host, policy tlstrust.Policy, interval, probeTimeout time.Duration) (*Client, error) {
 	port := host.Port
 	if port == 0 {
 		port = 21
 	}
 	addr := net.JoinHostPort(strings.Trim(host.Hostname, "[]"), fmt.Sprintf("%d", port))
 
-	opts := []ftplib.DialOption{
-		ftplib.DialWithContext(ctx),
-		ftplib.DialWithTimeout(15 * time.Second),
-	}
+	var tlsConfig *tls.Config
+	opts := []ftplib.DialOption{}
 	if host.Protocol == "ftps" {
 		endpoint, err := tlstrust.NormalizeEndpoint(host.Protocol, host.Hostname, port)
 		if err != nil {
@@ -50,39 +72,72 @@ func Connect(ctx context.Context, host config.Host, policy tlstrust.Policy) (*Cl
 		}
 		// TLS 1.2 remains pinned because some FTP servers complete a TLS 1.3
 		// control handshake but abort larger data transfers with status 426.
-		opts = append(opts, ftplib.DialWithExplicitTLS(policy.TLSConfig(endpoint)))
+		tlsConfig = policy.TLSConfig(endpoint)
+		opts = append(opts, ftplib.DialWithExplicitTLS(tlsConfig))
 	}
 
+	lifeCtx, cancel := context.WithCancel(context.Background())
+	c := &Client{
+		Host: host, policy: policy, lifeCtx: lifeCtx, cancel: cancel,
+		done: make(chan struct{}), monitorDone: make(chan struct{}), opReleased: make(chan struct{}),
+		transports: make(map[*trackedConn]struct{}), children: make(map[*Client]struct{}),
+	}
+	// The setup context also interrupts greeting, TLS and login I/O. It is
+	// detached before the monitor starts; data dials use the client lifetime.
+	setupCtx, setupCancel := context.WithTimeout(ctx, ftpConnectTimeout)
+	defer setupCancel()
+	stopSetup := context.AfterFunc(setupCtx, func() { c.terminate(nil) })
+	defer stopSetup()
+	defer func() {
+		if c.conn == nil {
+			c.terminate(nil)
+		}
+	}()
+	firstDial := true // the library invokes its dial function serially
+	opts = append(opts, ftplib.DialWithDialFunc(func(network, address string) (net.Conn, error) {
+		control := firstDial
+		firstDial = false
+		raw, err := c.dial(network, address)
+		if err != nil {
+			return nil, err
+		}
+		if control {
+			c.control = raw
+			deadline, _ := setupCtx.Deadline()
+			if err := raw.SetDeadline(deadline); err != nil {
+				return nil, err
+			}
+			return raw, nil
+		}
+		// DialWithDialFunc bypasses the library's data TLS wrapper. Keep
+		// the handshake lazy, as FTP servers may wait for RETR/STOR first.
+		if tlsConfig != nil {
+			return tls.Client(raw, tlsConfig), nil
+		}
+		return raw, nil
+	}))
 	conn, err := ftplib.Dial(addr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
-	if err := ctx.Err(); err != nil {
-		_ = conn.Quit()
-		return nil, fmt.Errorf("connect to %s: %w", addr, err)
-	}
-
 	pass := os.ExpandEnv(host.Auth.Password)
 	if err := conn.Login(host.User, pass); err != nil {
-		_ = conn.Quit()
 		return nil, fmt.Errorf("login to %s: %w", addr, err)
 	}
-	if err := ctx.Err(); err != nil {
-		_ = conn.Quit()
-		return nil, fmt.Errorf("connect to %s: %w", addr, err)
+	if !stopSetup() || setupCtx.Err() != nil {
+		return nil, fmt.Errorf("connect to %s: %w", addr, setupCtx.Err())
 	}
-
-	return &Client{conn: conn, Host: host, policy: policy}, nil
-}
-
-// Close logs out and closes the connection.
-func (c *Client) Close() error {
-	if c == nil {
-		return nil
+	if err := c.control.SetDeadline(time.Time{}); err != nil {
+		return nil, fmt.Errorf("clear FTP setup deadline: %w", err)
 	}
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
-	return c.conn.Quit()
+	c.conn = conn
+	c.lastActivity = time.Now()
+	if interval > 0 {
+		go c.monitor(interval, probeTimeout)
+	} else {
+		close(c.monitorDone)
+	}
+	return c, nil
 }
 
 // Stat returns file info for a remote path.
@@ -97,9 +152,11 @@ func (c *Client) Close() error {
 // MLST also carries size and modification time, so one control-connection
 // command replaces SIZE plus MDTM, and its timestamps have second precision.
 // Servers without MLST fall back to SIZE and keep that ambiguity.
-func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
+	if err = c.beginOperation(); err != nil {
+		return nil, err
+	}
+	defer func() { c.endOperation(err) }()
 
 	if entry, err := c.conn.GetEntry(remotePath); err == nil {
 		return &ftpFileInfo{
@@ -130,9 +187,11 @@ func (c *Client) Stat(remotePath string) (os.FileInfo, error) {
 
 // ReadDir reads one remote directory level.
 // Directories are returned before files; both groups sorted alphabetically.
-func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+func (c *Client) ReadDir(remotePath string) (entries []*fs.FileEntry, err error) {
+	if err = c.beginOperation(); err != nil {
+		return nil, err
+	}
+	defer func() { c.endOperation(err) }()
 
 	items, err := c.conn.List(remotePath)
 	if err != nil {
@@ -176,15 +235,17 @@ func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
 
 // Open opens a remote file for streaming reads.
 func (c *Client) Open(remotePath string) (io.ReadCloser, error) {
-	c.opMu.Lock()
+	if err := c.beginOperation(); err != nil {
+		return nil, err
+	}
 	r, err := c.conn.Retr(remotePath)
 	if err != nil {
-		c.opMu.Unlock()
+		c.endOperation(err)
 		return nil, fmt.Errorf("retr %s: %w", remotePath, err)
 	}
 	return &lockedReadCloser{
 		ReadCloser: r,
-		unlock:     c.opMu.Unlock,
+		unlock:     c.endOperation,
 	}, nil
 }
 
@@ -205,9 +266,11 @@ func (c *Client) ReadFile(remotePath string) ([]byte, error) {
 // Upload atomically writes everything src yields to a remote path, creating
 // parent directories as needed. The existing target is replaced only after the
 // staged upload has completed successfully.
-func (c *Client) Upload(remotePath string, src io.Reader) error {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+func (c *Client) Upload(remotePath string, src io.Reader) (err error) {
+	if err = c.beginOperation(); err != nil {
+		return err
+	}
+	defer func() { c.endOperation(err) }()
 
 	if err := c.ensureDir(path.Dir(remotePath)); err != nil {
 		return err
@@ -239,34 +302,67 @@ const maxWalkWorkers = 4
 
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
 func (c *Client) WalkFiles(remoteRoot string, fn func(string) error) error {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+	if err := c.connectionError(); err != nil {
+		return err
+	}
 	return c.parallelWalkFiles(remoteRoot, fn)
 }
 
-func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) error {
+func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) (err error) {
 	workers := []*Client{c}
-	var workerConnectErr error
-	for len(workers) < maxWalkWorkers {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		worker, err := Connect(ctx, c.Host, c.policy)
-		cancel()
-		if err != nil {
-			var verificationErr *tlstrust.VerificationError
-			if errors.As(err, &verificationErr) {
-				workerConnectErr = err
-			}
-			break
-		}
-		workers = append(workers, worker)
-	}
 	defer func() {
 		for _, worker := range workers[1:] {
 			_ = worker.Close()
+			// Join the monitor before inspecting its final status. A probe
+			// can fail between the last listing and worker cleanup.
+			if err == nil {
+				err = worker.Err()
+			}
+			c.lifeMu.Lock()
+			delete(c.children, worker)
+			c.lifeMu.Unlock()
 		}
 	}()
-	if workerConnectErr != nil {
-		return workerConnectErr
+	for len(workers) < maxWalkWorkers {
+		// Close also joins worker setups that have not yet produced a
+		// client to attach. Cancellation alone would only stop them later.
+		c.lifeMu.Lock()
+		if c.closed {
+			c.lifeMu.Unlock()
+			return c.connectionError()
+		}
+		c.dialWG.Add(1)
+		c.lifeMu.Unlock()
+		ctx, cancel := context.WithTimeout(c.lifeCtx, 30*time.Second)
+		worker, err := Connect(ctx, c.Host, c.policy)
+		cancel()
+		if err != nil {
+			c.dialWG.Done()
+			var verificationErr *tlstrust.VerificationError
+			if errors.As(err, &verificationErr) {
+				return fmt.Errorf("connect FTP walk worker: %w", err)
+			}
+			if terminalErr := c.connectionError(); terminalErr != nil {
+				return terminalErr
+			}
+			log.Debug("FTP walk using fewer connections", "host", c.Host.Name, "workers", len(workers), "err", err)
+			break
+		}
+		// Attach under the lifecycle lock so Close cannot miss a worker
+		// which finishes connecting concurrently with shutdown.
+		c.lifeMu.Lock()
+		closed := c.closed
+		if !closed {
+			c.children[worker] = struct{}{}
+		}
+		c.lifeMu.Unlock()
+		if closed {
+			_ = worker.Close()
+			c.dialWG.Done()
+			return c.connectionError()
+		}
+		workers = append(workers, worker)
+		c.dialWG.Done()
 	}
 
 	var mu sync.Mutex
@@ -307,6 +403,11 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) err
 		})
 	}
 	walkQueue(remoteRoot, listers, shouldStop)
+	for _, worker := range workers {
+		if err := worker.connectionError(); err != nil {
+			recordErr(err)
+		}
+	}
 	return firstErr
 }
 
@@ -366,7 +467,12 @@ func walkQueue(root string, listers []func(string) []string, stop func() bool) {
 // walkDirLevel lists one directory: files go to handleFile, subdirectories are
 // returned for the caller to schedule.
 func (c *Client) walkDirLevel(dir string, handleFile func(string), recordErr func(error)) []string {
+	if err := c.beginOperation(); err != nil {
+		recordErr(err)
+		return nil
+	}
 	entries, err := c.conn.List(dir)
+	c.endOperation(err)
 	if err != nil {
 		recordErr(fmt.Errorf("list %s: %w", dir, err))
 		return nil
@@ -391,9 +497,11 @@ func (c *Client) walkDirLevel(dir string, handleFile func(string), recordErr fun
 }
 
 // DeleteFile removes a file on the remote host.
-func (c *Client) DeleteFile(remotePath string) error {
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+func (c *Client) DeleteFile(remotePath string) (err error) {
+	if err = c.beginOperation(); err != nil {
+		return err
+	}
+	defer func() { c.endOperation(err) }()
 	return c.conn.Delete(remotePath)
 }
 
@@ -440,13 +548,13 @@ type lockedReadCloser struct {
 	io.ReadCloser
 	once     sync.Once
 	closeErr error
-	unlock   func()
+	unlock   func(error)
 }
 
 func (r *lockedReadCloser) Close() error {
 	r.once.Do(func() {
 		r.closeErr = r.ReadCloser.Close()
-		r.unlock()
+		r.unlock(r.closeErr)
 	})
 	return r.closeErr
 }

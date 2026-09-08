@@ -53,6 +53,11 @@ func loadProjectStore(slug string) (*ProjectConfig, error) {
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, err
 	}
+	for _, host := range cfg.Hosts {
+		if err := ValidateKeepAliveInterval(host.KeepAliveInterval); err != nil {
+			return nil, fmt.Errorf("host %q: %w", host.Name, err)
+		}
+	}
 	return cfg, nil
 }
 
@@ -62,6 +67,9 @@ func writeProjectStore(slug string, cfg ProjectConfig) error {
 		return fmt.Errorf("project mappings: %w", err)
 	}
 	for _, host := range cfg.Hosts {
+		if err := ValidateKeepAliveInterval(host.KeepAliveInterval); err != nil {
+			return fmt.Errorf("host %q: %w", host.Name, err)
+		}
 		if err := ValidateMappings(host.Mappings); err != nil {
 			return fmt.Errorf("host %q mappings: %w", host.Name, err)
 		}

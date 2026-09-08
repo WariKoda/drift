@@ -1,4 +1,3 @@
-BIN := $(HOME)/.local/bin
 VERSION ?= dev
 
 .PHONY: build test vet install update release-build
@@ -13,7 +12,7 @@ vet:
 	go vet ./...
 
 install:
-	GOBIN=$(BIN) go install .
+	go install .
 
 update: install
 

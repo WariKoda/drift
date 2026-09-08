@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `make install` and `make update` now use Go's install directory: `$GOBIN`, or
+  `$GOPATH/bin` when unset, instead of forcing `~/.local/bin`
 - connection tests now list the configured remote root, so FTPS data-channel certificate failures are checked as well as the control connection
 - certificate trust applies only to the exact hostname, port, fingerprint, and displayed problem set. Certificate changes ask again, and failed sync writes are never retried automatically
 

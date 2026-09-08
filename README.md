@@ -41,12 +41,20 @@ cd drift
 make install
 ```
 
-This builds the binary and installs it to `~/.local/bin/drift`.
-
 ### Directly with Go
 
 ```bash
 go install github.com/WariKoda/drift@latest
+```
+
+Both methods install to `$GOBIN`, or `$GOPATH/bin` when unset, usually `~/go/bin`.
+Ensure that directory is in your `$PATH`. `make install` builds your local checkout;
+`go install …@latest` installs the latest published version.
+
+Optionally set a persistent install directory for all Go programs:
+
+```bash
+go env -w GOBIN="$HOME/.local/bin"
 ```
 
 ### Update after code changes

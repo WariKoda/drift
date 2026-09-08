@@ -10,18 +10,17 @@ drift is a standalone terminal TUI (Go + Bubble Tea) for browsing, diffing, and 
 
 The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes messages to one active screen at a time. Screens are Go packages under `internal/tui/`:
 
-
 | Package             | Screen                                                |
 | ------------------- | ----------------------------------------------------- |
 | `dashboard`         | Project dashboard (optional landing screen)           |
 | `projectform`       | Create / edit a project                               |
 | `projectselector`   | Modal: switch project from the browser (`P`)          |
 | `browser`           | File browser (entry point)                            |
+| `certtrust`         | Modal: inspect and trust an FTPS certificate          |
 | `hostselector`      | Modal: pick sync target                               |
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
 | `diffview`          | File list + unified diff + sync                       |
-
 
 The `textfield` package holds the shared single-line input widget used by `hostform`
 and `projectform`. The project registry (slug, name, path, timestamps) lives in
@@ -33,7 +32,9 @@ intact until a different project is chosen.
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
 
-Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host)` — never instantiate protocol clients directly.
+Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
+
+FTPS verification and endpoint-scoped exceptions live in `internal/tlstrust`. The root `App` owns the session trust manager. Persistent exceptions live in `<config.Dir()>/trusted-certificates.toml`; `insecure_tls` is not a supported host field. TLS callbacks never block for UI input. They return a typed `tlstrust.VerificationError`, and the root model opens the `certtrust` modal after the async command exits.
 
 Path translation between local and remote is handled by `internal/pathmap`. When effective host-level or project-level fallback mappings are configured, only files within those mappings may be synced. Paths otherwise fall back to `host.RootPath`-relative translation.
 
@@ -47,20 +48,17 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 - Styles live in `internal/styles/styles.go` and `internal/tui/styles.go`. Do not inline lipgloss styles in view code.
 - Config is TOML. Types live in `internal/config/config.go`. Persistence via `internal/config/writer.go`.
 
-
-
 ## Key types
 
 ```go
 config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings)
 config.Mapping      // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
-remote.Client       // Stat, ReadDir, Open, ReadFile, WriteFile, UploadFile, DownloadFile, WalkFiles, DeleteFile, Close
+tlstrust.Manager    // session + persistent FTPS certificate trust; owned by tui.App
+remote.Client       // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, DeleteFile, Close
 diff.Session        // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}
 diff.DiffResult     // comparison output; HasDiff() reports whether files differ
 diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
 ```
-
-
 
 ## Adding a new screen
 
@@ -70,8 +68,6 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 4. Add a `Screen<Name>` constant to `internal/tui/state.go`.
 5. Handle entry/exit messages and delegate `Update`/`View` in `app.go`.
 
-
-
 ## Adding a new protocol
 
 1. Implement `remote.Client` in a new package under `internal/`.
@@ -79,21 +75,18 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 3. Add the corresponding `hostform.Protocol` value and toggle option (`model.go`, `update.go`, `view.go`).
 4. Update `hostform.visibleRows()` when the protocol needs protocol-specific fields.
 
-
-
 ## File walker exclusions
 
 `internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks.
 
 ## Config locations
 
-
 | Scope    | Path                                                                    |
 | -------- | ----------------------------------------------------------------------- |
 | Global   | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
 | Project  | `~/.config/drift/projects/<slug>.toml` (hosts + mappings, mode 600)     |
 | Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
-
+| FTPS trust | `~/.config/drift/trusted-certificates.toml` (mode 600)                |
 
 Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
 
@@ -157,8 +150,6 @@ make install                  # installs to ~/.local/bin/drift
 make update                   # rebuild + reinstall (use after code changes)
 make release-build VERSION=vX.Y.Z  # version-injected ./drift binary
 ```
-
-
 
 ## Git workflow
 

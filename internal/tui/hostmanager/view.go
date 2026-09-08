@@ -151,6 +151,15 @@ func (m Model) renderStatus() string {
 				styles.Key.Render("[n]") + styles.Muted.Render("o")
 		}
 	}
+	if m.confirmReset {
+		e := m.currentEntry()
+		if e != nil {
+			msg := fmt.Sprintf("  Reset certificate trust for %q? This endpoint may be shared. ", e.host.Name)
+			return styles.Warn.Render(msg) +
+				styles.Key.Render("[y]") + styles.Muted.Render("es  ") +
+				styles.Key.Render("[n]") + styles.Muted.Render("o")
+		}
+	}
 	if m.testing {
 		return styles.Warn.Render(fmt.Sprintf("  Testing %s…", m.testTarget))
 	}
@@ -160,7 +169,7 @@ func (m Model) renderStatus() string {
 		}
 		return padRight(styles.Err.Render("  "+m.statusMsg), m.Width)
 	}
-	help := "  [n]new  [e]edit  [d]delete  [t]test  [Esc]back"
+	help := "  [n]new  [e]edit  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
 	return padRight(styles.Muted.Render(help), m.Width)
 }
 

@@ -49,12 +49,6 @@ func (m Model) viewMain() string {
 				scopeLabels[1] = "project (none open)"
 			}
 			sb.WriteString(m.renderToggle("Scope", scopeLabels, int(m.scope), isFocused))
-		case fInsecureTLS:
-			sel := 0
-			if m.insecureTLS {
-				sel = 1
-			}
-			sb.WriteString(m.renderToggle("Insecure TLS", []string{"verify cert", "skip (insecure)"}, sel, isFocused))
 		case fMappings:
 			sb.WriteString(m.renderMappingsRow(isFocused))
 		default:

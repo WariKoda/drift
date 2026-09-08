@@ -81,9 +81,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		} else if curIdx == fAuthType {
 			m.authType = (m.authType + 1) % 3
 			m.applyFocus()
-		} else if curIdx == fInsecureTLS {
-			m.insecureTLS = !m.insecureTLS
-			m.applyFocus()
 		} else {
 			m.focusRow++
 			if m.focusRow >= len(rows) {
@@ -101,9 +98,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.applyFocus()
 		} else if curIdx == fAuthType {
 			m.authType = (m.authType + 1) % 3
-			m.applyFocus()
-		} else if curIdx == fInsecureTLS {
-			m.insecureTLS = !m.insecureTLS
 			m.applyFocus()
 		} else if curIdx == fScope {
 			if m.scope == config.ScopeGlobal {
@@ -132,9 +126,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			} else {
 				m.authType = (m.authType + 2) % 3
 			}
-			m.applyFocus()
-		} else if curIdx == fInsecureTLS {
-			m.insecureTLS = !m.insecureTLS
 			m.applyFocus()
 		} else if curIdx == fScope {
 			if m.scope == config.ScopeGlobal {

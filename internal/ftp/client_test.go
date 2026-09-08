@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/tlstrust"
 )
 
 func TestClientSerializesStreamingReadAndStat(t *testing.T) {
@@ -244,7 +245,7 @@ func connectTestClient(t *testing.T, server *protocolTestServer) *Client {
 		User:     "drift",
 		Auth:     config.Auth{Password: "secret"},
 		Protocol: "ftp",
-	})
+	}, tlstrust.NewPolicy(nil))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

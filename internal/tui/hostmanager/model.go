@@ -3,6 +3,7 @@ package hostmanager
 
 import (
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,12 +25,14 @@ type Model struct {
 	// delete confirmation
 	confirmDelete bool
 	deleteTarget  entry
+	confirmReset  bool
 
 	// connection test
 	testing     bool   // true while async test is in flight
 	testTarget  string // host name being tested
 	testID      uint64
 	testTracker *loading.Tracker
+	trust       *tlstrust.Manager
 
 	// status line
 	statusMsg string
@@ -51,9 +54,19 @@ func New(cfg *config.MergedConfig, width, height int) Model {
 // Init implements tea.Model (partial).
 func (m Model) Init() tea.Cmd { return nil }
 
+// SetTrustManager provides certificate trust for connection tests.
+func (m *Model) SetTrustManager(trust *tlstrust.Manager) {
+	m.trust = trust
+}
+
 // Testing reports whether a connection test is in flight.
 func (m Model) Testing() (string, *loading.Tracker, bool) {
 	return m.testTarget, m.testTracker, m.testing
+}
+
+// AcceptsTestResult reports whether id belongs to the active connection test.
+func (m Model) AcceptsTestResult(id uint64) bool {
+	return m.testing && id == m.testID
 }
 
 // CancelTest aborts an in-flight connection test and ignores its result.

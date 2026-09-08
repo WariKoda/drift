@@ -15,15 +15,14 @@ package config
 // reviewable description of an environment it is rather than as a form with
 // every blank filled in.
 type Host struct {
-	Name        string    `toml:"name"`               // unique identifier, e.g. "prod"
-	Hostname    string    `toml:"hostname,omitempty"` // IP or domain
-	Port        int       `toml:"port,omitempty"`     // default: 22 (sftp) or 21 (ftp)
-	User        string    `toml:"user,omitempty"`
-	Auth        Auth      `toml:"auth,omitempty"`
-	RootPath    string    `toml:"root_path,omitempty"`    // remote base directory
-	Protocol    string    `toml:"protocol,omitempty"`     // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
-	InsecureTLS bool      `toml:"insecure_tls,omitempty"` // ftps: skip TLS certificate verification (self-signed certs)
-	Mappings    []Mapping `toml:"mappings,omitempty"`     // per-host path mappings
+	Name     string    `toml:"name"`               // unique identifier, e.g. "prod"
+	Hostname string    `toml:"hostname,omitempty"` // IP or domain
+	Port     int       `toml:"port,omitempty"`     // default: 22 (sftp) or 21 (ftp)
+	User     string    `toml:"user,omitempty"`
+	Auth     Auth      `toml:"auth,omitempty"`
+	RootPath string    `toml:"root_path,omitempty"` // remote base directory
+	Protocol string    `toml:"protocol,omitempty"`  // "sftp" (default), "ftp", or "ftps" (FTP over explicit TLS)
+	Mappings []Mapping `toml:"mappings,omitempty"`  // per-host path mappings
 }
 
 // Auth configures how to authenticate with a Host. The credential fields are

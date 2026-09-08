@@ -2,7 +2,6 @@ package tui
 
 import (
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
-	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
@@ -174,20 +172,6 @@ func TestReplaceStatusLineUsesCurrentViewFooter(t *testing.T) {
 	}
 }
 
-// countingConn is a remote.Client that records whether it was closed. The app
-// must close the connection of a diff result it discards, and there is no way
-// to observe that on a real connection without a server.
-type countingConn struct{ closes int }
-
-func (c *countingConn) Stat(string) (os.FileInfo, error)           { return nil, errors.New("unused") }
-func (c *countingConn) ReadDir(string) ([]*fs.FileEntry, error)    { return nil, errors.New("unused") }
-func (c *countingConn) Open(string) (io.ReadCloser, error)         { return nil, errors.New("unused") }
-func (c *countingConn) ReadFile(string) ([]byte, error)            { return nil, errors.New("unused") }
-func (c *countingConn) Upload(string, io.Reader) error             { return errors.New("unused") }
-func (c *countingConn) WalkFiles(string, func(string) error) error { return errors.New("unused") }
-func (c *countingConn) DeleteFile(string) error                    { return errors.New("unused") }
-func (c *countingConn) Close() error                               { c.closes++; return nil }
-
 // loadingApp returns an app in projectDir with a diff request in flight against
 // host, mirroring what pressing [s] does.
 func loadingApp(t *testing.T, projectDir string, reg *project.Registry, host config.Host) App {
@@ -237,8 +221,8 @@ func TestDiffResultOfLeftProjectIsDiscarded(t *testing.T) {
 	}
 
 	// The result for the project that was left arrives late.
-	conn := &countingConn{}
-	model, _ = app.Update(diffview.MsgDiffLoaded{
+	conn, _, _ := loopbackConnection(t)
+	model, closeCmd := app.Update(diffview.MsgDiffLoaded{
 		RequestID: pending,
 		Host:      config.Host{Name: "hostA", Hostname: "a.example"},
 		Sessions:  []diff.Session{{LocalPath: filepath.Join(dirA, "x.txt"), RemotePath: "/srv/a/x.txt"}},
@@ -249,8 +233,14 @@ func TestDiffResultOfLeftProjectIsDiscarded(t *testing.T) {
 	if app.state.Screen == ScreenDiffView {
 		t.Error("a diff result from the project that was left opened the diff view")
 	}
-	if conn.closes != 1 {
-		t.Errorf("connection closed %d times, want 1", conn.closes)
+	if closeCmd == nil {
+		t.Fatal("missing asynchronous close")
+	}
+	closeCmd()
+	select {
+	case <-conn.Done():
+	default:
+		t.Fatal("discarded connection is still open")
 	}
 	if app.state.SelectedHost != nil {
 		t.Errorf("selected host = %v, want none", app.state.SelectedHost)
@@ -268,8 +258,8 @@ func TestSupersededDiffResultIsDiscarded(t *testing.T) {
 		t.Fatal("second diff request reused the first ID")
 	}
 
-	conn := &countingConn{}
-	model, _ := app.Update(diffview.MsgDiffLoaded{
+	conn, _, _ := loopbackConnection(t)
+	model, closeCmd := app.Update(diffview.MsgDiffLoaded{
 		RequestID: stale,
 		Host:      config.Host{Name: "hostA"},
 		Conn:      conn,
@@ -278,8 +268,14 @@ func TestSupersededDiffResultIsDiscarded(t *testing.T) {
 	if app.state.Screen == ScreenDiffView {
 		t.Error("superseded diff result opened the diff view")
 	}
-	if conn.closes != 1 {
-		t.Errorf("connection closed %d times, want 1", conn.closes)
+	if closeCmd == nil {
+		t.Fatal("missing asynchronous close")
+	}
+	closeCmd()
+	select {
+	case <-conn.Done():
+	default:
+		t.Fatal("discarded connection is still open")
 	}
 	if app.diffRequest != current {
 		t.Errorf("pending request = %d, want %d", app.diffRequest, current)
@@ -491,7 +487,7 @@ func TestDelayedDiffCertificateFailureInvalidatesConnectionBeforeDecision(t *tes
 	host := config.Host{Name: "staging", Hostname: "server.example", Port: 21, Protocol: "ftps"}
 	app.state.Screen = ScreenDiffView
 	app.state.SelectedHost = &host
-	if !app.openDiffCertificatePrompt(&tlstrust.VerificationError{Challenge: appTestChallenge(t)}) {
+	if _, opened := app.openDiffCertificatePrompt(&tlstrust.VerificationError{Challenge: appTestChallenge(t)}); !opened {
 		t.Fatal("certificate error did not open the prompt")
 	}
 	if app.state.Screen != ScreenBrowser || app.state.SelectedHost != nil {

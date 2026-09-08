@@ -15,6 +15,12 @@ import (
 type MsgBackToBrowser struct{}
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	if m.closed {
+		return m, nil
+	}
+	if m.conn != nil {
+		m.ConnectionLost(m.conn, m.conn.Err())
+	}
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -29,11 +35,30 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case MsgBulkSyncDone:
+		if msg.Conn != nil && msg.Conn != m.conn {
+			return m, nil
+		}
+		m.ConnectionLost(msg.Conn, msg.Err)
+		if m.completed == nil {
+			m.completed = make(map[int]bool)
+		}
+		for _, idx := range msg.Completed {
+			if idx >= 0 && idx < len(m.syncDirs) {
+				m.completed[idx] = true
+				m.syncDirs[idx] = DirNone
+			}
+		}
 		canceled := m.activityTracker.Canceled()
 		m.syncing = false
 		m.syncProgress = nil
 		m.syncErrors = msg.Errors
 		log.Info("bulk sync done", "done", msg.Done, "errors", len(msg.Errors), "cancelled", canceled)
+		if m.connectionError() != nil {
+			m.syncStatus = fmt.Sprintf("stopped: ✓ %d  ✗ %d", msg.Done, len(msg.Errors))
+			m.showErrors = len(msg.Errors) > 0
+			m.finishActivity()
+			return m, nil
+		}
 		for _, failure := range msg.Errors {
 			var verificationErr *tlstrust.VerificationError
 			if failure.Err != nil && errors.As(failure.Err, &verificationErr) {
@@ -76,7 +101,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, syncProgressTickCmd(m.syncProgress)
 
 	case MsgRefreshed:
-		if msg.Err != nil {
+		if msg.Conn != nil && msg.Conn != m.conn {
+			return m, nil
+		}
+		if msg.Err != nil || m.connectionError() != nil {
+			if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+				m.syncStatus = fmt.Sprintf("refresh failed: %v", msg.Err)
+			}
 			m.refreshing = false
 			m.finishActivity()
 			return m, nil
@@ -85,6 +116,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.syncDirs = make([]SyncDir, len(m.sessions))
 		for i := range m.sessions {
 			m.syncDirs[i] = autoDir(&m.sessions[i])
+			if m.sessions[i].Err == nil {
+				delete(m.completed, i)
+			}
 		}
 		m.expandedGaps = map[int]map[int]struct{}{}
 		m.refreshing = false
@@ -93,13 +127,36 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.scrollToFirstDifference()
 
 	case MsgSynced:
+		if msg.Conn != nil && msg.Conn != m.conn {
+			return m, nil
+		}
+		if msg.SessionIdx < 0 || msg.SessionIdx >= len(m.sessions) {
+			return m, nil
+		}
+		if m.completed == nil {
+			m.completed = make(map[int]bool)
+		}
+		m.completed[msg.SessionIdx] = true
+		m.syncDirs[msg.SessionIdx] = DirNone
+		m.syncStatus = "✓ synced 1 file"
+		if m.connectionError() != nil || m.activityTracker.Canceled() {
+			m.quickSyncing = false
+			m.finishActivity()
+			return m, nil
+		}
 		m.activityLabel = "Refreshing diff…"
 		m.activityTracker.Set(m.activityLabel, 0, 1, false)
 		return m, m.reloadSessionCmd(msg.SessionIdx)
 
 	case MsgSessionReloaded:
+		if msg.Conn != nil && msg.Conn != m.conn {
+			return m, nil
+		}
 		reloadedActiveSession := msg.SessionIdx == m.activeIdx
-		if loading.IsCanceled(msg.Err) {
+		if msg.Err != nil || m.connectionError() != nil {
+			if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+				m.syncStatus = fmt.Sprintf("sync completed; comparison failed: %v", msg.Err)
+			}
 			m.quickSyncing = false
 			m.finishActivity()
 			return m, nil
@@ -107,6 +164,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.SessionIdx >= 0 && msg.SessionIdx < len(m.sessions) {
 			m.sessions[msg.SessionIdx].Result = msg.Result
 			m.sessions[msg.SessionIdx].Err = msg.Err
+			m.syncDirs[msg.SessionIdx] = autoDir(&m.sessions[msg.SessionIdx])
+			delete(m.completed, msg.SessionIdx)
 			if reloadedActiveSession {
 				m.resetFolds(msg.SessionIdx)
 				m.scrollToFirstDifference()
@@ -116,14 +175,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.finishActivity()
 
 	case MsgSyncError:
+		if msg.Conn != nil && msg.Conn != m.conn {
+			return m, nil
+		}
 		m.quickSyncing = false
 		m.finishActivity()
-		if loading.IsCanceled(msg.Err) {
+		if loading.IsCanceled(msg.Err) && m.disconnected == nil {
 			return m, nil
 		}
 		log.Error("sync error", "err", msg.Err)
-		if s := m.activeSession(); s != nil {
-			s.Err = msg.Err
+		if msg.SessionIdx >= 0 && msg.SessionIdx < len(m.sessions) {
+			m.sessions[msg.SessionIdx].Err = msg.Err
+			delete(m.completed, msg.SessionIdx)
 		}
 	}
 	return m, nil
@@ -132,6 +195,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // startBulkSync initializes the live progress tracker and kicks off the bulk
 // sync alongside the periodic progress tick.
 func (m Model) startBulkSync(indices []int) (Model, tea.Cmd) {
+	if m.remoteBusy() || m.connectionError() != nil {
+		return m, nil
+	}
 	m.syncing = true
 	m.syncStatus = ""
 	m.syncDone = 0
@@ -145,6 +211,9 @@ func (m Model) remoteBusy() bool {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.conn != nil {
+		m.ConnectionLost(m.conn, m.conn.Err())
+	}
 	switch msg.String() {
 
 	// ── File list navigation ───────────────────────────────────────────
@@ -166,11 +235,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync direction — current file (Space) or all files (A) ───────────
 	case " ":
+		if m.remoteBusy() || m.connectionError() != nil {
+			return m, nil
+		}
 		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
 			m.syncDirs[m.activeIdx] = nextDir(m.syncDirs[m.activeIdx], &m.sessions[m.activeIdx])
 		}
 
 	case "A":
+		if m.remoteBusy() || m.connectionError() != nil {
+			return m, nil
+		}
 		for i := range m.sessions {
 			m.syncDirs[i] = nextDir(m.syncDirs[i], &m.sessions[i])
 		}
@@ -222,7 +297,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync: current file with planned direction ──────────────────────
 	case "s":
-		if !m.remoteBusy() && m.activeIdx < len(m.syncDirs) {
+		if !m.remoteBusy() && m.connectionError() == nil && m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) {
 			if m.syncDirs[m.activeIdx] != DirNone {
 				return m.startBulkSync([]int{m.activeIdx})
 			}
@@ -230,7 +305,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync: all files with planned directions ────────────────────────
 	case "S":
-		if !m.remoteBusy() {
+		if !m.remoteBusy() && m.connectionError() == nil {
 			indices := make([]int, len(m.sessions))
 			for i := range indices {
 				indices[i] = i
@@ -240,14 +315,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Quick upload/download (bypass planned direction) ───────────────
 	case "u":
-		if s := m.activeSession(); !m.remoteBusy() && s != nil && s.Result != nil && !s.Result.RemoteOnly {
+		if s := m.activeSession(); !m.remoteBusy() && m.connectionError() == nil && s != nil && s.Result != nil && !s.Result.RemoteOnly {
 			m.quickSyncing = true
 			m.beginActivity("Uploading file…", 0)
 			return m, m.uploadCmd(m.activeIdx)
 		}
 
 	case "d":
-		if s := m.activeSession(); !m.remoteBusy() && s != nil && s.Result != nil && !s.Result.LocalOnly {
+		if s := m.activeSession(); !m.remoteBusy() && m.connectionError() == nil && s != nil && s.Result != nil && !s.Result.LocalOnly {
 			m.quickSyncing = true
 			m.beginActivity("Downloading file…", 0)
 			return m, m.downloadCmd(m.activeIdx)
@@ -255,7 +330,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Refresh all diffs ──────────────────────────────────────────────
 	case "r":
-		if !m.remoteBusy() {
+		if !m.remoteBusy() && m.connectionError() == nil {
 			m.refreshing = true
 			m.beginActivity("Refreshing diffs…", len(m.sessions))
 			return m, m.refreshCmd()

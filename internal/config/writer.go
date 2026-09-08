@@ -13,6 +13,9 @@ import (
 // SaveGlobalHost adds or replaces a host in the global config file.
 // If oldName != "" the host with that name is replaced; otherwise a new host is appended.
 func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
+	if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
+		return fmt.Errorf("host %q: %w", h.Name, err)
+	}
 	if err := ValidateMappings(h.Mappings); err != nil {
 		return fmt.Errorf("host %q mappings: %w", h.Name, err)
 	}
@@ -31,6 +34,9 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 
 // SaveProjectHost adds or replaces a host in the project's store.
 func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
+	if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
+		return fmt.Errorf("host %q: %w", h.Name, err)
+	}
 	if err := ValidateMappings(h.Mappings); err != nil {
 		return fmt.Errorf("host %q mappings: %w", h.Name, err)
 	}
@@ -131,6 +137,9 @@ func removeHost(hosts []Host, name string) []Host {
 
 func writeGlobal(cfg GlobalConfig) error {
 	for _, host := range cfg.Hosts {
+		if err := ValidateKeepAliveInterval(host.KeepAliveInterval); err != nil {
+			return fmt.Errorf("host %q: %w", host.Name, err)
+		}
 		if err := ValidateMappings(host.Mappings); err != nil {
 			return fmt.Errorf("host %q mappings: %w", host.Name, err)
 		}
@@ -152,14 +161,15 @@ func writeGlobal(cfg GlobalConfig) error {
 // project configs that humans and teams maintain, it must trim those files, not
 // decorate them.
 type hostOut struct {
-	Name     string    `toml:"name"`
-	Hostname string    `toml:"hostname,omitempty"`
-	Port     *int      `toml:"port,omitempty"`
-	User     string    `toml:"user,omitempty"`
-	Auth     Auth      `toml:"auth,omitempty"`
-	RootPath string    `toml:"root_path,omitempty"`
-	Protocol string    `toml:"protocol,omitempty"`
-	Mappings []Mapping `toml:"mappings,omitempty"`
+	Name              string    `toml:"name"`
+	Hostname          string    `toml:"hostname,omitempty"`
+	Port              *int      `toml:"port,omitempty"`
+	User              string    `toml:"user,omitempty"`
+	Auth              Auth      `toml:"auth,omitempty"`
+	RootPath          string    `toml:"root_path,omitempty"`
+	Protocol          string    `toml:"protocol,omitempty"`
+	Mappings          []Mapping `toml:"mappings,omitempty"`
+	KeepAliveInterval *int      `toml:"keep_alive_interval,omitempty"`
 }
 
 type defaultsOut struct {
@@ -190,14 +200,15 @@ func hostsOut(hosts []Host) []hostOut {
 	out := make([]hostOut, len(hosts))
 	for i, h := range hosts {
 		out[i] = hostOut{
-			Name:     h.Name,
-			Hostname: h.Hostname,
-			Port:     optionalInt(h.Port),
-			User:     h.User,
-			Auth:     h.Auth,
-			RootPath: h.RootPath,
-			Protocol: h.Protocol,
-			Mappings: h.Mappings,
+			Name:              h.Name,
+			Hostname:          h.Hostname,
+			Port:              optionalInt(h.Port),
+			User:              h.User,
+			Auth:              h.Auth,
+			RootPath:          h.RootPath,
+			Protocol:          h.Protocol,
+			Mappings:          h.Mappings,
+			KeepAliveInterval: h.KeepAliveInterval,
 		}
 	}
 	return out

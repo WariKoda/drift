@@ -90,7 +90,7 @@ func TestFTPSFieldOrderHasNoCertificateBypass(t *testing.T) {
 	m := New(config.ScopeGlobal, "", 100, 30)
 	m.protocol = ProtoFTPS
 	rows := rowOrder(m)
-	want := []int{fName, fHostname, fPort, fProtocol, fRootPath, fMappings, fUser, fPassword, fScope}
+	want := []int{fName, fHostname, fPort, fProtocol, fKeepAliveDisabled, fKeepAliveInterval, fRootPath, fMappings, fUser, fPassword, fScope}
 	if !slices.Equal(rows, want) {
 		t.Fatalf("visibleRows() = %v, want %v", rows, want)
 	}
@@ -100,7 +100,7 @@ func TestFieldOrderKeepsTheScopeToggleLast(t *testing.T) {
 	m := New(config.ScopeProject, "/workspace/project", 100, 40)
 	rows := rowOrder(m)
 
-	want := []int{fName, fHostname, fPort, fProtocol, fRootPath, fMappings, fUser, fAuthType, fKeyFile, fPassphrase, fScope}
+	want := []int{fName, fHostname, fPort, fProtocol, fKeepAliveDisabled, fKeepAliveInterval, fRootPath, fMappings, fUser, fAuthType, fKeyFile, fPassphrase, fScope}
 	if len(rows) != len(want) {
 		t.Fatalf("visibleRows() = %v, want %v", rows, want)
 	}

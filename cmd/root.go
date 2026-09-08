@@ -222,7 +222,13 @@ func runProgram(app tui.App, mouse bool) error {
 	}
 
 	p := tea.NewProgram(app, opts...)
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if last, ok := final.(tui.App); ok {
+		last.Close()
+	} else {
+		app.Close()
+	}
+	if err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}
 	return nil

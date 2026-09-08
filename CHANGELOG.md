@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- protocol keep-alive for FTP/FTPS and SFTP, enabled at a 60-second interval by default; per-host `keep_alive_interval` sets the interval, and the host form provides a `Disable keep-alive` switch that hides the interval field when disabled
+- connection-loss notifications in the browser and diff, including while a modal is open; failed connections block further sync operations without automatically reconnecting or retrying transfers
+
 - `c` copies the complete loaded file preview to the terminal clipboard without line numbers or display wrapping; while a preview is open, drift releases the mouse to the terminal so its text can also be selected directly
 - FTPS certificate failures now open a modal with the endpoint, verification problems, certificate identity, validity, and SHA-256 fingerprint. The exact certificate can be trusted for the current process or permanently in `~/.config/drift/trusted-certificates.toml`
 - `r` on an FTPS host in the host manager resets its session and persistent certificate trust after confirmation

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,9 @@ type App struct {
 	pendingTrust  *pendingTrustOperation
 	trustSaving   bool
 	trustWriteSeq uint64
+
+	connectionSeq    uint64
+	connectionCancel context.CancelFunc
 
 	dashboard   dashboard.Model
 	projectForm projectform.Model
@@ -260,9 +264,6 @@ func (a App) blocksQuitKey(key tea.KeyMsg) bool {
 // fresh browser at p.Path and switches to the browser screen. A diff request
 // still in flight belongs to the project being left and is abandoned.
 func (a *App) openProject(p project.Project) (tea.Cmd, error) {
-	a.abandonDiffRequest()
-	a.state.SelectedHost = nil
-	a.browser.CloseRemote()
 	cfg, err := config.Load(p.Path, p.Slug)
 	if err != nil {
 		return nil, err
@@ -271,6 +272,11 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.abandonDiffRequest()
+	a.watchConnection(nil)
+	a.state.SelectedHost = nil
+	closeBrowser := a.browser.CloseRemote()
+	closeDiff := a.diffView.Close()
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
 	b.SetProjectName(p.Name)
 	b.SetMouseEnabled(a.mouseEnabled)
@@ -285,7 +291,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	a.state.ActiveProject = &pc
 	a.state.Screen = ScreenBrowser
 	a.recordOpened(p.Slug)
-	return b.Init(), nil
+	return tea.Batch(closeBrowser, closeDiff, b.Init()), nil
 }
 
 // adoptRegisteredProject points the loaded config at the project that was just
@@ -429,6 +435,10 @@ func (a *App) persist(mutate func() error) error {
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if ended, ok := msg.(msgConnectionEnded); ok {
+		a.connectionEnded(ended)
+		return a, nil
+	}
 	if cmd := a.loader.Update(msg); cmd != nil {
 		return a, cmd
 	}
@@ -444,7 +454,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.handleTrustSaved(promptMsg)
 		case tea.WindowSizeMsg:
 			a.certPrompt.SetSize(promptMsg.Width, promptMsg.Height)
-		default:
+		case tea.KeyMsg, tea.MouseMsg:
 			if a.trustSaving {
 				return a, nil
 			}
@@ -645,11 +655,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case browser.MsgRemoteLoaded:
-		accepted := a.browser.AcceptsRemoteResult(msg.ID, msg.Host.Name)
+		accepted := a.browser.AcceptsRemoteResult(msg)
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
 		if !accepted {
 			return a, cmd
+		}
+		if msg.Err == nil && msg.Conn != nil {
+			cmd = tea.Batch(cmd, a.watchConnection(msg.Conn))
 		}
 		a.finishNetworkActivity(activityRemoteLoad)
 		if msg.Err != nil && a.openCertificatePrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
@@ -687,11 +700,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffview.MsgDiffLoaded:
 		if !a.acceptsDiffResult(msg.RequestID) {
 			log.Info("discarding abandoned diff result", "host", msg.Host.Name, "request", msg.RequestID)
-			if msg.Conn != nil {
-				_ = msg.Conn.Close()
+			return a, func() tea.Msg {
+				if msg.Conn != nil {
+					if err := msg.Conn.Close(); err != nil {
+						log.Error("close abandoned diff connection", "err", err)
+					}
+				}
+				if msg.Root != nil {
+					if err := msg.Root.Close(); err != nil {
+						log.Error("close abandoned diff root", "err", err)
+					}
+				}
+				return nil
 			}
-			_ = msg.Root.Close()
-			return a, nil
 		}
 		a.diffRequest = 0
 		a.finishNetworkActivity(activityDiffLoad)
@@ -718,7 +739,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.globalError = fmt.Sprintf("Comparison failed for %d file(s)", failed)
 		}
 		a.state.Screen = ScreenDiffView
-		return a, nil
+		return a, a.watchConnection(msg.Conn)
 
 	case diffview.MsgDiffError:
 		log.Error("diff load failed", "host", msg.Host.Name, "err", msg.Err)
@@ -737,7 +758,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Diff view → back to browser ───────────────────────────────────
 	case diffview.MsgBackToBrowser:
-		a.diffView.Close()
+		a.watchConnection(nil)
+		closeDiff := a.diffView.Close()
 		a.state.Screen = ScreenBrowser
 		a.state.Selection.Clear()
 		if a.state.RemoteSelection != nil {
@@ -747,9 +769,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h := *a.state.SelectedHost
 			cmd := a.browser.StartRemote(h)
 			_, tracker, _ := a.browser.LoadingActivity()
-			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
+			return a, tea.Batch(closeDiff, cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
-		return a, nil
+		return a, closeDiff
 
 	// ── Host Manager ──────────────────────────────────────────────────
 	case browser.MsgOpenHostManager:
@@ -763,12 +785,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case hostmanager.MsgTrustReset:
+		var closeCmd tea.Cmd
 		if msg.Err == nil {
-			a.closeConnectionsFor(msg.Host)
+			closeCmd = a.closeConnectionsFor(msg.Host)
 		}
 		var cmd tea.Cmd
 		a.hostManager, cmd = a.hostManager.Update(msg)
-		return a, cmd
+		return a, tea.Batch(closeCmd, cmd)
 
 	case hostmanager.MsgTestResult:
 		accepted := a.hostManager.AcceptsTestResult(msg.ID)
@@ -902,22 +925,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch result := msg.(type) {
 		case diffview.MsgSyncError:
-			if a.openDiffCertificatePrompt(result.Err) {
-				return a, cmd
+			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
+				return a, tea.Batch(closeCmd, cmd)
 			}
 			if !loading.IsCanceled(result.Err) {
 				a.globalError = result.Err.Error()
 			}
 		case diffview.MsgSessionReloaded:
-			if result.Err != nil && a.openDiffCertificatePrompt(result.Err) {
-				return a, cmd
+			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
+				return a, tea.Batch(closeCmd, cmd)
 			}
 			if result.Err != nil && !loading.IsCanceled(result.Err) {
 				a.globalError = "Diff refresh failed: " + result.Err.Error()
 			}
 		case diffview.MsgRefreshed:
-			if result.Err != nil && a.openDiffCertificatePrompt(result.Err) {
-				return a, cmd
+			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
+				return a, tea.Batch(closeCmd, cmd)
 			}
 			failed := 0
 			for _, session := range result.Sessions {
@@ -930,8 +953,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case diffview.MsgBulkSyncDone:
 			for _, failure := range result.Errors {
-				if failure.Err != nil && a.openDiffCertificatePrompt(failure.Err) {
-					return a, cmd
+				if closeCmd, opened := a.openDiffCertificatePrompt(failure.Err); opened {
+					return a, tea.Batch(closeCmd, cmd)
 				}
 			}
 		}

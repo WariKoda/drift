@@ -56,6 +56,7 @@ type MsgDiffError struct {
 
 // MsgRefreshed is sent when a full diff refresh has completed.
 type MsgRefreshed struct {
+	Conn     remote.Client
 	Sessions []diff.Session
 	Err      error
 }
@@ -70,8 +71,11 @@ type SyncFailure struct {
 
 // MsgBulkSyncDone is sent when bulk sync has finished.
 type MsgBulkSyncDone struct {
-	Done   int           // number of successfully synced files
-	Errors []SyncFailure // one entry per failed file
+	Conn      remote.Client
+	Done      int           // number of successfully synced files
+	Completed []int         // session indices with confirmed successful operations
+	Errors    []SyncFailure // one entry per failed file
+	Err       error         // terminal connection failure; remaining jobs were not started
 }
 
 // MsgSyncProgress is emitted periodically while a bulk sync is running.
@@ -92,15 +96,21 @@ func syncProgressTickCmd(tracker *LoadProgressTracker) tea.Cmd {
 
 // MsgSynced is sent after a successful upload or download.
 type MsgSynced struct {
+	Conn       remote.Client
 	SessionIdx int
 	Direction  SyncDir
 }
 
 // MsgSyncError is sent when a sync operation fails.
-type MsgSyncError struct{ Err error }
+type MsgSyncError struct {
+	Conn       remote.Client
+	SessionIdx int
+	Err        error
+}
 
 // MsgSessionReloaded is sent after a quick sync re-compares the changed file.
 type MsgSessionReloaded struct {
+	Conn       remote.Client
 	SessionIdx int
 	Result     *diff.DiffResult
 	Err        error
@@ -155,6 +165,15 @@ func nextDir(cur SyncDir, s *diff.Session) SyncDir {
 	return syncDirFromDecision(syncpolicy.NextDecision(decisionFromSyncDir(cur), s))
 }
 
+// commandLifetime keeps the local root alive for running commands. Queued
+// commands may never run during Bubble Tea shutdown, so Close must reject them
+// rather than waiting for a completion that the runtime cannot guarantee.
+type commandLifetime struct {
+	mu      stdsync.Mutex
+	closed  bool
+	running stdsync.WaitGroup
+}
+
 // Model is the diff view screen.
 type Model struct {
 	sessions        []diff.Session
@@ -167,6 +186,7 @@ type Model struct {
 	quickSyncing    bool                 // true while quick upload/download is in flight
 	activityLabel   string               // label shown by the global loading indicator
 	activityTracker *LoadProgressTracker // progress shared with the global loading indicator
+	activityWait    *commandLifetime     // protects the root handle until running commands exit
 	syncStatus      string               // last bulk sync result message
 	syncErrors      []SyncFailure        // per-file errors from the last bulk sync
 	showErrors      bool                 // true while the error overlay is open
@@ -174,8 +194,11 @@ type Model struct {
 	syncDone        int                  // files processed so far in the active bulk sync
 	syncTotal       int                  // total files in the active bulk sync
 	host            config.Host
-	conn            remote.Client // kept open for sync ops
-	root            *fs.Root      // confines every local read, write and delete to the project
+	conn            remote.Client // kept open for sync ops, including after connection loss
+	disconnected    error         // sticky until a new model/comparison is opened
+	closed          bool
+	completed       map[int]bool // confirmed sync successes, retained when refresh cannot run
+	root            *fs.Root     // confines every local read, write and delete to the project
 	trust           *tlstrust.Manager
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
@@ -199,6 +222,7 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 		Width:        width,
 		Height:       height,
 		expandedGaps: map[int]map[int]struct{}{},
+		activityWait: &commandLifetime{},
 	}
 	model.scrollToFirstDifference()
 	return model
@@ -226,6 +250,9 @@ func (m *Model) CancelActivity() {
 }
 
 func (m *Model) beginActivity(label string, total int) *LoadProgressTracker {
+	if m.activityWait == nil {
+		m.activityWait = &commandLifetime{}
+	}
 	tracker := loading.NewTracker(label)
 	if total > 0 {
 		tracker.Set(label, 0, total, false)
@@ -240,17 +267,87 @@ func (m *Model) finishActivity() {
 	m.activityTracker = nil
 }
 
-// Close releases the remote connection and the project root handle. Call when
-// leaving the diff view.
-func (m *Model) Close() {
-	if m.conn != nil {
-		log.Info("remote disconnect", "host", m.host.Name)
-		_ = m.conn.Close()
-		m.conn = nil
+// trackCommand admits work under the same lock Close uses to stop admission.
+// A command dequeued after Close cannot touch the already released root.
+func (m Model) trackCommand(cmd tea.Cmd) tea.Cmd {
+	wait := m.activityWait
+	if wait == nil {
+		return cmd
 	}
-	if m.root != nil {
-		_ = m.root.Close()
-		m.root = nil
+	return func() tea.Msg {
+		wait.mu.Lock()
+		if wait.closed {
+			wait.mu.Unlock()
+			return nil
+		}
+		wait.running.Add(1)
+		wait.mu.Unlock()
+		defer wait.running.Done()
+		return cmd()
+	}
+}
+
+// Connection returns the owned connection, even after failure, until Close detaches it.
+func (m Model) Connection() remote.Client { return m.conn }
+
+// ConnectionLost applies only to the current connection. Commands retain their
+// captured handles and report their outcomes; no new work is allowed afterwards.
+func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
+	if conn == nil || conn != m.conn || err == nil || m.closed || m.disconnected != nil {
+		return false
+	}
+	m.disconnected = err
+	m.CancelActivity()
+	return true
+}
+
+// connectionError also checks the client directly: its monitor can fail before
+// the root's connection-status message reaches this screen.
+func (m Model) connectionError() error {
+	if m.disconnected != nil {
+		return m.disconnected
+	}
+	if m.closed || m.conn == nil {
+		return errors.New("connection is closed")
+	}
+	return m.conn.Err()
+}
+
+// Close detaches ownership and cancels pending work immediately. Network close
+// may wait for an active operation, so resource cleanup belongs in the command.
+func (m *Model) Close() tea.Cmd {
+	m.CancelActivity()
+	conn, root, host := m.conn, m.root, m.host.Name
+	wait := m.activityWait
+	if wait != nil {
+		wait.mu.Lock()
+		wait.closed = true
+		wait.mu.Unlock()
+	}
+	m.conn, m.root = nil, nil
+	m.closed = true
+	m.syncing, m.quickSyncing, m.refreshing = false, false, false
+	m.syncProgress = nil
+	m.finishActivity()
+	if conn == nil && root == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if conn != nil {
+			log.Info("remote disconnect", "host", host)
+			if err := conn.Close(); err != nil {
+				log.Error("remote disconnect failed", "host", host, "err", err)
+			}
+		}
+		if wait != nil {
+			wait.running.Wait()
+		}
+		if root != nil {
+			if err := root.Close(); err != nil {
+				log.Error("close project root failed", "err", err)
+			}
+		}
+		return nil
 	}
 }
 
@@ -593,6 +690,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		conn := existingConn
 		abort := func(err error) tea.Msg {
 			if conn != nil {
+				if terminalErr := conn.Err(); terminalErr != nil {
+					err = terminalErr
+				}
 				_ = conn.Close()
 			}
 			_ = root.Close()
@@ -611,6 +711,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 				}
 			}
 			log.Info("remote connect", "host", host.Name, "hostname", host.Hostname)
+		}
+		if err := conn.Err(); err != nil {
+			return abort(err)
 		}
 		if err := ctx.Err(); err != nil {
 			return abort(err)
@@ -637,6 +740,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		for _, localPath := range sortedMarkedPaths(localSel) {
+			if err := conn.Err(); err != nil {
+				return abort(err)
+			}
 			if err := ctx.Err(); err != nil {
 				return abort(err)
 			}
@@ -693,6 +799,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		}
 
 		for _, remotePath := range sortedMarkedPaths(remoteSel) {
+			if err := conn.Err(); err != nil {
+				return abort(err)
+			}
 			if err := ctx.Err(); err != nil {
 				return abort(err)
 			}
@@ -768,6 +877,9 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			return abort(err)
 		}
 
+		if err := conn.Err(); err != nil {
+			return abort(err)
+		}
 		return MsgDiffLoaded{
 			RequestID: requestID,
 			Host:      host,
@@ -813,10 +925,13 @@ type compareFunc func(idx int, conn remote.Client)
 // a server allowing only one session per user still produces a complete diff.
 // SFTP shares that one connection across all workers because pkg/sftp
 // pipelines concurrent requests; for FTP every additional worker needs its own
-// connection and is therefore best-effort — a worker that cannot connect simply
-// exits and lowers parallelism. fn must only write to data owned by its idx,
-// making the pool race-free without locking. progress may be nil.
+// connection. A refused extra login lowers parallelism, but a terminal failure
+// on any established connection fails the comparison. fn must only write to data
+// owned by its idx, making the pool race-free without locking. progress may be nil.
 func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, fn compareFunc) error {
+	if err := conn.Err(); err != nil {
+		return err
+	}
 	if len(jobs) == 0 {
 		return nil
 	}
@@ -827,23 +942,34 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 
 	jobCh := make(chan int)
 	var wg stdsync.WaitGroup
-	var securityMu stdsync.Mutex
-	var securityErr error
-	hasSecurityFailure := func() bool {
-		securityMu.Lock()
-		defer securityMu.Unlock()
-		return securityErr != nil
+	var failureMu stdsync.Mutex
+	var failure error
+	recordFailure := func(err error) {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		if failure == nil {
+			failure = err
+		}
+	}
+	hasFailure := func() bool {
+		failureMu.Lock()
+		defer failureMu.Unlock()
+		return failure != nil
 	}
 	work := func(workerConn remote.Client) {
 		for idx := range jobCh {
-			if progress.Canceled() || hasSecurityFailure() {
-				continue
+			recordFailure(conn.Err())
+			recordFailure(workerConn.Err())
+			if progress.Canceled() || hasFailure() {
+				continue // drain jobs so the producer can always finish
 			}
 			fn(idx, workerConn)
+			recordFailure(workerConn.Err())
 			if progress != nil {
 				progress.Inc()
 			}
 		}
+		recordFailure(workerConn.Err())
 	}
 
 	wg.Add(1)
@@ -860,36 +986,50 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 				work(conn)
 				return
 			}
+			recordFailure(conn.Err())
+			if progress.Canceled() || hasFailure() {
+				return
+			}
 			ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
 			defer cancel()
 			extraConn, err := remote.Connect(ctx, host, trust, required)
 			if err != nil {
 				var verificationErr *tlstrust.VerificationError
 				if errors.As(err, &verificationErr) {
-					securityMu.Lock()
-					if securityErr == nil {
-						securityErr = err
-					}
-					securityMu.Unlock()
+					recordFailure(err)
 				}
 				log.Debug("extra diff worker connect failed, reducing parallelism",
 					"host", host.Name, "hostname", host.Hostname, "err", err)
 				return
 			}
-			defer extraConn.Close()
+			// Cancellation must also interrupt an extra worker's active I/O;
+			// closing only the model's primary connection cannot release it.
+			stopClose := context.AfterFunc(progress.Context(), func() { _ = extraConn.Close() })
+			defer func() {
+				stopClose()
+				_ = extraConn.Close()
+				recordFailure(extraConn.Err())
+			}()
 			work(extraConn)
 		}()
 	}
 
 	for _, idx := range jobs {
-		if progress.Canceled() || hasSecurityFailure() {
+		recordFailure(conn.Err())
+		if progress.Canceled() || hasFailure() {
 			break
 		}
 		jobCh <- idx
 	}
 	close(jobCh)
 	wg.Wait()
-	return securityErr
+	if err := conn.Err(); err != nil {
+		return err
+	}
+	if failure != nil {
+		return failure
+	}
+	return progress.Context().Err()
 }
 
 func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) ([]diff.Session, error) {
@@ -1010,23 +1150,35 @@ func downloadFile(conn remote.Client, root *fs.Root, remotePath, localPath strin
 	return nil
 }
 
+// syncOperationError keeps the operation error and the terminal cause. A failed
+// write may have reached the server, so retrying requires a fresh comparison.
+func syncOperationError(conn remote.Client, err error) error {
+	if err != nil && conn.Err() != nil {
+		return fmt.Errorf("outcome unknown; compare again before syncing: %w", errors.Join(err, conn.Err()))
+	}
+	return err
+}
+
 // uploadCmd uploads the local file of sessions[idx] to remote.
 func (m Model) uploadCmd(idx int) tea.Cmd {
 	s := m.sessions[idx]
 	conn := m.conn
 	root := m.root
 	tracker := m.activityTracker
-	return func() tea.Msg {
+	return m.trackCommand(func() tea.Msg {
 		defer tracker.Finish()
+		if err := m.connectionError(); err != nil {
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: err}
+		}
 		if tracker.Canceled() {
-			return MsgSyncError{Err: context.Canceled}
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
 		}
-		if err := uploadFile(conn, root, s.LocalPath, s.RemotePath); err != nil {
+		if err := syncOperationError(conn, uploadFile(conn, root, s.LocalPath, s.RemotePath)); err != nil {
 			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
-			return MsgSyncError{Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
 		}
-		return MsgSynced{SessionIdx: idx, Direction: DirUpload}
-	}
+		return MsgSynced{Conn: conn, SessionIdx: idx, Direction: DirUpload}
+	})
 }
 
 // downloadCmd downloads the remote file of sessions[idx] to local.
@@ -1035,35 +1187,38 @@ func (m Model) downloadCmd(idx int) tea.Cmd {
 	conn := m.conn
 	root := m.root
 	tracker := m.activityTracker
-	return func() tea.Msg {
+	return m.trackCommand(func() tea.Msg {
 		defer tracker.Finish()
+		if err := m.connectionError(); err != nil {
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: err}
+		}
 		if tracker.Canceled() {
-			return MsgSyncError{Err: context.Canceled}
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
 		}
-		if err := downloadFile(conn, root, s.RemotePath, s.LocalPath); err != nil {
+		if err := syncOperationError(conn, downloadFile(conn, root, s.RemotePath, s.LocalPath)); err != nil {
 			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
-			return MsgSyncError{Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
 		}
-		return MsgSynced{SessionIdx: idx, Direction: DirDownload}
-	}
+		return MsgSynced{Conn: conn, SessionIdx: idx, Direction: DirDownload}
+	})
 }
 
 // bulkSyncCmd executes the planned sync direction for the given session indices.
 func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
-	sessions := m.sessions
-	syncDirs := m.syncDirs
+	sessions := append([]diff.Session(nil), m.sessions...)
+	syncDirs := append([]SyncDir(nil), m.syncDirs...)
 	conn := m.conn
 	root := m.root
 	tracker := m.syncProgress
-	return func() tea.Msg {
+	return m.trackCommand(func() tea.Msg {
 		defer tracker.Finish()
-		done := 0
+		var completed []int
 		var errs []SyncFailure
 		for _, i := range indices {
-			if tracker.Canceled() {
+			if m.connectionError() != nil || tracker.Canceled() {
 				break
 			}
-			if i >= len(sessions) || i >= len(syncDirs) {
+			if i < 0 || i >= len(sessions) || i >= len(syncDirs) {
 				tracker.Inc()
 				continue
 			}
@@ -1092,11 +1247,12 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 				tracker.Inc() // DirNone — skip
 				continue
 			}
+			err = syncOperationError(conn, err)
 			if err != nil {
 				log.Error("sync file", "op", op, "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 				reason := strings.Join(strings.Fields(err.Error()), " ")
 				var protocolErr *textproto.Error
-				if errors.As(err, &protocolErr) {
+				if conn.Err() == nil && errors.As(err, &protocolErr) {
 					reason = protocolErr.Error()
 				}
 				errs = append(errs, SyncFailure{
@@ -1112,12 +1268,12 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 				}
 			} else {
 				log.Debug("sync file ok", "op", op, "local", s.LocalPath, "remote", s.RemotePath)
-				done++
+				completed = append(completed, i)
 			}
 			tracker.Inc()
 		}
-		return MsgBulkSyncDone{Done: done, Errors: errs}
-	}
+		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: errs, Err: m.connectionError()}
+	})
 }
 
 // refreshCmd re-diffs all sessions in parallel using the worker pool. The
@@ -1129,8 +1285,11 @@ func (m Model) refreshCmd() tea.Cmd {
 	root := m.root
 	tracker := m.activityTracker
 	trust := m.trust
-	return func() tea.Msg {
+	return m.trackCommand(func() tea.Msg {
 		defer tracker.Finish()
+		if err := m.connectionError(); err != nil {
+			return MsgRefreshed{Conn: conn, Err: err}
+		}
 		refreshed := append([]diff.Session(nil), sessions...)
 		jobs := make([]int, len(sessions))
 		for i := range sessions {
@@ -1151,16 +1310,16 @@ func (m Model) refreshCmd() tea.Cmd {
 			}
 		})
 		if securityErr != nil {
-			return MsgRefreshed{Sessions: refreshed, Err: securityErr}
+			return MsgRefreshed{Conn: conn, Sessions: refreshed, Err: securityErr}
 		}
 		for _, session := range refreshed {
 			var verificationErr *tlstrust.VerificationError
 			if session.Err != nil && errors.As(session.Err, &verificationErr) {
-				return MsgRefreshed{Sessions: refreshed, Err: session.Err}
+				return MsgRefreshed{Conn: conn, Sessions: refreshed, Err: session.Err}
 			}
 		}
-		return MsgRefreshed{Sessions: refreshed}
-	}
+		return MsgRefreshed{Conn: conn, Sessions: refreshed, Err: conn.Err()}
+	})
 }
 
 // reloadSessionCmd recomputes one diff asynchronously after a quick sync.
@@ -1169,16 +1328,22 @@ func (m Model) reloadSessionCmd(idx int) tea.Cmd {
 	conn := m.conn
 	root := m.root
 	tracker := m.activityTracker
-	return func() tea.Msg {
+	return m.trackCommand(func() tea.Msg {
 		defer tracker.Finish()
+		if err := m.connectionError(); err != nil {
+			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Err: err}
+		}
 		if tracker.Canceled() {
-			return MsgSessionReloaded{SessionIdx: idx, Result: s.Result, Err: context.Canceled}
+			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: s.Result, Err: context.Canceled}
 		}
 		result, err := diff.Compare(root, s.LocalPath, s.RemotePath, conn)
+		if terminalErr := conn.Err(); terminalErr != nil {
+			err = terminalErr
+		}
 		if err != nil {
 			log.Error("diff refresh failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 		}
 		tracker.Inc()
-		return MsgSessionReloaded{SessionIdx: idx, Result: result, Err: err}
-	}
+		return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: result, Err: err}
+	})
 }

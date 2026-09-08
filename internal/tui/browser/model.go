@@ -8,6 +8,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
@@ -69,6 +70,7 @@ type Model struct {
 	remotePreviewReading bool
 	remoteStatus         string
 	remoteLoadID         uint64
+	remoteSession        *string // unique identity across browser/project replacements
 	remoteTracker        *loading.Tracker
 	trust                *tlstrust.Manager
 
@@ -95,6 +97,7 @@ func New(workDir string) (Model, error) {
 	}
 	return Model{
 		WorkDir:         workDir,
+		remoteSession:   &workDir,
 		entries:         entries,
 		Selection:       fs.NewSelectionState(),
 		RemoteSelection: fs.NewSelectionState(),
@@ -150,14 +153,14 @@ func (m Model) LoadingActivity() (string, *loading.Tracker, bool) {
 }
 
 // AcceptsRemoteResult reports whether a root-load result is still current.
-func (m Model) AcceptsRemoteResult(id uint64, hostName string) bool {
-	return m.remoteLoading && id == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == hostName
+func (m Model) AcceptsRemoteResult(msg MsgRemoteLoaded) bool {
+	return m.remoteLoading && msg.session == m.remoteSession && msg.ID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.Host.Name
 }
 
 // AcceptsRemoteChildrenResult reports whether a directory result belongs to
 // the active remote connection generation.
 func (m Model) AcceptsRemoteChildrenResult(msg MsgRemoteChildrenLoaded) bool {
-	return m.remoteReading && msg.ID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.Host.Name
+	return m.remoteReading && msg.session == m.remoteSession && msg.ID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.Host.Name
 }
 
 // RemoteHost returns the host currently assigned to the remote pane.
@@ -326,15 +329,42 @@ func (m *Model) reload() error {
 	return nil
 }
 
-// absWorkDir returns the absolute display path of the working directory.
-// CloseRemote closes the currently open remote browser connection, if any.
-func (m *Model) CloseRemote() {
-	if m.remoteConn != nil {
-		_ = m.remoteConn.Close()
-		m.remoteConn = nil
-	}
+// CloseRemote detaches the connection immediately and closes it off the UI thread.
+func (m *Model) CloseRemote() tea.Cmd {
+	conn := m.remoteConn
+	m.remoteConn = nil
+	m.CancelRemote()
 	m.remoteReading = false
 	m.remotePreviewReading = false
+	if conn == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := conn.Close(); err != nil {
+			log.Error("close remote browser connection", "err", err)
+		}
+		return nil
+	}
+}
+
+// Connection returns the connection currently owned by the browser.
+func (m Model) Connection() remote.Client { return m.remoteConn }
+
+// ConnectionLost invalidates pending reads without discarding visible entries.
+func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
+	if conn == nil || m.remoteConn != conn || err == nil {
+		return false
+	}
+	m.remoteLoadID++
+	m.remoteReading = false
+	m.remotePreviewReading = false
+	m.remoteStatus = "Remote disconnected: " + sanitizePreviewError(err) + ". Press [r] to reconnect."
+	if m.preview.source == PaneRemote {
+		m.preview.generation++
+		m.preview.loading = false
+		m.preview.waiting = false
+	}
+	return true
 }
 
 func (m Model) remoteBusy() bool {

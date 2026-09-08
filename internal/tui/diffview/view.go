@@ -7,6 +7,7 @@ import (
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
@@ -195,6 +196,10 @@ func (m Model) renderFileRow(i, width int) string {
 		dirChar = styles.Muted.Render("—")
 	}
 
+	if m.completed[i] && dir == DirNone {
+		dirChar = styles.Marked.Render("✓")
+	}
+
 	var nameStyle lipgloss.Style
 	if active {
 		nameStyle = styles.File
@@ -276,7 +281,8 @@ func (m Model) renderErrorListRows(height, width int) []string {
 		if reason == "" {
 			reason = "unknown error"
 		}
-		reason = truncLeft(reason, max(1, contentWidth-lipgloss.Width(prefix)))
+		// Keep the leading outcome warning visible even when its cause is long.
+		reason = ansi.Truncate(reason, max(1, contentWidth-lipgloss.Width(prefix)), "…")
 		rows = append(rows, pad("  "+styles.Err.Render("✗ ")+styles.File.Render(path)+
 			styles.Muted.Render(" ["+operation+"] ")+styles.Err.Render(reason), width))
 	}
@@ -323,6 +329,15 @@ func blankRows(height, width int) []string {
 }
 
 func (m Model) renderStatus(s *diff.Session) string {
+	if m.disconnected != nil || (m.conn != nil && m.conn.Err() != nil) {
+		reason := strings.Join(strings.Fields(m.connectionError().Error()), " ")
+		status := "Disconnected: " + reason + " | Reopen comparison before syncing."
+		if len(m.syncErrors) > 0 {
+			status += " [e]errors"
+		}
+		status += " [q]back"
+		return styles.Err.Render(ansi.Truncate(status, max(1, m.Width), "…"))
+	}
 	var info string
 	if s != nil && s.Result != nil {
 		if !s.Result.HasDiff() {

@@ -336,6 +336,36 @@ The file holds credentials verbatim, so it is mode `600` in a `700` directory. U
 `$ENV_VAR` for a password or passphrase if you would rather keep the secret in your shell
 environment or a password manager; drift expands it at connect time.
 
+### Keep-alive
+
+Remote connections send protocol keep-alive probes every 60 seconds by default.
+Set `keep_alive_interval` on a host in seconds, or edit the field in the host form:
+
+```toml
+keep_alive_interval = 60 # 0 disables keep-alive; omit for the default
+```
+
+TOML accepts values from `0` to `86400`. In the host form, use `Disable keep-alive`
+to turn probes off. The interval field is hidden while disabled; otherwise it
+accepts `1` to `86400` seconds, with a blank field using the default. Toggling back
+on restores the interval entered during the current edit. Changes apply to new
+connections. This is a host setting, not a `[defaults]` field.
+
+FTP and FTPS send `NOOP` only after an idle interval on the control connection,
+never between commands of a running transfer. SFTP sends SSH keep-alive requests,
+which can run alongside file transfers. A negative SSH reply still confirms that
+the peer is reachable. A probe has 15 seconds to receive a response.
+
+A failed probe marks the connection as disconnected. In the remote browser, use
+`r` to reconnect; in the diff, return to the browser and compare again before
+syncing. Completed files retain their results. An interrupted operation may have
+an unknown server-side outcome. drift never reconnects or repeats transfers
+automatically because of a keep-alive failure.
+
+Keep-alive cannot prevent every server idle limit or network failure. FTP probes
+are skipped during busy operations, and an SSH response does not guarantee that
+the SFTP subsystem is healthy. TCP keep-alive is separate from these probes.
+
 ### FTPS certificate trust
 
 FTPS certificates are checked against the operating system trust store, including

@@ -3,19 +3,17 @@ package diffview
 import (
 	"context"
 	"errors"
-	"io"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
-	"github.com/WariKoda/drift/internal/fs"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestQuickSyncBlocksOtherRemoteActions(t *testing.T) {
 	model := Model{
+		conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
 		sessions: []diff.Session{{
 			LocalPath:  "/local/file.txt",
 			RemotePath: "/remote/file.txt",
@@ -47,6 +45,7 @@ func TestQuickSyncBlocksOtherRemoteActions(t *testing.T) {
 
 func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
 	model := Model{
+		conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
 		sessions: []diff.Session{{
 			LocalPath:  "/local/file.txt",
 			RemotePath: "/remote/file.txt",
@@ -107,6 +106,7 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 }
 
 func TestCancelledBulkSyncKeepsCompletedFiles(t *testing.T) {
+	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
 	tracker := NewLoadProgressTracker()
 	tracker.Cancel()
 	model := Model{
@@ -116,6 +116,7 @@ func TestCancelledBulkSyncKeepsCompletedFiles(t *testing.T) {
 		syncDirs:        []SyncDir{DirUpload},
 	}
 
+	model.conn = conn
 	model, cmd := model.Update(MsgBulkSyncDone{Done: 1})
 	if cmd != nil {
 		t.Fatal("cancelled bulk sync started a refresh")
@@ -361,6 +362,7 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 
 func TestRefreshScrollsToFirstDifference(t *testing.T) {
 	model := Model{
+		conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
 		}},
@@ -378,6 +380,8 @@ func TestRefreshScrollsToFirstDifference(t *testing.T) {
 
 func TestSessionReloadScrollsToFirstDifferenceWhenActive(t *testing.T) {
 	model := Model{
+		conn:     connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		syncDirs: make([]SyncDir, 2),
 		sessions: []diff.Session{
 			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
 			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
@@ -568,7 +572,8 @@ func keyMsg(key string) tea.KeyMsg {
 func TestBulkSyncCmdSkipsRemainingAfterCancel(t *testing.T) {
 	tracker := NewLoadProgressTracker()
 	tracker.Cancel()
-	conn := &countingRemote{}
+	server := startFTPTestServer(t, 1)
+	conn := connectDiffTestHost(t, server.host(t))
 	model := Model{
 		sessions: []diff.Session{
 			{RemotePath: "/a"},
@@ -584,18 +589,7 @@ func TestBulkSyncCmdSkipsRemainingAfterCancel(t *testing.T) {
 	if !ok {
 		t.Fatalf("got %T, want MsgBulkSyncDone", msg)
 	}
-	if done.Done != 0 || conn.deletes != 0 {
-		t.Fatalf("cancelled sync still ran (done=%d deletes=%d)", done.Done, conn.deletes)
+	if done.Done != 0 || server.commandCount("DELE") != 0 {
+		t.Fatalf("cancelled sync still ran (done=%d deletes=%d)", done.Done, server.commandCount("DELE"))
 	}
 }
-
-type countingRemote struct{ deletes int }
-
-func (c *countingRemote) Stat(string) (os.FileInfo, error)           { return nil, errors.New("unused") }
-func (c *countingRemote) ReadDir(string) ([]*fs.FileEntry, error)    { return nil, errors.New("unused") }
-func (c *countingRemote) Open(string) (io.ReadCloser, error)         { return nil, errors.New("unused") }
-func (c *countingRemote) ReadFile(string) ([]byte, error)            { return nil, errors.New("unused") }
-func (c *countingRemote) Upload(string, io.Reader) error             { return errors.New("unused") }
-func (c *countingRemote) WalkFiles(string, func(string) error) error { return errors.New("unused") }
-func (c *countingRemote) DeleteFile(string) error                    { c.deletes++; return nil }
-func (c *countingRemote) Close() error                               { return nil }

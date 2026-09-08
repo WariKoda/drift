@@ -46,6 +46,15 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.focusRow >= 0 && m.focusRow < len(rows) {
 		curIdx = rows[m.focusRow]
 	}
+	if curIdx == fKeepAliveDisabled {
+		switch msg.String() {
+		case "enter", " ", "left", "right":
+			m.keepAliveDisabled = !m.keepAliveDisabled
+			m.applyFocus()
+			m.errMsg = ""
+			return m, nil
+		}
+	}
 
 	switch msg.String() {
 	case "esc":

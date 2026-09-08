@@ -50,11 +50,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.layoutPreview(true)
 
 	case MsgRemoteLoaded:
-		stale := m.remoteHost == nil || m.remoteHost.Name != msg.Host.Name
-		m.applyRemoteLoaded(msg)
-		if stale {
-			return m, nil
+		if !m.AcceptsRemoteResult(msg) {
+			return m, func() tea.Msg {
+				if msg.Conn != nil {
+					if err := msg.Conn.Close(); err != nil {
+						log.Error("close stale remote connection", "err", err)
+					}
+				}
+				return nil
+			}
 		}
+		m.applyRemoteLoaded(msg)
 		if msg.Err != nil {
 			m.preview.loading = false
 			m.preview.waiting = false
@@ -343,6 +349,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	// ── Sync trigger ──────────────────────────────────
 	case keyS:
+		if m.remoteConn != nil && m.remoteConn.Err() != nil {
+			m.statusMsg = "Remote disconnected. Reconnect with [r] before comparing."
+			break
+		}
 		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
 			break
@@ -433,7 +443,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
-	if m.remoteBusy() || m.remoteConn == nil || len(m.remoteEntries) == 0 {
+	if m.remoteBusy() || m.remoteConn == nil || m.remoteConn.Err() != nil || len(m.remoteEntries) == 0 {
 		return m, nil
 	}
 	entry := m.remoteEntries[m.remoteCursor]
@@ -450,7 +460,7 @@ func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
 	entry.Expanded = true // optimistic spinner/guard against duplicate expand
 	m.remoteReading = true
 	m.remoteStatus = "Loading remote: " + entry.Path
-	return m, readRemoteDirCmd(m.remoteConn, *m.remoteHost, m.remoteLoadID, entry.Path)
+	return m, readRemoteDirCmd(m.remoteConn, *m.remoteHost, m.remoteLoadID, m.remoteSession, entry.Path)
 }
 
 func (m Model) updateRemoteClose() (Model, tea.Cmd) {

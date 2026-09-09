@@ -30,6 +30,9 @@ type Client interface {
 	ReadFile(path string) ([]byte, error)
 	Upload(remotePath string, src io.Reader) error
 	WalkFiles(root string, fn func(string) error) error
+	// WalkFilesWithActivity also reports visited directories, including empty ones.
+	// activity must be concurrency-safe and may return an error to stop the walk.
+	WalkFilesWithActivity(root string, fn func(string) error, activity func() error) error
 	DeleteFile(path string) error
 	// Done closes when the connection is closed or its keep-alive monitor fails.
 	Done() <-chan struct{}

@@ -302,13 +302,18 @@ const maxWalkWorkers = 4
 
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
 func (c *Client) WalkFiles(remoteRoot string, fn func(string) error) error {
+	return c.WalkFilesWithActivity(remoteRoot, fn, nil)
+}
+
+// WalkFilesWithActivity reports completed listings, even for empty directories.
+func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error, activity func() error) error {
 	if err := c.connectionError(); err != nil {
 		return err
 	}
-	return c.parallelWalkFiles(remoteRoot, fn)
+	return c.parallelWalkFiles(remoteRoot, fn, activity)
 }
 
-func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) (err error) {
+func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error, activity func() error) (err error) {
 	workers := []*Client{c}
 	defer func() {
 		for _, worker := range workers[1:] {
@@ -363,6 +368,11 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) (er
 		}
 		workers = append(workers, worker)
 		c.dialWG.Done()
+		if activity != nil {
+			if err := activity(); err != nil {
+				return err
+			}
+		}
 	}
 
 	var mu sync.Mutex
@@ -375,6 +385,12 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) (er
 		defer mu.Unlock()
 		if firstErr != nil {
 			return
+		}
+		if activity != nil {
+			if err := activity(); err != nil {
+				firstErr = err
+				return
+			}
 		}
 		if err := fn(p); err != nil {
 			firstErr = err
@@ -399,7 +415,17 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error) (er
 	listers := make([]func(string) []string, 0, len(workers))
 	for _, worker := range workers {
 		listers = append(listers, func(dir string) []string {
-			return worker.walkDirLevel(dir, handleFile, recordErr)
+			if activity != nil {
+				if err := activity(); err != nil {
+					recordErr(err)
+					return nil
+				}
+			}
+			dirs := worker.walkDirLevel(dir, handleFile, recordErr)
+			if activity != nil {
+				recordErr(activity())
+			}
+			return dirs
 		})
 	}
 	walkQueue(remoteRoot, listers, shouldStop)

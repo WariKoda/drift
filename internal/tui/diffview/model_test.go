@@ -146,7 +146,9 @@ type ftpTestServer struct {
 	commands []string
 	// Returning true drops this real control connection before its reply.
 	dropCommand func(command, argument string) bool
-	wg          stdsync.WaitGroup
+	// sendData controls real data-channel delivery for inactivity tests.
+	sendData func(net.Conn, string) error
+	wg       stdsync.WaitGroup
 }
 
 func startFTPTestServer(t *testing.T, maxSessions int) *ftpTestServer {
@@ -342,7 +344,14 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 				break
 			}
 			if err = reply("150 opening data connection"); err == nil {
-				_, err = io.WriteString(data, content)
+				s.mu.Lock()
+				send := s.sendData
+				s.mu.Unlock()
+				if send != nil {
+					err = send(data, content)
+				} else {
+					_, err = io.WriteString(data, content)
+				}
 			}
 			closeErr := data.Close()
 			if err == nil {

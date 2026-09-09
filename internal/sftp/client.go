@@ -339,8 +339,18 @@ func (c *Client) DeleteFile(remotePath string) error {
 // it would silently drop that subtree from the walk, so its files would never be
 // compared or synced.
 func (c *Client) WalkFiles(remoteRoot string, fn func(path string) error) error {
+	return c.WalkFilesWithActivity(remoteRoot, fn, nil)
+}
+
+// WalkFilesWithActivity reports every visited entry, including empty directories.
+func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error, activity func() error) error {
 	walker := c.sftp.Walk(remoteRoot)
 	for walker.Step() {
+		if activity != nil {
+			if err := activity(); err != nil {
+				return err
+			}
+		}
 		if err := walker.Err(); err != nil {
 			return fmt.Errorf("walk %s: %w", walker.Path(), err)
 		}

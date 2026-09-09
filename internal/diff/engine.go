@@ -30,6 +30,13 @@ type RemoteClient interface {
 // symlinked component points elsewhere — fails instead of pulling in a file
 // from outside the project.
 func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (*DiffResult, error) {
+	return CompareWithActivity(root, localPath, remotePath, client, nil)
+}
+
+// CompareWithActivity reports local read progress, including bytes hashed from
+// large files. Remote activity is observed by the supplied client's reader.
+// activity may be nil; otherwise it must be safe for concurrent comparisons.
+func CompareWithActivity(root *fs.Root, localPath, remotePath string, client RemoteClient, activity func() error) (*DiffResult, error) {
 	result := &DiffResult{
 		LocalPath:  localPath,
 		RemotePath: remotePath,
@@ -88,7 +95,7 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 	if remoteMissing {
 		result.LocalOnly = true
 		if result.SizeLocal <= maxTextSize {
-			data, err := root.ReadFile(localPath)
+			data, err := readLocal(root, localPath, activity)
 			if err != nil {
 				return result, err
 			}
@@ -125,7 +132,7 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 			return result, nil
 		}
 
-		equal, err := contentEqual(root, localPath, remotePath, client)
+		equal, err := contentEqual(root, localPath, remotePath, client, activity)
 		if err != nil {
 			return result, err
 		}
@@ -133,7 +140,7 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 		return result, nil
 	}
 
-	localData, err := root.ReadFile(localPath)
+	localData, err := readLocal(root, localPath, activity)
 	if err != nil {
 		return result, err
 	}
@@ -154,12 +161,12 @@ func Compare(root *fs.Root, localPath, remotePath string, client RemoteClient) (
 
 // contentEqual compares local and remote content with constant memory. It is
 // used when a line diff would be too expensive to build.
-func contentEqual(root *fs.Root, localPath, remotePath string, client RemoteClient) (bool, error) {
+func contentEqual(root *fs.Root, localPath, remotePath string, client RemoteClient, activity func() error) (bool, error) {
 	localFile, err := root.Open(localPath)
 	if err != nil {
 		return false, err
 	}
-	localSum, localSize, err := digestAndClose(localFile)
+	localSum, localSize, err := digestAndClose(&activityReader{ReadCloser: localFile, activity: activity})
 	if err != nil {
 		return false, fmt.Errorf("hash local file %s: %w", localPath, err)
 	}
@@ -174,6 +181,36 @@ func contentEqual(root *fs.Root, localPath, remotePath string, client RemoteClie
 	}
 
 	return localSize == remoteSize && localSum == remoteSum, nil
+}
+
+type activityReader struct {
+	io.ReadCloser
+	activity func() error
+}
+
+func (r *activityReader) Read(p []byte) (int, error) {
+	if r.activity != nil {
+		if err := r.activity(); err != nil {
+			return 0, err
+		}
+	}
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 && r.activity != nil {
+		if activityErr := r.activity(); activityErr != nil {
+			return n, activityErr
+		}
+	}
+	return n, err
+}
+
+func readLocal(root *fs.Root, path string, activity func() error) ([]byte, error) {
+	file, err := root.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	r := &activityReader{ReadCloser: file, activity: activity}
+	data, readErr := io.ReadAll(r)
+	return data, errors.Join(readErr, r.Close())
 }
 
 func digestAndClose(r io.ReadCloser) ([sha256.Size]byte, int64, error) {

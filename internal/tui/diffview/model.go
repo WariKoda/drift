@@ -673,17 +673,23 @@ func (m *Model) scrollToFirstDifference() {
 // requestID is echoed back in the result so the caller can discard results of
 // requests it has abandoned in the meantime.
 func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
+	return loadCmd(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, diffIdleTimeout)
+}
+
+func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, idleTimeout time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		defer progress.Finish()
-		ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
-		defer cancel()
+		activity := newLoadActivity(progress.Context(), idleTimeout)
+		defer activity.cancel(nil)
+		defer activity.finish(false)
+		ctx := activity.ctx
+		if existingConn != nil {
+			activity.own(existingConn)
+		}
 
 		root, err := fs.OpenRoot(cfg.ProjectRoot)
 		if err != nil {
 			log.Error("open project root failed", "root", cfg.ProjectRoot, "err", err)
-			if existingConn != nil {
-				_ = existingConn.Close()
-			}
 			return MsgDiffError{RequestID: requestID, Host: host, Err: err}
 		}
 
@@ -693,25 +699,28 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 				if terminalErr := conn.Err(); terminalErr != nil {
 					err = terminalErr
 				}
-				_ = conn.Close()
+			}
+			if cause := context.Cause(ctx); cause != nil {
+				err = cause
 			}
 			_ = root.Close()
 			return MsgDiffError{RequestID: requestID, Host: host, Err: err}
 		}
 		if conn == nil {
 			progress.Set("Connecting…", 0, 0, true)
-			conn, err = remote.Connect(ctx, host, trust, required)
+			connectCtx, cancelConnect := context.WithTimeout(ctx, 30*time.Second)
+			conn, err = remote.Connect(connectCtx, host, trust, required)
+			cancelConnect()
 			if err != nil {
 				log.Error("remote connect failed", "hostname", host.Hostname, "err", err)
-				_ = root.Close()
-				return MsgDiffError{
-					RequestID: requestID,
-					Host:      host,
-					Err:       fmt.Errorf("connect to %s: %w", host.Hostname, err),
-				}
+				return abort(fmt.Errorf("connect to %s: %w", host.Hostname, err))
 			}
+			activity.own(conn)
 			log.Info("remote connect", "host", host.Name, "hostname", host.Hostname)
 		}
+		primary := conn
+		conn = &loadClient{Client: conn, activity: activity}
+		activity.touch()
 		if err := conn.Err(); err != nil {
 			return abort(err)
 		}
@@ -747,6 +756,7 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 				return abort(err)
 			}
 			info, statErr := root.Stat(localPath)
+			activity.touch()
 			if statErr != nil {
 				addError(localPath, "", statErr)
 				continue
@@ -765,7 +775,7 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 
 			// ── Directory: walk local side first ─────────────────────
 			seenLocal := map[string]struct{}{}
-			if walkErr := fs.WalkFiles(localPath, func(p string) error {
+			if walkErr := activity.walkLocal(localPath, func(p string) error {
 				seenLocal[p] = struct{}{}
 				remotePath, mapErr := mapper.LocalToRemote(p)
 				if mapErr != nil {
@@ -849,7 +859,7 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			if !localInfo.IsDir() {
 				continue
 			}
-			if walkErr := fs.WalkFiles(localPath, func(p string) error {
+			if walkErr := activity.walkLocal(localPath, func(p string) error {
 				remoteFilePath, revErr := mapper.LocalToRemote(p)
 				if revErr != nil {
 					addError(p, "", revErr)
@@ -880,11 +890,14 @@ func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 		if err := conn.Err(); err != nil {
 			return abort(err)
 		}
+		if err := activity.finish(true); err != nil {
+			return abort(err)
+		}
 		return MsgDiffLoaded{
 			RequestID: requestID,
 			Host:      host,
 			Sessions:  sessions,
-			Conn:      conn,
+			Conn:      primary,
 			Root:      root,
 		}
 	}
@@ -929,6 +942,12 @@ type compareFunc func(idx int, conn remote.Client)
 // on any established connection fails the comparison. fn must only write to data
 // owned by its idx, making the pool race-free without locking. progress may be nil.
 func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, fn compareFunc) error {
+	ctx := progress.Context()
+	var activity *loadActivity
+	if tracked, ok := conn.(*loadClient); ok {
+		activity = tracked.activity
+		ctx = activity.ctx
+	}
 	if err := conn.Err(); err != nil {
 		return err
 	}
@@ -960,10 +979,13 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 		for idx := range jobCh {
 			recordFailure(conn.Err())
 			recordFailure(workerConn.Err())
-			if progress.Canceled() || hasFailure() {
+			if ctx.Err() != nil || hasFailure() {
 				continue // drain jobs so the producer can always finish
 			}
 			fn(idx, workerConn)
+			if activity != nil {
+				activity.touch()
+			}
 			recordFailure(workerConn.Err())
 			if progress != nil {
 				progress.Inc()
@@ -987,12 +1009,12 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 				return
 			}
 			recordFailure(conn.Err())
-			if progress.Canceled() || hasFailure() {
+			if ctx.Err() != nil || hasFailure() {
 				return
 			}
-			ctx, cancel := context.WithTimeout(progress.Context(), 30*time.Second)
+			connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			extraConn, err := remote.Connect(ctx, host, trust, required)
+			extraConn, err := remote.Connect(connectCtx, host, trust, required)
 			if err != nil {
 				var verificationErr *tlstrust.VerificationError
 				if errors.As(err, &verificationErr) {
@@ -1004,19 +1026,23 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 			}
 			// Cancellation must also interrupt an extra worker's active I/O;
 			// closing only the model's primary connection cannot release it.
-			stopClose := context.AfterFunc(progress.Context(), func() { _ = extraConn.Close() })
+			stopClose := context.AfterFunc(ctx, func() { _ = extraConn.Close() })
 			defer func() {
 				stopClose()
 				_ = extraConn.Close()
 				recordFailure(extraConn.Err())
 			}()
-			work(extraConn)
+			if activity != nil {
+				work(&loadClient{Client: extraConn, activity: activity})
+			} else {
+				work(extraConn)
+			}
 		}()
 	}
 
 	for _, idx := range jobs {
 		recordFailure(conn.Err())
-		if progress.Canceled() || hasFailure() {
+		if ctx.Err() != nil || hasFailure() {
 			break
 		}
 		jobCh <- idx
@@ -1029,7 +1055,7 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 	if failure != nil {
 		return failure
 	}
-	return progress.Context().Err()
+	return context.Cause(ctx)
 }
 
 func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) ([]diff.Session, error) {
@@ -1057,7 +1083,11 @@ func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []
 	progress.Set("Comparing files…", 0, len(jobs), len(jobs) == 0)
 	securityErr := forEachCompare(host, conn, jobs, progress, trust, required, func(idx int, workerConn remote.Client) {
 		item := items[idx]
-		result, diffErr := diff.Compare(root, item.LocalPath, item.RemotePath, workerConn)
+		var activity func() error
+		if tracked, ok := workerConn.(*loadClient); ok {
+			activity = tracked.activity.checkpoint
+		}
+		result, diffErr := diff.CompareWithActivity(root, item.LocalPath, item.RemotePath, workerConn, activity)
 		if diffErr != nil {
 			log.Error("diff compare failed", "local", item.LocalPath, "remote", item.RemotePath, "err", diffErr)
 		}

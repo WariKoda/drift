@@ -19,6 +19,9 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := ValidateMappings(h.Mappings); err != nil {
 		return fmt.Errorf("host %q mappings: %w", h.Name, err)
 	}
+	if err := validateHostNameAvailable(cfg.GlobalHosts, h.Name, oldName); err != nil {
+		return err
+	}
 	hosts := replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	cfg.GlobalHosts = hosts
 	rebuildMerged(cfg)
@@ -46,6 +49,13 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 
 	base, err := projectStoreBase(cfg)
 	if err != nil {
+		return err
+	}
+
+	if err := validateHostNameAvailable(cfg.ProjectHosts, h.Name, oldName); err != nil {
+		return err
+	}
+	if err := validateHostNameAvailable(base.Hosts, h.Name, oldName); err != nil {
 		return err
 	}
 
@@ -103,6 +113,15 @@ func rebuildMerged(cfg *MergedConfig) {
 		m[h.Name] = h // project overrides global
 	}
 	cfg.Hosts = m
+}
+
+func validateHostNameAvailable(hosts []Host, name, oldName string) error {
+	for _, h := range hosts {
+		if h.Name == name && (oldName == "" || h.Name != oldName) {
+			return fmt.Errorf("host %q already exists in this scope", name)
+		}
+	}
+	return nil
 }
 
 func replaceOrAppend(hosts []Host, h Host, oldName string) []Host {

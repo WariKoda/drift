@@ -24,7 +24,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Sync current file (s) or all marked files (S) in one keystroke
 - Esc hides a running connect or sync; `q` / `Ctrl+C` cancel it. Files already transferred stay; the rest is skipped
 - Per-host path mappings (like PHPStorm's Deployment Mappings tab)
-- Host manager: create, edit, delete, and test connections
+- Host manager: create, duplicate, edit, delete, and test connections
 - Interactive FTPS certificate verification with session-only or persistent, fingerprint-bound trust
 - Nothing is written into your project: global hosts in `~/.config/drift/config.toml`, per-project hosts and mappings in `~/.config/drift/projects/<slug>.toml`
 - Skips `.git`, `node_modules`, `.idea`, and other irrelevant directories automatically
@@ -213,6 +213,7 @@ While a connect or sync overlay is up, `Esc` hides it (the work keeps going, wit
 | ----- | -------- |
 | `n` | New host |
 | `e` / `Enter` | Edit host |
+| `c` | Duplicate host into a pre-filled form with a free name |
 | `d` | Delete host |
 | `t` | Test connection |
 | `q` / `Esc` | Back |

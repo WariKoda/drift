@@ -810,7 +810,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case hostmanager.MsgOpenForm:
-		if msg.Host != nil {
+		if msg.Host != nil && msg.Duplicate {
+			a.hostForm = hostform.NewDuplicate(*msg.Host, msg.Scope,
+				a.state.Config.ProjectSlug, a.state.TermWidth, a.state.TermHeight)
+		} else if msg.Host != nil {
 			a.hostForm = hostform.NewEdit(*msg.Host, msg.Scope,
 				a.state.Config.ProjectSlug, a.state.TermWidth, a.state.TermHeight)
 		} else {

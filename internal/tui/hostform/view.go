@@ -26,6 +26,8 @@ func (m Model) viewMain() string {
 	title := "New Host"
 	if m.isEdit {
 		title = "Edit Host: " + m.oldName
+	} else if m.isDuplicate {
+		title = "Duplicate Host"
 	}
 	header := styles.Header.Render("drift") + "  " + styles.Muted.Render(title)
 	sb.WriteString(padRight(header, m.Width))

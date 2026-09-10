@@ -1,22 +1,36 @@
 # Zielarchitektur für drift
 
-Diese Skizze beschreibt eine mittelfristige Zielarchitektur für `drift`, die die aktuelle Stärken des Projekts beibehält, aber die fachliche Sync-/Diff-Logik klarer von BubbleTea, Transport und Dateisystemzugriff trennt.
+Diese Skizze beschreibt eine mittelfristige Zielarchitektur für `drift`, die die aktuellen Stärken des Projekts beibehält, aber die fachliche Sync-/Diff-Logik klarer von BubbleTea, Transport und Dateisystemzugriff trennt.
 
 Sie ist bewusst evolutionär formuliert: kein Big-Bang-Rewrite, sondern eine realistische Leitplanke für die nächsten Entwicklungszyklen.
 
 ## Aktueller Stand
 
 Bereits umgesetzt:
-- `internal/pathmap` matcht Mapping-Prefixe segment-sicher
-- `diff.Compare()` behandelt nur echte NotFound-Fälle als `LocalOnly` / `RemoteOnly`
-- andere Stat-/Protokollfehler bleiben als Fehler sichtbar
-- `diffview.nextDir()` lässt für fehlerhafte Sessions keine Action-Auswahl mehr zu
-- Auto-Decision- und Action-Cycling-Logik wurde nach `internal/sync/policy.go` verschoben und dort getestet
+
+- `internal/pathmap` matcht Mapping-Prefixe segment-sicher und erzwingt konfigurierte Mappings
+- `diff.Compare()` trennt NotFound grundsätzlich von anderen Stat- und Protokollfehlern
+- `diffview.nextDir()` lässt für fehlerhafte Sessions keine Action-Auswahl zu
+- Auto-Decision- und Action-Cycling-Logik liegt in `internal/sync/policy.go` und ist getestet
+- `internal/sync/plan.go` enthält erste Plan- und Progress-Typen, aber noch keine Engine
 - Hosts und markierte Pfade werden deterministisch sortiert verarbeitet
+- `fs.Root` begrenzt lokale Transfers und Änderungen auf das Projekt und schreibt Downloads atomar
+- Remote-Clients verwenden Streams statt lokaler Pfade und überwachen ihre Verbindung selbst
+- ein context-basierter Loading-Tracker unterstützt Fortschritt, Abbruch und das Verwerfen verspäteter Ergebnisse
+- Mapping- und Keep-alive-Werte werden beim Laden und Schreiben validiert
+- Projekte werden über `internal/project` registriert; projektbezogene Konfiguration liegt slug-basiert außerhalb des Arbeitsverzeichnisses
+- FTPS-Zertifikatsvertrauen liegt in `internal/tlstrust` und wird vom Root-Modell verwaltet
+
+Einschränkung:
+
+- FTP-Status `550` wird derzeit als Missing interpretiert. Einige Server verwenden `550` auch für Zugriffsfehler. Die Erkennung ist daher nicht in jedem FTP-Fall eindeutig.
 
 Noch offen:
+
 - Einführung der `internal/app`-Services für Session-Aufbau und Refresh
 - Ersetzen der Sync-Ausführung in `diffview` durch `sync`-/`app`-Services
+- Verschieben der vorhandenen Progress- und Abbruchmechanik an eine UI-unabhängige Orchestrierungsgrenze
+- expliziteres Diff-Zustandsmodell für Presence und Fehler
 
 ---
 
@@ -35,6 +49,7 @@ Noch offen:
 ### 1. TUI ist Orchestrator der Interaktion, nicht der Fachlogik
 
 `internal/tui/*` soll:
+
 - User-Eingaben verarbeiten
 - Screens rendern
 - typed messages austauschen
@@ -42,6 +57,7 @@ Noch offen:
 - Ergebnisse anzeigen
 
 Die TUI soll **nicht** selbst:
+
 - Sessions zusammenbauen
 - Sync-Pläne fachlich berechnen
 - Transport-/Dateisystemdetails koordinieren
@@ -50,6 +66,7 @@ Die TUI soll **nicht** selbst:
 ### 2. Sync und Diff sind Application-/Domain-Logik
 
 Die Kernfragen des Produkts sind fachlich, nicht UI-spezifisch:
+
 - Welche lokalen Dateien gehören zu welchem Remote-Pfad?
 - Welche Sessions existieren für eine Auswahl?
 - Welche Datei ist nur lokal, nur remote oder konfliktbehaftet?
@@ -74,18 +91,21 @@ Pfadmapping, Existenzprüfung, Delete-Verhalten und Konfliktmodell müssen expli
 
 ```text
 internal/
-  app/              # Application-Services / Use-Cases
+  app/              # Application-Services / Use-Cases, noch einzuführen
   config/           # TOML-Konfiguration + Persistenz
   diff/             # fachliche Vergleichslogik + Diff-Ergebnisse
-  fs/               # lokales Filesystem
-  pathmap/          # local <-> remote Pfadübersetzung
-  remote/           # transportagnostische Interfaces + Registry/Factory
-  sync/             # Sync-Modell, Plan, Engine, Policies, Progress
-  tui/              # BubbleTea Root + Screens + Presenter/ViewModel-Helfer
+  fs/               # lokales Filesystem mit projektgebundenem Root
+  log/              # dateibasierte, standardmäßig deaktivierte Logs
+  pathmap/           # local <-> remote Pfadübersetzung
+  project/           # Projekt-Registry und Pfadauflösung
+  remote/            # transportagnostisches Interface + Factory
+  sync/              # Sync-Modell, Plan, Engine, Policies, Progress
+  tlstrust/          # FTPS-Zertifikatsprüfung und Ausnahmen
+  tui/               # BubbleTea Root + Screens + Presenter/ViewModel-Helfer
 
-  ftp/              # FTP/FTPS Driver
-  sftp/             # SFTP Driver
-  ssh/              # SSH-Auth / known_hosts
+  ftp/               # FTP/FTPS Driver
+  sftp/              # SFTP Driver
+  ssh/               # SSH-Auth / known_hosts
 ```
 
 ---
@@ -97,6 +117,7 @@ Neue Schicht für Use-Cases bzw. Application Services.
 ### Verantwortung
 
 Hier liegt der Ablauf über mehrere Subsysteme hinweg, z. B.:
+
 - Auswahl -> Session-Liste erzeugen
 - Host auswählen -> Verbindung aufbauen -> Diffs laden
 - Actions anwenden -> Sync-Engine ausführen -> Ergebnis zurückgeben
@@ -106,34 +127,39 @@ Hier liegt der Ablauf über mehrere Subsysteme hinweg, z. B.:
 
 #### `internal/app/session_service.go`
 
-Beispielhafte API:
+Beispielhafte API eines zunächst konkreten Services:
 
 ```go
-type SessionService interface {
-    Build(ctx context.Context, req BuildSessionsRequest) (BuildSessionsResult, error)
-    Refresh(ctx context.Context, req RefreshSessionsRequest) ([]diff.Session, error)
-}
+type SessionService struct { /* produktive Abhängigkeiten */ }
+
+func (s *SessionService) Build(ctx context.Context, req BuildSessionsRequest) (BuildSessionsResult, error)
+func (s *SessionService) Refresh(ctx context.Context, req RefreshSessionsRequest) ([]diff.Session, error)
 ```
 
 `BuildSessionsRequest` enthält z. B.:
+
 - Host
 - ProjectRoot
 - ProjectMappings
 - Auswahl / markierte Pfade
 
 `BuildSessionsResult` enthält z. B.:
+
 - `[]diff.Session`
-- offene `remote.Client`-Verbindung, falls weiterverwendet
+- die offene `remote.Client`-Verbindung, falls sie weiterverwendet wird
+- den geöffneten `fs.Root`, solange die Diff-Ansicht ihn für sichere Transfers benötigt
+
+Der Service muss Besitz und Lebensdauer dieser Ressourcen eindeutig festlegen. Bei Fehlern schließt er selbst erzeugte Ressourcen. Bei Erfolg übernimmt die aufrufende Session deren Schließung. Bestehende Verbindungen dürfen nur für dasselbe Projekt und denselben Host wiederverwendet werden. Verbindungsaufbau erfolgt ausschließlich über `remote.Connect(ctx, host, trustManager, requiredChallenge)`.
 
 #### `internal/app/sync_service.go`
 
 Beispielhafte API:
 
 ```go
-type SyncService interface {
-    BuildPlan(req sync.BuildPlanRequest) (sync.Plan, error)
-    Run(ctx context.Context, client remote.Client, plan sync.Plan, progress sync.ProgressSink) (sync.RunResult, error)
-}
+type SyncService struct { /* produktive Abhängigkeiten */ }
+
+func (s *SyncService) BuildPlan(req sync.BuildPlanRequest) (sync.Plan, error)
+func (s *SyncService) Run(ctx context.Context, client remote.Client, root *fs.Root, plan sync.Plan, progress sync.ProgressSink) (sync.RunResult, error)
 ```
 
 ### Nutzen
@@ -188,6 +214,7 @@ type CompareResult struct {
 ```
 
 Mögliche `DifferenceKind`:
+
 - `DifferentNone`
 - `DifferentLocalOnly`
 - `DifferentRemoteOnly`
@@ -200,16 +227,18 @@ Mögliche `DifferenceKind`:
 `diff.Compare()` sollte nur dann „local only“ oder „remote only“ melden, wenn ein echter NotFound-Fall erkannt wurde. Permission-, Netzwerk- oder Protokollfehler müssen gesondert sichtbar bleiben.
 
 Status: **teilweise umgesetzt**
-- echte NotFound-Fälle werden getrennt behandelt
-- FTP `550` wird als Missing erkannt
-- andere Fehler bleiben sichtbar und werden nicht mehr implizit als „Datei fehlt“ interpretiert
-- ein expliziteres Presence-Modell (`Presence`, `SideState`, `DifferenceKind`) ist weiterhin offen
+
+- lokale `os.ErrNotExist`-Fälle werden getrennt behandelt
+- andere lokale Fehler bleiben sichtbar und werden nicht als „Datei fehlt“ interpretiert
+- FTP `550` wird als Missing erkannt, obwohl der Status je nach Server auch einen Zugriffsfehler bezeichnen kann
+- große Dateien gleicher Größe werden per SHA-256 verglichen; Größe und identische mtime bilden einen Schnellpfad
+- ein expliziteres Presence-Modell (`Presence`, `SideState`, `DifferenceKind`) und eine präzisere protokollspezifische Fehlerklassifikation bleiben offen
 
 ---
 
 ## `internal/sync`
 
-Dieses Paket sollte die eigentliche Sync-Domain werden. Aktuell ist es dafür angelegt, aber noch nicht ausgebaut.
+Dieses Paket sollte die eigentliche Sync-Domain werden. `policy.go` enthält bereits Entscheidungen und Action-Cycling. `plan.go` enthält erste Transfer- und Progress-Typen, wird aber noch nicht von der TUI genutzt. Eine Engine fehlt.
 
 ### Verantwortung
 
@@ -291,14 +320,16 @@ Empfohlene Struktur:
 
 ### Run-Modell
 
+`internal/tui/loading` liefert bereits einen threadsicheren Tracker mit `context.Context`. Das Ziel ist nicht ein zweites konkurrierendes Progress-Modell, sondern eine UI-unabhängige Quelle von Events, die der Tracker oder ein späterer `syncprogress`-Screen konsumiert.
+
 ```go
 type ProgressEvent struct {
-    ItemIndex int
-    Action    Action
-    Status    ItemStatus
-    BytesDone int64
+    ItemIndex  int
+    Action     Action
+    Status     ItemStatus
+    BytesDone  int64
     BytesTotal int64
-    Err       error
+    Err        error
 }
 
 type ProgressSink interface {
@@ -306,60 +337,66 @@ type ProgressSink interface {
 }
 ```
 
+Die Engine prüft den Context vor und während Operationen, soweit das Transport-Interface dies erlaubt. Ein Abbruch wiederholt oder rollt bereits abgeschlossene Transfers nicht zurück.
+
 ### Nutzen
 
-- spätere Progress-Ansicht wird trivialer
-- Cancellation über `context.Context` sauber möglich
+- eine spätere Progress-Ansicht erhält strukturierte Events
 - Bulk-Sync und Single-File-Sync nutzen dieselbe Engine
+- verspätete Ergebnisse lassen sich wie heute über Request- und Verbindungsidentitäten ablehnen
 
 ---
 
 ## `internal/remote`
 
-`internal/remote` ist bereits die richtige Boundary, sollte aber leicht weiterentwickelt werden.
+`internal/remote` ist bereits die richtige Boundary. Das bestehende Interface bildet außerdem eine wichtige Sicherheitsgrenze.
 
 ### Verantwortung
 
-- transportagnostische Interfaces
-- Verbindungsaufbau abstrahieren
-- optional Registry für Protokoll-Driver
+- transportagnostische Dateioperationen
+- Verbindungsaufbau über eine zentrale Factory
+- Überwachung des Verbindungszustands
+- Übergabe von FTPS-Vertrauensentscheidungen an die Protokollimplementierung
 
-### Zielbild
+### Bestehende Boundary
 
-#### Client
-
-Das bestehende Interface ist ein guter Start. Langfristig könnte es leicht feiner werden, falls Protokolle stark variieren.
+Remote-Clients erhalten keine lokalen Pfade. Uploads nehmen einen `io.Reader` entgegen, Downloads liefern einen `io.ReadCloser`. Nur `fs.Root` greift auf lokale Dateien zu.
 
 ```go
 type Client interface {
     Stat(path string) (os.FileInfo, error)
+    ReadDir(path string) ([]*fs.FileEntry, error)
+    Open(path string) (io.ReadCloser, error)
     ReadFile(path string) ([]byte, error)
-    WriteFile(path string, data []byte) error
-    UploadFile(local, remote string) error
-    DownloadFile(remote, local string) error
+    Upload(remotePath string, src io.Reader) error
     WalkFiles(root string, fn func(string) error) error
+    WalkFilesWithActivity(root string, fn func(string) error, activity func() error) error
     DeleteFile(path string) error
+    Done() <-chan struct{}
+    Err() error
     Close() error
 }
 ```
 
-### Driver-Registry statt hartem `switch`
+`Done()` und `Err()` gehören zum Vertrag. Die Root-App beobachtet Verbindungsabbrüche unabhängig vom aktiven Screen und verwirft Meldungen veralteter Verbindungen oder Projekte.
 
-Mittelfristig:
+Verbindungen werden ausschließlich so aufgebaut:
 
 ```go
-type Driver interface {
-    Connect(ctx context.Context, host config.Host) (Client, error)
-}
-
-func Register(protocol string, driver Driver)
-func Connect(ctx context.Context, host config.Host) (Client, error)
+remote.Connect(ctx, host, trustManager, requiredChallenge)
 ```
+
+`requiredChallenge` darf nur beim ersten Retry nach einer FTPS-Zertifikatsabfrage gesetzt sein.
+
+### Driver-Registry
+
+Der aktuelle `switch` in `remote.Connect` unterstützt drei eng verwandte Protokollwerte und ist überschaubar. Eine Registry soll erst eingeführt werden, wenn ein weiteres Protokoll sie konkret benötigt. Sie darf Trust- und Lebenszyklusregeln nicht umgehen.
 
 ### Nutzen
 
-- neue Protokolle ohne zentrale Switch-Ausweitung
-- bessere Trennung zwischen Factory und Protokollimplementierung
+- lokale Pfade bleiben außerhalb der Transportimplementierungen
+- alle Protokolle haben dieselben Regeln für Schließen und Verbindungsverlust
+- neue Protokolle können später ergänzt werden, ohne die Application Services zu ändern
 
 ---
 
@@ -367,23 +404,30 @@ func Connect(ctx context.Context, host config.Host) (Client, error)
 
 ### Verantwortung
 
-- lokales Lesen / Walken / Löschen / Statten
-- klar definierte lokale Filesystem-Boundary
+- lokales Lesen, Öffnen, Walken, Löschen und Schreiben
+- Begrenzung transferierter und veränderter Pfade auf das geöffnete Projekt
+- Schutz vor Pfadausbrüchen durch Symlinks
+- atomisches Ersetzen heruntergeladener Dateien
 
-### Zielbild
+### Bestehende Boundary
 
-Wenn Testbarkeit priorisiert wird, kann ein kleines Interface helfen:
+`fs.Root` ist die verbindliche Grenze für lokale Dateiinhalte und Änderungen. Application Services und die Sync-Engine reichen den geöffneten Root weiter, statt Transferpfade direkt mit `os.*` zu bearbeiten.
 
 ```go
-type LocalFS interface {
-    Stat(path string) (os.FileInfo, error)
-    ReadFile(path string) ([]byte, error)
-    Remove(path string) error
-    WalkFiles(root string, fn func(string) error) error
-}
+type Root struct { /* projektgebundener os.Root */ }
+
+func OpenRoot(projectRoot string) (*Root, error)
+func (r *Root) Open(absPath string) (*os.File, error)
+func (r *Root) Stat(absPath string) (os.FileInfo, error)
+func (r *Root) ReadFile(absPath string) ([]byte, error)
+func (r *Root) Remove(absPath string) error
+func (r *Root) WriteAtomic(absPath string, src io.ReadCloser) error
+func (r *Root) Close() error
 ```
 
-Nicht überall nötig, aber an Orchestrierungsgrenzen sehr nützlich.
+Verzeichnisansicht und rekursiver Scan liegen derzeit noch in den Paketfunktionen `fs.ReadDir` und `fs.WalkFiles`. Der SessionService darf Pfade daraus erst nach erfolgreichem Mapping verwenden. Wenn er Scans selbst übernimmt, sollte `fs.Root` um eine sichere Walk-Methode erweitert werden, statt ungebundene `os.*`-Zugriffe in `internal/app` einzuführen.
+
+Ein zusätzliches `LocalFS`-Interface ist derzeit nicht nötig. Es soll nur entstehen, wenn mindestens eine zweite konkrete Implementierung gebraucht wird.
 
 ---
 
@@ -402,12 +446,14 @@ Dieses Paket ist bereits konzeptionell gut positioniert und sollte ein zentraler
 Prefix-Matching muss segment-sicher sein.
 
 Beispielproblem:
+
 - Mapping-Basis: `/project/foo`
 - Datei: `/project/foobar/index.php`
 
 Das darf nicht matchen.
 
 Status: **umgesetzt**
+
 - lokale und Remote-Pfade matchen nur noch bei exakter Gleichheit oder echtem Unterpfad
 - Segmentgrenzen sind durch Tests abgesichert
 
@@ -415,46 +461,26 @@ Status: **umgesetzt**
 
 ## `internal/config`
 
-Die aktuelle Struktur ist für den Stand des Projekts gut. Für mittelfristige Erweiterbarkeit sollte sie aber leicht vorbereitet werden.
+Die aktuelle Struktur ist für den Stand des Projekts passend.
 
 ### Aktuelle Stärken
 
-- globale + projektbezogene Configs
+- globale Hosts in `config.toml`
+- projektbezogene Hosts und Mappings in `projects/<slug>.toml`
+- Projektzuordnung über die Registry `projects.toml`
 - Host-Override per Name
-- getrennte Mappings
-- Auth-Konfiguration grundsätzlich klar
+- Host-Mappings mit Vorrang vor Projekt-Mappings
+- Auth-Werte mit Expansion von Umgebungsvariablen beim Verbindungsaufbau
+- Validation für Mappings und Keep-alive-Intervalle beim Laden und Schreiben
+- atomisches Schreiben der TOML-Dateien mit restriktiven Rechten
+
+Im Arbeitsverzeichnis wird keine drift-Datei angelegt. Application Services erhalten `ProjectRoot` und `ProjectSlug` aus der bereits aufgelösten `MergedConfig`; sie suchen nicht selbst in der Registry.
 
 ### Mittelfristige Verbesserungen
 
-#### 1. Protokollspezifische Optionen vorbereiten
+Noch sinnvoll sind protokollspezifische Prüfungen, etwa fehlende Credentials, ungültige `RootPath`-Werte oder inkompatible Feldkombinationen.
 
-Aktuell steckt alles direkt in `config.Host`. Für künftige Protokolle kann das zu breit werden.
-
-Mögliche Richtung:
-
-```go
-type Host struct {
-    Name      string
-    Protocol  string
-    Hostname  string
-    Port      int
-    User      string
-    RootPath  string
-    Auth      Auth
-    Mappings  []Mapping
-    Options   map[string]string
-}
-```
-
-Oder typisierter, wenn später nötig.
-
-#### 2. Validation-Schicht ergänzen
-
-Nicht UI-gebunden, sondern z. B.:
-- ungültige Mapping-Pfade
-- fehlende Credentials je Protokoll
-- RootPath-Regeln
-- inkompatible Kombinationen
+Generische `Options map[string]string` sollen nicht vorsorglich eingeführt werden. Wenn ein neues Protokoll zusätzliche Werte benötigt, werden sie anhand des konkreten Falls typisiert modelliert.
 
 ---
 
@@ -475,23 +501,29 @@ Nicht UI-gebunden, sondern z. B.:
 `internal/tui/app.go` bleibt Root-Router.
 
 Sie sollte aber möglichst nur noch:
+
 - aktive Screens halten
 - Cross-Screen-Messages verarbeiten
 - Services injizieren / referenzieren
 - Ergebnisse weiterreichen
 
 Nicht mehr:
+
 - selbst Sync-/Diff-Abläufe implementieren
 
 #### Screen-Pakete
 
 Die heutige Paketaufteilung ist gut und sollte beibehalten werden:
+
+- `dashboard` und `projectform`
+- `projectselector`
 - `browser`
 - `hostselector`
-- `hostmanager`
-- `hostform`
+- `hostmanager` und `hostform`
+- `certtrust`
 - `diffview`
-- später `syncprogress`
+- `loading`
+- später bei Bedarf ein eigener `syncprogress`-Screen
 
 #### Presenter-/Formatter-Helfer
 
@@ -513,20 +545,21 @@ App
   -> SessionService.Build(...)
 
 SessionService
-  -> remote.Connect(host)
+  -> fs.OpenRoot(projectRoot)
+  -> remote.Connect(ctx, host, trustManager, requiredChallenge)
   -> pathmap.Mapper
-  -> fs/local walk
-  -> remote walk
+  -> lokaler und Remote-Walk
   -> diff.Compare(...) pro Session
-  -> []diff.Session zurück
+  -> Sessions, Client und Root zurück
 
 App
-  -> diffview.New(sessions, host, conn)
+  -> Verbindungsbeobachter registrieren
+  -> diffview.New(sessions, host, conn, root)
 ```
 
 ### Wichtig
 
-Die Session-Erzeugung gehört in `app`/Service-Schicht, nicht in `diffview`.
+Die Session-Erzeugung gehört in die `app`-Schicht, nicht in `diffview`. Der Service muss lokale Zugriffe über `fs.Root` ausführen, Mapping-Grenzen einhalten, Verbindungs- und Trust-Fehler typisiert zurückgeben und selbst erzeugte Ressourcen bei einem Fehler schließen.
 
 ---
 
@@ -539,11 +572,12 @@ diffview.Model
 
 App / SyncService
   -> sync.BuildPlan(sessions, selected actions)
-  -> sync.Run(ctx, client, plan, progressSink)
+  -> sync.Run(ctx, client, root, plan, progressSink)
   -> Progress-Events / Ergebnis
 
 App
-  -> diffview oder syncprogress updaten
+  -> Verbindungsidentität prüfen
+  -> diffview oder syncprogress aktualisieren
 ```
 
 ### Wichtig
@@ -573,6 +607,7 @@ App
 ## `internal/tui/diffview`
 
 Soll langfristig nur noch enthalten:
+
 - aktueller Cursor
 - Scrollstate
 - User-gewählte Aktionen je Session
@@ -580,6 +615,7 @@ Soll langfristig nur noch enthalten:
 - BubbleTea-Keymapping
 
 Soll **nicht** enthalten:
+
 - `remote.Connect`
 - `pathmap.New`
 - lokale / Remote-Walks
@@ -591,24 +627,31 @@ Soll **nicht** enthalten:
 ## `internal/app/session_service.go`
 
 Soll enthalten:
-- Verbindung aufbauen
+
+- `fs.Root` öffnen und seine Übergabe oder Schließung eindeutig regeln
+- Verbindungen ausschließlich über `remote.Connect` aufbauen
+- Trust-Manager und einmalige FTPS-Retry-Challenge durchreichen
 - markierte Pfade deterministisch sortieren
 - lokale Dateien expandieren
 - Remote-only-Dateien einsammeln
+- Mapping-Grenzen erzwingen
 - Sessions erzeugen
 - Refresh erneut ausführen
+- Fehler mit fachlichem Kontext protokollieren und typisiert zurückgeben
 
 ---
 
 ## `internal/sync/policy.go`
 
 Soll enthalten:
+
 - Auto-Vorschlag aus DiffResult + Policy
 - Action-Cycling je Dateizustand
 - Regeln für Delete-Freigaben
 - Umgang mit Ambiguität bei mtime
 
 Status: **teilweise umgesetzt**
+
 - `AutoDecision(...)` und `NextDecision(...)` liegen bereits in `internal/sync/policy.go`
 - erste Policy-Tests existieren
 - Delete-Policies und ein breiteres Action-/State-Modell sind noch offen
@@ -618,11 +661,16 @@ Status: **teilweise umgesetzt**
 ## `internal/sync/engine.go`
 
 Soll enthalten:
-- Ausführung eines Plans
-- Progress-Events
-- Fehleraggregation
-- Kontextabbruch
-- optional serial / parallel strategy
+
+- Ausführung eines Plans über `remote.Client` und `fs.Root`
+- Upload über `root.Open` und `client.Upload`
+- Download über `client.Open` und `root.WriteAtomic`
+- lokale und entfernte Deletes über die jeweilige Boundary
+- strukturierte Progress-Events
+- Fehleraggregation ohne Verschlucken einzelner Fehler
+- Prüfung von Context und Verbindungszustand
+
+Die erste Version bleibt seriell. Parallelisierung soll erst nach einem konkreten Bedarf und einer Prüfung der Protokollgrenzen erfolgen. Ein Transfer wird nach Verbindungsverlust nicht automatisch wiederholt.
 
 ---
 
@@ -631,17 +679,20 @@ Soll enthalten:
 ## Leicht testbar werden sollen
 
 ### `internal/pathmap`
+
 - Mapping-Korrektheit
 - Segmentgrenzen
 - Host- vs. Projekt-Mappings
 
 ### `internal/diff`
+
 - Textdiff
 - Binary-Erkennung
 - Presence-/Error-Modell
 - Umgang mit NotFound vs. Permission-Fehler
 
 ### `internal/sync`
+
 - Auto-Entscheidungen
 - Konfliktfälle
 - Action-Cycling
@@ -649,6 +700,7 @@ Soll enthalten:
 - Engine-Verhalten bei Fehlern und Cancellation
 
 ### `internal/app`
+
 - Session-Aufbau aus Selektion + Mapping + Remote-Walk
 - Refresh-Flows
 - deterministische Reihenfolge
@@ -656,44 +708,23 @@ Soll enthalten:
 ## Eher dünn testbar
 
 ### `internal/tui/*`
+
 - Fokus auf Update-Logik / Message-Flows
 - keine tiefen Netzwerk-/Filesystem-Tests nötig
 
 ---
 
-## Minimale Interfaces für bessere Testbarkeit
+## Testgrenzen statt Test-Doubles
 
-Wichtig: keine unnötige Abstraktionsflut. Nur an den Orchestrierungsgrenzen.
+Das Projekt verwendet keine Mocks. Neue Interfaces werden daher nicht allein für Tests eingeführt.
 
-### ClientFactory
+- lokale Tests verwenden einen echten temporären Projektbaum und `fs.Root`
+- Protokolltests verwenden echte Verbindungen oder werden übersprungen, wenn die Umgebung fehlt
+- reine Auswahl-, Mapping-, Plan- und Policy-Logik wird als deterministische Funktion ohne I/O getestet
+- Application Services werden so zerlegt, dass I/O-Aufbau und reine Session-Erzeugung getrennt prüfbar sind
+- `remote.Client` bleibt das gemeinsame produktive Protokoll-Interface; ein zusätzliches Factory- oder LocalFS-Interface ist erst bei einer zweiten produktiven Implementierung gerechtfertigt
 
-```go
-type ClientFactory interface {
-    Connect(ctx context.Context, host config.Host) (remote.Client, error)
-}
-```
-
-### LocalFS
-
-```go
-type LocalFS interface {
-    Stat(path string) (os.FileInfo, error)
-    ReadFile(path string) ([]byte, error)
-    Remove(path string) error
-    WalkFiles(root string, fn func(string) error) error
-}
-```
-
-### SessionLoader / SessionService
-
-```go
-type SessionService interface {
-    Build(ctx context.Context, req BuildSessionsRequest) (BuildSessionsResult, error)
-    Refresh(ctx context.Context, req RefreshSessionsRequest) ([]diff.Session, error)
-}
-```
-
-So bleibt die Produktionsimplementierung einfach, aber Tests werden viel leichter.
+Der `SessionService` darf zunächst ein konkreter Typ sein. Ein Interface entsteht erst, wenn tatsächlich mehrere Aufrufer oder Implementierungen unterschiedliche Bindungen brauchen.
 
 ---
 
@@ -704,9 +735,11 @@ So bleibt die Produktionsimplementierung einfach, aber Tests werden viel leichte
 ### WebDAV
 
 Benötigt vor allem:
-- neuen Driver unter `internal/webdav`
-- Registrierung im `remote`-Layer
-- evtl. WebDAV-spezifische Auth-/Optionsfelder
+
+- einen neuen Driver unter `internal/webdav`
+- einen neuen Fall in `remote.Connect` oder, wenn dadurch ein konkreter Nutzen entsteht, eine Driver-Registry
+- typisierte WebDAV-Auth- und Optionsfelder
+- dieselben Trust-, Lebenszyklus- und Stream-Regeln wie bestehende Clients
 
 Weil Orchestrierung und Sync-Engine transportagnostisch sind, bleibt der Rest weitgehend stabil.
 
@@ -725,12 +758,13 @@ Für rsync ist Variante 2 meist architektonisch sauberer.
 
 ## Weitere Diff-Strategien
 
+Bereits vorhanden sind zeilenbasierte Textdiffs, Binärerkennung, ein Größe-/mtime-Schnellpfad und ein SHA-256-Vergleich für große Dateien gleicher Größe.
+
 Mögliche Erweiterungen:
-- Plain text diff
+
 - Ignore-whitespace diff
-- line-based vs. word-based diff
-- binary metadata compare
-- hash-basierter quick compare
+- wortbasierte Darstellung
+- erweiterter Vergleich binärer Metadaten
 
 Diese Strategien sollten in `internal/diff` oder als Option im `app`-Service sitzen, nicht in der TUI.
 
@@ -739,6 +773,7 @@ Diese Strategien sollten in `internal/diff` oder als Option im `app`-Service sit
 ## Ignore-Regeln
 
 Sinnvolle Zielarchitektur:
+
 - lokale Standard-Ignores in `internal/fs`
 - projektbezogene Ignore-Regeln aus Config
 - Anwendung in Session-Building / Plan-Building, nicht erst in der View
@@ -747,40 +782,49 @@ Sinnvolle Zielarchitektur:
 
 ## Empfohlene Migrationsreihenfolge
 
-## Phase 1 – sichere, kleine Schritte
+## Phase 1: sichere Grundlagen
 
-1. ~~deterministische Sortierung für Hosts und markierte Pfade~~ ✅
-2. ~~`pathmap` segment-sicher machen~~ ✅
-3. ~~`diff.Compare()` für NotFound vs. andere Fehler schärfen~~ ✅
-4. ~~`autoDir()` / `nextDir()` aus `tui/diffview` nach `internal/sync` verschieben~~ ✅
+1. ~~deterministische Sortierung für Hosts und markierte Pfade~~
+2. ~~`pathmap` segment-sicher machen und Mapping-Abdeckung erzwingen~~
+3. ~~`diff.Compare()` für lokale NotFound- und andere Fehler schärfen~~
+4. ~~`autoDir()` und `nextDir()` aus `tui/diffview` nach `internal/sync` verschieben~~
+5. ~~lokale Dateioperationen über `fs.Root` absichern und Downloads atomar schreiben~~
+6. ~~Verbindungsüberwachung, Keep-alive und FTPS-Trust zentral anbinden~~
+7. ~~Loading-Tracker mit Context-Abbruch und Schutz vor verspäteten Ergebnissen einführen~~
+8. ~~Mapping- und Keep-alive-Validation außerhalb der UI einführen~~
 
-**Phase 1 ist damit abgeschlossen.**
+Phase 1 ist umgesetzt. Bei FTP bleibt die Mehrdeutigkeit von Status `550` als bekannte Einschränkung bestehen.
 
-**Empfohlener nächster Schritt:** Phase 2, Punkt 5 — `internal/app/session_service.go` einführen.
+## Phase 2: Session-Orchestrierung entkoppeln
 
-## Phase 2 – Orchestrierung entkoppeln
+1. `internal/app/session_service.go` als konkreten Service einführen
+2. Ownership von `remote.Client` und `fs.Root` im Service-Ergebnis festlegen
+3. `diffview.LoadCmd()` auf den SessionService umstellen
+4. `refreshCmd()` und den Reload einer einzelnen Session auf den Service umstellen
+5. Lade-, Trust- und Verbindungsfehler weiterhin als bestehende typed messages an die Root-App geben
 
-5. `internal/app/session_service.go` einführen
-6. `diffview.LoadCmd()` auf SessionService umstellen
-7. `refreshCmd()` auf Service umstellen
+Als Nächstes sollte `internal/app/session_service.go` entstehen, ohne gleichzeitig die Sync-Ausführung umzubauen.
 
-## Phase 3 – Sync-Domain vervollständigen
+## Phase 3: Sync-Domain vervollständigen
 
-8. `sync.Plan` + `Action` sauber modellieren
-9. `sync.Engine` für Upload/Download/Delete implementieren
-10. `bulkSyncCmd()` durch SyncService/Engine ersetzen
+1. bestehendes `sync.Plan` mit dem Decision-Modell zusammenführen und Deletes abbilden
+2. serielle `sync.Engine` für Upload, Download und Delete über `remote.Client` und `fs.Root` implementieren
+3. Fehleraggregation und strukturierte Progress-Events ergänzen
+4. Single-File- und Bulk-Sync aus `diffview` durch SyncService und Engine ersetzen
 
-## Phase 4 – Progress und Cancellation
+## Phase 4: Progress und Cancellation aus der TUI lösen
 
-11. `syncprogress`-Screen einführen
-12. Progress-Events aus Engine einspeisen
-13. Abbruch via `context.Context` und UI-Keybinding
+1. vorhandenen `loading.Tracker` an Engine-Events anbinden oder einen kleinen Adapter ergänzen
+2. Context-Abbruch bis an SessionService und Engine durchreichen
+3. einen eigenen `syncprogress`-Screen nur einführen, wenn die bestehende Overlay-Darstellung nicht ausreicht
 
-## Phase 5 – Protokoll- und Config-Erweiterbarkeit
+## Phase 5: Diff- und Config-Modell schärfen
 
-14. Driver-Registry in `internal/remote`
-15. Config-Validation ergänzen
-16. protokollspezifische Optionen vorbereiten
+1. Presence- und Difference-Zustände explizit modellieren
+2. protokollspezifische Fehlerklassifikation verbessern, insbesondere FTP `550`
+3. fehlende protokollspezifische Config-Prüfungen ergänzen
+4. neue Protokolloptionen erst mit dem jeweiligen Driver typisiert hinzufügen
+5. eine Driver-Registry nur einführen, wenn der zentrale `switch` tatsächlich zum Wartungsproblem wird
 
 ---
 

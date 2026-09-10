@@ -34,9 +34,13 @@ Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `
 
 Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
 
+Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.
+
 Remote clients own their keep-alive monitors. `Host.KeepAliveInterval` is optional: nil uses 60 seconds, `0` disables probes. `Done()` closes on normal shutdown or a terminal monitor failure; `Err()` reports only the latter. Keep monitors independent of the short-lived connect context. FTP probes share the operation lock and skip busy connections; SSH probes may run alongside SFTP transfers. Root-owned connection observers must handle failures before modal input routing and reject stale connection/project identities. Browser/diff close methods return commands: detach state in `Update`, run transport shutdown in the returned `tea.Cmd`. Never automatically retry a transfer after connection loss.
 
 FTPS verification and endpoint-scoped exceptions live in `internal/tlstrust`. The root `App` owns the session trust manager. Persistent exceptions live in `<config.Dir()>/trusted-certificates.toml`; `insecure_tls` is not a supported host field. TLS callbacks never block for UI input. They return a typed `tlstrust.VerificationError`, and the root model opens the `certtrust` modal after the async command exits.
+
+`diff.Compare` currently treats FTP status `550` as missing, although some servers also use it for permission failures. Do not describe every FTP `550` as a confirmed NotFound result. Changes to this classification need protocol-specific evidence and tests.
 
 Path translation between local and remote is handled by `internal/pathmap`. When effective host-level or project-level fallback mappings are configured, only files within those mappings may be synced. Paths otherwise fall back to `host.RootPath`-relative translation.
 
@@ -56,7 +60,8 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings)
 config.Mapping      // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
 tlstrust.Manager    // session + persistent FTPS certificate trust; owned by tui.App
-remote.Client       // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, DeleteFile, Close
+fs.Root             // project-confined local Open, Stat, ReadFile, Remove, WriteAtomic
+remote.Client       // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, WalkFilesWithActivity, DeleteFile, Done, Err, Close
 diff.Session        // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}
 diff.DiffResult     // comparison output; HasDiff() reports whether files differ
 diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote

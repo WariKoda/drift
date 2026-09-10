@@ -58,11 +58,12 @@ func testCmd(host config.Host, parent context.Context, id uint64, trust *tlstrus
 	}
 }
 
-// MsgOpenForm is sent when the user wants to create or edit a host.
+// MsgOpenForm is sent when the user wants to create, edit, or duplicate a host.
 type MsgOpenForm struct {
-	Host    *config.Host     // nil = new host
-	Scope   config.HostScope // pre-selected scope for new hosts
-	OldName string           // original name when editing
+	Host      *config.Host     // nil = new host
+	Scope     config.HostScope // pre-selected scope for new hosts
+	OldName   string           // original name when editing
+	Duplicate bool
 }
 
 // MsgDeleteHost is sent when a delete is confirmed.
@@ -156,6 +157,26 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		h := e.host
 		return m, func() tea.Msg {
 			return MsgOpenForm{Host: &h, Scope: e.scope, OldName: h.Name}
+		}
+
+	case "c":
+		e := m.currentEntry()
+		if e == nil {
+			break
+		}
+		names := make(map[string]bool)
+		for _, candidate := range m.entries {
+			if !candidate.isHeader && candidate.scope == e.scope {
+				names[candidate.host.Name] = true
+			}
+		}
+		h := e.host
+		h.Name = e.host.Name + "-copy"
+		for suffix := 2; names[h.Name]; suffix++ {
+			h.Name = fmt.Sprintf("%s-copy-%d", e.host.Name, suffix)
+		}
+		return m, func() tea.Msg {
+			return MsgOpenForm{Host: &h, Scope: e.scope, Duplicate: true}
 		}
 
 	case "d", "delete":

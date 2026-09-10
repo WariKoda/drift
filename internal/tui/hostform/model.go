@@ -74,6 +74,7 @@ type Model struct {
 	focusRow int // which row is active (maps to visibleRows())
 
 	isEdit      bool
+	isDuplicate bool
 	oldName     string
 	projectSlug string // registry slug of the open project; empty when none is
 	errMsg      string
@@ -108,7 +109,7 @@ func NewEdit(h config.Host, scope config.HostScope, projectSlug string, width, h
 
 	m.fields[fName].SetValue(h.Name)
 	m.fields[fHostname].SetValue(h.Hostname)
-	if h.Port != 0 && h.Port != 22 {
+	if h.Port != 0 {
 		m.fields[fPort].SetValue(strconv.Itoa(h.Port))
 	}
 	m.fields[fUser].SetValue(h.User)
@@ -141,6 +142,15 @@ func NewEdit(h config.Host, scope config.HostScope, projectSlug string, width, h
 	m.mappings = append([]config.Mapping(nil), h.Mappings...)
 
 	m.fields[fName].Focused = true
+	return m
+}
+
+// NewDuplicate returns an independent pre-filled form that saves as a new host.
+func NewDuplicate(h config.Host, scope config.HostScope, projectSlug string, width, height int) Model {
+	m := NewEdit(h, scope, projectSlug, width, height)
+	m.isEdit = false
+	m.oldName = ""
+	m.isDuplicate = true
 	return m
 }
 

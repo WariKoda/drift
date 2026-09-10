@@ -169,7 +169,7 @@ func (m Model) renderStatus() string {
 		}
 		return padRight(styles.Err.Render("  "+m.statusMsg), m.Width)
 	}
-	help := "  [n]new  [e]edit  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
+	help := "  [n]new  [e]edit  [c]copy  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
 	return padRight(styles.Muted.Render(help), m.Width)
 }
 

@@ -18,7 +18,7 @@ const (
 type DisplayRow struct {
 	Kind      DisplayKind
 	LineIndex int    // Lines index for DisplayLine; change-run start for DisplayHunkHeader
-	Header    string // @@ -l,s +r,s @@ for DisplayHunkHeader
+	Header    string // @@ -before,count +after,count @@ for DisplayHunkHeader
 	GapID     int    // start index of the equal run (stable across expand)
 	Hidden    int    // folded equal-line count
 	FoldStart int    // first hidden Lines index (inclusive)
@@ -38,7 +38,9 @@ func (r DisplayRow) SourceLine() int {
 // Flatten builds display rows: hunk headers, limited context, and fold markers.
 // Each @@ header is the first row of its hunk, followed by context then changes.
 // expanded holds GapIDs whose equal runs should be shown in full.
-func Flatten(lines []DiffLine, context int, expanded map[int]struct{}) []DisplayRow {
+// flip previews an upload: remote is the old state, local the new state.
+// LineIndex and GapID always refer to the original comparison, even when reordered.
+func Flatten(lines []DiffLine, context int, expanded map[int]struct{}, flip bool) []DisplayRow {
 	if context < 0 {
 		context = 0
 	}
@@ -70,12 +72,16 @@ func Flatten(lines []DiffLine, context int, expanded map[int]struct{}) []Display
 		out = append(out, DisplayRow{
 			Kind:      DisplayHunkHeader,
 			LineIndex: r.start,
-			Header:    formatHunkHeader(lines, hStart, hEnd),
+			Header:    formatHunkHeader(lines, hStart, hEnd, flip),
 		})
 		out = append(out, leading...)
 		leading = nil
-		for idx := r.start; idx < r.end; idx++ {
-			out = append(out, DisplayRow{Kind: DisplayLine, LineIndex: idx})
+		for _, action := range []lineAct{actRemove, actAdd} {
+			for idx := r.start; idx < r.end; idx++ {
+				if unifiedAction(lines[idx].Kind, flip) == action {
+					out = append(out, DisplayRow{Kind: DisplayLine, LineIndex: idx})
+				}
+			}
 		}
 	}
 	return out
@@ -105,7 +111,7 @@ func IndexOfSourceLine(rows []DisplayRow, lineIdx int) int {
 // FoldableGapIDs lists equal-run starts that collapse under the default view.
 func FoldableGapIDs(lines []DiffLine, context int) []int {
 	var ids []int
-	for _, row := range Flatten(lines, context, nil) {
+	for _, row := range Flatten(lines, context, nil, false) {
 		if row.Kind == DisplayFold {
 			ids = append(ids, row.GapID)
 		}
@@ -240,7 +246,7 @@ func hunkRange(runs []run, i, context, foldBudget int, expanded map[int]struct{}
 	return start, end
 }
 
-func formatHunkHeader(lines []DiffLine, start, end int) string {
+func formatHunkHeader(lines []DiffLine, start, end int, flip bool) string {
 	oldStart, newStart := 0, 0
 	oldCount, newCount := 0, 0
 	for i := start; i < end && i < len(lines); i++ {
@@ -266,6 +272,24 @@ func formatHunkHeader(lines []DiffLine, start, end int) string {
 				newStart = l.RemoteNum
 			}
 		}
+	}
+	// An empty range is anchored after the preceding line, not always at zero.
+	if oldCount == 0 || newCount == 0 {
+		for i := start - 1; i >= 0; i-- {
+			if oldCount == 0 && oldStart == 0 {
+				oldStart = lines[i].LocalNum
+			}
+			if newCount == 0 && newStart == 0 {
+				newStart = lines[i].RemoteNum
+			}
+			if (oldCount > 0 || oldStart > 0) && (newCount > 0 || newStart > 0) {
+				break
+			}
+		}
+	}
+	if flip {
+		oldStart, newStart = newStart, oldStart
+		oldCount, newCount = newCount, oldCount
 	}
 	return fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount)
 }

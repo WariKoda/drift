@@ -16,7 +16,7 @@ func numberedEquals(n, localStart int) []DiffLine {
 
 func TestFlattenIdenticalFileShowsAllLines(t *testing.T) {
 	lines := numberedEquals(10, 1)
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	if len(rows) != 10 {
 		t.Fatalf("got %d rows, want 10", len(rows))
 	}
@@ -32,7 +32,7 @@ func TestFlattenOnlyChangesHasHeader(t *testing.T) {
 		{Text: "old", Kind: LineRemoved, LocalNum: 1},
 		{Text: "new", Kind: LineAdded, RemoteNum: 1},
 	}
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want header + 2 lines: %+v", len(rows), rows)
 	}
@@ -51,7 +51,7 @@ func TestFlattenShortGapStaysOpen(t *testing.T) {
 	lines = append(lines, DiffLine{Text: "gone", Kind: LineRemoved, LocalNum: 10})
 	lines = append(lines, numberedEquals(2, 11)...)
 
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	for _, r := range rows {
 		if r.Kind == DisplayFold {
 			t.Fatalf("6-line gap should not fold: %+v", rows)
@@ -74,7 +74,7 @@ func TestFlattenSevenLineGapFoldsMiddle(t *testing.T) {
 	lines = append(lines, DiffLine{Text: "gone", Kind: LineRemoved, LocalNum: 11})
 	lines = append(lines, numberedEquals(2, 12)...)
 
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	var fold DisplayRow
 	found := false
 	for _, r := range rows {
@@ -99,7 +99,7 @@ func TestFlattenLeadingAndTrailingFolds(t *testing.T) {
 	lines = append(lines, DiffLine{Text: "old", Kind: LineRemoved, LocalNum: 8})
 	lines = append(lines, numberedEquals(7, 9)...)
 
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	kinds := make([]DisplayKind, len(rows))
 	for i, r := range rows {
 		kinds[i] = r.Kind
@@ -127,7 +127,7 @@ func TestFlattenExpandShowsFullGap(t *testing.T) {
 	lines = append(lines, numberedEquals(7, 4)...)
 	lines = append(lines, DiffLine{Text: "gone", Kind: LineRemoved, LocalNum: 11})
 
-	collapsed := Flatten(lines, DefaultContext, nil)
+	collapsed := Flatten(lines, DefaultContext, nil, false)
 	var gapID int
 	for _, r := range collapsed {
 		if r.Kind == DisplayFold {
@@ -135,7 +135,7 @@ func TestFlattenExpandShowsFullGap(t *testing.T) {
 			break
 		}
 	}
-	expanded := Flatten(lines, DefaultContext, map[int]struct{}{gapID: {}})
+	expanded := Flatten(lines, DefaultContext, map[int]struct{}{gapID: {}}, false)
 	for _, r := range expanded {
 		if r.Kind == DisplayFold && r.GapID == gapID {
 			t.Fatalf("expanded gap still folded: %+v", r)
@@ -159,7 +159,7 @@ func TestFlattenHunkHeaderIncludesContext(t *testing.T) {
 		{Text: "new", Kind: LineAdded, RemoteNum: 2},
 		{Text: "c", Kind: LineEqual, LocalNum: 3, RemoteNum: 3},
 	}
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	if rows[0].Kind != DisplayHunkHeader || rows[0].Header != "@@ -1,3 +1,3 @@" {
 		t.Fatalf("header = %+v, want @@ -1,3 +1,3 @@ as first row", rows[0])
 	}
@@ -172,7 +172,7 @@ func TestFlattenHeaderComesBeforeLeadingContext(t *testing.T) {
 	lines := numberedEquals(12, 1)
 	lines = append(lines, DiffLine{Text: "old", Kind: LineRemoved, LocalNum: 13})
 
-	collapsed := Flatten(lines, DefaultContext, nil)
+	collapsed := Flatten(lines, DefaultContext, nil, false)
 	if collapsed[0].Kind != DisplayFold {
 		t.Fatalf("row 0 = %+v, want leading fold", collapsed[0])
 	}
@@ -183,7 +183,7 @@ func TestFlattenHeaderComesBeforeLeadingContext(t *testing.T) {
 		t.Fatalf("first context line index = %d, want 9", collapsed[2].LineIndex)
 	}
 
-	expanded := Flatten(lines, DefaultContext, map[int]struct{}{0: {}})
+	expanded := Flatten(lines, DefaultContext, map[int]struct{}{0: {}}, false)
 	if expanded[0].Kind != DisplayHunkHeader || expanded[0].Header != "@@ -1,13 +1,12 @@" {
 		t.Fatalf("expanded header = %+v, want @@ -1,13 +1,12 @@ first", expanded[0])
 	}
@@ -195,7 +195,7 @@ func TestFlattenHeaderComesBeforeLeadingContext(t *testing.T) {
 func TestIndexOfSourceLineFindsFoldAndLine(t *testing.T) {
 	lines := numberedEquals(7, 1)
 	lines = append(lines, DiffLine{Text: "old", Kind: LineRemoved, LocalNum: 8})
-	rows := Flatten(lines, DefaultContext, nil)
+	rows := Flatten(lines, DefaultContext, nil, false)
 	if got := IndexOfSourceLine(rows, 0); got != 0 {
 		t.Fatalf("hidden line 0 -> %d, want fold at 0", got)
 	}

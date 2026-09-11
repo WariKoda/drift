@@ -193,7 +193,7 @@ func TestDiffScrollNavigation(t *testing.T) {
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
 		}},
-		Height: 12, // body leaves a six-line diff viewport beside the file list
+		Height: headerLines + footerLines + pathChrome + 6,
 	}
 
 	for _, key := range []tea.KeyMsg{
@@ -226,7 +226,7 @@ func TestDiffPageAndBoundaryNavigation(t *testing.T) {
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: lines},
 		}},
-		Height: 12, // body leaves a six-line diff viewport beside the file list
+		Height: headerLines + footerLines + pathChrome + 6,
 	}
 
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyPgDown})
@@ -312,11 +312,11 @@ func TestResizeClampsDiffScrollToNewViewport(t *testing.T) {
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
 		}},
-		Height: 12,
+		Height: headerLines + footerLines + pathChrome + 6,
 		scroll: 16,
 	}
 
-	model.SetSize(100, 16) // viewport grows from six to ten lines
+	model.SetSize(100, headerLines+footerLines+pathChrome+10) // viewport grows from six to ten lines
 	if model.scroll != 10 {
 		t.Fatalf("resize retained offset %d, want clamped offset 10", model.scroll)
 	}
@@ -539,7 +539,7 @@ func firstHunkHeader(lines []diff.DiffLine) int {
 
 func hunkHeaders(lines []diff.DiffLine) []int {
 	var out []int
-	for i, row := range diff.Flatten(lines, diff.DefaultContext, nil) {
+	for i, row := range diff.Flatten(lines, diff.DefaultContext, nil, false) {
 		if row.Kind == diff.DisplayHunkHeader {
 			out = append(out, i)
 		}

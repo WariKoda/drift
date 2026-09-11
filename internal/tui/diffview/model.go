@@ -468,7 +468,14 @@ func (m Model) displayRows() []diff.DisplayRow {
 	if s == nil || s.Result == nil {
 		return nil
 	}
-	return diff.Flatten(s.Result.Lines, diff.DefaultContext, m.expandedFor(m.activeIdx))
+	return diff.Flatten(s.Result.Lines, diff.DefaultContext, m.expandedFor(m.activeIdx), m.remoteBeforeLocal())
+}
+
+func (m Model) remoteBeforeLocal() bool {
+	if m.activeIdx < 0 || m.activeIdx >= len(m.syncDirs) {
+		return false
+	}
+	return m.syncDirs[m.activeIdx] == DirUpload || m.syncDirs[m.activeIdx] == DirDeleteRemote
 }
 
 func (m Model) expandedFor(sessionIdx int) map[int]struct{} {

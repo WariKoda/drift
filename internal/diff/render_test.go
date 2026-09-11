@@ -79,7 +79,7 @@ func TestRenderUnifiedSingleColumn(t *testing.T) {
 		{Text: "old", Kind: LineRemoved, LocalNum: 2},
 		{Text: "new", Kind: LineAdded, RemoteNum: 2},
 	}}
-	rows := RenderUnified(result, 40, 0, 3, false)
+	rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, false), 40, 1, 3, false)
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
@@ -101,7 +101,7 @@ func TestRenderUnifiedDualLineNumbers(t *testing.T) {
 		{Text: "old", Kind: LineRemoved, LocalNum: 2},
 		{Text: "new", Kind: LineAdded, RemoteNum: 3},
 	}}
-	rows := RenderUnified(result, 48, 0, 3, false)
+	rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, false), 48, 1, 3, false)
 	// Strip ANSI so we can assert on the plain gutter layout.
 	plain := make([]string, len(rows))
 	for i, row := range rows {

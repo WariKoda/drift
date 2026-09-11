@@ -20,7 +20,7 @@ var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 //
 // Right pane within the body (top to bottom):
 //
-//	pathChrome    path header, separator
+//	pathChrome    path header, line-number legend, separator
 //	viewport…     unified diff content
 //
 // hitTest in mouse.go maps clicks back through these, so a change here must be
@@ -28,7 +28,7 @@ var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 const (
 	headerLines = 2
 	footerLines = 2
-	pathChrome  = 2 // path header + separator inside the right pane
+	pathChrome  = 3 // path header + line-number legend + separator inside the right pane
 )
 
 // bodyTop is the first screen row of the side-by-side body.
@@ -105,6 +105,12 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 		localPath, remotePath = s.LocalPath, s.RemotePath
 	}
 	rows = append(rows, m.renderPathHeader(localPath, remotePath, dw))
+	before, after := "Local", "Remote"
+	if m.remoteBeforeLocal() {
+		before, after = after, before
+	}
+	legend := fmt.Sprintf("Line numbers: %s → %s (before → after)", before, after)
+	rows = append(rows, pad(styles.Muted.Render(ansi.Truncate(legend, dw, "")), dw))
 	rows = append(rows, sepLine(dw))
 
 	vh := m.viewportHeight()
@@ -121,11 +127,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	default:
-		flip := false
-		if m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) {
-			flip = m.syncDirs[m.activeIdx] == DirUpload
-		}
-		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, flip)
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, m.remoteBeforeLocal())
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}
@@ -137,12 +139,15 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	return rows
 }
 
-// renderPathHeader shows both file paths on one muted line in the right pane.
+// renderPathHeader follows the same before/after order as the line-number columns.
 func (m Model) renderPathHeader(localPath, remotePath string, width int) string {
 	sep := " │ "
 	half := (width - len(sep)) / 2
 	if half < 1 {
 		half = 1
+	}
+	if m.remoteBeforeLocal() {
+		localPath, remotePath = remotePath, localPath
 	}
 	left := truncLeft(localPath, half)
 	right := truncLeft(remotePath, half)

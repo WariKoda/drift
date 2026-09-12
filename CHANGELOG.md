@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.8-alpha] - unreleased
+
 ### Added
 
 - collapsed browser directories show the number of marked descendants, separately for local and remote selections
@@ -19,9 +21,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **breaking:** Git must be installed to evaluate ignore rules, including outside repositories; evaluation failures stop the operation rather than expanding its scope
 - key hints use directory/primary coloring consistently across screens, forms, modals, and status messages, including the brackets; descriptions keep their normal or warning/error style
 - browser visibility hints now highlight enabled filters without on/off text; narrow terminals show fewer complete key hints and retain help
 - the active browser pane has a highlighted title, arrow, and separators; empty browser and finder views distinguish empty folders, filter misses, and hidden entries
+- the current browser entry uses theme yellow; Omarchy directory colors use theme blue independently of the accent and file foreground colors
 - `make install` and `make update` now use Go's install directory: `$GOBIN`, or
   `$GOPATH/bin` when unset, instead of forcing `~/.local/bin`
 - connection tests now list the configured remote root, so FTPS data-channel certificate failures are checked as well as the control connection

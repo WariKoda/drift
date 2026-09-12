@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	"github.com/aymanbagabas/go-osc52/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/muesli/termenv"
@@ -20,6 +22,7 @@ type MsgSyncRequested struct {
 	RemoteSelection *fs.SelectionState
 	Host            *config.Host
 	Conn            remote.Client
+	Options         syncpolicy.ScopeOptions
 }
 
 // MsgOpenHostManager is emitted when the user presses [H].
@@ -36,6 +39,70 @@ type MsgOpenDashboard struct{}
 type msgPreviewCopied struct {
 	path string
 	err  error
+}
+
+type msgClassifierReloaded struct {
+	base       string
+	classifier *fs.Classifier
+	err        error
+}
+
+func (m Model) finishVisualSelection() Model {
+	if !m.visualMode || m.activePane != m.visualPane {
+		startPath := ""
+		if m.activePane == PaneRemote {
+			if entry := m.remoteCurrent(); entry != nil {
+				startPath = entry.Path
+			}
+		} else if entries := m.filteredEntries(); m.cursor >= 0 && m.cursor < len(entries) {
+			startPath = entries[m.cursor].Path
+		}
+		if startPath == "" {
+			m.visualMode = false
+			m.statusMsg = "No visible item to start a selection"
+			return m
+		}
+		m.visualMode = true
+		m.visualPane = m.activePane
+		m.visualStartPath = startPath
+		m.statusMsg = "Visual selection started; move and press [v] again"
+		return m
+	}
+
+	entries := m.filteredEntries()
+	cursor := m.cursor
+	selection := m.Selection
+	if m.visualPane == PaneRemote {
+		entries = m.visibleRemoteEntries()
+		cursor = m.remoteCursor
+		selection = m.RemoteSelection
+	}
+	start := -1
+	for i, entry := range entries {
+		if entry.Path == m.visualStartPath {
+			start = i
+			break
+		}
+	}
+	if start < 0 || cursor < 0 || cursor >= len(entries) {
+		m.statusMsg = "Visual selection cancelled because its start is hidden"
+		m.visualMode = false
+		return m
+	}
+	if start > cursor {
+		start, cursor = cursor, start
+	}
+	marked := 0
+	for _, entry := range entries[start : cursor+1] {
+		if m.visualPane == PaneRemote && entry.Unmapped {
+			continue
+		}
+		selection.Marked[entry.Path] = struct{}{}
+		marked++
+	}
+	m.visualMode = false
+	m.statusMsg = fmt.Sprintf("Marked %d visible item(s)", marked)
+	return m
 }
 
 // Update handles key events and returns the updated model plus any command.
@@ -84,6 +151,26 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case msgPreviewLoaded:
 		return m, m.applyPreviewLoaded(msg)
 
+	case msgClassifierReloaded:
+		if msg.base != m.WorkDir {
+			return m, nil
+		}
+		if msg.err != nil {
+			log.Error("browser classifier refresh failed", "root", msg.base, "err", msg.err)
+			m.statusMsg = "Refresh failed: " + msg.err.Error()
+			return m, nil
+		}
+		oldClassifier := m.classifier
+		m.classifier = msg.classifier
+		if err := m.reload(); err != nil {
+			m.classifier = oldClassifier
+			log.Error("browser refresh failed", "root", msg.base, "err", err)
+			m.statusMsg = "Refresh failed: " + err.Error()
+			return m, nil
+		}
+		m.statusMsg = "Refreshed"
+		return m, m.schedulePreview()
+
 	case msgPreviewCopied:
 		if msg.err != nil {
 			m.statusMsg = "Copy failed: " + sanitizePreviewError(msg.err)
@@ -93,9 +180,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case msgFinderIndex:
-		if m.finder.active && msg.base == m.WorkDir {
+		if m.finder.active && msg.base == m.WorkDir && msg.id == m.finder.id && msg.session == m.remoteSession {
+			if msg.err != nil {
+				log.Error("finder indexing failed", "root", msg.base, "err", msg.err)
+				m.finder.loading = false
+				m.finder.err = msg.err.Error()
+				m.statusMsg = "Finder indexing failed: " + msg.err.Error()
+				return m, nil
+			}
 			m.finder.rel = msg.rel
 			m.finder.abs = msg.abs
+			m.finder.ignored = msg.ignored
+			m.finder.hidden = msg.hidden
 			m.finder.loading = false
 			m.finder.recompute()
 			m.finder.clamp(m.finderViewportHeight())
@@ -233,10 +329,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case keyShiftG:
 		if m.activePane == PaneRemote {
-			m.remoteCursor = len(m.remoteEntries) - 1
+			m.remoteCursor = len(m.visibleRemoteEntries()) - 1
 			m.clampRemoteScroll()
 		} else {
-			m.cursor = len(m.entries) - 1
+			m.cursor = len(m.filteredEntries()) - 1
 			m.clampScroll()
 		}
 		return m, m.schedulePreview()
@@ -246,20 +342,20 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.activePane == PaneRemote {
 			return m.updateRemoteOpen()
 		}
-		if len(m.entries) == 0 {
+		visible := m.filteredEntries()
+		if m.cursor < 0 || m.cursor >= len(visible) {
 			break
 		}
-		entry := m.entries[m.cursor]
+		entry := visible[m.cursor]
 		if entry.Kind == fs.EntryDir {
 			if entry.Expanded {
-				// already open — move cursor into first child
-				if m.cursor+1 < len(m.entries) && m.entries[m.cursor+1].Depth > entry.Depth {
+				if m.cursor+1 < len(visible) && visible[m.cursor+1].Depth > entry.Depth {
 					m.cursor++
 					m.clampScroll()
 					return m, m.schedulePreview()
 				}
-			} else {
-				if err := m.expandAt(m.cursor); err != nil {
+			} else if raw := m.localIndex(entry); raw >= 0 {
+				if err := m.expandAt(raw); err != nil {
 					m.statusMsg = "Error: " + err.Error()
 				}
 				m.clampScroll()
@@ -271,74 +367,92 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.activePane == PaneRemote {
 			return m.updateRemoteClose()
 		}
-		if len(m.entries) == 0 {
+		visible := m.filteredEntries()
+		if m.cursor < 0 || m.cursor >= len(visible) {
 			break
 		}
-		entry := m.entries[m.cursor]
+		entry := visible[m.cursor]
 		if entry.Kind == fs.EntryDir && entry.Expanded {
-			m.collapseAt(m.cursor)
-			m.clampScroll()
-		} else {
-			p := m.parentIndex(m.cursor)
-			if p >= 0 {
-				m.collapseAt(p)
-				m.cursor = p
-				m.clampScroll()
-				return m, m.schedulePreview()
+			if raw := m.localIndex(entry); raw >= 0 {
+				m.collapseAt(raw)
 			}
+			m.clampScroll()
+		} else if entry.Parent != nil {
+			parent := entry.Parent
+			if raw := m.localIndex(parent); raw >= 0 {
+				m.collapseAt(raw)
+			}
+			m.cursor = indexEntry(m.filteredEntries(), parent)
+			m.clampScroll()
+			return m, m.schedulePreview()
 		}
 
 	// ── Selection ─────────────────────────────────────
+	case keyV:
+		m = m.finishVisualSelection()
+
 	case keySpace:
 		if m.activePane == PaneRemote {
 			if entry := m.remoteCurrent(); entry != nil {
-				m.RemoteSelection.Toggle(entry.Path)
-			}
-			break
-		}
-		if len(m.entries) == 0 {
-			break
-		}
-		entry := m.entries[m.cursor]
-		m.Selection.Toggle(entry.Path)
-
-	case keyShiftV:
-		// Mark all visible entries in the current depth level of the active pane.
-		if m.activePane == PaneRemote {
-			if len(m.remoteEntries) == 0 {
-				break
-			}
-			depth := m.remoteEntries[m.remoteCursor].Depth
-			for _, e := range m.remoteEntries {
-				if e.Depth == depth {
-					m.RemoteSelection.Marked[e.Path] = struct{}{}
+				if entry.Unmapped {
+					m.statusMsg = "Path is outside the active mappings"
+				} else {
+					m.RemoteSelection.Toggle(entry.Path)
 				}
 			}
 			break
 		}
-		if len(m.entries) == 0 {
+		entries := m.filteredEntries()
+		if m.cursor < 0 || m.cursor >= len(entries) {
 			break
 		}
-		depth := m.entries[m.cursor].Depth
-		for _, e := range m.entries {
-			if e.Depth == depth {
-				m.Selection.Marked[e.Path] = struct{}{}
+		m.Selection.Toggle(entries[m.cursor].Path)
+
+	case keyShiftV:
+		if m.activePane == PaneRemote {
+			entries := m.visibleRemoteEntries()
+			if m.remoteCursor < 0 || m.remoteCursor >= len(entries) {
+				break
+			}
+			parent := entries[m.remoteCursor].Parent
+			for _, entry := range entries {
+				if entry.Parent == parent && !entry.Unmapped {
+					m.RemoteSelection.Marked[entry.Path] = struct{}{}
+				}
+			}
+			break
+		}
+		entries := m.filteredEntries()
+		if m.cursor < 0 || m.cursor >= len(entries) {
+			break
+		}
+		parent := entries[m.cursor].Parent
+		for _, entry := range entries {
+			if entry.Parent == parent {
+				m.Selection.Marked[entry.Path] = struct{}{}
 			}
 		}
 
 	case keyStar:
 		// Invert selection in the active pane.
 		if m.activePane == PaneRemote {
-			for _, e := range m.remoteEntries {
-				m.RemoteSelection.Toggle(e.Path)
+			for _, entry := range m.visibleRemoteEntries() {
+				if !entry.Unmapped {
+					m.RemoteSelection.Toggle(entry.Path)
+				}
 			}
 			break
 		}
-		for _, e := range m.entries {
-			m.Selection.Toggle(e.Path)
+		for _, entry := range m.filteredEntries() {
+			m.Selection.Toggle(entry.Path)
 		}
 
 	case keyEsc:
+		if m.visualMode {
+			m.visualMode = false
+			m.statusMsg = "Visual selection cancelled"
+			break
+		}
 		if m.filter != "" {
 			m.filter = ""
 			m.clampScroll()
@@ -371,7 +485,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.remoteConn = nil // hand connection ownership to the diff view
 		}
 		return m, tea.Batch(mouseCmd, func() tea.Msg {
-			return MsgSyncRequested{Selection: m.Selection, RemoteSelection: m.RemoteSelection, Host: host, Conn: conn}
+			return MsgSyncRequested{Selection: m.Selection.Clone(), RemoteSelection: m.RemoteSelection.Clone(), Host: host, Conn: conn, Options: syncpolicy.ScopeOptions{}}
 		})
 
 	// ── Remote browser host ────────────────────────────
@@ -401,11 +515,35 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		mouseCmd := m.disablePreview()
 		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgOpenDashboard{} })
 
+	// ── Visibility ─────────────────────────────────────
+	case keyDot, keyShiftI:
+		var localCurrent, remoteCurrent *fs.FileEntry
+		if entries := m.filteredEntries(); m.cursor >= 0 && m.cursor < len(entries) {
+			localCurrent = entries[m.cursor]
+		}
+		remoteCurrent = m.remoteCurrent()
+		if msg.String() == keyDot {
+			m.showHidden = !m.showHidden
+		} else {
+			m.showIgnored = !m.showIgnored
+		}
+		if index := indexEntry(m.filteredEntries(), localCurrent); index >= 0 {
+			m.cursor = index
+		}
+		if index := indexEntry(m.visibleRemoteEntries(), remoteCurrent); index >= 0 {
+			m.remoteCursor = index
+		}
+		m.clampScroll()
+		m.clampRemoteScroll()
+		m.statusMsg = ""
+		return m, m.schedulePreview()
+
 	// ── Fuzzy file finder ──────────────────────────────
 	case "f":
 		mouseCmd := m.disablePreview()
-		m.finder = finder{active: true, loading: true}
-		return m, tea.Batch(mouseCmd, buildFinderIndexCmd(m.WorkDir))
+		m.finderSeq++
+		m.finder = finder{active: true, loading: true, id: m.finderSeq}
+		return m, tea.Batch(mouseCmd, buildFinderIndexCmd(m.WorkDir, m.classifier, m.showHidden, m.showIgnored, m.finder.id, m.remoteSession))
 
 	// ── Filter ────────────────────────────────────────
 	case keySlash:
@@ -425,12 +563,13 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			h := *m.remoteHost
 			return m, m.StartRemote(h)
 		}
-		if err := m.reload(); err != nil {
-			m.statusMsg = "Refresh failed: " + err.Error()
-		} else {
-			m.statusMsg = "Refreshed"
-			return m, m.schedulePreview()
+		base := m.WorkDir
+		previewCmd := m.schedulePreview()
+		classifierCmd := func() tea.Msg {
+			classifier, err := fs.NewClassifier(base)
+			return msgClassifierReloaded{base: base, classifier: classifier, err: err}
 		}
+		return m, tea.Batch(previewCmd, classifierCmd)
 
 	// ── Help ──────────────────────────────────────────
 	case keyQuestion:
@@ -443,40 +582,45 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
-	if m.remoteBusy() || m.remoteConn == nil || m.remoteConn.Err() != nil || len(m.remoteEntries) == 0 {
+	entries := m.visibleRemoteEntries()
+	if m.remoteBusy() || m.remoteConn == nil || m.remoteConn.Err() != nil || m.remoteCursor < 0 || m.remoteCursor >= len(entries) {
 		return m, nil
 	}
-	entry := m.remoteEntries[m.remoteCursor]
+	entry := entries[m.remoteCursor]
 	if entry.Kind != fs.EntryDir {
 		return m, nil
 	}
 	if entry.Expanded {
-		if m.remoteCursor+1 < len(m.remoteEntries) && m.remoteEntries[m.remoteCursor+1].Depth > entry.Depth {
+		if m.remoteCursor+1 < len(entries) && entries[m.remoteCursor+1].Depth > entry.Depth {
 			m.remoteCursor++
 			m.clampRemoteScroll()
 		}
 		return m, m.schedulePreview()
 	}
-	entry.Expanded = true // optimistic spinner/guard against duplicate expand
+	entry.Expanded = true
 	m.remoteReading = true
 	m.remoteStatus = "Loading remote: " + entry.Path
-	return m, readRemoteDirCmd(m.remoteConn, *m.remoteHost, m.remoteLoadID, m.remoteSession, entry.Path)
+	return m, readRemoteDirCmd(m.remoteConn, *m.remoteHost, m.remoteLoadID, m.remoteSession, entry.Path, m.classifier, m.config, m.WorkDir)
 }
 
 func (m Model) updateRemoteClose() (Model, tea.Cmd) {
-	if len(m.remoteEntries) == 0 {
+	entry := m.remoteCurrent()
+	if entry == nil {
 		return m, nil
 	}
-	entry := m.remoteEntries[m.remoteCursor]
 	if entry.Kind == fs.EntryDir && entry.Expanded {
-		m.collapseRemoteAt(m.remoteCursor)
+		if raw := m.remoteIndexByPath(entry.Path); raw >= 0 {
+			m.collapseRemoteAt(raw)
+		}
 		m.clampRemoteScroll()
 		return m, nil
 	}
-	p := m.remoteParentIndex(m.remoteCursor)
-	if p >= 0 {
-		m.collapseRemoteAt(p)
-		m.remoteCursor = p
+	if entry.Parent != nil {
+		parent := entry.Parent
+		if raw := m.remoteIndexByPath(parent.Path); raw >= 0 {
+			m.collapseRemoteAt(raw)
+		}
+		m.remoteCursor = indexEntry(m.visibleRemoteEntries(), parent)
 		m.clampRemoteScroll()
 		return m, m.schedulePreview()
 	}

@@ -2,6 +2,7 @@
 package browser
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/pathmap"
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/loading"
@@ -37,15 +39,23 @@ type Model struct {
 	RemoteSelection *fs.SelectionState
 
 	// visual selection mode
-	visualMode  bool
-	visualStart int
+	visualMode      bool
+	visualStartPath string
+	visualPane      PaneSide
 
 	// filter
 	filterMode bool
 	filter     string
 
+	// visibility and path classification
+	classifier  *fs.Classifier
+	config      *config.MergedConfig
+	showHidden  bool
+	showIgnored bool
+
 	// fuzzy file finder overlay
-	finder finder
+	finder    finder
+	finderSeq uint64
 
 	// help overlay
 	showHelp bool
@@ -88,22 +98,23 @@ type Model struct {
 // New creates a browser Model for the given directory.
 // Initial width/height will be overwritten by the first WindowSizeMsg.
 func New(workDir string) (Model, error) {
-	entries, err := fs.ReadDir(workDir)
+	classifier, err := fs.NewClassifier(workDir)
 	if err != nil {
 		return Model{}, err
 	}
-	for _, e := range entries {
-		e.Depth = 0
-	}
-	return Model{
+	m := Model{
 		WorkDir:         workDir,
 		remoteSession:   &workDir,
-		entries:         entries,
+		classifier:      classifier,
 		Selection:       fs.NewSelectionState(),
 		RemoteSelection: fs.NewSelectionState(),
 		Width:           80,
 		Height:          24,
-	}, nil
+	}
+	if err := m.reload(); err != nil {
+		return Model{}, err
+	}
+	return m, nil
 }
 
 // Init satisfies the tea.Model interface (root app calls this).
@@ -115,6 +126,83 @@ func (m Model) Init() tea.Cmd {
 // temporarily releasing the mouse to the terminal while a preview is open.
 func (m *Model) SetMouseEnabled(enabled bool) {
 	m.mouseEnabled = enabled
+}
+
+// SetConfig provides mappings and initial visibility preferences.
+func (m *Model) SetConfig(cfg *config.MergedConfig) error {
+	m.config = cfg
+	if cfg != nil {
+		m.showHidden = cfg.UI.ShowHidden
+		m.showIgnored = cfg.UI.ShowIgnored
+	}
+	return m.reload()
+}
+
+func (m Model) visible(entry *fs.FileEntry) bool {
+	return !entry.Class.HardExcluded &&
+		(m.showHidden || !entry.Class.Hidden) &&
+		(m.showIgnored || !entry.Class.Ignored)
+}
+
+func (m *Model) classifyLocal(entries []*fs.FileEntry) ([]*fs.FileEntry, error) {
+	if m.classifier == nil {
+		return entries, nil
+	}
+	candidates := make([]fs.ClassifyCandidate, len(entries))
+	for i, entry := range entries {
+		candidates[i] = fs.ClassifyCandidate{Path: entry.Path, IsDir: entry.Kind == fs.EntryDir}
+	}
+	classes, err := m.classifier.ClassifyBatch(context.Background(), candidates)
+	if err != nil {
+		return nil, err
+	}
+	for i, entry := range entries {
+		entry.Class = classes[i]
+	}
+	return entries, nil
+}
+
+func (m *Model) classifyRemote(entries []*fs.FileEntry, host config.Host) ([]*fs.FileEntry, error) {
+	if m.classifier == nil {
+		return entries, nil
+	}
+	mapper := pathmap.New(m.WorkDir, nil, host)
+	if m.config != nil {
+		mapper = pathmap.New(m.config.ProjectRoot, m.config.Mappings, host)
+	}
+	candidates := make([]fs.ClassifyCandidate, 0, len(entries))
+	candidateIndexes := make([]int, 0, len(entries))
+	remoteHidden := make(map[int]bool, len(entries))
+	for i, entry := range entries {
+		if rel, relErr := filepath.Rel(remoteRoot(host), entry.Path); relErr == nil {
+			remoteHidden[i] = fs.IsHiddenPath(filepath.ToSlash(rel))
+		}
+		localPath, mapErr := mapper.RemoteToLocal(entry.Path)
+		if mapErr != nil {
+			entry.Unmapped = true
+			rel, relErr := filepath.Rel(remoteRoot(host), entry.Path)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+			localPath = filepath.Join(m.WorkDir, filepath.FromSlash(rel))
+		}
+		candidates = append(candidates, fs.ClassifyCandidate{Path: localPath, IsDir: entry.Kind == fs.EntryDir})
+		candidateIndexes = append(candidateIndexes, i)
+	}
+	classes, err := m.classifier.ClassifyBatch(context.Background(), candidates)
+	if err != nil {
+		return nil, err
+	}
+	for i, class := range classes {
+		index := candidateIndexes[i]
+		entry := entries[index]
+		class.Hidden = class.Hidden || remoteHidden[index]
+		if entry.Unmapped {
+			class.Ignored = false
+		}
+		entry.Class = class
+	}
+	return entries, nil
 }
 
 // SetTrustManager provides certificate trust for new FTPS connections.
@@ -231,7 +319,7 @@ func (m *Model) clampLocalOffset() {
 
 // clampRemoteOffset is clampLocalOffset for the remote pane.
 func (m *Model) clampRemoteOffset() {
-	m.remoteOffset = clampOffset(m.remoteOffset, len(m.remoteEntries), m.viewportHeight())
+	m.remoteOffset = clampOffset(m.remoteOffset, len(m.visibleRemoteEntries()), m.viewportHeight())
 }
 
 // clampOffset bounds a scroll offset to [0, count-vh].
@@ -251,7 +339,8 @@ func clampOffset(offset, count, vh int) int {
 
 // clampScroll ensures cursor and offset are within bounds.
 func (m *Model) clampScroll() {
-	if len(m.entries) == 0 {
+	count := len(m.filteredEntries())
+	if count == 0 {
 		m.cursor = 0
 		m.offset = 0
 		return
@@ -259,8 +348,8 @@ func (m *Model) clampScroll() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	if m.cursor >= len(m.entries) {
-		m.cursor = len(m.entries) - 1
+	if m.cursor >= count {
+		m.cursor = count - 1
 	}
 	vh := m.viewportHeight()
 	if m.cursor < m.offset {
@@ -276,7 +365,8 @@ func (m *Model) clampScroll() {
 
 // clampRemoteScroll ensures the remote cursor and offset are within bounds.
 func (m *Model) clampRemoteScroll() {
-	if len(m.remoteEntries) == 0 {
+	count := len(m.visibleRemoteEntries())
+	if count == 0 {
 		m.remoteCursor = 0
 		m.remoteOffset = 0
 		return
@@ -284,8 +374,8 @@ func (m *Model) clampRemoteScroll() {
 	if m.remoteCursor < 0 {
 		m.remoteCursor = 0
 	}
-	if m.remoteCursor >= len(m.remoteEntries) {
-		m.remoteCursor = len(m.remoteEntries) - 1
+	if m.remoteCursor >= count {
+		m.remoteCursor = count - 1
 	}
 	vh := m.viewportHeight()
 	if m.remoteCursor < m.remoteOffset {
@@ -313,15 +403,21 @@ func (m *Model) reload() error {
 	if err != nil {
 		return err
 	}
+	entries, err = m.classifyLocal(entries)
+	if err != nil {
+		return err
+	}
 	for _, e := range entries {
 		e.Depth = 0
 	}
 	m.entries = entries
 
-	// Re-expand previously expanded dirs (best effort)
+	// Re-expand previously expanded directories.
 	for i := 0; i < len(m.entries); i++ {
 		if expanded[m.entries[i].Path] {
-			_ = m.expandAt(i)
+			if err := m.expandAt(i); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -369,6 +465,44 @@ func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
 
 func (m Model) remoteBusy() bool {
 	return m.remoteLoading || m.remoteReading || m.remotePreviewReading
+}
+
+func (m Model) cachedPathClass(path string) (fs.PathClass, bool) {
+	if class, ok := m.classifier.CachedClassify(path, false); ok {
+		return class, true
+	}
+	return m.classifier.CachedClassify(path, true)
+}
+
+func (m Model) hiddenSelectionCount() int {
+	count := 0
+	if m.Selection != nil {
+		for localPath := range m.Selection.Marked {
+			class, ok := m.cachedPathClass(localPath)
+			if !ok || (!m.showHidden && class.Hidden) || (!m.showIgnored && class.Ignored) || class.HardExcluded {
+				count++
+			}
+		}
+	}
+	if m.remoteHost == nil || m.RemoteSelection == nil {
+		return count
+	}
+	mapper := pathmap.New(m.WorkDir, nil, *m.remoteHost)
+	if m.config != nil {
+		mapper = pathmap.New(m.config.ProjectRoot, m.config.Mappings, *m.remoteHost)
+	}
+	for remotePath := range m.RemoteSelection.Marked {
+		localPath, err := mapper.RemoteToLocal(remotePath)
+		if err != nil {
+			count++
+			continue
+		}
+		class, ok := m.cachedPathClass(localPath)
+		if !ok || (!m.showHidden && class.Hidden) || (!m.showIgnored && class.Ignored) || class.HardExcluded {
+			count++
+		}
+	}
+	return count
 }
 
 func (m Model) absWorkDir() string {

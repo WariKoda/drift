@@ -1,5 +1,12 @@
 package browser
 
+import (
+	"strings"
+
+	"github.com/WariKoda/drift/internal/styles"
+	"github.com/charmbracelet/lipgloss"
+)
+
 // key constants — used in Update's switch statements.
 const (
 	keyDown      = "down"
@@ -33,11 +40,63 @@ const (
 	keyBackspace = "backspace"
 	keyTab       = "tab"
 	keyAt        = "@"
+	keyDot       = "."
+	keyShiftI    = "I"
 )
 
-// HelpText returns the key hint shown in the status bar.
-func HelpText() string {
-	return "[Tab]pane  [p]preview  [@]remote  [f]find  [s]sync  [H]hosts  [P]projects  [?]help  [q]quit"
+// HelpText returns the key hints and current visibility states shown in the status bar.
+func HelpText(showHidden, showIgnored bool, width int) string {
+	hidden, ignored := styles.Muted.Render("hidden"), styles.Muted.Render("ignored")
+	if showHidden {
+		hidden = styles.ActiveHint.Render("hidden")
+	}
+	if showIgnored {
+		ignored = styles.ActiveHint.Render("ignored")
+	}
+	return fitKeyHints(width,
+		keyHint("s", "sync"),
+		styles.Dir.Render("[.]")+hidden,
+		styles.Dir.Render("[I]")+ignored,
+		keyHint("Tab", "pane"),
+		keyHint("q", "quit"),
+		keyHint("@", "remote"),
+		keyHint("f", "find"),
+		keyHint("?", "help"),
+	)
+}
+
+// PreviewHelpText returns key hints for the active preview.
+func PreviewHelpText(width int) string {
+	return fitKeyHints(width,
+		keyHint("p", "close"),
+		keyHint("c", "copy"),
+		keyHint("PgUp/PgDown", "scroll"),
+		keyHint("drag", "select"),
+		keyHint("Home/End", "jump"),
+		keyHint("?", "help"),
+	)
+}
+
+// The last hint is the escape/help action and always gets space first.
+func fitKeyHints(width int, hints ...string) string {
+	last := hints[len(hints)-1]
+	if lipgloss.Width(last) > width {
+		return ""
+	}
+	remaining := width - lipgloss.Width(last)
+	var selected []string
+	for _, hint := range hints[:len(hints)-1] {
+		needed := lipgloss.Width(hint) + 2
+		if needed <= remaining {
+			selected = append(selected, hint)
+			remaining -= needed
+		}
+	}
+	return strings.Join(append(selected, last), "  ")
+}
+
+func keyHint(key, label string) string {
+	return styles.Dir.Render("["+key+"]") + styles.Muted.Render(label)
 }
 
 // FullHelp returns the help overlay text.
@@ -62,7 +121,7 @@ func FullHelp() string {
   Selection
   ──────────────────────────────
   Space          toggle mark in active pane
-  v              start visual selection
+  v              start / finish visible range selection
   V              mark all in current dir of active pane
   *              invert selection in active pane
   Esc            clear filter / selections
@@ -72,6 +131,9 @@ func FullHelp() string {
   f              fuzzy find files across the project, mark with Space
   s              sync marked local/remote files (uses remote pane host when selected)
   @              choose/change host for the remote pane
+  .              toggle hidden files
+  I              toggle gitignored files
+                 highlighted/underlined labels indicate enabled visibility
   Tab            switch active pane
 
   Mouse

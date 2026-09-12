@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- collapsed browser directories show the number of marked descendants, separately for local and remote selections
+- independent browser toggles for hidden (`.`) and gitignored (`I`) entries, with `[ui] show_hidden` and `show_ignored` initial preferences
+- Git-compatible ignore handling for recursive comparisons: hidden files remain in scope, gitignored paths are skipped symmetrically on local and remote sides, directly selected ignored files are allowed, and the diff view can rebuild one operation with ignored paths included (`i`)
+- sync-scope counts in the diff status, including hidden pairs, ignored skips, fixed exclusions, and direct ignored-file exceptions
 - protocol keep-alive for FTP/FTPS and SFTP, enabled at a 60-second interval by default; per-host `keep_alive_interval` sets the interval, and the host form provides a `Disable keep-alive` switch that hides the interval field when disabled
 - connection-loss notifications in the browser and diff, including while a modal is open; failed connections block further sync operations without automatically reconnecting or retrying transfers
 
@@ -15,6 +19,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- key hints use directory/primary coloring consistently across screens, forms, modals, and status messages, including the brackets; descriptions keep their normal or warning/error style
+- browser visibility hints now highlight enabled filters without on/off text; narrow terminals show fewer complete key hints and retain help
+- the active browser pane has a highlighted title, arrow, and separators; empty browser and finder views distinguish empty folders, filter misses, and hidden entries
 - `make install` and `make update` now use Go's install directory: `$GOBIN`, or
   `$GOPATH/bin` when unset, instead of forcing `~/.local/bin`
 - connection tests now list the configured remote root, so FTPS data-channel certificate failures are checked as well as the control connection
@@ -22,6 +29,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- comparing a local folder that is missing remotely no longer adds a folder error when the remote absence can be verified; ambiguous FTP `550` errors remain errors instead of implying a missing file
+- one-sided binary and empty-file summaries now identify the missing side instead of showing a year-0001 timestamp or claiming the files are identical
+- browser filtering now uses the same visible row projection for keyboard, mouse, preview, bulk selection, and rendering, so an action cannot target a hidden backing entry
+- ignored remote-only files no longer appear as missing local files and cannot produce accidental download or delete decisions
 - opening a directory near the bottom of the local or remote browser now scrolls enough to show all newly loaded children when they fit, or keeps the directory at the top when they do not
 - a running connect or sync could only be hidden, not stopped. Esc still hides the overlay. `q` and `Ctrl+C` cancel it. Files already transferred stay, remaining work is skipped. A hidden overlay keeps `[q] cancel` on the status line
 - unified diff `@@` headers sat after their context lines, so a hunk starting at line 1 showed a block of unchanged lines and then the marker. The header is the first row of the hunk now, with context underneath

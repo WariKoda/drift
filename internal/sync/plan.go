@@ -24,6 +24,21 @@ type Plan struct {
 	Items []SyncItem
 }
 
+// ScopeOptions controls which recursively discovered files enter a comparison.
+type ScopeOptions struct {
+	IncludeIgnored bool
+}
+
+// ScopeSummary explains how selections were reduced to comparable file pairs.
+type ScopeSummary struct {
+	Pairs                   int
+	Hidden                  int
+	IgnoredFilesSkipped     int
+	IgnoredDirsSkipped      int
+	HardExcludedSkipped     int
+	ExplicitIgnoredIncluded int
+}
+
 // ItemStatus tracks the state of a single SyncItem during execution.
 type ItemStatus int
 

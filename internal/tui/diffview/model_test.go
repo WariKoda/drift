@@ -7,7 +7,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	stdsync "sync"
@@ -132,7 +134,7 @@ func TestForEachCompareAddsExtraFTPConnections(t *testing.T) {
 }
 
 // ftpTestServer is a real FTP server covering the commands a diff worker sends:
-// the login handshake plus SIZE and RETR. It serves at most maxSessions logins
+// the login handshake plus SIZE, LIST and RETR. It serves at most maxSessions logins
 // and answers every further connection with 421, emulating a server that limits
 // sessions per user.
 type ftpTestServer struct {
@@ -146,6 +148,8 @@ type ftpTestServer struct {
 	commands []string
 	// Returning true drops this real control connection before its reply.
 	dropCommand func(command, argument string) bool
+	// denyCommand returns a permission failure without hiding entries from parents.
+	denyCommand func(command, argument string) bool
 	// sendData controls real data-channel delivery for inactivity tests.
 	sendData func(net.Conn, string) error
 	wg       stdsync.WaitGroup
@@ -177,13 +181,13 @@ func startFTPTestServer(t *testing.T, maxSessions int) *ftpTestServer {
 func (s *ftpTestServer) addFile(remotePath, content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.files[remotePath] = content
+	s.files[path.Clean(remotePath)] = content
 }
 
 func (s *ftpTestServer) file(remotePath string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	content, ok := s.files[remotePath]
+	content, ok := s.files[path.Clean(remotePath)]
 	return content, ok
 }
 
@@ -287,9 +291,16 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 		s.mu.Lock()
 		s.commands = append(s.commands, command)
 		drop := s.dropCommand
+		deny := s.denyCommand
 		s.mu.Unlock()
 		if drop != nil && drop(command, argument) {
 			return
+		}
+		if deny != nil && deny(command, path.Clean(argument)) {
+			if err := reply("550 permission denied"); err != nil {
+				return
+			}
+			continue
 		}
 		switch command {
 		case "USER":
@@ -328,10 +339,40 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 				err = reply("229 Entering Extended Passive Mode (|||%d|)",
 					dataListener.Addr().(*net.TCPAddr).Port)
 			}
-		case "RETR":
+		case "LIST", "RETR":
 			content, ok := s.file(argument)
+			if command == "LIST" {
+				dir := path.Clean(argument)
+				prefix := strings.TrimSuffix(dir, "/") + "/"
+				entries := make(map[string]string)
+				ok = dir == "/" || dir == "."
+				s.mu.Lock()
+				for name, data := range s.files {
+					if !strings.HasPrefix(name, prefix) {
+						continue
+					}
+					ok = true
+					base, _, isDir := strings.Cut(strings.TrimPrefix(name, prefix), "/")
+					if isDir {
+						entries[base] = fmt.Sprintf("drwxr-xr-x 1 drift drift 0 Jan 01 2025 %s\r\n", base)
+					} else {
+						entries[base] = fmt.Sprintf("-rw-r--r-- 1 drift drift %d Jan 01 2025 %s\r\n", len(data), base)
+					}
+				}
+				s.mu.Unlock()
+				names := make([]string, 0, len(entries))
+				for name := range entries {
+					names = append(names, name)
+				}
+				sort.Strings(names)
+				var listing strings.Builder
+				for _, name := range names {
+					listing.WriteString(entries[name])
+				}
+				content = listing.String()
+			}
 			if !ok {
-				err = reply("550 file not found")
+				err = reply("550 path not found")
 				break
 			}
 			if dataListener == nil {
@@ -347,7 +388,7 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 				s.mu.Lock()
 				send := s.sendData
 				s.mu.Unlock()
-				if send != nil {
+				if send != nil && command == "RETR" {
 					err = send(data, content)
 				} else {
 					_, err = io.WriteString(data, content)

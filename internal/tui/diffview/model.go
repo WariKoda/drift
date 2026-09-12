@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/textproto"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	stdsync "sync"
@@ -36,6 +37,8 @@ type MsgDiffLoaded struct {
 	Sessions  []diff.Session
 	Conn      remote.Client
 	Root      *fs.Root // project root for local reads and writes; caller must close it
+	Scope     syncpolicy.ScopeSummary
+	Options   syncpolicy.ScopeOptions
 }
 
 // LoadProgressTracker shares operation progress with the global indicator.
@@ -52,6 +55,13 @@ type MsgDiffError struct {
 	RequestID uint64
 	Host      config.Host
 	Err       error
+}
+
+// MsgScopeReloadRequested asks the root model to rebuild the comparison with
+// different recursive ignore handling.
+type MsgScopeReloadRequested struct {
+	IncludeIgnored bool
+	Status         string
 }
 
 // MsgRefreshed is sent when a full diff refresh has completed.
@@ -142,6 +152,24 @@ func syncDirFromDecision(decision syncpolicy.Decision) SyncDir {
 	}
 }
 
+func remotePathHidden(remotePath, rootPath string) bool {
+	root := path.Clean(rootPath)
+	if rootPath == "" {
+		root = "/"
+	}
+	candidate := path.Clean(remotePath)
+	if candidate != root && root != "/" && !strings.HasPrefix(candidate, root+"/") {
+		return false
+	}
+	relative := strings.TrimPrefix(strings.TrimPrefix(candidate, root), "/")
+	for _, part := range strings.Split(relative, "/") {
+		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
+			return true
+		}
+	}
+	return false
+}
+
 func decisionFromSyncDir(dir SyncDir) syncpolicy.Decision {
 	switch dir {
 	case DirUpload:
@@ -193,6 +221,9 @@ type Model struct {
 	syncProgress    *LoadProgressTracker // live counter shared with the running bulk sync
 	syncDone        int                  // files processed so far in the active bulk sync
 	syncTotal       int                  // total files in the active bulk sync
+	scope           syncpolicy.ScopeSummary
+	scopeOptions    syncpolicy.ScopeOptions
+	scopeSet        bool
 	host            config.Host
 	conn            remote.Client // kept open for sync ops, including after connection loss
 	disconnected    error         // sticky until a new model/comparison is opened
@@ -231,6 +262,18 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 // SetTrustManager provides certificate trust for additional FTPS diff workers.
 func (m *Model) SetTrustManager(trust *tlstrust.Manager) {
 	m.trust = trust
+}
+
+// SetScope attaches the immutable scope summary used to build these sessions.
+func (m *Model) SetScope(scope syncpolicy.ScopeSummary, options syncpolicy.ScopeOptions) {
+	m.scope = scope
+	m.scopeOptions = options
+	m.scopeSet = true
+}
+
+// SetStatus restores the result of a transfer across a full scope reload.
+func (m *Model) SetStatus(status string) {
+	m.syncStatus = status
 }
 
 // Init satisfies the sub-model convention.
@@ -680,10 +723,19 @@ func (m *Model) scrollToFirstDifference() {
 // requestID is echoed back in the result so the caller can discard results of
 // requests it has abandoned in the meantime.
 func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
-	return loadCmd(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, diffIdleTimeout)
+	return LoadCmdWithOptions(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, syncpolicy.ScopeOptions{})
+}
+
+// LoadCmdWithOptions is LoadCmd with per-comparison recursive scope options.
+func LoadCmdWithOptions(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, options syncpolicy.ScopeOptions) tea.Cmd {
+	return loadCmdWithOptions(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, options, diffIdleTimeout)
 }
 
 func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, idleTimeout time.Duration) tea.Cmd {
+	return loadCmdWithOptions(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, syncpolicy.ScopeOptions{}, idleTimeout)
+}
+
+func loadCmdWithOptions(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, options syncpolicy.ScopeOptions, idleTimeout time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		defer progress.Finish()
 		activity := newLoadActivity(progress.Context(), idleTimeout)
@@ -737,22 +789,66 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 
 		progress.Set("Scanning selections…", 0, 0, true)
 		mapper := pathmap.New(cfg.ProjectRoot, cfg.Mappings, host)
+		classifier, classifyErr := fs.NewClassifier(cfg.ProjectRoot)
+		if classifyErr != nil {
+			return abort(classifyErr)
+		}
 		var items []diffLoadItem
+		var scope syncpolicy.ScopeSummary
+		type candidatePair struct {
+			local  string
+			remote string
+		}
+		var candidatePairs []candidatePair
 		seenPairs := map[string]struct{}{}
+		seenSkipped := map[string]struct{}{}
+		explicitFiles := map[string]struct{}{}
+
+		// Collect direct file selections before expanding any selected directory.
+		// This makes explicit ignore exceptions independent of selection order.
+		for _, localPath := range sortedMarkedPaths(localSel) {
+			if info, statErr := root.Stat(localPath); statErr == nil && !info.IsDir() {
+				explicitFiles[localPath] = struct{}{}
+			}
+		}
+		for _, remotePath := range sortedMarkedPaths(remoteSel) {
+			localPath, mapErr := mapper.RemoteToLocal(remotePath)
+			if mapErr != nil {
+				continue
+			}
+			if info, statErr := conn.Stat(remotePath); statErr == nil && !info.IsDir() {
+				explicitFiles[localPath] = struct{}{}
+			}
+		}
 
 		addError := func(localPath, remotePath string, err error) {
 			items = append(items, diffLoadItem{LocalPath: localPath, RemotePath: remotePath, Err: err})
 		}
 
-		// addFile queues one local/remote file pair for comparison. Identical files
-		// are skipped after the parallel compare phase.
+		countSkipped := func(localPath string, class fs.PathClass, isDir bool) {
+			key := localPath + fmt.Sprintf("\x00%t", isDir)
+			if _, seen := seenSkipped[key]; seen {
+				return
+			}
+			seenSkipped[key] = struct{}{}
+			if class.HardExcluded {
+				scope.HardExcludedSkipped++
+			} else if isDir {
+				scope.IgnoredDirsSkipped++
+			} else {
+				scope.IgnoredFilesSkipped++
+			}
+		}
+
+		// Candidate pairs are classified together after both walks. This keeps
+		// remote-only paths on the same batched Git invocation as local paths.
 		addFile := func(localPath, remotePath string) {
 			key := localPath + "\x00" + remotePath
 			if _, seen := seenPairs[key]; seen {
 				return
 			}
 			seenPairs[key] = struct{}{}
-			items = append(items, diffLoadItem{LocalPath: localPath, RemotePath: remotePath, Compare: true})
+			candidatePairs = append(candidatePairs, candidatePair{local: localPath, remote: remotePath})
 		}
 
 		for _, localPath := range sortedMarkedPaths(localSel) {
@@ -766,6 +862,15 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			activity.touch()
 			if statErr != nil {
 				addError(localPath, "", statErr)
+				continue
+			}
+			classes, classErr := classifier.ClassifyBatch(ctx, []fs.ClassifyCandidate{{Path: localPath, IsDir: info.IsDir()}})
+			if classErr != nil {
+				return abort(classErr)
+			}
+			class := classes[0]
+			if class.HardExcluded || (info.IsDir() && class.Ignored && !options.IncludeIgnored) {
+				countSkipped(localPath, class, info.IsDir())
 				continue
 			}
 
@@ -782,7 +887,9 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 
 			// ── Directory: walk local side first ─────────────────────
 			seenLocal := map[string]struct{}{}
-			if walkErr := activity.walkLocal(localPath, func(p string) error {
+			if walkErr := activity.walkLocalScope(localPath, classifier, options.IncludeIgnored, func(path string, class fs.PathClass) {
+				countSkipped(path, class, true)
+			}, func(p string) error {
 				seenLocal[p] = struct{}{}
 				remotePath, mapErr := mapper.LocalToRemote(p)
 				if mapErr != nil {
@@ -811,7 +918,11 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 				addFile(localFilePath, remotePath)
 				return nil
 			}); walkErr != nil {
-				addError(localPath, "", fmt.Errorf("walk remote: %w", walkErr))
+				// A missing counterpart is expected for a local-only directory.
+				// Verify the root itself so a failed descendant listing stays visible.
+				if _, statErr := conn.Stat(remoteDir); !errors.Is(statErr, os.ErrNotExist) {
+					addError(localPath, remoteDir, fmt.Errorf("walk remote: %w", walkErr))
+				}
 			}
 		}
 
@@ -831,6 +942,15 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			info, statErr := conn.Stat(remotePath)
 			if statErr != nil {
 				addError(localPath, remotePath, statErr)
+				continue
+			}
+			classes, classErr := classifier.ClassifyBatch(ctx, []fs.ClassifyCandidate{{Path: localPath, IsDir: info.IsDir()}})
+			if classErr != nil {
+				return abort(classErr)
+			}
+			class := classes[0]
+			if class.HardExcluded || (info.IsDir() && class.Ignored && !options.IncludeIgnored) {
+				countSkipped(localPath, class, info.IsDir())
 				continue
 			}
 
@@ -866,7 +986,9 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			if !localInfo.IsDir() {
 				continue
 			}
-			if walkErr := activity.walkLocal(localPath, func(p string) error {
+			if walkErr := activity.walkLocalScope(localPath, classifier, options.IncludeIgnored, func(path string, class fs.PathClass) {
+				countSkipped(path, class, true)
+			}, func(p string) error {
 				remoteFilePath, revErr := mapper.LocalToRemote(p)
 				if revErr != nil {
 					addError(p, "", revErr)
@@ -884,6 +1006,30 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 
 		if err := ctx.Err(); err != nil {
 			return abort(err)
+		}
+		classifyCandidates := make([]fs.ClassifyCandidate, len(candidatePairs))
+		for i, pair := range candidatePairs {
+			classifyCandidates[i] = fs.ClassifyCandidate{Path: pair.local}
+		}
+		classes, classifyErr := classifier.ClassifyBatch(ctx, classifyCandidates)
+		if classifyErr != nil {
+			return abort(classifyErr)
+		}
+		for i, pair := range candidatePairs {
+			class := classes[i]
+			_, explicit := explicitFiles[pair.local]
+			if class.HardExcluded || (class.Ignored && !options.IncludeIgnored && !explicit) {
+				countSkipped(pair.local, class, false)
+				continue
+			}
+			scope.Pairs++
+			if class.Hidden || remotePathHidden(pair.remote, host.RootPath) {
+				scope.Hidden++
+			}
+			if class.Ignored && explicit && !options.IncludeIgnored {
+				scope.ExplicitIgnoredIncluded++
+			}
+			items = append(items, diffLoadItem{LocalPath: pair.local, RemotePath: pair.remote, Compare: true})
 		}
 
 		sessions, securityErr := loadDiffItems(root, host, conn, items, progress, trust, required)
@@ -906,6 +1052,8 @@ func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.Selecti
 			Sessions:  sessions,
 			Conn:      primary,
 			Root:      root,
+			Scope:     scope,
+			Options:   options,
 		}
 	}
 }

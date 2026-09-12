@@ -8,6 +8,7 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Screen layout of the split browser, top to bottom:
@@ -59,11 +60,11 @@ func (m Model) View() string {
 
 	sb.WriteString(m.renderHeader())
 	sb.WriteByte('\n')
-	sb.WriteString(m.renderSep())
+	sb.WriteString(m.renderPaneSep(leftW, rightW))
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderPaneLabels(leftW, rightW))
 	sb.WriteByte('\n')
-	sb.WriteString(m.renderSep())
+	sb.WriteString(m.renderPaneSep(leftW, rightW))
 	sb.WriteByte('\n')
 
 	vh := m.viewportHeight()
@@ -83,7 +84,7 @@ func (m Model) View() string {
 		sb.WriteByte('\n')
 	}
 
-	sb.WriteString(m.renderSep())
+	sb.WriteString(m.renderPaneSep(leftW, rightW))
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderStatus(localEntries))
 
@@ -112,9 +113,9 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderPaneLabels(leftW, rightW int) string {
-	localLabel := styles.Key.Render("  LOCAL  ") + styles.Muted.Render(truncLeftPath(m.absWorkDir(), leftW-10))
-	if m.activePane != PaneLocal {
-		localLabel = styles.Muted.Render("  LOCAL  ") + styles.Muted.Render(truncLeftPath(m.absWorkDir(), leftW-10))
+	localLabel := styles.Muted.Render("  LOCAL  " + truncLeftPath(m.absWorkDir(), leftW-9))
+	if m.activePane == PaneLocal {
+		localLabel = styles.ActivePane.Render(padRight("▶ LOCAL  "+truncLeftPath(m.absWorkDir(), leftW-9), leftW))
 	}
 
 	remotePath := "[@] select host"
@@ -123,11 +124,19 @@ func (m Model) renderPaneLabels(leftW, rightW int) string {
 		remoteName = "REMOTE " + m.remoteHost.Name
 		remotePath = m.remoteRoot
 	}
-	remoteHead := styles.Key.Render("  " + remoteName + "  ")
-	if m.activePane != PaneRemote {
-		remoteHead = styles.Muted.Render("  " + remoteName + "  ")
+	remoteText := remoteName + "  " + truncLeftPath(remotePath, rightW-lipgloss.Width(remoteName)-4)
+	remoteLabel := styles.Muted.Render("  " + remoteText)
+	if m.activePane == PaneRemote {
+		remoteLabel = styles.ActivePane.Render(padRight(truncate("▶ "+remoteText, rightW), rightW))
 	}
-	remoteLabel := remoteHead + styles.Muted.Render(truncLeftPath(remotePath, rightW-lipgloss.Width(remoteName)-4))
+
+	if m.remoteHost == nil {
+		if m.activePane == PaneRemote {
+			remoteLabel = styles.KeyHints(padRight(truncate("▶ "+remoteText, rightW), rightW), styles.ActivePane)
+		} else {
+			remoteLabel = styles.KeyHints("  "+remoteText, styles.Muted)
+		}
+	}
 
 	if m.preview.active {
 		if m.preview.source == PaneLocal {
@@ -140,11 +149,37 @@ func (m Model) renderPaneLabels(leftW, rightW int) string {
 	return padRight(truncate(localLabel, leftW), leftW) + styles.Sep.Render("│") + padRight(truncate(remoteLabel, rightW), rightW)
 }
 
+func (m Model) renderPaneSep(leftW, rightW int) string {
+	leftStyle, rightStyle := styles.Sep, styles.Sep
+	if m.activePane == PaneLocal {
+		leftStyle = styles.Dir
+	} else {
+		rightStyle = styles.Dir
+	}
+	return leftStyle.Render(strings.Repeat("─", leftW)) + styles.Sep.Render("┼") + rightStyle.Render(strings.Repeat("─", rightW))
+}
+
 func (m Model) renderSep() string {
 	return styles.Sep.Render(strings.Repeat("─", m.Width))
 }
 
 func (m Model) renderLocalRow(entries []*fs.FileEntry, i, width int) string {
+	if i == 0 && len(entries) == 0 {
+		message := "Folder is empty"
+		if len(m.entries) > 0 {
+			message = "Only excluded entries"
+			for _, entry := range m.entries {
+				if !entry.Class.HardExcluded {
+					message = "Hidden by visibility settings ([.]/[I])"
+				}
+				if m.visible(entry) {
+					message = "No filter matches ([Esc] clear)"
+					break
+				}
+			}
+		}
+		return padRight(truncate("  "+styles.KeyHints(message, styles.Muted), width), width)
+	}
 	if i < 0 || i >= len(entries) {
 		return strings.Repeat(" ", width)
 	}
@@ -152,10 +187,11 @@ func (m Model) renderLocalRow(entries []*fs.FileEntry, i, width int) string {
 }
 
 func (m Model) renderRemoteRow(i, width int) string {
+	entries := m.visibleRemoteEntries()
 	switch {
 	case m.remoteHost == nil:
 		if i == 0 {
-			return padRight("  "+styles.Muted.Render("press [@] to choose remote host"), width)
+			return padRight("  "+styles.KeyHints("press [@] to choose remote host", styles.Muted), width)
 		}
 		return strings.Repeat(" ", width)
 	case m.remoteLoading:
@@ -163,15 +199,27 @@ func (m Model) renderRemoteRow(i, width int) string {
 			return padRight("  "+styles.Muted.Render(m.remoteStatus), width)
 		}
 		return strings.Repeat(" ", width)
-	case len(m.remoteEntries) == 0:
+	case len(entries) == 0:
 		if i == 0 {
-			return padRight("  "+styles.Muted.Render("empty"), width)
+			message := "Folder is empty"
+			if len(m.remoteEntries) > 0 {
+				message = "Only excluded entries"
+				for _, entry := range m.remoteEntries {
+					if !entry.Class.HardExcluded {
+						message = "Hidden by visibility settings ([.]/[I])"
+						break
+					}
+				}
+			} else if m.remoteConn == nil {
+				message = "Remote unavailable. [r] reconnect"
+			}
+			return padRight(truncate("  "+styles.KeyHints(message, styles.Muted), width), width)
 		}
 		return strings.Repeat(" ", width)
-	case i < 0 || i >= len(m.remoteEntries):
+	case i < 0 || i >= len(entries):
 		return strings.Repeat(" ", width)
 	default:
-		return m.renderEntry(m.remoteEntries[i], i == m.remoteCursor && m.activePane == PaneRemote, width, m.RemoteSelection, "")
+		return m.renderEntry(entries[i], i == m.remoteCursor && m.activePane == PaneRemote, width, m.RemoteSelection, "")
 	}
 }
 
@@ -237,7 +285,30 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 	}
 
 	var name string
-	if filter != "" {
+	if isCursor {
+		label := entry.Name
+		if entry.Kind == fs.EntryDir {
+			label += "/"
+		} else if entry.Kind == fs.EntrySymlink {
+			label += "@"
+		}
+		name = styles.CurrentEntry.Render(label)
+		if entry.Unmapped {
+			name += styles.Warn.Render(" [outside mapping]")
+		} else if entry.Class.Ignored {
+			name += styles.Muted.Render(" [ignored]")
+		}
+	} else if entry.Unmapped {
+		name = styles.Warn.Render(entry.Name + " [outside mapping]")
+	} else if entry.Class.Ignored {
+		suffix := ""
+		if entry.Kind == fs.EntryDir {
+			suffix = "/"
+		} else if entry.Kind == fs.EntrySymlink {
+			suffix = "@"
+		}
+		name = styles.Muted.Render(entry.Name + suffix + " [ignored]")
+	} else if filter != "" {
 		name = highlightMatch(entry.Name, filter, entry.Kind)
 	} else {
 		switch entry.Kind {
@@ -250,19 +321,44 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		}
 	}
 
+	descendantsMarked := 0
+	if entry.Kind == fs.EntryDir && !entry.Expanded && selection != nil {
+		prefix := strings.TrimSuffix(filepath.Clean(entry.Path), string(filepath.Separator)) + string(filepath.Separator)
+		for selectedPath := range selection.Marked {
+			if filepath.Clean(selectedPath) != filepath.Clean(entry.Path) && strings.HasPrefix(filepath.Clean(selectedPath), prefix) {
+				descendantsMarked++
+			}
+		}
+	}
+
 	line := indent + icon + mark + name
 	maxW := width - 1
-	if lipgloss.Width(line) > maxW {
+	if descendantsMarked > 0 {
+		badge := styles.Marked.Render(fmt.Sprintf(" · %d marked", descendantsMarked))
+		if lipgloss.Width(badge)+3 > maxW {
+			badge = styles.Marked.Render(fmt.Sprintf(" · %d", descendantsMarked))
+		}
+		badge = ansi.Truncate(badge, max(0, maxW), "")
+		prefix := ansi.Truncate(indent+icon+mark, max(0, maxW-lipgloss.Width(badge)-1), "")
+		nameWidth := max(0, maxW-lipgloss.Width(prefix)-lipgloss.Width(badge))
+		line = prefix + ansi.Truncate(name, nameWidth, "…") + badge
+	} else if lipgloss.Width(line) > maxW {
 		prefix := indent + icon + mark
 		available := maxW - lipgloss.Width(prefix) - 1
 		if available < 1 {
 			available = 1
 		}
 		short := truncatePlain(entry.Name, available) + "…"
-		switch entry.Kind {
-		case fs.EntryDir:
+		switch {
+		case isCursor:
+			name = styles.CurrentEntry.Render(short)
+		case entry.Unmapped:
+			name = styles.Warn.Render(short)
+		case entry.Class.Ignored:
+			name = styles.Muted.Render(short)
+		case entry.Kind == fs.EntryDir:
 			name = styles.Dir.Render(short)
-		case fs.EntrySymlink:
+		case entry.Kind == fs.EntrySymlink:
 			name = styles.Link.Render(short)
 		default:
 			name = styles.File.Render(short)
@@ -286,24 +382,29 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	case m.preview.active && m.preview.loading:
 		left = styles.Muted.Render("Loading preview…")
 	case m.statusMsg != "":
-		left = styles.Muted.Render(m.statusMsg)
+		left = styles.KeyHints(m.statusMsg, styles.Muted)
 	case selectionCount(m.Selection)+selectionCount(m.RemoteSelection) > 0:
 		left = styles.Marked.Render(markedStatus(selectionCount(m.Selection), selectionCount(m.RemoteSelection)))
+		if hidden := m.hiddenSelectionCount(); hidden > 0 {
+			left += "  " + styles.Muted.Render(fmt.Sprintf("%d hidden", hidden))
+		}
 		if m.remoteStatus != "" {
-			left += "  " + styles.Muted.Render(m.remoteStatus)
+			left += "  " + styles.KeyHints(m.remoteStatus, styles.Muted)
 		}
 	default:
 		left = styles.Muted.Render(fmt.Sprintf("%d local items", len(entries)))
 		if m.remoteStatus != "" {
-			left += "  " + styles.Muted.Render(m.remoteStatus)
+			left += "  " + styles.KeyHints(m.remoteStatus, styles.Muted)
 		}
 	}
 
-	help := HelpText()
+	// Reserve a short status area, but never let a long message push help off-screen.
+	helpWidth := max(0, m.Width-3-min(lipgloss.Width(left), m.Width/3))
+	right := HelpText(m.showHidden, m.showIgnored, helpWidth)
 	if m.preview.active {
-		help = "[p]close  [c]copy  [drag]select  [PgUp/PgDown]scroll  [Home/End]jump"
+		right = PreviewHelpText(helpWidth)
 	}
-	right := styles.Muted.Render(help)
+	left = truncate(left, max(0, m.Width-lipgloss.Width(right)-3))
 	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
@@ -336,11 +437,22 @@ func (m Model) renderHelp() string {
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderSep())
 	sb.WriteByte('\n')
-	sb.WriteString(styles.File.Render(FullHelp()))
+	for i, line := range strings.Split(FullHelp(), "\n") {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
+		key, description, ok := strings.Cut(strings.TrimPrefix(line, "  "), "  ")
+		if ok && strings.TrimSpace(key) != "" {
+			sb.WriteString(styles.Dir.Render("  " + key))
+			sb.WriteString(styles.File.Render("  " + description))
+		} else {
+			sb.WriteString(styles.File.Render(line))
+		}
+	}
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderSep())
 	sb.WriteByte('\n')
-	sb.WriteString(styles.Muted.Render("  [?] close help"))
+	sb.WriteString(styles.KeyHints("  [?] close help", styles.Muted))
 	return sb.String()
 }
 
@@ -365,8 +477,19 @@ func (m Model) renderFinder() string {
 		sb.WriteString(padRight("  "+styles.Muted.Render("indexing project…"), m.Width))
 		sb.WriteByte('\n')
 		rendered++
+	case m.finder.err != "":
+		sb.WriteString(padRight("  "+styles.Err.Render("index failed: "+m.finder.err), m.Width))
+		sb.WriteByte('\n')
+		rendered++
 	case len(m.finder.results) == 0:
-		sb.WriteString(padRight("  "+styles.Muted.Render("no matches"), m.Width))
+		message := "No filter matches. Change the query."
+		if len(m.finder.rel) == 0 {
+			message = "No searchable files"
+			if m.finder.hidden > 0 {
+				message = "Files hidden. [Esc], then [.] / [I] to show."
+			}
+		}
+		sb.WriteString(padRight(truncate("  "+styles.KeyHints(message, styles.Muted), m.Width), m.Width))
 		sb.WriteByte('\n')
 		rendered++
 	default:
@@ -389,9 +512,11 @@ func (m Model) renderFinder() string {
 
 	sb.WriteString(m.renderSep())
 	sb.WriteByte('\n')
-	help := fmt.Sprintf("  %d/%d  ·  [↑↓] move  [Space] mark  [Enter] done  [Esc] cancel  ·  %d marked",
-		len(m.finder.results), len(m.finder.rel), m.Selection.Count())
-	sb.WriteString(padRight(styles.Muted.Render(help), m.Width))
+	help := fitKeyHints(max(0, m.Width-2),
+		keyHint("Space", "mark"), keyHint("Enter", "done"), keyHint("↑↓", "move"),
+		styles.Muted.Render(fmt.Sprintf("%d/%d · %d marked", len(m.finder.results), len(m.finder.rel), selectionCount(m.Selection))),
+		keyHint("Esc", "cancel"))
+	sb.WriteString(padRight("  "+help, m.Width))
 	return sb.String()
 }
 
@@ -417,9 +542,12 @@ func (m Model) renderFinderRow(i int) string {
 	}
 	baseStyle := styles.Muted
 	if active {
-		baseStyle = styles.File
+		baseStyle = styles.CurrentEntry
 	}
 	line := cursor + mark + highlightRunes(r.rel, r.matched, baseStart, baseStyle)
+	if r.ignored {
+		line += styles.Muted.Render(" [ignored]")
+	}
 
 	if dir != "." {
 		remaining := (m.Width - 1) - lipgloss.Width(line) - 2

@@ -57,6 +57,7 @@ type AppState struct {
 	// Browser
 	Selection       *fs.SelectionState
 	RemoteSelection *fs.SelectionState
+	ScopeOptions    internalsync.ScopeOptions
 
 	// Host selector / selected sync target
 	SelectedHost        *config.Host

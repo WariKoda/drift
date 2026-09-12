@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"path/filepath"
 
 	"github.com/WariKoda/drift/internal/fs"
@@ -17,10 +18,14 @@ import (
 type finder struct {
 	active  bool
 	loading bool
+	id      uint64
 	query   string
+	err     string
 
-	rel []string // file paths relative to WorkDir (display + match source)
-	abs []string // absolute paths, index-aligned with rel
+	rel     []string // file paths relative to WorkDir (display + match source)
+	abs     []string // absolute paths, index-aligned with rel
+	ignored []bool   // index-aligned classification for rendering
+	hidden  int      // files omitted by visibility settings
 
 	results []finderResult
 	cursor  int
@@ -31,30 +36,66 @@ type finderResult struct {
 	rel     string
 	abs     string
 	matched []int // rune indexes in rel that matched the query (for highlighting)
+	ignored bool
 }
 
 // msgFinderIndex carries the result of the async project walk.
 type msgFinderIndex struct {
-	base string
-	rel  []string
-	abs  []string
+	base    string
+	id      uint64
+	session *string
+	rel     []string
+	abs     []string
+	ignored []bool
+	hidden  int
+	err     error
 }
 
 // buildFinderIndexCmd walks base and returns every file path (abs + relative).
-func buildFinderIndexCmd(base string) tea.Cmd {
+func buildFinderIndexCmd(base string, classifier *fs.Classifier, showHidden, showIgnored bool, id uint64, session *string) tea.Cmd {
 	return func() tea.Msg {
-		var rel, abs []string
-		_ = fs.WalkFiles(base, func(p string) error {
-			r, err := filepath.Rel(base, p)
-			if err != nil {
-				r = p
-			}
-			rel = append(rel, r)
-			abs = append(abs, p)
+		var walked []string
+		err := fs.WalkFiles(base, func(path string) error {
+			walked = append(walked, path)
 			return nil
 		})
-		return msgFinderIndex{base: base, rel: rel, abs: abs}
+		if err != nil {
+			return msgFinderIndex{base: base, id: id, session: session, err: err}
+		}
+		candidates := make([]fs.ClassifyCandidate, len(walked))
+		for i, path := range walked {
+			candidates[i] = fs.ClassifyCandidate{Path: path}
+		}
+		classes, err := classifier.ClassifyBatch(context.Background(), candidates)
+		if err != nil {
+			return msgFinderIndex{base: base, id: id, session: session, err: err}
+		}
+		var rel, abs []string
+		var ignored []bool
+		hidden := 0
+		for i, path := range walked {
+			class := classes[i]
+			if class.HardExcluded {
+				continue
+			}
+			if (!showHidden && class.Hidden) || (!showIgnored && class.Ignored) {
+				hidden++
+				continue
+			}
+			relative, relErr := filepath.Rel(base, path)
+			if relErr != nil {
+				relative = path
+			}
+			rel = append(rel, relative)
+			abs = append(abs, path)
+			ignored = append(ignored, class.Ignored)
+		}
+		return msgFinderIndex{base: base, id: id, session: session, rel: rel, abs: abs, ignored: ignored, hidden: hidden}
 	}
+}
+
+func (f *finder) ignoredAt(index int) bool {
+	return index >= 0 && index < len(f.ignored) && f.ignored[index]
 }
 
 // recompute rebuilds the results list from the current query.
@@ -62,7 +103,7 @@ func (f *finder) recompute() {
 	f.results = f.results[:0]
 	if f.query == "" {
 		for i, r := range f.rel {
-			f.results = append(f.results, finderResult{rel: r, abs: f.abs[i]})
+			f.results = append(f.results, finderResult{rel: r, abs: f.abs[i], ignored: f.ignoredAt(i)})
 		}
 	} else {
 		for _, mt := range fuzzy.Find(f.query, f.rel) {
@@ -70,6 +111,7 @@ func (f *finder) recompute() {
 				rel:     f.rel[mt.Index],
 				abs:     f.abs[mt.Index],
 				matched: mt.MatchedIndexes,
+				ignored: f.ignoredAt(mt.Index),
 			})
 		}
 	}

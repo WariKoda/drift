@@ -197,7 +197,7 @@ func (m Model) blockLeft() int {
 func (m Model) projectRows() []string {
 	if len(m.entries) == 0 {
 		return []string{styles.Muted.Render("No projects yet — press ") +
-			accentStyle.Render("n") + styles.Muted.Render(" to add one.")}
+			styles.Dir.Render("n") + styles.Muted.Render(" to add one.")}
 	}
 
 	start := m.windowStart()
@@ -247,12 +247,7 @@ func (m Model) renderRow(i, pathWidth int) string {
 	if i < 9 {
 		key = fmt.Sprintf("%d", i+1)
 	}
-	keyStyle := styles.Muted
-	if active {
-		keyStyle = accentStyle
-	}
-
-	return diamond + name + " " + path + " " + keyStyle.Render(key)
+	return diamond + name + " " + path + " " + styles.Dir.Render(key)
 }
 
 // footerBlock renders the action hints and the status line, bottom-pinned.
@@ -262,8 +257,8 @@ func (m Model) footerBlock(center func(string) string) []string {
 	case m.confirmDelete:
 		if e := m.currentEntry(); e != nil {
 			status = styles.Warn.Render(fmt.Sprintf("Remove %q from the registry?  ", e.proj.Name)) +
-				accentStyle.Render("y") + styles.Muted.Render("es  ") +
-				accentStyle.Render("n") + styles.Muted.Render("o")
+				styles.Dir.Render("y") + styles.Muted.Render("es  ") +
+				styles.Dir.Render("n") + styles.Muted.Render("o")
 		}
 	case m.statusMsg != "":
 		status = styles.Err.Render(m.statusMsg)
@@ -294,7 +289,7 @@ func (m Model) actionBar() string {
 	pairs = append(pairs, [2]string{"q", "quit"})
 	var parts []string
 	for _, p := range pairs {
-		parts = append(parts, styles.Key.Render("["+p[0]+"]")+styles.Muted.Render(" "+p[1]))
+		parts = append(parts, styles.Dir.Render("["+p[0]+"]")+styles.Muted.Render(" "+p[1]))
 	}
 	return strings.Join(parts, styles.Muted.Render("   "))
 }

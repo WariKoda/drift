@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/textproto"
 	"os"
 	"strings"
 
-	ftplib "github.com/jlaffaye/ftp"
 	"github.com/sergi/go-diff/diffmatchpatch"
 
 	"github.com/WariKoda/drift/internal/fs"
@@ -56,8 +54,8 @@ func CompareWithActivity(root *fs.Root, localPath, remotePath string, client Rem
 		result.ModRemote = remoteInfo.ModTime()
 	}
 
-	localMissing := isNotExistError(localErr)
-	remoteMissing := isNotExistError(remoteErr)
+	localMissing := errors.Is(localErr, os.ErrNotExist)
+	remoteMissing := errors.Is(remoteErr, os.ErrNotExist)
 	localExists := localErr == nil
 	remoteExists := remoteErr == nil
 
@@ -295,21 +293,5 @@ func isBinary(data []byte) bool {
 			return true
 		}
 	}
-	return false
-}
-
-func isNotExistError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
-		return true
-	}
-
-	var protoErr *textproto.Error
-	if errors.As(err, &protoErr) {
-		return protoErr.Code == ftplib.StatusFileUnavailable
-	}
-
 	return false
 }

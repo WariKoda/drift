@@ -511,6 +511,9 @@ type keepAliveServerOptions struct {
 	beforeData       <-chan struct{}
 	beforeFinal      <-chan struct{}
 	listError        bool
+	listings         map[string]string
+	listingErrors    map[string]string
+	sizeError        string
 	blockWorkerLogin bool
 }
 
@@ -697,7 +700,7 @@ func (s *keepAliveServer) serve(raw net.Conn) {
 		if err != nil {
 			return
 		}
-		command, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+		command, argument, _ := strings.Cut(strings.TrimSpace(line), " ")
 		s.commands <- ftpCommand{name: command, secure: secure}
 		blocked := command == s.options.block
 		if command == "USER" && s.options.blockWorkerLogin && s.logins.Add(1) > 1 {
@@ -729,7 +732,11 @@ func (s *keepAliveServer) serve(raw net.Conn) {
 		case "MLST":
 			reply("500 unsupported")
 		case "SIZE":
-			reply("213 7")
+			if s.options.sizeError != "" {
+				reply(s.options.sizeError)
+			} else {
+				reply("213 7")
+			}
 		case "MKD":
 			reply("257 created")
 		case "RNFR":
@@ -756,6 +763,10 @@ func (s *keepAliveServer) serve(raw net.Conn) {
 		case "RETR", "STOR", "MLSD":
 			if dataListener == nil {
 				reply("425 need EPSV")
+				continue
+			}
+			if command == "MLSD" && s.options.listingErrors[argument] != "" {
+				reply(s.options.listingErrors[argument])
 				continue
 			}
 			if command == "MLSD" && s.options.listError {
@@ -788,7 +799,11 @@ func (s *keepAliveServer) serve(raw net.Conn) {
 			case "RETR":
 				_, err = io.WriteString(stream, "payload")
 			case "MLSD":
-				_, err = io.WriteString(stream, "type=file;size=7;modify=20240102030405; file\r\n")
+				listing := "type=file;size=7;modify=20240102030405; file\r\n"
+				if s.options.listings != nil {
+					listing = s.options.listings[argument]
+				}
+				_, err = io.WriteString(stream, listing)
 			}
 			_ = stream.Close()
 			s.untrack(data)

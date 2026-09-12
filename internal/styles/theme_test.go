@@ -69,6 +69,29 @@ magenta = "#d3869b"
 	assertColor(t, "header", palette.Header, "#d3869b")
 }
 
+func TestOmarchyDirectoryColorIsIndependentOfAccent(t *testing.T) {
+	for _, tc := range []struct {
+		name, blue, color4, want string
+	}{
+		{"named blue takes precedence", "#7e9cd8", "#123456", "#7e9cd8"},
+		{"indexed blue fallback", "", "#123456", "#123456"},
+		{"accent fallback", "", "", "#dcd7ba"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			palette, err := paletteFromOmarchy(omarchyColors{
+				Blue: tc.blue, Color4: tc.color4,
+				Accent: "#dcd7ba", Foreground: "#dcd7ba",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertColor(t, "directory", palette.Dir, tc.want)
+			assertColor(t, "file", palette.File, "#dcd7ba")
+			assertColor(t, "accent", palette.Accent, "#dcd7ba")
+		})
+	}
+}
+
 func TestANSIPaletteCursorDiffersFromTerminalBackground(t *testing.T) {
 	assertColor(t, "cursor background", ansiPalette().CursorBg, "8")
 }

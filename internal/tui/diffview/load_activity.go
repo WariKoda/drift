@@ -173,16 +173,34 @@ func (c *loadClient) WalkFiles(root string, fn func(string) error) error {
 }
 
 func (a *loadActivity) walkLocal(root string, fn func(string) error) error {
+	return a.walkLocalScope(root, nil, true, nil, fn)
+}
+
+func (a *loadActivity) walkLocalScope(root string, classifier *fs.Classifier, includeIgnored bool, skippedDir func(string, fs.PathClass), fn func(string) error) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if cause := context.Cause(a.ctx); cause != nil {
 			return cause
 		}
 		a.touch()
 		if err != nil {
-			return nil // Match fs.WalkFiles' unreadable-entry policy.
+			return err
 		}
 		if d.IsDir() {
-			if path != root && fs.ShouldSkipDir(d.Name()) {
+			if path == root {
+				return nil
+			}
+			class := fs.PathClass{}
+			if classifier != nil {
+				classes, classifyErr := classifier.ClassifyBatch(a.ctx, []fs.ClassifyCandidate{{Path: path, IsDir: true}})
+				if classifyErr != nil {
+					return classifyErr
+				}
+				class = classes[0]
+			}
+			if class.HardExcluded || fs.ShouldSkipDir(d.Name()) || (class.Ignored && !includeIgnored) {
+				if skippedDir != nil {
+					skippedDir(path, class)
+				}
 				return filepath.SkipDir
 			}
 			return nil

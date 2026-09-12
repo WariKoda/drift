@@ -159,7 +159,7 @@ func (m Model) View() string {
 		}
 	}
 
-	inner.WriteString("\n" + styles.Muted.Render("  [Enter]select  [Esc]cancel"))
+	inner.WriteString("\n" + styles.KeyHints("  [Enter]select  [Esc]cancel", styles.Muted))
 
 	sb.WriteString(border.Render(inner.String()))
 	return sb.String()

@@ -18,6 +18,10 @@ func (m *Model) expandAt(i int) error {
 	if err != nil {
 		return err
 	}
+	children, err = m.classifyLocal(children)
+	if err != nil {
+		return err
+	}
 	for _, c := range children {
 		c.Depth = entry.Depth + 1
 		c.Parent = entry
@@ -32,20 +36,25 @@ func (m *Model) expandAt(i int) error {
 	newEntries = append(newEntries, m.entries[i+1:]...)
 	m.entries = newEntries
 
-	// Keep the directory and as many of its newly inserted children visible as
-	// the viewport allows. If the whole group fits, move only far enough to
-	// reveal its last child. Larger groups start at the directory itself.
-	if len(children) > 0 {
+	// Keep the directory and as many visible children as the viewport allows.
+	visibleChildren := 0
+	for _, child := range children {
+		if m.visible(child) && (m.filter == "" || contains(toLower(child.Name), toLower(m.filter))) {
+			visibleChildren++
+		}
+	}
+	entryVisible := indexEntry(m.filteredEntries(), entry)
+	if visibleChildren > 0 && entryVisible >= 0 {
 		viewportHeight := m.viewportHeight()
-		if len(children)+1 >= viewportHeight {
-			m.offset = i
+		if visibleChildren+1 >= viewportHeight {
+			m.offset = entryVisible
 		} else {
-			minimumOffset := i + len(children) - viewportHeight + 1
+			minimumOffset := entryVisible + visibleChildren - viewportHeight + 1
 			if m.offset < minimumOffset {
 				m.offset = minimumOffset
 			}
-			if m.offset > i {
-				m.offset = i
+			if m.offset > entryVisible {
+				m.offset = entryVisible
 			}
 		}
 		m.clampLocalOffset()
@@ -70,32 +79,29 @@ func (m *Model) collapseAt(i int) {
 	m.entries = append(m.entries[:i+1], m.entries[end:]...)
 }
 
-// parentIndex returns the index of the nearest ancestor of entries[i] in the flat list,
-// or -1 if the entry is at the root level (depth 0).
-func (m Model) parentIndex(i int) int {
-	depth := m.entries[i].Depth
-	if depth == 0 {
-		return -1
-	}
-	for j := i - 1; j >= 0; j-- {
-		if m.entries[j].Depth < depth {
-			return j
+func indexEntry(entries []*fs.FileEntry, entry *fs.FileEntry) int {
+	for i, candidate := range entries {
+		if candidate == entry {
+			return i
 		}
 	}
 	return -1
 }
 
-// filteredEntries returns entries matching the current filter string (case-insensitive).
-// If filter is empty, returns all entries.
+func (m Model) localIndex(entry *fs.FileEntry) int {
+	return indexEntry(m.entries, entry)
+}
+
+// filteredEntries is the single local projection used by rendering and input.
 func (m Model) filteredEntries() []*fs.FileEntry {
-	if m.filter == "" {
-		return m.entries
-	}
 	lower := toLower(m.filter)
 	var result []*fs.FileEntry
-	for _, e := range m.entries {
-		if contains(toLower(e.Name), lower) {
-			result = append(result, e)
+	for _, entry := range m.entries {
+		if !m.visible(entry) {
+			continue
+		}
+		if lower == "" || contains(toLower(entry.Name), lower) {
+			result = append(result, entry)
 		}
 	}
 	return result

@@ -17,12 +17,14 @@ const (
 
 // FileEntry represents a single file or directory, local or remote.
 type FileEntry struct {
-	Name    string
-	Path    string // absolute path (local or remote)
-	Kind    EntryKind
-	Size    int64
-	ModTime time.Time
-	Mode    fs.FileMode
+	Name     string
+	Path     string // absolute path (local or remote)
+	Kind     EntryKind
+	Size     int64
+	ModTime  time.Time
+	Mode     fs.FileMode
+	Class    PathClass // browser visibility and sync-scope classification
+	Unmapped bool      // remote entry cannot be translated into the local project
 
 	// Tree metadata (used by the browser TUI)
 	Depth    int
@@ -64,4 +66,16 @@ func (s *SelectionState) Clear() {
 // Count returns the number of marked entries.
 func (s *SelectionState) Count() int {
 	return len(s.Marked)
+}
+
+// Clone returns an independent snapshot of the current marks.
+func (s *SelectionState) Clone() *SelectionState {
+	clone := NewSelectionState()
+	if s == nil {
+		return clone
+	}
+	for path := range s.Marked {
+		clone.Marked[path] = struct{}{}
+	}
+	return clone
 }

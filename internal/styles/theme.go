@@ -203,6 +203,7 @@ func paletteFromOmarchy(c omarchyColors) (Palette, error) {
 	background := normalizeHex(first(c.Background, "#000000"))
 	foreground := normalizeHex(first(c.Foreground, c.Color7, "#ffffff"))
 	accent := normalizeHex(first(c.Accent, c.Blue, c.Color4, foreground))
+	directory := normalizeHex(first(c.Blue, c.Color4, accent))
 	muted := normalizeHex(first(c.Muted, c.DarkForeground, c.Color8, c.Color0, foreground))
 	red := normalizeHex(first(c.Red, c.Color9, c.Color1, "#ff0000"))
 	green := normalizeHex(first(c.Green, c.Color10, c.Color2, "#00ff00"))
@@ -217,7 +218,7 @@ func paletteFromOmarchy(c omarchyColors) (Palette, error) {
 	}
 
 	return Palette{
-		Dir:      lipgloss.Color(accent),
+		Dir:      lipgloss.Color(directory),
 		File:     lipgloss.Color(foreground),
 		Marked:   lipgloss.Color(yellow),
 		Symlink:  lipgloss.Color(cyan),

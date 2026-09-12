@@ -43,7 +43,7 @@ func (m Model) View() string {
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
-	sb.WriteString(styles.Muted.Render("  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel"))
+	sb.WriteString(styles.KeyHints("  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel", styles.Muted))
 
 	return sb.String()
 }

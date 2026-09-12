@@ -50,9 +50,9 @@ func (m Model) View() string {
 	}
 
 	inner.WriteString("\n  " +
-		styles.Key.Render("[Enter]") + styles.Muted.Render("open  ") +
-		styles.Key.Render("[m]") + styles.Muted.Render("manage  ") +
-		styles.Key.Render("[Esc]") + styles.Muted.Render("back"))
+		styles.Dir.Render("[Enter]") + styles.Muted.Render("open  ") +
+		styles.Dir.Render("[m]") + styles.Muted.Render("manage  ") +
+		styles.Dir.Render("[Esc]") + styles.Muted.Render("back"))
 
 	if m.statusMsg != "" {
 		inner.WriteByte('\n')

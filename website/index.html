@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#191d2b">
+  <title>drift | Local files. Remote hosts. Your terminal.</title>
+  <meta name="description" content="Browse, compare, and sync local and remote files from your terminal. An open-source TUI for SFTP, FTP, and FTPS on Linux and macOS.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="drift | Local files. Remote hosts. Your terminal.">
+  <meta property="og:description" content="Browse, compare, and sync files over SFTP, FTP, and FTPS. Free and open source for Linux and macOS.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-browser.png">
+  <meta property="og:image:alt" content="drift comparing a local file with its remote version in the terminal">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="drift | Local files. Remote hosts. Your terminal.">
+  <meta name="twitter:description" content="Browse, compare, and sync files over SFTP, FTP, and FTPS. Free and open source for Linux and macOS.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-browser.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="container header">
+    <a class="wordmark" href="#" aria-label="drift home">drift<span aria-hidden="true">_</span></a>
+    <nav aria-label="Main navigation">
+      <a href="#workflow">How it works</a>
+      <a href="https://github.com/WariKoda/drift#readme">Docs</a>
+      <a href="https://github.com/WariKoda/drift">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="container hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="availability"><span class="status-dot" aria-hidden="true"></span> Open source. Currently in alpha.</p>
+        <h1 id="hero-title">Local files.<br>Remote hosts.<br>Your terminal.</h1>
+        <p class="intro">See what's different. Choose what moves.<br class="desktop-break"> Browse, diff, and sync files with drift.</p>
+        <div class="actions">
+          <a class="button" href="#install">Install drift <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="https://github.com/WariKoda/drift">View source <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="compatibility">For Linux and macOS <span aria-hidden="true">/</span> Written in Go</p>
+      </div>
+      <div class="terminal" aria-label="Illustration of local and remote file comparison">
+        <div class="terminal-bar"><span>drift</span><span class="connected">● staging</span></div>
+        <div class="pane-headings"><span>Local <small>~/work/website</small></span><span>Remote <small>/var/www/html</small></span></div>
+        <div class="file-panes">
+          <div><div class="folder">▾ src/</div><div class="selected">&nbsp; ✓ index.html</div><div>&nbsp;&nbsp; styles.css</div><div>&nbsp;&nbsp; about.html</div><div class="folder">▸ assets/</div><div>&nbsp; README.md</div></div>
+          <div><div class="folder">▾ src/</div><div class="selected">&nbsp; ↑ index.html</div><div>&nbsp;&nbsp; styles.css</div><div>&nbsp;&nbsp; about.html</div><div class="folder">▸ assets/</div><div class="muted">&nbsp; README.md</div></div>
+        </div>
+        <div class="diff-heading">index.html <span>local → remote</span></div>
+        <div class="diff-lines"><div class="muted">&nbsp; &lt;main&gt;</div><div class="removed">− &nbsp;&lt;h1&gt;Hello, world.&lt;/h1&gt;</div><div class="added">+ &nbsp;&lt;h1&gt;Hello, from here.&lt;/h1&gt;</div><div class="muted">&nbsp; &lt;/main&gt;</div></div>
+        <div class="terminal-footer"><span><b>Space</b> direction</span><span><b>s</b> sync</span><span><b>q</b> back</span></div>
+        <p class="illustration-note">An example comparison. You choose the direction.</p>
+      </div>
+    </section>
+    <div class="container protocols"><p>Connect to the hosts you already use.</p><ul aria-label="Supported protocols"><li>SFTP / SSH</li><li>FTP</li><li>FTPS</li></ul></div>
+    <section class="container workflow section" id="workflow" aria-labelledby="workflow-title">
+      <div class="section-intro"><h2 id="workflow-title">Check the diff.<br>Then make the move.</h2><p>The remote deployment workflow you know from your IDE, right where you already work.</p></div>
+      <ol class="steps">
+        <li><div class="step-title"><span class="step-number">1</span><h3>Pick your files</h3></div><p>Browse local and remote directories side by side. Mark files or whole folders with <kbd>Space</kbd>, then press <kbd>s</kbd> to compare.</p></li>
+        <li><div class="step-title"><span class="step-number">2</span><h3>Review the changes</h3></div><p>Inspect the diff and choose a direction for each file. Upload, download, delete, or skip. You decide what gets synced.</p></li>
+        <li><div class="step-title"><span class="step-number">3</span><h3>Sync what you need</h3></div><p>Press <kbd>s</kbd> for the current file or <kbd>S</kbd> for the whole selection. Stay in the terminal and get back to work.</p></li>
+      </ol>
+    </section>
+    <section class="container details section" aria-labelledby="details-title">
+      <div class="product-shot"><a href="assets/drift-browser.png" aria-label="Open full-size drift screenshot"><img src="assets/drift-browser.png" alt="drift showing local and remote versions of composer.json, with a changed version number highlighted" width="1977" height="1269" loading="lazy"></a><p>A real look at drift. <a href="assets/drift-browser.png">Open full size <span aria-hidden="true">↗</span></a></p></div>
+      <div class="details-copy"><h2 id="details-title">Built for the files<br>between deployments.</h2>
+        <div><h3>A host for every project</h3><p>Switch between projects, manage your hosts, and map local folders to the right remote paths.</p></div>
+        <div><h3>Review before you transfer</h3><p>See the changes alongside your selected files. Adjust suggested sync directions before starting a transfer.</p></div>
+        <div><h3>Keep the working tree clean</h3><p>drift stores its configuration outside your project. No extra dotfiles to commit or ignore.</p></div>
+      </div>
+    </section>
+    <section class="container install section" id="install" aria-labelledby="install-title">
+      <div><h2 id="install-title">Meet your remote.<br>From your terminal.</h2><p>Install with Go, open your project, and run <code>drift</code>.</p><p class="requirements">Requires Go 1.25+ and Git on your PATH.<br>Available for Linux and macOS.</p><a class="text-link" href="https://github.com/WariKoda/drift#installation">Full installation guide <span aria-hidden="true">↗</span></a></div>
+      <div class="install-panel"><p class="command-label">Install the latest published version</p><pre tabindex="0" aria-label="Install command"><code><span aria-hidden="true">$ </span>go install github.com/WariKoda/drift@latest</code></pre><p class="command-label">Start in your project</p><pre tabindex="0" aria-label="Start drift"><code><span aria-hidden="true">$ </span>cd your-project
+<span aria-hidden="true">$ </span>drift</code></pre><p class="path-note">Make sure <code>$GOBIN</code>, or <code>$(go env GOPATH)/bin</code> when unset, is on your <code>PATH</code>.</p></div>
+    </section>
+    <aside class="container alpha-note"><span>Early days, open development.</span><p>drift is in alpha. Expect rough edges and breaking changes between releases. <a href="https://github.com/WariKoda/drift/issues">Report an issue</a> or <a href="https://github.com/WariKoda/drift/blob/main/CONTRIBUTING.md">contribute a fix</a>.</p></aside>
+  </main>
+  <footer class="container footer"><a class="wordmark" href="#">drift<span aria-hidden="true">_</span></a><p>A terminal tool by <a href="https://github.com/WariKoda">WariKoda</a>.</p><a href="https://github.com/WariKoda/drift/blob/main/LICENSE">MIT licensed</a></footer>
+</body>
+</html>

@@ -34,6 +34,14 @@ const (
 // bodyTop is the first screen row of the side-by-side body.
 const bodyTop = headerLines
 
+type comparisonEmptyState uint8
+
+const (
+	comparisonNotEmpty comparisonEmptyState = iota
+	comparisonNoDifferences
+	comparisonNoFiles
+)
+
 // contentTop returns the first screen row occupied by the diff content
 // (below the right-pane path chrome).
 func (m Model) contentTop() int {
@@ -51,28 +59,35 @@ func (m Model) View() string {
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 
-	// ── Body: file list | diff ───────────────────────────────────────
-	fw := m.fileListWidth()
-	dw := m.diffWidth()
-	left := m.renderFileListRows()
-	right := m.renderDiffPaneRows(s)
-	bh := m.bodyHeight()
-	for i := 0; i < bh; i++ {
-		l, r := "", ""
-		if i < len(left) {
-			l = left[i]
-		} else {
-			l = strings.Repeat(" ", fw)
+	// ── Body: comparison result or file list | diff ──────────────────
+	if state := m.comparisonEmptyState(); state != comparisonNotEmpty && !m.showErrors {
+		for _, row := range m.renderComparisonSplash(state) {
+			sb.WriteString(row)
+			sb.WriteByte('\n')
 		}
-		if i < len(right) {
-			r = right[i]
-		} else {
-			r = strings.Repeat(" ", dw)
+	} else {
+		fw := m.fileListWidth()
+		dw := m.diffWidth()
+		left := m.renderFileListRows()
+		right := m.renderDiffPaneRows(s)
+		bh := m.bodyHeight()
+		for i := 0; i < bh; i++ {
+			l, r := "", ""
+			if i < len(left) {
+				l = left[i]
+			} else {
+				l = strings.Repeat(" ", fw)
+			}
+			if i < len(right) {
+				r = right[i]
+			} else {
+				r = strings.Repeat(" ", dw)
+			}
+			sb.WriteString(l)
+			sb.WriteString(dividerStyle.Render("│"))
+			sb.WriteString(r)
+			sb.WriteByte('\n')
 		}
-		sb.WriteString(l)
-		sb.WriteString(dividerStyle.Render("│"))
-		sb.WriteString(r)
-		sb.WriteByte('\n')
 	}
 
 	// ── Bottom ────────────────────────────────────────────────────────
@@ -81,6 +96,64 @@ func (m Model) View() string {
 	sb.WriteString(m.renderStatus(s))
 
 	return sb.String()
+}
+
+func (m Model) comparisonEmptyState() comparisonEmptyState {
+	if !m.scopeSet {
+		return comparisonNotEmpty
+	}
+	if len(m.sessions) == 0 {
+		if m.scope.Pairs == 0 {
+			return comparisonNoFiles
+		}
+		return comparisonNoDifferences
+	}
+	for i := range m.sessions {
+		session := &m.sessions[i]
+		if session.Err != nil || session.Result == nil || session.Result.HasDiff() {
+			return comparisonNotEmpty
+		}
+	}
+	return comparisonNoDifferences
+}
+
+func (m Model) renderComparisonSplash(state comparisonEmptyState) []string {
+	title := "✓ No differences"
+	detail := "Local and remote files are identical."
+	count := m.scope.Pairs
+	if count == 0 {
+		count = len(m.sessions)
+	}
+	unit := "files"
+	if count == 1 {
+		unit = "file"
+	}
+	lines := []string{
+		styles.Accent.Render(title),
+		"",
+		styles.File.Render(fmt.Sprintf("%d %s compared", count, unit)),
+		styles.Muted.Render(detail),
+	}
+	if state == comparisonNoFiles {
+		lines = []string{
+			styles.Accent.Render("No files to compare"),
+			"",
+			styles.Muted.Render("The selected scope contains no comparable files."),
+		}
+	}
+
+	height := m.bodyHeight()
+	rows := blankRows(height, m.Width)
+	start := max(0, (height-len(lines))/2)
+	for i, line := range lines {
+		if start+i >= height {
+			break
+		}
+		line = ansi.Truncate(line, max(1, m.Width), "")
+		left := max(0, (m.Width-lipgloss.Width(line))/2)
+		rows[start+i] = pad(strings.Repeat(" ", left)+line, m.Width)
+	}
+	return rows
 }
 
 func (m Model) renderHeader() string {
@@ -110,6 +183,10 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 		before, after = after, before
 	}
 	legend := fmt.Sprintf("Line numbers: %s → %s (before → after)", before, after)
+	planned := m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) && m.syncDirs[m.activeIdx] != DirNone
+	if !planned {
+		legend = "No action · Compare only · Lines: Local → Remote"
+	}
 	rows = append(rows, pad(styles.Muted.Render(ansi.Truncate(legend, dw, "")), dw))
 	rows = append(rows, sepLine(dw))
 
@@ -127,7 +204,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	default:
-		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, m.remoteBeforeLocal())
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, m.remoteBeforeLocal(), planned)
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}
@@ -377,7 +454,9 @@ func (m Model) renderStatus(s *diff.Session) string {
 	case m.showErrors:
 		keys = styles.KeyHints("[e/q]close errors", styles.Muted)
 	default:
-		if m.scopeSet {
+		if m.comparisonEmptyState() != comparisonNotEmpty {
+			keys = styles.KeyHints("[i]include ignored  [r]refresh  [q]back", styles.Muted)
+		} else if m.scopeSet {
 			keys = styles.KeyHints("[i]include ignored  [s/S]sync  [r]refresh  [q]back", styles.Muted)
 		} else {
 			keys = styles.KeyHints("[Tab]file  [j/k/Pg/g/G]scroll  [[]/[]]hunk  [Enter]fold  [Space]dir  [s/S]sync  [r]refresh  [u/d]quick  [q]back", styles.Muted)

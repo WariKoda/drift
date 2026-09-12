@@ -29,6 +29,9 @@ type hit struct {
 // x > fileListWidth (past the │ divider) is the right pane. Within the right
 // pane only the rows below the path chrome map to diff lines.
 func (m Model) hitTest(x, y int) hit {
+	if m.comparisonEmptyState() != comparisonNotEmpty && !m.showErrors {
+		return hit{zoneNone, -1}
+	}
 	bh := m.bodyHeight()
 	if y < bodyTop || y >= bodyTop+bh {
 		return hit{zoneNone, -1}

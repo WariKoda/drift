@@ -136,6 +136,16 @@ func TestDiffHitTestContentBand(t *testing.T) {
 	})
 }
 
+func TestDiffHitTestIgnoresComparisonSplash(t *testing.T) {
+	m := testDiffModel(0)
+	m.scopeSet = true
+	m.scope.Pairs = 4
+
+	if got := m.hitTest(m.Width/2, bodyTop+m.bodyHeight()/2); got.zone != zoneNone || got.index != -1 {
+		t.Fatalf("splash hitTest = {%v, %d}, want {zoneNone, -1}", got.zone, got.index)
+	}
+}
+
 func TestDiffHitTestBlankFileRow(t *testing.T) {
 	m := testDiffModel(2)
 	// Body is taller than two sessions; rows past the last session are blank.

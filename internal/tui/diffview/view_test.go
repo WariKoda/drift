@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/diff"
+	syncpolicy "github.com/WariKoda/drift/internal/sync"
 )
 
 func TestViewRendersSideBySideFileListAndDiff(t *testing.T) {
@@ -108,6 +109,50 @@ func TestViewRendersBulkSyncFailureContext(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("error details do not contain %q: %q", want, rendered)
 		}
+	}
+}
+
+func TestViewRendersNoDifferencesSplash(t *testing.T) {
+	model := New(nil, testHost(), nil, nil, 100, 12)
+	model.SetScope(syncpolicy.ScopeSummary{Pairs: 12}, syncpolicy.ScopeOptions{})
+
+	rendered := model.View()
+	plain := stripANSI(rendered)
+	for _, want := range []string{"✓ No differences", "12 files compared", "Local and remote files are identical."} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("comparison splash does not contain %q: %q", want, plain)
+		}
+	}
+	for _, unwanted := range []string{"│", "Line numbers:"} {
+		if strings.Contains(plain, unwanted) {
+			t.Fatalf("comparison splash contains diff chrome %q: %q", unwanted, plain)
+		}
+	}
+	if rows := strings.Split(rendered, "\n"); len(rows) != model.Height {
+		t.Fatalf("view rendered %d rows, want terminal height %d", len(rows), model.Height)
+	}
+}
+
+func TestViewDistinguishesEmptyScopeFromIdenticalFiles(t *testing.T) {
+	model := New(nil, testHost(), nil, nil, 52, 8)
+	model.SetScope(syncpolicy.ScopeSummary{}, syncpolicy.ScopeOptions{})
+
+	plain := stripANSI(model.View())
+	if !strings.Contains(plain, "No files to compare") {
+		t.Fatalf("empty-scope splash missing: %q", plain)
+	}
+	if strings.Contains(plain, "identical") {
+		t.Fatalf("empty scope reported files as identical: %q", plain)
+	}
+}
+
+func TestViewDoesNotHideComparisonErrorsBehindSplash(t *testing.T) {
+	model := New([]diff.Session{{Err: fmt.Errorf("permission denied")}}, testHost(), nil, nil, 80, 10)
+	model.SetScope(syncpolicy.ScopeSummary{Pairs: 1}, syncpolicy.ScopeOptions{})
+
+	plain := stripANSI(model.View())
+	if strings.Contains(plain, "No differences") || !strings.Contains(plain, "permission denied") {
+		t.Fatalf("comparison error was hidden by splash: %q", plain)
 	}
 }
 

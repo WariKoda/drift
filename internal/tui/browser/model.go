@@ -78,6 +78,7 @@ type Model struct {
 	remoteLoading        bool
 	remoteReading        bool
 	remotePreviewReading bool
+	remotePreviewID      uint64 // generation of the dispatched read, independent of the current selection
 	remoteStatus         string
 	remoteLoadID         uint64
 	remoteSession        *string // unique identity across browser/project replacements

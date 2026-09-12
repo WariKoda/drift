@@ -80,7 +80,7 @@ func (m Model) hitTest(x, y int) hit {
 	}
 
 	idx := row + m.remoteOffset
-	if idx < 0 || idx >= len(m.remoteEntries) {
+	if idx < 0 || idx >= len(m.visibleRemoteEntries()) {
 		return noHit
 	}
 	return hit{zoneRemote, idx}
@@ -215,17 +215,22 @@ func (m Model) click(h hit, x, y int) (Model, tea.Cmd) {
 // activateLocal toggles a directory under the cursor, or opens a file, as a
 // double click is expected to behave in a file browser.
 func (m Model) activateLocal() (Model, tea.Cmd) {
-	if m.cursor < 0 || m.cursor >= len(m.entries) {
+	entries := m.filteredEntries()
+	if m.cursor < 0 || m.cursor >= len(entries) {
 		return m, nil
 	}
-	entry := m.entries[m.cursor]
+	entry := entries[m.cursor]
 	if entry.Kind != fs.EntryDir {
 		return m, m.schedulePreview()
 	}
+	raw := m.localIndex(entry)
+	if raw < 0 {
+		return m, nil
+	}
 	if entry.Expanded {
-		m.collapseAt(m.cursor)
+		m.collapseAt(raw)
 		m.clampScroll()
-	} else if err := m.expandAt(m.cursor); err != nil {
+	} else if err := m.expandAt(raw); err != nil {
 		m.statusMsg = "Error: " + err.Error()
 	} else {
 		m.clampScroll()

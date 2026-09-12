@@ -72,14 +72,14 @@ func (m *Model) startRemote(host config.Host, required *tlstrust.Challenge) tea.
 	m.activePane = PaneRemote
 	id := m.remoteLoadID
 	m.remoteTracker = loading.NewTracker(m.remoteStatus)
-	load := loadRemoteCmd(host, m.remoteTracker.Context(), id, m.remoteSession, m.trust, required)
+	load := loadRemoteCmd(host, m.remoteTracker.Context(), id, m.remoteSession, m.trust, required, m.classifier, m.config, m.WorkDir)
 	if closeCmd == nil {
 		return load
 	}
 	return tea.Sequence(closeCmd, load)
 }
 
-func loadRemoteCmd(host config.Host, parent context.Context, id uint64, session *string, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
+func loadRemoteCmd(host config.Host, parent context.Context, id uint64, session *string, trust *tlstrust.Manager, required *tlstrust.Challenge, classifier *fs.Classifier, cfg *config.MergedConfig, workDir string) tea.Cmd {
 	return func() tea.Msg {
 		root := remoteRoot(host)
 		msg := MsgRemoteLoaded{Host: host, Root: root, ID: id, session: session}
@@ -122,6 +122,16 @@ func loadRemoteCmd(host config.Host, parent context.Context, id uint64, session 
 			msg.Err = fmt.Errorf("read %s: %w", root, err)
 			return msg
 		}
+		classifierModel := Model{WorkDir: workDir, classifier: classifier, config: cfg}
+		entries, err = classifierModel.classifyRemote(entries, host)
+		if err != nil {
+			log.Error("remote browser classification failed", "remote", root, "err", err)
+			if closeErr := conn.Close(); closeErr != nil {
+				log.Error("close failed remote browser load", "err", closeErr)
+			}
+			msg.Err = fmt.Errorf("classify %s: %w", root, err)
+			return msg
+		}
 		for _, e := range entries {
 			e.Depth = 0
 		}
@@ -130,12 +140,18 @@ func loadRemoteCmd(host config.Host, parent context.Context, id uint64, session 
 	}
 }
 
-func readRemoteDirCmd(conn remote.Client, host config.Host, id uint64, session *string, parentPath string) tea.Cmd {
+func readRemoteDirCmd(conn remote.Client, host config.Host, id uint64, session *string, parentPath string, classifier *fs.Classifier, cfg *config.MergedConfig, workDir string) tea.Cmd {
 	return func() tea.Msg {
 		children, err := conn.ReadDir(parentPath)
 		if err != nil {
 			log.Error("remote browser directory read failed", "remote", parentPath, "err", err)
 			return MsgRemoteChildrenLoaded{Host: host, ID: id, session: session, ParentPath: parentPath, Err: fmt.Errorf("read %s: %w", parentPath, err)}
+		}
+		classifierModel := Model{WorkDir: workDir, classifier: classifier, config: cfg}
+		children, err = classifierModel.classifyRemote(children, host)
+		if err != nil {
+			log.Error("remote browser classification failed", "remote", parentPath, "err", err)
+			return MsgRemoteChildrenLoaded{Host: host, ID: id, session: session, ParentPath: parentPath, Err: fmt.Errorf("classify %s: %w", parentPath, err)}
 		}
 		return MsgRemoteChildrenLoaded{Host: host, ID: id, session: session, ParentPath: parentPath, Children: children}
 	}
@@ -184,7 +200,7 @@ func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
 		return
 	}
 	parent := m.remoteEntries[idx]
-	revealChildren := m.remoteCursor == idx
+	revealChildren := m.remoteCurrent() == parent
 	parent.Expanded = false
 	if msg.Err != nil {
 		m.remoteStatus = "Remote error: " + msg.Err.Error()
@@ -206,17 +222,24 @@ func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
 
 	// A remote read can finish after the user has moved elsewhere. Reveal the
 	// children only while the directory that started the read is still active.
-	if revealChildren && len(msg.Children) > 0 {
+	visibleChildren := 0
+	for _, child := range msg.Children {
+		if m.visible(child) {
+			visibleChildren++
+		}
+	}
+	parentVisible := indexEntry(m.visibleRemoteEntries(), parent)
+	if revealChildren && visibleChildren > 0 && parentVisible >= 0 {
 		viewportHeight := m.viewportHeight()
-		if len(msg.Children)+1 >= viewportHeight {
-			m.remoteOffset = idx
+		if visibleChildren+1 >= viewportHeight {
+			m.remoteOffset = parentVisible
 		} else {
-			minimumOffset := idx + len(msg.Children) - viewportHeight + 1
+			minimumOffset := parentVisible + visibleChildren - viewportHeight + 1
 			if m.remoteOffset < minimumOffset {
 				m.remoteOffset = minimumOffset
 			}
-			if m.remoteOffset > idx {
-				m.remoteOffset = idx
+			if m.remoteOffset > parentVisible {
+				m.remoteOffset = parentVisible
 			}
 		}
 	}
@@ -245,22 +268,20 @@ func (m *Model) collapseRemoteAt(i int) {
 	m.remoteEntries = append(m.remoteEntries[:i+1], m.remoteEntries[end:]...)
 }
 
-func (m Model) remoteParentIndex(i int) int {
-	depth := m.remoteEntries[i].Depth
-	if depth == 0 {
-		return -1
-	}
-	for j := i - 1; j >= 0; j-- {
-		if m.remoteEntries[j].Depth < depth {
-			return j
+func (m Model) visibleRemoteEntries() []*fs.FileEntry {
+	entries := make([]*fs.FileEntry, 0, len(m.remoteEntries))
+	for _, entry := range m.remoteEntries {
+		if m.visible(entry) {
+			entries = append(entries, entry)
 		}
 	}
-	return -1
+	return entries
 }
 
 func (m Model) remoteCurrent() *fs.FileEntry {
-	if m.remoteCursor < 0 || m.remoteCursor >= len(m.remoteEntries) {
+	entries := m.visibleRemoteEntries()
+	if m.remoteCursor < 0 || m.remoteCursor >= len(entries) {
 		return nil
 	}
-	return m.remoteEntries[m.remoteCursor]
+	return entries[m.remoteCursor]
 }

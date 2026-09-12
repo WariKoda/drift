@@ -274,7 +274,7 @@ func TestConnectionLateSuccessReturnsCloseCommand(t *testing.T) {
 			// Both the command's deferred cancel and this explicit parent cancel
 			// must be detached after ReadDir hands ownership to the result.
 			tracker.Cancel()
-			children := runBrowserConnectionCmd(t, readRemoteDirCmd(msg.Conn, msg.Host, msg.ID, msg.session, "/folder")).(MsgRemoteChildrenLoaded)
+			children := runBrowserConnectionCmd(t, readRemoteDirCmd(msg.Conn, msg.Host, msg.ID, msg.session, "/folder", nil, nil, "")).(MsgRemoteChildrenLoaded)
 			if children.Err != nil || children.session != msg.session || children.ID != msg.ID || len(children.Children) != 1 {
 				t.Fatalf("directory read after load-context cancellation = %#v", children)
 			}

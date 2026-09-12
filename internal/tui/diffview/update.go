@@ -86,7 +86,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.syncStatus = fmt.Sprintf("✓ %d  ✗ %d error(s) — [e] to view", msg.Done, len(msg.Errors))
 			m.showErrors = true
 		}
-		// Refresh diffs as the final phase of the same global activity.
+		if m.scopeSet {
+			m.finishActivity()
+			status := m.syncStatus
+			return m, func() tea.Msg {
+				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status}
+			}
+		}
+		// Legacy models without a scope request can only refresh existing pairs.
 		m.refreshing = true
 		m.activityLabel = "Refreshing diffs…"
 		m.activityTracker.Set(m.activityLabel, 0, len(m.sessions), len(m.sessions) == 0)
@@ -143,6 +150,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.quickSyncing = false
 			m.finishActivity()
 			return m, nil
+		}
+		if m.scopeSet {
+			m.quickSyncing = false
+			m.finishActivity()
+			status := m.syncStatus
+			return m, func() tea.Msg {
+				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status}
+			}
 		}
 		m.activityLabel = "Refreshing diff…"
 		m.activityTracker.Set(m.activityLabel, 0, 1, false)
@@ -328,9 +343,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.downloadCmd(m.activeIdx)
 		}
 
+	// ── Rebuild recursive scope with/without gitignored paths ──────────
+	case "i":
+		if !m.remoteBusy() {
+			return m, func() tea.Msg {
+				return MsgScopeReloadRequested{IncludeIgnored: !m.scopeOptions.IncludeIgnored}
+			}
+		}
+
 	// ── Refresh all diffs ──────────────────────────────────────────────
 	case "r":
 		if !m.remoteBusy() && m.connectionError() == nil {
+			if m.scopeSet {
+				return m, func() tea.Msg {
+					return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored}
+				}
+			}
 			m.refreshing = true
 			m.beginActivity("Refreshing diffs…", len(m.sessions))
 			return m, m.refreshCmd()

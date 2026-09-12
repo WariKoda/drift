@@ -147,8 +147,8 @@ func (m Model) renderStatus() string {
 		if e != nil {
 			msg := fmt.Sprintf("  Delete %q? ", e.host.Name)
 			return styles.Warn.Render(msg) +
-				styles.Key.Render("[y]") + styles.Muted.Render("es  ") +
-				styles.Key.Render("[n]") + styles.Muted.Render("o")
+				styles.Dir.Render("[y]") + styles.Muted.Render("es  ") +
+				styles.Dir.Render("[n]") + styles.Muted.Render("o")
 		}
 	}
 	if m.confirmReset {
@@ -156,8 +156,8 @@ func (m Model) renderStatus() string {
 		if e != nil {
 			msg := fmt.Sprintf("  Reset certificate trust for %q? This endpoint may be shared. ", e.host.Name)
 			return styles.Warn.Render(msg) +
-				styles.Key.Render("[y]") + styles.Muted.Render("es  ") +
-				styles.Key.Render("[n]") + styles.Muted.Render("o")
+				styles.Dir.Render("[y]") + styles.Muted.Render("es  ") +
+				styles.Dir.Render("[n]") + styles.Muted.Render("o")
 		}
 	}
 	if m.testing {
@@ -170,7 +170,7 @@ func (m Model) renderStatus() string {
 		return padRight(styles.Err.Render("  "+m.statusMsg), m.Width)
 	}
 	help := "  [n]new  [e]edit  [c]copy  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
-	return padRight(styles.Muted.Render(help), m.Width)
+	return padRight(styles.KeyHints(help, styles.Muted), m.Width)
 }
 
 func padRight(s string, width int) string {

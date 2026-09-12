@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,11 +23,11 @@ func ShouldSkipDir(name string) bool {
 }
 
 // WalkFiles calls fn for every regular file under root, recursively, in lexical
-// order.  Unreadable entries and directories in skipDirs are skipped.
+// order. Directories in skipDirs and symlinks are skipped; read errors stop the walk.
 func WalkFiles(root string, fn func(path string) error) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip unreadable entries
+			return err
 		}
 		if d.IsDir() {
 			if path != root && ShouldSkipDir(d.Name()) {
@@ -53,7 +54,7 @@ func ReadDir(dir string) ([]*FileEntry, error) {
 	for _, de := range des {
 		info, err := de.Info()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("stat %s: %w", filepath.Join(dir, de.Name()), err)
 		}
 
 		kind := EntryFile

@@ -83,8 +83,8 @@ func (m Model) modal(termWidth int) string {
 	}
 
 	lines = append(lines, "",
-		styles.Key.Render("[Esc]")+styles.Muted.Render(" hide  ")+
-			styles.Key.Render("[q]")+styles.Muted.Render(" cancel"))
+		styles.Dir.Render("[Esc]")+styles.Muted.Render(" hide  ")+
+			styles.Dir.Render("[q]")+styles.Muted.Render(" cancel"))
 	content := strings.Join(lines, "\n")
 	return styles.LoadingBox.Width(contentWidth).Render(content)
 }

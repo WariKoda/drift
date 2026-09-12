@@ -121,21 +121,22 @@ func TestCompare_ReturnsRemoteStatErrorsThatAreNotNotFound(t *testing.T) {
 	}
 }
 
-func TestCompare_TreatsFTP550AsNotFound(t *testing.T) {
+func TestCompare_PreservesAmbiguousFTP550(t *testing.T) {
 	root, dir := testRoot(t)
 	localPath := filepath.Join(dir, "local.txt")
 	if err := os.WriteFile(localPath, []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
+	wantErr := &textproto.Error{Code: 550, Msg: "File unavailable"}
 	result, err := Compare(root, localPath, "/remote/missing.txt", stubRemoteClient{
-		statErr: &textproto.Error{Code: 550, Msg: "File unavailable"},
+		statErr: wantErr,
 	})
-	if err != nil {
-		t.Fatalf("Compare returned error: %v", err)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Compare error = %v, want %v", err, wantErr)
 	}
-	if !result.LocalOnly {
-		t.Fatal("Compare did not treat FTP 550 as missing remote file")
+	if result.LocalOnly || result.RemoteOnly {
+		t.Fatal("Compare treated ambiguous FTP 550 as missing")
 	}
 }
 

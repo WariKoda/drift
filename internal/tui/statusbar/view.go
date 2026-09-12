@@ -18,7 +18,7 @@ const (
 )
 
 // Render returns a single-line status bar padded to width.
-// msg is shown on the left; keys on the right (dimmed).
+// msg is shown on the left; primary-colored keys and muted labels on the right.
 func Render(msg, keys string, kind Kind, width int) string {
 	var left string
 	switch kind {
@@ -30,7 +30,7 @@ func Render(msg, keys string, kind Kind, width int) string {
 		left = styles.Muted.Render(msg)
 	}
 
-	right := styles.Key.Render(keys)
+	right := styles.KeyHints(keys, styles.Muted)
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1

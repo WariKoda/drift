@@ -81,7 +81,9 @@ type Defaults struct {
 type UI struct {
 	// Mouse enables mouse reporting. Nil means unset; the default is enabled.
 	// A pointer is needed to tell "absent from the file" from an explicit false.
-	Mouse *bool `toml:"mouse,omitempty"`
+	Mouse       *bool `toml:"mouse,omitempty"`
+	ShowHidden  bool  `toml:"show_hidden,omitempty"`
+	ShowIgnored bool  `toml:"show_ignored,omitempty"`
 }
 
 // GlobalConfig is the structure of ~/.config/drift/config.toml.

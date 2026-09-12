@@ -265,7 +265,7 @@ func (m Model) renderErrorListRows(height, width int) []string {
 	rows := make([]string, 0, height)
 
 	title := styles.Err.Render(fmt.Sprintf("Sync errors (%d)", len(m.syncErrors)))
-	rows = append(rows, pad("  "+title+styles.Muted.Render("  — [e] or [q] to close"), width))
+	rows = append(rows, pad("  "+title+styles.KeyHints("  — [e] or [q] to close", styles.Muted), width))
 
 	for _, failure := range m.syncErrors {
 		if len(rows) >= height {
@@ -298,14 +298,25 @@ func (m Model) renderErrorListRows(height, width int) []string {
 func (m Model) renderSummaryRows(r *diff.DiffResult, height, width int) []string {
 	var lines []string
 	switch {
+	case r.LocalOnly:
+		lines = []string{"  " + styles.Warn.Render("local only")}
+	case r.RemoteOnly:
+		lines = []string{"  " + styles.Warn.Render("remote only")}
 	case r.Binary:
-		lines = []string{
-			"  " + styles.Muted.Render("Binary file — cannot show text diff"),
-			fmt.Sprintf("  local:  %s  (%d bytes)", r.ModLocal.Format("2006-01-02 15:04"), r.SizeLocal),
-			fmt.Sprintf("  remote: %s  (%d bytes)", r.ModRemote.Format("2006-01-02 15:04"), r.SizeRemote),
-		}
+		lines = []string{"  " + styles.Muted.Render("Binary file — cannot show text diff")}
 	default:
 		lines = []string{"  " + styles.Muted.Render("Files are identical")}
+	}
+	if r.LocalOnly || r.RemoteOnly || r.Binary {
+		local := "  local:  not present"
+		if !r.RemoteOnly {
+			local = fmt.Sprintf("  local:  %s  (%d bytes)", r.ModLocal.Format("2006-01-02 15:04"), r.SizeLocal)
+		}
+		remote := "  remote: not present"
+		if !r.LocalOnly {
+			remote = fmt.Sprintf("  remote: %s  (%d bytes)", r.ModRemote.Format("2006-01-02 15:04"), r.SizeRemote)
+		}
+		lines = append(lines, local, remote)
 	}
 	return paddedContentRows(lines, height, width)
 }
@@ -341,7 +352,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 			status += " [e]errors"
 		}
 		status += " [q]back"
-		return styles.Err.Render(ansi.Truncate(status, max(1, m.Width), "…"))
+		return ansi.Truncate(styles.KeyHints(status, styles.Err), max(1, m.Width), "…")
 	}
 	var info string
 	if s != nil && s.Result != nil {
@@ -364,21 +375,60 @@ func (m Model) renderStatus(s *diff.Session) string {
 	case m.refreshing:
 		keys = styles.Warn.Render("refreshing…")
 	case m.showErrors:
-		keys = styles.Muted.Render("[e/q]close errors")
+		keys = styles.KeyHints("[e/q]close errors", styles.Muted)
 	default:
-		keys = styles.Muted.Render("[Tab]file  [j/k/Pg/g/G]scroll  [[]/[]]hunk  [Enter]fold  [c]folds  [Space]dir  [s]sync  [S]sync-all  [r]refresh  [u/d]quick  [q]back")
+		if m.scopeSet {
+			keys = styles.KeyHints("[i]include ignored  [s/S]sync  [r]refresh  [q]back", styles.Muted)
+		} else {
+			keys = styles.KeyHints("[Tab]file  [j/k/Pg/g/G]scroll  [[]/[]]hunk  [Enter]fold  [Space]dir  [s/S]sync  [r]refresh  [u/d]quick  [q]back", styles.Muted)
+		}
 		if len(m.syncErrors) > 0 {
-			keys = styles.Err.Render("[e]errors  ") + keys
+			keys = styles.KeyHints("[e]errors  ", styles.Err) + keys
 		}
 	}
 	if m.syncStatus != "" && !m.remoteBusy() {
-		info = styles.File.Render(m.syncStatus)
+		info = styles.KeyHints(m.syncStatus, styles.File)
+	} else if scope := m.scopeSummaryLabel(); scope != "" {
+		if info != "" {
+			info += styles.Muted.Render(" · ")
+		}
+		info += styles.Muted.Render(scope)
 	}
+	availableInfo := m.Width - lipgloss.Width(keys) - 3
+	if availableInfo < 1 {
+		availableInfo = 1
+	}
+	info = ansi.Truncate(info, availableInfo, "…")
 	gap := m.Width - lipgloss.Width(info) - lipgloss.Width(keys) - 2
 	if gap < 1 {
 		gap = 1
 	}
 	return "  " + info + strings.Repeat(" ", gap) + keys
+}
+
+func (m Model) scopeSummaryLabel() string {
+	if !m.scopeSet {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d pairs", m.scope.Pairs), fmt.Sprintf("%d hidden", m.scope.Hidden)}
+	if m.scope.IgnoredFilesSkipped > 0 {
+		parts = append(parts, fmt.Sprintf("%d ignored skipped", m.scope.IgnoredFilesSkipped))
+	}
+	if m.scope.IgnoredDirsSkipped > 0 {
+		parts = append(parts, fmt.Sprintf("%d ignored dirs skipped", m.scope.IgnoredDirsSkipped))
+	}
+	if m.scope.HardExcludedSkipped > 0 {
+		parts = append(parts, fmt.Sprintf("%d fixed excluded", m.scope.HardExcludedSkipped))
+	}
+	if m.scope.ExplicitIgnoredIncluded > 0 {
+		parts = append(parts, fmt.Sprintf("%d explicit ignored included", m.scope.ExplicitIgnoredIncluded))
+	}
+	state := "off"
+	if m.scopeOptions.IncludeIgnored {
+		state = "on"
+	}
+	parts = append(parts, "include ignored: "+state)
+	return strings.Join(parts, " · ")
 }
 
 // syncProgressLabel renders the live bulk-sync progress as a small bar with a

@@ -67,8 +67,9 @@ type App struct {
 	// wants; 0 means none is pending. diffSeq issues those IDs. Results of
 	// abandoned requests are discarded instead of being applied to whatever
 	// state the app has moved on to.
-	diffRequest uint64
-	diffSeq     uint64
+	diffRequest       uint64
+	diffSeq           uint64
+	pendingDiffStatus string
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -102,6 +103,9 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 		return App{}, err
 	}
 	a.browser = b
+	if err := a.browser.SetConfig(cfg); err != nil {
+		return App{}, err
+	}
 	a.browser.SetMouseEnabled(mouseEnabled)
 	a.browser.SetTrustManager(a.trust)
 	a.state.Selection = b.Selection
@@ -278,6 +282,9 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	closeBrowser := a.browser.CloseRemote()
 	closeDiff := a.diffView.Close()
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
+	if err := b.SetConfig(cfg); err != nil {
+		return nil, err
+	}
 	b.SetProjectName(p.Name)
 	b.SetMouseEnabled(a.mouseEnabled)
 	b.SetTrustManager(a.trust)
@@ -287,6 +294,8 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	a.state.WorkingDir = p.Path
 	a.state.Selection = b.Selection
 	a.state.RemoteSelection = b.RemoteSelection
+	a.state.ScopeOptions.IncludeIgnored = false
+	a.pendingDiffStatus = ""
 	pc := p
 	a.state.ActiveProject = &pc
 	a.state.Screen = ScreenBrowser
@@ -612,14 +621,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Browser → Host Selector / direct sync ─────────────────────────
 	case browser.MsgSyncRequested:
+		a.pendingDiffStatus = ""
 		a.state.Selection = msg.Selection
 		a.state.RemoteSelection = msg.RemoteSelection
+		a.state.ScopeOptions = msg.Options
 		if msg.Host != nil {
 			h := *msg.Host
 			tracker := diffview.NewLoadProgressTracker()
 			return a, tea.Batch(
-				diffview.LoadCmd(a.beginDiffRequest(), h,
-					a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker, a.trust, nil),
+				diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
+					a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker, a.trust, nil, a.state.ScopeOptions),
 				a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 			)
 		}
@@ -645,8 +656,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		tracker := diffview.NewLoadProgressTracker()
 		return a, tea.Batch(
-			diffview.LoadCmd(a.beginDiffRequest(), h,
-				a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil),
+			diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
+				a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions),
 			a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 		)
 
@@ -729,6 +740,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.TermHeight,
 		)
 		a.diffView.SetTrustManager(a.trust)
+		a.diffView.SetScope(msg.Scope, msg.Options)
+		if a.pendingDiffStatus != "" {
+			a.diffView.SetStatus(a.pendingDiffStatus)
+			a.pendingDiffStatus = ""
+		}
 		failed := 0
 		for _, session := range msg.Sessions {
 			if session.Err != nil {
@@ -754,7 +770,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !loading.IsCanceled(msg.Err) {
 			a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		}
+		a.pendingDiffStatus = ""
 		return a, nil
+
+	// ── Diff view → rebuild recursive scope ────────────────────────────
+	case diffview.MsgScopeReloadRequested:
+		if a.state.Screen != ScreenDiffView || a.state.SelectedHost == nil {
+			return a, nil
+		}
+		a.state.ScopeOptions.IncludeIgnored = msg.IncludeIgnored
+		a.pendingDiffStatus = msg.Status
+		host := *a.state.SelectedHost
+		closeDiff := a.diffView.Close()
+		a.watchConnection(nil)
+		a.state.Screen = ScreenBrowser
+		tracker := diffview.NewLoadProgressTracker()
+		load := diffview.LoadCmdWithOptions(a.beginDiffRequest(), host,
+			a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions)
+		return a, tea.Sequence(closeDiff, tea.Batch(load,
+			a.startNetworkActivity(activityDiffLoad, "Rebuilding sync scope…", tracker)))
 
 	// ── Diff view → back to browser ───────────────────────────────────
 	case diffview.MsgBackToBrowser:
@@ -977,8 +1011,8 @@ func (a App) baseView() string {
 		content := styles.Header.Render("Register this project?") + "\n\n" +
 			styles.File.Render(a.state.PendingRegisterName) + "  " +
 			styles.Muted.Render(a.state.PendingRegisterPath) + "\n\n" +
-			styles.Key.Render("[y]") + styles.Muted.Render(" register   ") +
-			styles.Key.Render("[n]") + styles.Muted.Render(" skip")
+			styles.Dir.Render("[y]") + styles.Muted.Render(" register   ") +
+			styles.Dir.Render("[n]") + styles.Muted.Render(" skip")
 		return lipgloss.Place(
 			a.state.TermWidth, a.state.TermHeight,
 			lipgloss.Center, lipgloss.Center,
@@ -1047,14 +1081,12 @@ func replaceStatusLine(view string, width, height int, text string, isError bool
 	if len(lines) > height {
 		lines = lines[:height]
 	}
-	if width > 4 && lipgloss.Width(text) > width-4 {
-		text = ansi.Truncate(text, max(1, width-5), "") + "…"
-	}
-	line := "  " + text
+	line := styles.KeyHints("  "+text, styles.Warn)
 	if isError {
-		line = styles.Err.Render(line)
-	} else {
-		line = styles.Warn.Render(line)
+		line = styles.Err.Render("  " + text)
+	}
+	if width > 4 && lipgloss.Width(line) > width-2 {
+		line = ansi.Truncate(line, width-2, "…")
 	}
 	line += strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
 	lines[height-1] = line

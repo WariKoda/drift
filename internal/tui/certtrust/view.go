@@ -40,7 +40,7 @@ func (m Model) modal() string {
 		body = append(body, "", styles.Err.Render("Could not save trust: "+truncate(m.Err, contentWidth)))
 	}
 	body = append(body, "", strings.Join(buttons, "  "),
-		styles.Muted.Render("[Tab/←/→] select  [Enter] confirm  [Esc] reject  [↑/↓] scroll"))
+		styles.KeyHints("[Tab/←/→] select  [Enter] confirm  [Esc] reject  [↑/↓] scroll", styles.Muted))
 	return styles.LoadingBox.Width(contentWidth).Render(strings.Join(body, "\n"))
 }
 

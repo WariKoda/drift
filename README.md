@@ -48,7 +48,9 @@ go install github.com/WariKoda/drift@latest
 ```
 
 Both methods install to `$GOBIN`, or `$GOPATH/bin` when unset, usually `~/go/bin`.
-Ensure that directory is in your `$PATH`. `make install` builds your local checkout;
+Ensure that directory is in your `$PATH`. Git must also be available in `$PATH`;
+drift uses `git check-ignore` in one batched process per scan so nested rules,
+tracked files, worktrees, `.git/info/exclude`, and global excludes match Git itself. `make install` builds your local checkout;
 `go install …@latest` installs the latest published version.
 
 Optionally set a persistent install directory for all Go programs:
@@ -176,6 +178,7 @@ which prefills the repository root too.
 | `Space` | Mark / unmark file or directory in the active pane |
 | `V` / `*` | Mark the current level / invert the active pane's selection |
 | `f` | Fuzzy-find files across the project and mark them |
+| `.` / `I` | Toggle hidden / gitignored entries |
 | `s` | Sync marked local and remote files |
 | `r` / `/` / `?` | Refresh active pane / filter / help |
 | `H` | Open host manager |
@@ -184,6 +187,23 @@ which prefills the repository root too.
 | `q` / `Ctrl+C` | Quit (cancels a running connect or sync first) |
 
 While a connect or sync overlay is up, `Esc` hides it (the work keeps going, with `[q] cancel` on the status line) and `q` / `Ctrl+C` abort it. Already-transferred files are kept.
+
+Hidden and gitignored entries are hidden in the browser by default. The two
+visibility toggles are independent and do not change sync scope. A recursively
+selected directory includes hidden files such as `.htaccess` and `.well-known`,
+but skips gitignored paths. Drift applies the local project's ignore rules to
+both local and mapped remote files, so an ignored remote-only file does not
+become a local delete or download candidate. Selecting an ignored file directly
+includes that file. Selecting an ignored directory does not include its contents.
+
+`.git`, `.svn`, `.hg`, `node_modules`, `.idea`, and `.vscode` directories remain
+excluded even when ignored files are included. Symlinks and paths outside the
+project or active mappings keep their existing safety checks.
+
+The diff status shows the number of pairs, hidden files, skipped ignored paths,
+and fixed exclusions. Press `i` to rebuild that comparison with all gitignored
+paths included for this operation. Drift reloads the rules and comparison; the
+setting does not change the global config.
 
 ### Diff View
 
@@ -204,7 +224,8 @@ While a connect or sync overlay is up, `Esc` hides it (the work keeps going, wit
 | `S` | Sync all files |
 | `u` / `d` | Quick upload / download current file |
 | `e` | Toggle the last bulk-sync error list (when errors occurred) |
-| `r` | Refresh diffs |
+| `i` | Rebuild scope with / without gitignored paths |
+| `r` | Reload ignore rules, scope, and diffs |
 | `q` / `Esc` | Back to browser |
 
 ### Host Manager
@@ -245,6 +266,8 @@ DRIFT_NO_MOUSE=1 drift        # via environment
 # ~/.config/drift/config.toml — permanently
 [ui]
 mouse = false
+show_hidden = true   # initial browser visibility; default false
+show_ignored = true  # initial browser visibility; default false
 ```
 
 The flag beats the environment variable, which beats the config file. Mouse

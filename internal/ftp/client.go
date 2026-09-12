@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/textproto"
 	"os"
 	"path"
 	"sort"
@@ -158,7 +159,8 @@ func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
 	}
 	defer func() { c.endOperation(err) }()
 
-	if entry, err := c.conn.GetEntry(remotePath); err == nil {
+	entry, entryErr := c.conn.GetEntry(remotePath)
+	if entryErr == nil {
 		return &ftpFileInfo{
 			name:    path.Base(remotePath),
 			size:    int64(entry.Size),
@@ -172,7 +174,7 @@ func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
 		// Check if it's a directory by attempting to list it.
 		entries, listErr := c.conn.List(remotePath)
 		if listErr != nil {
-			return nil, errors.Join(err, listErr)
+			return nil, errors.Join(entryErr, err, c.classifyMissing(remotePath, listErr))
 		}
 		_ = entries
 		return &ftpFileInfo{name: path.Base(remotePath), isDir: true}, nil
@@ -185,6 +187,35 @@ func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
 	}, nil
 }
 
+// classifyMissing requires opMu. FTP 550 can mean permission denied; only a
+// successful parent listing without the exact name proves absence. If a parent
+// also returns 550, look for that parent in its own parent instead.
+func (c *Client) classifyMissing(remotePath string, cause error) error {
+	probeErr := cause
+	for current := path.Clean(remotePath); ; current = path.Dir(current) {
+		var reply *textproto.Error
+		if !errors.As(probeErr, &reply) || reply.Code != ftplib.StatusFileUnavailable {
+			return cause
+		}
+		parent := path.Dir(current)
+		if current == "." || path.Base(current) == ".." || parent == current {
+			return cause
+		}
+		entries, err := c.conn.List(parent)
+		if err != nil {
+			cause = errors.Join(cause, fmt.Errorf("list parent %s: %w", parent, err))
+			probeErr = err
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Name == path.Base(current) {
+				return cause
+			}
+		}
+		return fmt.Errorf("remote path %s: %w", remotePath, os.ErrNotExist)
+	}
+}
+
 // ReadDir reads one remote directory level.
 // Directories are returned before files; both groups sorted alphabetically.
 func (c *Client) ReadDir(remotePath string) (entries []*fs.FileEntry, err error) {
@@ -195,7 +226,7 @@ func (c *Client) ReadDir(remotePath string) (entries []*fs.FileEntry, err error)
 
 	items, err := c.conn.List(remotePath)
 	if err != nil {
-		return nil, err
+		return nil, c.classifyMissing(remotePath, err)
 	}
 
 	var dirs, files []*fs.FileEntry
@@ -421,7 +452,7 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error, act
 					return nil
 				}
 			}
-			dirs := worker.walkDirLevel(dir, handleFile, recordErr)
+			dirs := worker.walkDirLevel(dir, dir == remoteRoot, handleFile, recordErr)
 			if activity != nil {
 				recordErr(activity())
 			}
@@ -492,12 +523,15 @@ func walkQueue(root string, listers []func(string) []string, stop func() bool) {
 
 // walkDirLevel lists one directory: files go to handleFile, subdirectories are
 // returned for the caller to schedule.
-func (c *Client) walkDirLevel(dir string, handleFile func(string), recordErr func(error)) []string {
+func (c *Client) walkDirLevel(dir string, classifyRoot bool, handleFile func(string), recordErr func(error)) []string {
 	if err := c.beginOperation(); err != nil {
 		recordErr(err)
 		return nil
 	}
 	entries, err := c.conn.List(dir)
+	if err != nil && classifyRoot {
+		err = c.classifyMissing(dir, err)
+	}
 	c.endOperation(err)
 	if err != nil {
 		recordErr(fmt.Errorf("list %s: %w", dir, err))

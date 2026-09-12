@@ -31,6 +31,8 @@ var (
 
 var (
 	Dir             lipgloss.Style
+	ActiveHint      lipgloss.Style
+	ActivePane      lipgloss.Style
 	File            lipgloss.Style
 	Link            lipgloss.Style
 	Marked          lipgloss.Style
@@ -42,6 +44,7 @@ var (
 	Warn            lipgloss.Style
 	Err             lipgloss.Style
 	CursorRow       lipgloss.Style
+	CurrentEntry    lipgloss.Style
 	Accent          lipgloss.Style
 	LoadingBackdrop lipgloss.Style
 	LoadingBox      lipgloss.Style
@@ -79,6 +82,8 @@ func ApplyPalette(p Palette) {
 	ColorDiffMissingBg = p.DiffMissingBg
 
 	Dir = lipgloss.NewStyle().Foreground(ColorDir).Bold(true)
+	ActiveHint = lipgloss.NewStyle().Foreground(ColorDir).Bold(true).Underline(true)
+	ActivePane = lipgloss.NewStyle().Foreground(ColorDir).Background(ColorCursorBg).Bold(true)
 	File = lipgloss.NewStyle().Foreground(ColorFile)
 	Link = lipgloss.NewStyle().Foreground(ColorSymlink)
 	Marked = lipgloss.NewStyle().Foreground(ColorMarked).Bold(true)
@@ -90,6 +95,7 @@ func ApplyPalette(p Palette) {
 	Warn = lipgloss.NewStyle().Foreground(ColorWarn)
 	Err = lipgloss.NewStyle().Foreground(ColorError)
 	CursorRow = lipgloss.NewStyle().Background(ColorCursorBg)
+	CurrentEntry = lipgloss.NewStyle().Foreground(ColorWarn)
 	Accent = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	LoadingBackdrop = lipgloss.NewStyle().Foreground(ColorMuted).Faint(true)
 	LoadingBox = lipgloss.NewStyle().

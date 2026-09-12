@@ -81,7 +81,7 @@ func (m Model) viewMain() string {
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
-	sb.WriteString(styles.Muted.Render("  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel"))
+	sb.WriteString(styles.KeyHints("  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel", styles.Muted))
 
 	return sb.String()
 }
@@ -124,14 +124,14 @@ func (m Model) viewMappingList() string {
 	sb.WriteByte('\n')
 
 	if m.mapConfirmDel && m.mapCursor < len(m.mappings) {
-		sb.WriteString("  " + styles.Err.Render(`Delete "`+m.mappings[m.mapCursor].Local+`"?  [y]yes  [any]cancel`))
+		sb.WriteString("  " + styles.Err.Render(`Delete "`+m.mappings[m.mapCursor].Local+`"?`) + styles.KeyHints("  [y]yes  [any]cancel", styles.Err))
 		sb.WriteByte('\n')
 	}
 
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
-	sb.WriteString(styles.Muted.Render("  [n]new  [e/Enter]edit  [d]delete  [Esc]back to form"))
+	sb.WriteString(styles.KeyHints("  [n]new  [e/Enter]edit  [d]delete  [Esc]back to form", styles.Muted))
 
 	return sb.String()
 }
@@ -172,7 +172,7 @@ func (m Model) viewMappingEdit() string {
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
-	sb.WriteString(styles.Muted.Render("  [Tab/↓]next  [Ctrl+S / Enter on last]save  [Esc]cancel"))
+	sb.WriteString(styles.KeyHints("  [Tab/↓]next  [Ctrl+S / Enter on last]save  [Esc]cancel", styles.Muted))
 
 	return sb.String()
 }
@@ -199,7 +199,7 @@ func (m Model) renderMappingsRow(focused bool) string {
 
 	hint := ""
 	if focused {
-		hint = styles.Muted.Render("  [Enter] edit")
+		hint = styles.KeyHints("  [Enter] edit", styles.Muted)
 	}
 
 	return "  " + label + " " + styles.Badge.Render(val) + hint
@@ -225,7 +225,7 @@ func (m Model) renderToggle(label string, options []string, selected int, focuse
 
 	hint := ""
 	if focused {
-		hint = styles.Muted.Render("  ← →")
+		hint = styles.Dir.Render("  ← →")
 	}
 
 	return "  " + l + " " + strings.Join(parts, "  ") + hint

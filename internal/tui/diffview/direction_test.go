@@ -5,10 +5,16 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/styles"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
+	profile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	for _, key := range []string{" ", "A"} {
 		t.Run(key, func(t *testing.T) {
 			m := Model{
@@ -27,9 +33,9 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 				direction                       SyncDir
 				legend, header, first, leftPath string
 			}{
-				{DirUpload, "Remote → Local", "@@ -1,1 +1,2 @@", "   1      - R", "/remote/file"},
-				{DirDownload, "Local → Remote", "@@ -1,2 +1,1 @@", "   1      - L1", "/local/file"},
-				{DirNone, "Local → Remote", "@@ -1,2 +1,1 @@", "   1      - L1", "/local/file"},
+				{DirUpload, "Line numbers: Remote → Local (before → after)", "@@ -1,1 +1,2 @@", "   1      - R", "/remote/file"},
+				{DirDownload, "Line numbers: Local → Remote (before → after)", "@@ -1,2 +1,1 @@", "   1      - L1", "/local/file"},
+				{DirNone, "No action · Compare only · Lines: Local → Remote", "@@ -1,2 +1,1 @@", "   1        L1", "/local/file"},
 			} {
 				m, _ = m.handleKey(keyMsg(key))
 				if m.syncDirs[0] != tt.direction {
@@ -39,7 +45,7 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 				if !strings.HasPrefix(stripANSI(rows[0]), tt.leftPath) {
 					t.Fatalf("path order = %q", rows[0])
 				}
-				if !strings.Contains(stripANSI(rows[1]), tt.legend) {
+				if strings.TrimSpace(stripANSI(rows[1])) != tt.legend {
 					t.Fatalf("legend = %q, want %q", rows[1], tt.legend)
 				}
 				if !strings.Contains(stripANSI(rows[pathChrome]), tt.header) {
@@ -47,6 +53,16 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 				}
 				if got := strings.TrimRight(stripANSI(rows[pathChrome+1]), " "); got != tt.first {
 					t.Fatalf("first changed row = %q, want %q", got, tt.first)
+				}
+				if tt.direction == DirNone {
+					for i, text := range []string{"L1", "L2", "R"} {
+						gutter := []string{"   1      ", "   2      ", "        1 "}[i]
+						want := styles.Muted.Render(gutter) + styles.File.Bold(true).Render(" ") +
+							styles.File.Render(" "+text+strings.Repeat(" ", m.diffWidth()-12-len(text))) + styles.File.Render("")
+						if rows[pathChrome+1+i] != want {
+							t.Fatalf("no-action row must use neutral colours without a change marker: %q", rows[pathChrome+1+i])
+						}
+					}
 				}
 				if len(strings.Split(m.View(), "\n")) != m.Height {
 					t.Fatal("legend changed terminal height")

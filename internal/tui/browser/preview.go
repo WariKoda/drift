@@ -39,6 +39,7 @@ type previewRequest struct {
 	force      bool
 	host       config.Host
 	remoteID   uint64
+	session    *string
 }
 
 type msgPreviewDebounced struct {
@@ -211,12 +212,16 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 	if m.preview.source == PaneRemote {
 		request.host = *m.remoteHost
 		request.remoteID = m.remoteLoadID
+		request.session = m.remoteSession
 	}
 	return request, true
 }
 
 func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
 	if !m.preview.active || request.generation != m.preview.generation || request.source != m.preview.source {
+		return nil
+	}
+	if request.source == PaneRemote && (request.session != m.remoteSession || m.remoteHost == nil || request.host.Name != m.remoteHost.Name) {
 		return nil
 	}
 	if !request.force {
@@ -232,12 +237,17 @@ func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
 			m.preview.waiting = true
 			return nil
 		}
+		// A queued refresh can outlive the connection it was scheduled on.
+		// Bind the read to the connection that will actually execute it.
+		request.remoteID = m.remoteLoadID
+		request.host = *m.remoteHost
 		if m.remoteConn == nil || m.remoteConn.Err() != nil {
 			return func() tea.Msg {
 				return previewLoadFailure(request, errors.New("remote is not connected"))
 			}
 		}
 		m.remotePreviewReading = true
+		m.remotePreviewID = request.generation
 		return readRemotePreviewCmd(m.remoteConn, request)
 	}
 	return readLocalPreviewCmd(request)
@@ -258,12 +268,18 @@ func (m Model) AcceptsPreviewResult(msg MsgPreviewLoaded) bool {
 	if !msg.Remote() {
 		return true
 	}
-	return msg.request.remoteID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.request.host.Name
+	return msg.request.session == m.remoteSession && msg.request.remoteID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.request.host.Name
 }
 
 func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 	accepted := m.AcceptsPreviewResult(msg)
-	if accepted && msg.request.source == PaneRemote {
+	// Completing the dispatched read releases the connection even when its
+	// content is obsolete or the preview has been closed. Older reads from a
+	// different connection, browser, or operation must not release a newer one.
+	if msg.Remote() && m.remotePreviewReading &&
+		msg.request.generation == m.remotePreviewID &&
+		msg.request.session == m.remoteSession && msg.request.remoteID == m.remoteLoadID &&
+		m.remoteHost != nil && msg.request.host.Name == m.remoteHost.Name {
 		m.remotePreviewReading = false
 	}
 

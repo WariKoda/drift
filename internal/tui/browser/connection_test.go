@@ -462,7 +462,7 @@ func startBrowserConnectionFTP(t *testing.T, stall string) *browserConnectionFTP
 			if err != nil {
 				return
 			}
-			command, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+			command, argument, _ := strings.Cut(strings.TrimSpace(line), " ")
 			switch command {
 			case "USER":
 				reply("331 password required")
@@ -482,9 +482,9 @@ func startBrowserConnectionFTP(t *testing.T, stall string) *browserConnectionFTP
 					return
 				}
 				reply(fmt.Sprintf("229 Passive (|||%d|)", passive.Addr().(*net.TCPAddr).Port))
-			case "MLSD":
+			case "MLSD", "RETR":
 				if passive == nil {
-					t.Error("MLSD without passive listener")
+					t.Errorf("%s without passive listener", command)
 					return
 				}
 				stopAccept := context.AfterFunc(ctx, func() { _ = passive.Close() })
@@ -492,6 +492,11 @@ func startBrowserConnectionFTP(t *testing.T, stall string) *browserConnectionFTP
 				stopAccept()
 				if err != nil {
 					return
+				}
+				if command == "RETR" && argument == "/missing.txt" {
+					_ = data.Close()
+					reply("550 file unavailable")
+					continue
 				}
 				stopData := context.AfterFunc(ctx, func() { _ = data.Close() })
 				if stall != "reply" {
@@ -502,6 +507,8 @@ func startBrowserConnectionFTP(t *testing.T, stall string) *browserConnectionFTP
 					// A listing client sends no data. EOF proves cancellation
 					// closed its passive socket as well as the control socket.
 					_, _ = io.Copy(io.Discard, data)
+				} else if command == "RETR" {
+					_, _ = io.WriteString(data, argument+"\n")
 				} else {
 					_, _ = io.WriteString(data, "type=dir;modify=20240102030405; folder\r\n")
 				}

@@ -79,7 +79,7 @@ func TestRenderUnifiedSingleColumn(t *testing.T) {
 		{Text: "old", Kind: LineRemoved, LocalNum: 2},
 		{Text: "new", Kind: LineAdded, RemoteNum: 2},
 	}}
-	rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, false), 40, 1, 3, false)
+	rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, false), 40, 1, 3, false, true)
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
@@ -101,7 +101,7 @@ func TestRenderUnifiedDualLineNumbers(t *testing.T) {
 		{Text: "old", Kind: LineRemoved, LocalNum: 2},
 		{Text: "new", Kind: LineAdded, RemoteNum: 3},
 	}}
-	rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, false), 48, 1, 3, false)
+	rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, false), 48, 1, 3, false, true)
 	// Strip ANSI so we can assert on the plain gutter layout.
 	plain := make([]string, len(rows))
 	for i, row := range rows {
@@ -128,7 +128,7 @@ func TestRenderUnifiedRowsHeaderAndFold(t *testing.T) {
 		{Kind: DisplayLine, LineIndex: 0},
 		{Kind: DisplayFold, Hidden: 42},
 	}
-	out := RenderUnifiedRows(result, rows, 48, 0, 3, false)
+	out := RenderUnifiedRows(result, rows, 48, 0, 3, false, true)
 	if len(out) != 3 {
 		t.Fatalf("got %d rows", len(out))
 	}
@@ -160,11 +160,11 @@ func stripANSI(s string) string {
 }
 
 func TestRenderUnifiedLineDropsCarriageReturn(t *testing.T) {
-	row := renderUnifiedLine(DiffLine{Text: "}\r", Kind: LineAdded, RemoteNum: 25}, false, 80, 4, 68)
+	row := renderUnifiedLine(DiffLine{Text: "}\r", Kind: LineAdded, RemoteNum: 25}, false, true, 80, 4, 68)
 	if strings.Contains(row, "\r") {
 		t.Fatal("rendered add line still contains CR")
 	}
-	equal := renderUnifiedLine(DiffLine{Text: "same\r", Kind: LineEqual, LocalNum: 1, RemoteNum: 1}, false, 80, 4, 68)
+	equal := renderUnifiedLine(DiffLine{Text: "same\r", Kind: LineEqual, LocalNum: 1, RemoteNum: 1}, false, true, 80, 4, 68)
 	if strings.Contains(equal, "\r") {
 		t.Fatal("rendered equal line still contains CR")
 	}

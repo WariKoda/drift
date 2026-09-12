@@ -11,7 +11,8 @@ import (
 // RenderUnifiedRows renders flattened display rows (hunk headers, folds, lines).
 // scrollOffset is the first DisplayRow index; count is the number of viewport rows.
 // Use the same flip value as Flatten so headers, row order and gutters agree.
-func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffset, count int, flip bool) []string {
+// highlight enables addition/removal colours and markers for planned actions.
+func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffset, count int, flip, highlight bool) []string {
 	out := make([]string, 0, count)
 	if result == nil {
 		for i := 0; i < count; i++ {
@@ -56,7 +57,7 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 				out = append(out, strings.Repeat(" ", width))
 				continue
 			}
-			out = append(out, renderUnifiedLine(result.Lines[li], flip, width, numWidth, contentWidth))
+			out = append(out, renderUnifiedLine(result.Lines[li], flip, highlight, width, numWidth, contentWidth))
 		}
 	}
 	return out
@@ -117,8 +118,11 @@ func formatLineNum(n, width int) string {
 	return fmt.Sprintf("%*d", width, n)
 }
 
-func renderUnifiedLine(dl DiffLine, flip bool, width, numWidth, contentWidth int) string {
+func renderUnifiedLine(dl DiffLine, flip, highlight bool, width, numWidth, contentWidth int) string {
 	act := unifiedAction(dl.Kind, flip)
+	if !highlight {
+		act = actEqual
+	}
 
 	textStyle := styles.File
 	numStyle := styles.Muted

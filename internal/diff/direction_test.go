@@ -73,7 +73,7 @@ func TestDirectionalPreview(t *testing.T) {
 			if rows[0].Header != tt.header {
 				t.Fatalf("header = %q, want %q", rows[0].Header, tt.header)
 			}
-			out := RenderUnifiedRows(result, rows, 48, 1, len(rows)-1, tt.flip)
+			out := RenderUnifiedRows(result, rows, 48, 1, len(rows)-1, tt.flip, true)
 			for i := range out {
 				if lipgloss.Width(out[i]) != 48 {
 					t.Fatalf("row width = %d, want 48", lipgloss.Width(out[i]))
@@ -88,7 +88,7 @@ func TestDirectionalPreview(t *testing.T) {
 			}
 			// Scrolling into a replacement must not change its order or its numbers.
 			if len(out) > 2 {
-				part := RenderUnifiedRows(result, rows, 48, 2, 2, tt.flip)
+				part := RenderUnifiedRows(result, rows, 48, 2, 2, tt.flip, true)
 				for i := range part {
 					if got := strings.TrimRight(stripANSI(part[i]), " "); got != tt.want[i+1] {
 						t.Fatalf("scrolled row = %q, want %q", got, tt.want[i+1])
@@ -157,7 +157,7 @@ func TestChangedGuttersUseDiffForegroundAndBackground(t *testing.T) {
 		if unifiedAction(tt.kind, tt.flip) == actAdd {
 			gutter = "        4 "
 		}
-		row := renderUnifiedLine(line, tt.flip, 48, 4, 36)
+		row := renderUnifiedLine(line, tt.flip, true, 48, 4, 36)
 		if !strings.HasPrefix(row, tt.style.Render(gutter)) {
 			t.Fatalf("gutter does not use the change style: %q", row)
 		}

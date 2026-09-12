@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Next planned release: **v0.2.0-beta.1**. The beta phase focuses on real-world
+SFTP/FTP/FTPS deployments, sync failure handling, and configuration stability.
+This is a release target, not a published version or a 1.0 stability guarantee.
+
 ## [0.1.8-alpha] - 2026-09-12
 
 ### Added

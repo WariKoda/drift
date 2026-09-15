@@ -62,6 +62,7 @@ type MsgDiffError struct {
 type MsgScopeReloadRequested struct {
 	IncludeIgnored bool
 	Status         string
+	Errors         []SyncFailure
 }
 
 // MsgRefreshed is sent when a full diff refresh has completed.
@@ -271,9 +272,11 @@ func (m *Model) SetScope(scope syncpolicy.ScopeSummary, options syncpolicy.Scope
 	m.scopeSet = true
 }
 
-// SetStatus restores the result of a transfer across a full scope reload.
-func (m *Model) SetStatus(status string) {
+// SetSyncResult restores the result of a transfer across a full scope reload.
+func (m *Model) SetSyncResult(status string, failures []SyncFailure) {
 	m.syncStatus = status
+	m.syncErrors = append([]SyncFailure(nil), failures...)
+	m.showErrors = len(failures) > 0
 }
 
 // Init satisfies the sub-model convention.

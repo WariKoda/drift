@@ -105,6 +105,42 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 	}
 }
 
+func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
+	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+	tracker := NewLoadProgressTracker()
+	failure := SyncFailure{
+		Operation: "upload",
+		Path:      "/project/file.php",
+		Reason:    "permission denied",
+		Err:       errors.New("permission denied"),
+	}
+	model := Model{
+		conn:            conn,
+		scopeSet:        true,
+		syncing:         true,
+		activityTracker: tracker,
+		sessions:        []diff.Session{{LocalPath: failure.Path, RemotePath: "/srv/file.php"}},
+		syncDirs:        []SyncDir{DirUpload},
+	}
+
+	_, cmd := model.Update(MsgBulkSyncDone{Errors: []SyncFailure{failure}})
+	if cmd == nil {
+		t.Fatal("bulk sync did not request a scope reload")
+	}
+	value := cmd()
+	request, ok := value.(MsgScopeReloadRequested)
+	if !ok {
+		t.Fatalf("reload command returned %T", value)
+	}
+	if !strings.Contains(request.Status, "[e]") || len(request.Errors) != 1 {
+		t.Fatalf("reload request lost status or errors: %+v", request)
+	}
+	got := request.Errors[0]
+	if got.Operation != failure.Operation || got.Path != failure.Path || got.Reason != failure.Reason || !errors.Is(got.Err, failure.Err) {
+		t.Fatalf("reload error = %+v, want %+v", got, failure)
+	}
+}
+
 func TestCancelledBulkSyncKeepsCompletedFiles(t *testing.T) {
 	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
 	tracker := NewLoadProgressTracker()

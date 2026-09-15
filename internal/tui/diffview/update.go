@@ -89,8 +89,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.scopeSet {
 			m.finishActivity()
 			status := m.syncStatus
+			failures := append([]SyncFailure(nil), m.syncErrors...)
 			return m, func() tea.Msg {
-				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status}
+				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status, Errors: failures}
 			}
 		}
 		// Legacy models without a scope request can only refresh existing pairs.

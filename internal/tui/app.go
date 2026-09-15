@@ -70,6 +70,7 @@ type App struct {
 	diffRequest       uint64
 	diffSeq           uint64
 	pendingDiffStatus string
+	pendingDiffErrors []diffview.SyncFailure
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -299,6 +300,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	a.state.RemoteSelection = b.RemoteSelection
 	a.state.ScopeOptions.IncludeIgnored = false
 	a.pendingDiffStatus = ""
+	a.pendingDiffErrors = nil
 	pc := p
 	a.state.ActiveProject = &pc
 	a.state.Screen = ScreenBrowser
@@ -645,6 +647,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Browser → Host Selector / direct sync ─────────────────────────
 	case browser.MsgSyncRequested:
 		a.pendingDiffStatus = ""
+		a.pendingDiffErrors = nil
 		a.state.Selection = msg.Selection
 		a.state.RemoteSelection = msg.RemoteSelection
 		a.state.ScopeOptions = msg.Options
@@ -764,9 +767,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		a.diffView.SetTrustManager(a.trust)
 		a.diffView.SetScope(msg.Scope, msg.Options)
-		if a.pendingDiffStatus != "" {
-			a.diffView.SetStatus(a.pendingDiffStatus)
+		if a.pendingDiffStatus != "" || len(a.pendingDiffErrors) > 0 {
+			a.diffView.SetSyncResult(a.pendingDiffStatus, a.pendingDiffErrors)
 			a.pendingDiffStatus = ""
+			a.pendingDiffErrors = nil
 		}
 		failed := 0
 		for _, session := range msg.Sessions {
@@ -794,6 +798,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		}
 		a.pendingDiffStatus = ""
+		a.pendingDiffErrors = nil
 		return a, nil
 
 	// ── Diff view → rebuild recursive scope ────────────────────────────
@@ -803,6 +808,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.state.ScopeOptions.IncludeIgnored = msg.IncludeIgnored
 		a.pendingDiffStatus = msg.Status
+		a.pendingDiffErrors = append([]diffview.SyncFailure(nil), msg.Errors...)
 		host := *a.state.SelectedHost
 		closeDiff := a.diffView.Close()
 		a.watchConnection(nil)

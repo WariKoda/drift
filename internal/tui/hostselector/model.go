@@ -64,12 +64,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, func() tea.Msg { return MsgHostChosen{Host: h} }
 		}
 
-	case "j", "down":
+	case "down", "ctrl+n":
 		if m.cursor < len(m.filtered)-1 {
 			m.cursor++
 		}
 
-	case "k", "up":
+	case "up", "ctrl+p":
 		if m.cursor > 0 {
 			m.cursor--
 		}
@@ -159,7 +159,7 @@ func (m Model) View() string {
 		}
 	}
 
-	inner.WriteString("\n" + styles.KeyHints("  [Enter]select  [Esc]cancel", styles.Muted))
+	inner.WriteString("\n" + styles.KeyHints("  [↑/↓]navigate  [Enter]select  [Esc]cancel", styles.Muted))
 
 	sb.WriteString(border.Render(inner.String()))
 	return sb.String()

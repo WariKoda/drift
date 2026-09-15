@@ -127,7 +127,11 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	case "left", "right":
 		if curIdx == fProtocol {
-			m.protocol = (m.protocol + 1) % 3
+			if msg.String() == "right" {
+				m.protocol = (m.protocol + 1) % 3
+			} else {
+				m.protocol = (m.protocol + 2) % 3
+			}
 			m.applyFocus()
 		} else if curIdx == fAuthType {
 			if msg.String() == "right" {

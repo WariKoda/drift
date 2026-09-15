@@ -3,6 +3,7 @@ package diffview
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -138,6 +139,46 @@ func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
 	got := request.Errors[0]
 	if got.Operation != failure.Operation || got.Path != failure.Path || got.Reason != failure.Reason || !errors.Is(got.Err, failure.Err) {
 		t.Fatalf("reload error = %+v, want %+v", got, failure)
+	}
+}
+
+func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		direction SyncDir
+	}{{"local", DirDeleteLocal}, {"remote", DirDeleteRemote}} {
+		t.Run(tc.name, func(t *testing.T) {
+			direction := tc.direction
+			conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+			tracker := NewLoadProgressTracker()
+			model := Model{
+				conn:            conn,
+				scopeSet:        true,
+				syncing:         true,
+				activityTracker: tracker,
+				sessions: []diff.Session{
+					{LocalPath: "/project/deleted.php", RemotePath: "/srv/deleted.php"},
+					{LocalPath: "/project/kept.php", RemotePath: "/srv/kept.php"},
+				},
+				syncDirs: []SyncDir{direction, direction},
+			}
+
+			_, cmd := model.Update(MsgBulkSyncDone{Done: 1, Completed: []int{0}})
+			if cmd == nil {
+				t.Fatal("successful delete did not request a scope reload")
+			}
+			request := cmd().(MsgScopeReloadRequested)
+			switch direction {
+			case DirDeleteLocal:
+				if !reflect.DeepEqual(request.DeletedLocal, []string{"/project/deleted.php"}) || len(request.DeletedRemote) != 0 {
+					t.Fatalf("deleted paths = local %v remote %v", request.DeletedLocal, request.DeletedRemote)
+				}
+			case DirDeleteRemote:
+				if !reflect.DeepEqual(request.DeletedRemote, []string{"/srv/deleted.php"}) || len(request.DeletedLocal) != 0 {
+					t.Fatalf("deleted paths = local %v remote %v", request.DeletedLocal, request.DeletedRemote)
+				}
+			}
+		})
 	}
 }
 

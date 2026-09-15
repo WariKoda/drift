@@ -9,6 +9,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
@@ -21,6 +22,37 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
+
+func TestScopeReloadRemovesOnlySuccessfulDeleteSelections(t *testing.T) {
+	local := fs.NewSelectionState()
+	local.Toggle("/project/deleted.php")
+	local.Toggle("/project/kept.php")
+	remoteSelection := fs.NewSelectionState()
+	remoteSelection.Toggle("/srv/deleted.php")
+	remoteSelection.Toggle("/srv/kept.php")
+	host := config.Host{Name: "test"}
+	a := App{state: AppState{
+		Screen:          ScreenDiffView,
+		SelectedHost:    &host,
+		Selection:       local,
+		RemoteSelection: remoteSelection,
+	}}
+
+	updated, _ := a.Update(diffview.MsgScopeReloadRequested{
+		DeletedLocal:  []string{"/project/deleted.php"},
+		DeletedRemote: []string{"/srv/deleted.php"},
+	})
+	got := updated.(App)
+	if local.IsMarked("/project/deleted.php") || remoteSelection.IsMarked("/srv/deleted.php") {
+		t.Fatal("successful direct deletes remained selected")
+	}
+	if !local.IsMarked("/project/kept.php") || !remoteSelection.IsMarked("/srv/kept.php") {
+		t.Fatal("scope reload removed an unrelated selection")
+	}
+	if got.state.Screen != ScreenBrowser {
+		t.Fatalf("screen = %v, want browser while the scope reload runs", got.state.Screen)
+	}
+}
 
 func makeProjectDir(t *testing.T) string {
 	t.Helper()

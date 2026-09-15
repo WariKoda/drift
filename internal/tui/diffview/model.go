@@ -63,6 +63,8 @@ type MsgScopeReloadRequested struct {
 	IncludeIgnored bool
 	Status         string
 	Errors         []SyncFailure
+	DeletedLocal   []string
+	DeletedRemote  []string
 }
 
 // MsgRefreshed is sent when a full diff refresh has completed.

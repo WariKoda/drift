@@ -809,6 +809,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.ScopeOptions.IncludeIgnored = msg.IncludeIgnored
 		a.pendingDiffStatus = msg.Status
 		a.pendingDiffErrors = append([]diffview.SyncFailure(nil), msg.Errors...)
+		if a.state.Selection != nil {
+			for _, path := range msg.DeletedLocal {
+				delete(a.state.Selection.Marked, path)
+			}
+		}
+		if a.state.RemoteSelection != nil {
+			for _, path := range msg.DeletedRemote {
+				delete(a.state.RemoteSelection.Marked, path)
+			}
+		}
 		host := *a.state.SelectedHost
 		closeDiff := a.diffView.Close()
 		a.watchConnection(nil)

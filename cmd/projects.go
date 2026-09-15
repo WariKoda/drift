@@ -135,6 +135,9 @@ var projectsRemoveCmd = &cobra.Command{
 		if err := store.Save(reg); err != nil {
 			return err
 		}
+		if err := config.DeleteProjectStore(slug); err != nil {
+			return err
+		}
 		fmt.Printf("Removed project %q\n", slug)
 		return nil
 	},

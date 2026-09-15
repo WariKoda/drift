@@ -88,6 +88,19 @@ func writeProjectStore(slug string, cfg ProjectConfig) error {
 	})
 }
 
+// DeleteProjectStore removes the hosts and mappings owned by slug. A missing
+// store is already deleted and is not an error.
+func DeleteProjectStore(slug string) error {
+	path, err := projectStorePath(slug)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove project store: %w", err)
+	}
+	return nil
+}
+
 // ProjectStorePathForDisplay is a project's store path with $HOME shortened,
 // for messages that tell the user where its configuration went.
 func ProjectStorePathForDisplay(slug string) string {

@@ -552,6 +552,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dashboard.MsgDeleteProject:
 		if err := a.persist(func() error { return a.registry.Remove(msg.Slug) }); err != nil {
 			a.dashboard.SetStatus("Delete failed: " + err.Error())
+		} else if err := config.DeleteProjectStore(msg.Slug); err != nil {
+			a.dashboard.SetStatus("Delete project settings failed: " + err.Error())
 		}
 		a.state.Screen = ScreenDashboard
 		return a, nil

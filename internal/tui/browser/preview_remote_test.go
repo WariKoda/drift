@@ -73,7 +73,11 @@ func TestRemotePreviewReleasesCompletedReadAfterSelectionChanges(t *testing.T) {
 			// Hold the actual network result until after the user changes selection.
 			// This controls event ordering without sleeps or transport mocks.
 			if sequence == "disable" || sequence == "reopen" {
-				_ = m.disablePreview()
+				closeCmd := m.disablePreview()
+				if closeCmd == nil {
+					t.Fatal("cancelling a dispatched preview returned no close command")
+				}
+				runBrowserConnectionCmd(t, closeCmd)
 				if sequence == "reopen" {
 					_ = m.togglePreview()
 					if m.remoteConn != nil || m.remoteBusy() {

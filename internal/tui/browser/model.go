@@ -80,6 +80,7 @@ type Model struct {
 	remotePreviewReading bool
 	remotePreviewID      uint64 // generation of the dispatched read, independent of the current selection
 	remotePreviewCancel  context.CancelFunc
+	remotePreviewConn    remote.Client
 	remoteStatus         string
 	remoteLoadID         uint64
 	remoteSession        *string // unique identity across browser/project replacements
@@ -430,7 +431,7 @@ func (m *Model) reload() error {
 // CloseRemote detaches the connection immediately and closes it off the UI thread.
 func (m *Model) CloseRemote() tea.Cmd {
 	conn := m.remoteConn
-	m.cancelRemotePreview(true)
+	_ = m.cancelRemotePreview(false)
 	m.remoteConn = nil
 	m.CancelRemote()
 	m.remoteReading = false
@@ -454,7 +455,7 @@ func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
 	if conn == nil || m.remoteConn != conn || err == nil {
 		return false
 	}
-	m.cancelRemotePreview(false)
+	_ = m.cancelRemotePreview(false)
 	m.remoteLoadID++
 	m.remoteReading = false
 	m.remotePreviewReading = false

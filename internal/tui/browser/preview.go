@@ -117,16 +117,16 @@ func (m *Model) togglePreview() tea.Cmd {
 
 func (m *Model) disablePreview() tea.Cmd {
 	wasActive := m.preview.active
-	m.cancelRemotePreview(true)
+	closeCmd := m.cancelRemotePreview(true)
 	generation := m.preview.generation + 1
 	m.preview = filePreview{generation: generation}
 	if strings.HasPrefix(m.statusMsg, "Preview failed: ") {
 		m.statusMsg = ""
 	}
 	if wasActive && m.mouseEnabled {
-		return tea.EnableMouseCellMotion
+		return tea.Batch(closeCmd, tea.EnableMouseCellMotion)
 	}
-	return nil
+	return closeCmd
 }
 
 func (m *Model) schedulePreview() tea.Cmd {
@@ -254,6 +254,7 @@ func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
 		m.remotePreviewReading = true
 		m.remotePreviewID = request.generation
 		m.remotePreviewCancel = cancel
+		m.remotePreviewConn = m.remoteConn
 		return readRemotePreviewCmd(ctx, m.remoteConn, request)
 	}
 	return readLocalPreviewCmd(request)
@@ -292,6 +293,7 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 			m.remotePreviewCancel()
 			m.remotePreviewCancel = nil
 		}
+		m.remotePreviewConn = nil
 	}
 
 	if accepted {
@@ -334,12 +336,14 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 // cancelRemotePreview invalidates a dispatched remote read. The command's
 // context watcher closes the connection to interrupt Open or Read, neither of
 // which accepts a context.
-func (m *Model) cancelRemotePreview(detachConnection bool) {
+func (m *Model) cancelRemotePreview(detachConnection bool) tea.Cmd {
 	if m.remotePreviewCancel == nil {
-		return
+		return nil
 	}
 	m.remotePreviewCancel()
 	m.remotePreviewCancel = nil
+	conn := m.remotePreviewConn
+	m.remotePreviewConn = nil
 	if m.remotePreviewReading {
 		m.remotePreviewReading = false
 		if detachConnection {
@@ -347,6 +351,15 @@ func (m *Model) cancelRemotePreview(detachConnection bool) {
 			m.remoteLoadID++
 			m.remoteStatus = "Remote preview cancelled. Press [r] to reconnect."
 		}
+	}
+	if !detachConnection || conn == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := conn.Close(); err != nil {
+			log.Error("close cancelled preview connection", "err", err)
+		}
+		return nil
 	}
 }
 

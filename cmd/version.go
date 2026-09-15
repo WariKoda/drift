@@ -37,20 +37,27 @@ func resolvedVersion() string {
 		return info.Main.Version
 	}
 
+	var revision string
+	var dirty bool
 	for _, setting := range info.Settings {
 		switch setting.Key {
 		case "vcs.revision":
-			if len(setting.Value) >= 7 {
-				return "dev-" + setting.Value[:7]
-			}
-			if setting.Value != "" {
-				return "dev-" + setting.Value
-			}
+			revision = setting.Value
 		case "vcs.modified":
-			if strings.EqualFold(setting.Value, "true") {
-				return "dev-dirty"
-			}
+			dirty = strings.EqualFold(setting.Value, "true")
 		}
+	}
+
+	if len(revision) > 7 {
+		revision = revision[:7]
+	}
+	switch {
+	case revision != "" && dirty:
+		return "dev-" + revision + "-dirty"
+	case revision != "":
+		return "dev-" + revision
+	case dirty:
+		return "dev-dirty"
 	}
 
 	return Version

@@ -22,17 +22,33 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := validateHostNameAvailable(cfg.GlobalHosts, h.Name, oldName); err != nil {
 		return err
 	}
-	hosts := replaceOrAppend(cfg.GlobalHosts, h, oldName)
-	cfg.GlobalHosts = hosts
+
+	base, err := globalConfigBase(cfg)
+	if err != nil {
+		return err
+	}
+	if err := validateHostNameAvailable(base.Hosts, h.Name, oldName); err != nil {
+		return err
+	}
+
+	cfg.GlobalHosts = replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: hosts})
+
+	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
+	return writeGlobal(base)
 }
 
 // DeleteGlobalHost removes a host by name from the global config file.
 func DeleteGlobalHost(cfg *MergedConfig, name string) error {
+	base, err := globalConfigBase(cfg)
+	if err != nil {
+		return err
+	}
 	cfg.GlobalHosts = removeHost(cfg.GlobalHosts, name)
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts})
+
+	base.Hosts = removeHost(base.Hosts, name)
+	return writeGlobal(base)
 }
 
 // SaveProjectHost adds or replaces a host in the project's store.
@@ -77,6 +93,25 @@ func DeleteProjectHost(cfg *MergedConfig, name string) error {
 
 	base.Hosts = removeHost(base.Hosts, name)
 	return writeProjectStore(cfg.ProjectSlug, base)
+}
+
+// globalConfigBase is the global config a write starts from: the file as it is
+// on disk, not the merged view in memory. The merged view has [defaults]
+// applied to every host, so writing it back would bake the inherited port and
+// user into each record and a later change under [defaults] would reach nobody.
+//
+// Without a file yet, the in-memory values are the only source, as they are for
+// a project without a store.
+func globalConfigBase(cfg *MergedConfig) (GlobalConfig, error) {
+	path := globalConfigPath()
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts}, nil
+	}
+	gc, err := loadGlobal()
+	if err != nil {
+		return GlobalConfig{}, fmt.Errorf("global config: %w", err)
+	}
+	return *gc, nil
 }
 
 // projectStoreBase is the project config a write starts from: the store as it

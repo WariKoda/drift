@@ -313,3 +313,41 @@ func TestSaveProjectHostRejectsInvalidProjectMappingsWithoutMutation(t *testing.
 		t.Fatalf("invalid project config was written to disk, Stat error = %v", statErr)
 	}
 }
+
+func TestSavingOneGlobalHostLeavesTheOthersUntouched(t *testing.T) {
+	isolate(t)
+	if err := writeGlobal(GlobalConfig{
+		Defaults: Defaults{Port: 2222, User: "deploy"},
+		Hosts:    []Host{{Name: "staging", Hostname: "staging.example.com", Auth: Auth{Type: "agent"}}},
+	}); err != nil {
+		t.Fatalf("writeGlobal returned error: %v", err)
+	}
+
+	cfg, err := Load(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if got := cfg.Hosts["staging"]; got.Port != 2222 || got.User != "deploy" {
+		t.Fatalf("defaults were not applied in memory: %+v", got)
+	}
+
+	if err := SaveGlobalHost(cfg, Host{Name: "prod", Hostname: "example.com", Port: 22}, ""); err != nil {
+		t.Fatalf("SaveGlobalHost returned error: %v", err)
+	}
+
+	stored, err := loadGlobal()
+	if err != nil {
+		t.Fatalf("loadGlobal returned error: %v", err)
+	}
+	i := hostIndex(stored.Hosts, "staging")
+	if i < 0 {
+		t.Fatal("staging vanished from the global config")
+	}
+	// [defaults] must keep doing the work; a save may not bake it into records.
+	if stored.Hosts[i].Port != 0 || stored.Hosts[i].User != "" {
+		t.Fatalf("defaults were baked into the untouched host: %+v", stored.Hosts[i])
+	}
+	if stored.Defaults.Port != 2222 || stored.Defaults.User != "deploy" {
+		t.Fatalf("global defaults were lost: %+v", stored.Defaults)
+	}
+}

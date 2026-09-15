@@ -193,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.Conn != nil && msg.Conn != m.conn {
 			return m, nil
 		}
+		m.ConnectionLost(msg.Conn, msg.Err)
 		m.quickSyncing = false
 		m.finishActivity()
 		if loading.IsCanceled(msg.Err) && m.disconnected == nil {

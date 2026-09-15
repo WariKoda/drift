@@ -21,6 +21,7 @@ func TestRemotePreviewReleasesCompletedReadAfterSelectionChanges(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = loaded.Conn.Close() })
 			m, _ = m.Update(loaded)
+			m.activePane = PaneRemote
 			m.remoteEntries = []*fs.FileEntry{
 				{Name: "a.txt", Path: "/a.txt", Kind: fs.EntryFile, Mode: 0o644},
 				{Name: "b.txt", Path: "/b.txt", Kind: fs.EntryFile, Mode: 0o644},
@@ -108,6 +109,7 @@ func TestRemotePreviewRefreshUsesNewConnectionIdentity(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = loaded.Conn.Close() })
 	m, _ = m.Update(loaded)
+	m.activePane = PaneRemote
 	m.remoteEntries = []*fs.FileEntry{{Name: "a.txt", Path: "/a.txt", Kind: fs.EntryFile, Mode: 0o644}}
 	_ = m.togglePreview()
 	first := runBrowserConnectionCmd(t, m.beginPreviewLoad(m.preview.pending)).(msgPreviewLoaded)

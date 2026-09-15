@@ -24,6 +24,12 @@ func CloseOnContextDone(ctx context.Context, client Client) (detach func()) {
 	var once sync.Once
 	return func() {
 		once.Do(func() { close(stop) })
+		// If cancellation and detachment became ready together, select may have
+		// taken the stop branch. Closing here preserves the promise that an ended
+		// context always closes the client before detach returns.
+		if ctx.Err() != nil {
+			_ = client.Close()
+		}
 		<-done
 	}
 }

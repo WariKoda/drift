@@ -94,6 +94,27 @@ func TestHostManagerHitTestBelowViewport(t *testing.T) {
 // TestViewFitsTerminalHeight guards the row budget. Section headers used to
 // emit a blank line the budget never counted, so the view ran two lines longer
 // than the terminal and pushed the status bar off screen.
+func TestViewFollowsCursorBeyondFirstPage(t *testing.T) {
+	m := testHostModel(12, 0)
+	m.Height = headerLines + 4 + footerLines
+	m.cursor = 12
+
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "global;") {
+		t.Fatalf("view does not contain the selected last host:\n%s", view)
+	}
+	if strings.Contains(view, "global0") {
+		t.Fatalf("view still starts at the first host after the cursor moved past it:\n%s", view)
+	}
+
+	for row := 0; row < m.listHeight(); row++ {
+		if m.hitTest(5, headerLines+row) == m.cursor {
+			return
+		}
+	}
+	t.Fatal("the selected host is visible but no rendered row maps back to it")
+}
+
 func TestViewFitsTerminalHeight(t *testing.T) {
 	for _, tc := range []struct{ global, project int }{
 		{0, 0}, {2, 1}, {5, 5}, {30, 30},

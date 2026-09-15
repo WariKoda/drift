@@ -40,6 +40,24 @@ func (m Model) listHeight() int {
 	return h
 }
 
+// firstVisibleEntry returns the first entry in the viewport. Once the cursor
+// moves below the initial page, the window follows it while keeping complete
+// two-row section headers together.
+func (m Model) firstVisibleEntry() int {
+	vh := m.listHeight()
+	start := m.cursor
+	used := 0
+	for start >= 0 {
+		span := entryRowSpan(m.entries[start])
+		if used+span > vh {
+			return start + 1
+		}
+		used += span
+		start--
+	}
+	return 0
+}
+
 func (m Model) View() string {
 	var sb strings.Builder
 
@@ -53,7 +71,9 @@ func (m Model) View() string {
 	// Entry list
 	vh := m.listHeight()
 	rendered := 0
-	for i, e := range m.entries {
+	start := m.firstVisibleEntry()
+	for i := start; i < len(m.entries); i++ {
+		e := m.entries[i]
 		span := entryRowSpan(e)
 		if rendered+span > vh {
 			break

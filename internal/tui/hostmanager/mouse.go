@@ -10,9 +10,9 @@ const noHit = -1
 
 // hitTest maps a terminal cell to an index into m.entries, or noHit.
 //
-// The list has no scroll offset — it always renders from entry 0 — but rows and
-// entries are not one to one: a section header spans two rows. The walk below
-// mirrors View's loop exactly, which is why both use entryRowSpan.
+// Rows and entries are not one to one: a section header spans two rows. The
+// walk below starts at the same derived viewport position as View and uses the
+// same entryRowSpan calculation.
 //
 // Section headers are rendered like rows but are not selectable, so they report
 // noHit: hitting a line and hitting a valid target are two different questions.
@@ -26,7 +26,9 @@ func (m Model) hitTest(x, y int) int {
 	}
 
 	consumed := 0
-	for i, e := range m.entries {
+	start := m.firstVisibleEntry()
+	for i := start; i < len(m.entries); i++ {
+		e := m.entries[i]
 		span := entryRowSpan(e)
 		if consumed+span > m.listHeight() {
 			break // View stopped here too

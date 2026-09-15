@@ -370,20 +370,31 @@ func (a *App) recordOpened(slug string) {
 	}
 }
 
+// reloadRegistry replaces the in-memory snapshot only after a successful read.
+func (a *App) reloadRegistry() error {
+	if a.store == nil || a.registry == nil {
+		return fmt.Errorf("project registry is unavailable")
+	}
+	reg, err := a.store.Load()
+	if err != nil {
+		return fmt.Errorf("read %s: %w", a.store.Path(), err)
+	}
+	a.registry = reg
+	return nil
+}
+
 // openPicker shows the project switcher over the current browser session.
 // Remote pane and in-flight diffs stay; they are torn down only by openProject.
-func (a *App) openPicker() {
-	if a.store == nil || a.registry == nil {
-		return
-	}
-	if reg, err := a.store.Load(); err == nil {
-		a.registry = reg
+func (a *App) openPicker() error {
+	if err := a.reloadRegistry(); err != nil {
+		return err
 	}
 	a.projectSel = projectselector.New(
 		a.registry.Active(), a.currentSlug(),
 		a.state.TermWidth, a.state.TermHeight,
 	)
 	a.state.Screen = ScreenProjectSelector
+	return nil
 }
 
 // openDashboard shows the project CRUD screen. When returnable is true, Esc
@@ -598,7 +609,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Browser → Project picker ──────────────────────────────────────
 	case browser.MsgOpenDashboard:
-		a.openPicker()
+		if err := a.openPicker(); err != nil {
+			a.browser.SetStatus("Cannot load projects: " + err.Error())
+		}
 		return a, nil
 
 	case projectselector.MsgSelectorCancelled:
@@ -606,10 +619,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case projectselector.MsgOpenDashboard:
-		if a.store != nil {
-			if reg, err := a.store.Load(); err == nil {
-				a.registry = reg
-			}
+		if err := a.reloadRegistry(); err != nil {
+			a.projectSel.SetStatus("Cannot load projects: " + err.Error())
+			return a, nil
 		}
 		a.openDashboard(true)
 		return a, nil

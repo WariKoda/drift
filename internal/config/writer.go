@@ -167,7 +167,7 @@ func writeGlobal(cfg GlobalConfig) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return writeToml(path, globalConfigOut{
+	return WriteTOML(path, globalConfigOut{
 		Defaults: defaultsOut{Port: optionalInt(cfg.Defaults.Port), User: cfg.Defaults.User},
 		UI:       cfg.UI,
 		Hosts:    hostsOut(cfg.Hosts),
@@ -233,14 +233,15 @@ func hostsOut(hosts []Host) []hostOut {
 	return out
 }
 
-// writeToml encodes v and replaces path atomically: a temporary file in the
+// WriteTOML encodes v and replaces path atomically: a temporary file in the
 // same directory, then a rename. A crash or a full disk therefore leaves either
-// the old file or the new one, never a truncated one — a project store holds
-// that project's credentials, and half of it is worse than none.
+// the old file or the new one, never a truncated one. A project store holds
+// that project's credentials and the registry holds every project, so half of
+// either file is worse than none.
 //
 // It also makes two drift instances writing the same file lose one of the two
 // writes instead of interleaving into a broken one.
-func writeToml(path string, v any) error {
+func WriteTOML(path string, v any) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
 		return err

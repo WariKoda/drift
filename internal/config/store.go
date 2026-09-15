@@ -81,7 +81,7 @@ func writeProjectStore(slug string, cfg ProjectConfig) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return writeToml(path, projectConfigOut{
+	return WriteTOML(path, projectConfigOut{
 		Defaults: defaultsOut{Port: optionalInt(cfg.Defaults.Port), User: cfg.Defaults.User},
 		Hosts:    hostsOut(cfg.Hosts),
 		Mappings: cfg.Mappings,

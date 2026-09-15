@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +76,8 @@ func connect(ctx context.Context, host config.Host, interval, timeout time.Durat
 		Timeout:           15 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%d", host.Hostname, port)
+	// Trim brackets so a bracketed IPv6 literal is not wrapped twice.
+	addr := net.JoinHostPort(strings.Trim(host.Hostname, "[]"), strconv.Itoa(port))
 	// Prefer IPv4: "localhost" often resolves to ::1 first on dual-stack systems,
 	// but many containers (e.g. dockware) only bind on 0.0.0.0, not :::.
 	dialer := &net.Dialer{Timeout: cfg.Timeout}

@@ -208,6 +208,7 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 		source:     m.preview.source,
 		path:       filePath,
 		size:       entry.Size,
+		session:    m.remoteSession,
 	}
 	if m.preview.source == PaneRemote {
 		request.host = *m.remoteHost
@@ -218,10 +219,10 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 }
 
 func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
-	if !m.preview.active || request.generation != m.preview.generation || request.source != m.preview.source {
+	if !m.preview.active || request.generation != m.preview.generation || request.source != m.preview.source || request.session != m.remoteSession {
 		return nil
 	}
-	if request.source == PaneRemote && (request.session != m.remoteSession || m.remoteHost == nil || request.host.Name != m.remoteHost.Name) {
+	if request.source == PaneRemote && (m.remoteHost == nil || request.host.Name != m.remoteHost.Name) {
 		return nil
 	}
 	if !request.force {
@@ -262,7 +263,7 @@ func (m *Model) resumePreviewLoad() tea.Cmd {
 
 // AcceptsPreviewResult reports whether a preview result is still current.
 func (m Model) AcceptsPreviewResult(msg MsgPreviewLoaded) bool {
-	if !m.preview.active || msg.request.generation != m.preview.generation || msg.request.source != m.preview.source {
+	if !m.preview.active || msg.request.generation != m.preview.generation || msg.request.source != m.preview.source || msg.request.session != m.remoteSession {
 		return false
 	}
 	if !msg.Remote() {

@@ -13,6 +13,13 @@ import (
 	"github.com/muesli/termenv"
 )
 
+func TestHighlightMatchUsesRuneOffsetsAfterCaseConversion(t *testing.T) {
+	got := ansi.Strip(highlightMatch("xȺ", "ⱥ", fs.EntryFile))
+	if got != "xȺ" {
+		t.Fatalf("highlightMatch returned %q, want %q", got, "xȺ")
+	}
+}
+
 func TestVisibilityHintStyles(t *testing.T) {
 	profile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)

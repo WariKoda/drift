@@ -602,8 +602,16 @@ func truncLeftPath(s string, max int) string {
 }
 
 func highlightMatch(name, filter string, kind fs.EntryKind) string {
-	lower := toLower(name)
-	idx := indexStr(lower, toLower(filter))
+	nameRunes := []rune(name)
+	lowerRunes := []rune(toLower(name))
+	filterRunes := []rune(toLower(filter))
+	idx := -1
+	for i := 0; i+len(filterRunes) <= len(lowerRunes); i++ {
+		if string(lowerRunes[i:i+len(filterRunes)]) == string(filterRunes) {
+			idx = i
+			break
+		}
+	}
 
 	var baseStyle lipgloss.Style
 	suffix := ""
@@ -622,9 +630,9 @@ func highlightMatch(name, filter string, kind fs.EntryKind) string {
 		return baseStyle.Render(name + suffix)
 	}
 
-	before := name[:idx]
-	match := name[idx : idx+len(filter)]
-	after := name[idx+len(filter):]
+	before := string(nameRunes[:idx])
+	match := string(nameRunes[idx : idx+len(filterRunes)])
+	after := string(nameRunes[idx+len(filterRunes):])
 
 	hl := lipgloss.NewStyle().
 		Foreground(styles.ColorMatch).

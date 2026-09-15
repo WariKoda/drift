@@ -337,6 +337,7 @@ func (c *Client) DeleteFile(remotePath string) error {
 }
 
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
+// Symlinks, FIFOs, sockets and devices are skipped, matching the local walker.
 // A listing error on any directory is propagated rather than skipped: swallowing
 // it would silently drop that subtree from the walk, so its files would never be
 // compared or synced.
@@ -360,6 +361,12 @@ func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error,
 			if walker.Path() != remoteRoot && fs.ShouldSkipDir(path.Base(walker.Path())) {
 				walker.SkipDir()
 			}
+			continue
+		}
+		// Everything that is not a regular file is skipped, as it is locally.
+		// A remote symlink would otherwise be followed by the later Stat and
+		// Open and its target downloaded as an ordinary file.
+		if !walker.Stat().Mode().IsRegular() {
 			continue
 		}
 		if err := fn(walker.Path()); err != nil {

@@ -144,19 +144,18 @@ func registerCandidate(workDir string, cfg *config.MergedConfig, reg *project.Re
 // registerPending adds the pending project to the registry and persists it.
 func (a *App) registerPending() error {
 	now := time.Now().UTC()
-	slug := a.registry.UniqueSlug(project.Slugify(a.state.PendingRegisterName))
-	p := project.Project{
-		Slug:      slug,
-		Name:      a.state.PendingRegisterName,
-		Path:      a.state.PendingRegisterPath,
-		CreatedAt: now,
-		UpdatedAt: now,
-		OpenedAt:  now,
-	}
-	if err := a.registry.Add(p); err != nil {
-		return err
-	}
-	if err := a.store.Save(a.registry); err != nil {
+	var p project.Project
+	if err := a.persist(func(reg *project.Registry) error {
+		p = project.Project{
+			Slug:      reg.UniqueSlug(project.Slugify(a.state.PendingRegisterName)),
+			Name:      a.state.PendingRegisterName,
+			Path:      a.state.PendingRegisterPath,
+			CreatedAt: now,
+			UpdatedAt: now,
+			OpenedAt:  now,
+		}
+		return reg.Add(p)
+	}); err != nil {
 		return err
 	}
 	pc := p
@@ -349,23 +348,26 @@ func (a *App) bindActiveProject(workDir string, cfg *config.MergedConfig) {
 }
 
 // recordOpened stamps OpenedAt and persists it. A save failure is logged and
-// does not undo the open — the session is already rooted in the project.
+// does not undo the open. It also leaves the registry snapshot unchanged.
 func (a *App) recordOpened(slug string) {
 	if a.registry == nil || a.store == nil || slug == "" {
 		return
 	}
-	existing := a.registry.Find(slug)
-	if existing == nil {
-		return
-	}
-	existing.OpenedAt = time.Now().UTC()
-	pc := *existing
-	a.state.ActiveProject = &pc
-	if err := a.store.Save(a.registry); err != nil {
+	if err := a.persist(func(reg *project.Registry) error {
+		existing := reg.Find(slug)
+		if existing == nil {
+			return fmt.Errorf("project %q not found", slug)
+		}
+		existing.OpenedAt = time.Now().UTC()
+		return nil
+	}); err != nil {
 		log.Error("could not persist last-opened", "err", err, "slug", slug)
 		return
 	}
-	a.dashboard.Refresh(a.registry)
+	if existing := a.registry.Find(slug); existing != nil {
+		pc := *existing
+		a.state.ActiveProject = &pc
+	}
 }
 
 // openPicker shows the project switcher over the current browser session.
@@ -405,10 +407,9 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	now := time.Now().UTC()
 
 	if msg.OldSlug == "" {
-		slug := a.registry.UniqueSlug(project.Slugify(msg.Name))
-		return a.persist(func() error {
-			return a.registry.Add(project.Project{
-				Slug:      slug,
+		return a.persist(func(reg *project.Registry) error {
+			return reg.Add(project.Project{
+				Slug:      reg.UniqueSlug(project.Slugify(msg.Name)),
 				Name:      msg.Name,
 				Path:      path,
 				CreatedAt: now,
@@ -425,20 +426,24 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	updated.Name = msg.Name
 	updated.Path = path
 	updated.UpdatedAt = now
-	return a.persist(func() error {
-		return a.registry.Update(msg.OldSlug, updated)
+	return a.persist(func(reg *project.Registry) error {
+		return reg.Update(msg.OldSlug, updated)
 	})
 }
 
-// persist runs a registry mutation and writes the registry to disk, refreshing
-// the dashboard view on success.
-func (a *App) persist(mutate func() error) error {
-	if err := mutate(); err != nil {
+// persist applies a mutation to a private registry snapshot, writes it, then
+// publishes it to the running app. A failed write cannot leak the mutation into
+// a later successful save.
+func (a *App) persist(mutate func(*project.Registry) error) error {
+	candidate := *a.registry
+	candidate.Projects = append([]project.Project(nil), a.registry.Projects...)
+	if err := mutate(&candidate); err != nil {
 		return err
 	}
-	if err := a.store.Save(a.registry); err != nil {
+	if err := a.store.Save(&candidate); err != nil {
 		return err
 	}
+	a.registry = &candidate
 	a.dashboard.Refresh(a.registry)
 	return nil
 }
@@ -550,7 +555,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case dashboard.MsgDeleteProject:
-		if err := a.persist(func() error { return a.registry.Remove(msg.Slug) }); err != nil {
+		if err := a.persist(func(reg *project.Registry) error { return reg.Remove(msg.Slug) }); err != nil {
 			a.dashboard.SetStatus("Delete failed: " + err.Error())
 		} else if err := config.DeleteProjectStore(msg.Slug); err != nil {
 			a.dashboard.SetStatus("Delete project settings failed: " + err.Error())
@@ -563,7 +568,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated := *p
 			updated.Archived = !updated.Archived
 			updated.UpdatedAt = time.Now().UTC()
-			if err := a.persist(func() error { return a.registry.Update(msg.Slug, updated) }); err != nil {
+			if err := a.persist(func(reg *project.Registry) error { return reg.Update(msg.Slug, updated) }); err != nil {
 				a.dashboard.SetStatus("Archive failed: " + err.Error())
 			}
 		}

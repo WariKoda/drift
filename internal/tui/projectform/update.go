@@ -1,6 +1,8 @@
 package projectform
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -59,8 +61,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) trySave() (Model, tea.Cmd) {
-	name := m.fields[fName].Value()
-	path := m.fields[fPath].Value()
+	name := strings.TrimSpace(m.fields[fName].Value())
+	path := strings.TrimSpace(m.fields[fPath].Value())
 	if name == "" {
 		m.errMsg = "Name is required"
 		return m, nil

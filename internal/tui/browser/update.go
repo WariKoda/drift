@@ -633,8 +633,8 @@ func (m Model) updateFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case keyEnter, keyEsc:
 		m.filterMode = false
 	case keyBackspace:
-		if len(m.filter) > 0 {
-			m.filter = m.filter[:len(m.filter)-1]
+		if rf := []rune(m.filter); len(rf) > 0 {
+			m.filter = string(rf[:len(rf)-1])
 		}
 	default:
 		if len(msg.Runes) > 0 {

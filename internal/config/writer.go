@@ -12,6 +12,10 @@ import (
 
 // SaveGlobalHost adds or replaces a host in the global config file.
 // If oldName != "" the host with that name is replaced; otherwise a new host is appended.
+//
+// The in-memory config changes only after the file is written. A failed write
+// therefore leaves the running session exactly as it was, instead of showing a
+// host that does not exist on disk or hiding one that does.
 func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
 		return fmt.Errorf("host %q: %w", h.Name, err)
@@ -31,11 +35,14 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 		return err
 	}
 
+	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
+	if err := writeGlobal(base); err != nil {
+		return err
+	}
+
 	cfg.GlobalHosts = replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	rebuildMerged(cfg)
-
-	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
-	return writeGlobal(base)
+	return nil
 }
 
 // DeleteGlobalHost removes a host by name from the global config file.
@@ -44,11 +51,14 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 	if err != nil {
 		return err
 	}
+	base.Hosts = removeHost(base.Hosts, name)
+	if err := writeGlobal(base); err != nil {
+		return err
+	}
+
 	cfg.GlobalHosts = removeHost(cfg.GlobalHosts, name)
 	rebuildMerged(cfg)
-
-	base.Hosts = removeHost(base.Hosts, name)
-	return writeGlobal(base)
+	return nil
 }
 
 // SaveProjectHost adds or replaces a host in the project's store.
@@ -75,11 +85,14 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 		return err
 	}
 
+	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
+	if err := writeProjectStore(cfg.ProjectSlug, base); err != nil {
+		return err
+	}
+
 	cfg.ProjectHosts = replaceOrAppend(cfg.ProjectHosts, h, oldName)
 	rebuildMerged(cfg)
-
-	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
-	return writeProjectStore(cfg.ProjectSlug, base)
+	return nil
 }
 
 // DeleteProjectHost removes a host by name from the project's store.
@@ -88,11 +101,14 @@ func DeleteProjectHost(cfg *MergedConfig, name string) error {
 	if err != nil {
 		return err
 	}
+	base.Hosts = removeHost(base.Hosts, name)
+	if err := writeProjectStore(cfg.ProjectSlug, base); err != nil {
+		return err
+	}
+
 	cfg.ProjectHosts = removeHost(cfg.ProjectHosts, name)
 	rebuildMerged(cfg)
-
-	base.Hosts = removeHost(base.Hosts, name)
-	return writeProjectStore(cfg.ProjectSlug, base)
+	return nil
 }
 
 // globalConfigBase is the global config a write starts from: the file as it is

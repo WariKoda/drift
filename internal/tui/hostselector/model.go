@@ -110,6 +110,9 @@ func (m Model) View() string {
 	if m.Width < boxWidth+4 {
 		boxWidth = m.Width - 4
 	}
+	// Keep widths passed to lipgloss and strings.Repeat non-negative even
+	// before the first useful WindowSizeMsg or in a very narrow terminal.
+	boxWidth = max(2, boxWidth)
 
 	var sb strings.Builder
 

@@ -21,6 +21,7 @@ type Model struct {
 	cfg     *config.MergedConfig
 	entries []entry
 	cursor  int // index into entries (headers are skipped)
+	offset  int // first entry rendered in the list viewport
 
 	// delete confirmation
 	confirmDelete bool
@@ -128,6 +129,7 @@ func (m *Model) clampCursorUp() {
 	if m.entries[m.cursor].isHeader {
 		m.clampCursor()
 	}
+	m.ensureCursorVisible()
 }
 
 // clampCursor ensures cursor sits on a host row (not a header).
@@ -158,6 +160,41 @@ func (m *Model) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	m.ensureCursorVisible()
+}
+
+// ensureCursorVisible moves the viewport only when keyboard navigation takes
+// the cursor outside it. Mouse clicks within the viewport therefore do not
+// shift the rows beneath a possible second click.
+func (m *Model) ensureCursorVisible() {
+	if len(m.entries) == 0 {
+		m.offset = 0
+		return
+	}
+	m.offset = max(0, min(m.offset, len(m.entries)-1))
+	used := 0
+	for i := m.offset; i < len(m.entries); i++ {
+		span := entryRowSpan(m.entries[i])
+		if used+span > m.listHeight() {
+			break
+		}
+		if i == m.cursor {
+			return
+		}
+		used += span
+	}
+
+	start := m.cursor
+	used = 0
+	for start >= 0 {
+		span := entryRowSpan(m.entries[start])
+		if used+span > m.listHeight() {
+			break
+		}
+		used += span
+		start--
+	}
+	m.offset = start + 1
 }
 
 // currentEntry returns the entry under the cursor, or nil if none.
@@ -176,4 +213,5 @@ func (m Model) currentEntry() *entry {
 func (m *Model) SetSize(w, h int) {
 	m.Width = w
 	m.Height = h
+	m.ensureCursorVisible()
 }

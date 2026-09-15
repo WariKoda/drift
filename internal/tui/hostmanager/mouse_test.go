@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -98,6 +99,7 @@ func TestViewFollowsCursorBeyondFirstPage(t *testing.T) {
 	m := testHostModel(12, 0)
 	m.Height = headerLines + 4 + footerLines
 	m.cursor = 12
+	m.ensureCursorVisible()
 
 	view := ansi.Strip(m.View())
 	if !strings.Contains(view, "global;") {
@@ -113,6 +115,33 @@ func TestViewFollowsCursorBeyondFirstPage(t *testing.T) {
 		}
 	}
 	t.Fatal("the selected host is visible but no rendered row maps back to it")
+}
+
+func TestClickDoesNotShiftScrolledViewport(t *testing.T) {
+	m := testHostModel(20, 0)
+	m.Height = headerLines + 4 + footerLines
+	m.cursor = 20
+	m.ensureCursorVisible()
+
+	y := headerLines
+	target := m.hitTest(5, y)
+	if target == noHit || target == m.cursor {
+		t.Fatalf("test row maps to %d, need a visible host other than the cursor", target)
+	}
+	offset := m.offset
+	press := tea.MouseMsg{X: 5, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+	m, _ = m.updateMouse(press)
+	if m.offset != offset || m.cursor != target {
+		t.Fatalf("click changed viewport from %d to %d or selected %d instead of %d", offset, m.offset, m.cursor, target)
+	}
+	m, cmd := m.updateMouse(press)
+	if cmd == nil {
+		t.Fatal("second click did not open the selected host")
+	}
+	opened := cmd().(MsgOpenForm)
+	if opened.Host == nil || opened.Host.Name != m.entries[target].host.Name {
+		t.Fatalf("double click opened %+v, want %q", opened.Host, m.entries[target].host.Name)
+	}
 }
 
 func TestViewFitsTerminalHeight(t *testing.T) {

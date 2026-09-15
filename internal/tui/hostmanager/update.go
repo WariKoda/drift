@@ -87,8 +87,7 @@ type MsgBackToBrowser struct{}
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.Width = msg.Width
-		m.Height = msg.Height
+		m.SetSize(msg.Width, msg.Height)
 
 	case MsgTestResult:
 		if msg.ID != m.testID {

@@ -80,7 +80,7 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *Me
 			if d.Port != 0 {
 				h.Port = d.Port
 			} else {
-				h.Port = 22
+				h.Port = DefaultPort(h.Protocol)
 			}
 		}
 		if h.User == "" {

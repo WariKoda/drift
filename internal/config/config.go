@@ -38,6 +38,17 @@ type Host struct {
 	KeepAliveInterval *int      `toml:"keep_alive_interval,omitempty"` // seconds; nil uses default, zero disables
 }
 
+// DefaultPort reports the port a protocol uses when a host names none.
+// An empty protocol means SFTP.
+func DefaultPort(protocol string) int {
+	switch protocol {
+	case "ftp", "ftps":
+		return 21
+	default:
+		return 22
+	}
+}
+
 // KeepAliveDuration resolves the interval without changing the stored value.
 func (h Host) KeepAliveDuration() time.Duration {
 	if h.KeepAliveInterval == nil {

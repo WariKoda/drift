@@ -227,3 +227,20 @@ func TestRemoteBrowserBlocksConnectionReplacementDuringPreviewRead(t *testing.T)
 		})
 	}
 }
+
+func TestStartRemoteKeepsPaneFocus(t *testing.T) {
+	cases := map[string]PaneSide{
+		"local pane keeps focus":          PaneLocal,
+		"reconnect keeps the remote pane": PaneRemote,
+	}
+
+	for name, pane := range cases {
+		t.Run(name, func(t *testing.T) {
+			model := Model{WorkDir: t.TempDir(), activePane: pane}
+			model.startRemote(config.Host{Name: "test"}, nil)
+			if model.activePane != pane {
+				t.Fatalf("connecting moved the focus from pane %d to %d", pane, model.activePane)
+			}
+		})
+	}
+}

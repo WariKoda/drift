@@ -37,7 +37,9 @@ type MsgRemoteChildrenLoaded struct {
 	Err        error
 }
 
-// StartRemote switches the right pane to host and starts loading its root.
+// StartRemote points the right pane at host and starts loading its root. The
+// keyboard focus stays on the pane the user was on, so connecting alone never
+// moves the cursor to the remote side.
 func (m *Model) StartRemote(host config.Host) tea.Cmd {
 	return m.startRemote(host, nil)
 }
@@ -69,7 +71,6 @@ func (m *Model) startRemote(host config.Host, required *tlstrust.Challenge) tea.
 	m.remoteLoading = true
 	m.remoteReading = false
 	m.remoteStatus = "Connecting to " + host.Name + "…"
-	m.activePane = PaneRemote
 	id := m.remoteLoadID
 	m.remoteTracker = loading.NewTracker(m.remoteStatus)
 	load := loadRemoteCmd(host, m.remoteTracker.Context(), id, m.remoteSession, m.trust, required, m.classifier, m.config, m.WorkDir)

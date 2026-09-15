@@ -422,8 +422,12 @@ func blankRows(height, width int) []string {
 }
 
 func (m Model) renderStatus(s *diff.Session) string {
-	if m.disconnected != nil || (m.conn != nil && m.conn.Err() != nil) {
-		reason := strings.Join(strings.Fields(m.connectionError().Error()), " ")
+	connectionErr := m.disconnected
+	if connectionErr == nil && m.conn != nil {
+		connectionErr = m.connectionError()
+	}
+	if connectionErr != nil {
+		reason := strings.Join(strings.Fields(connectionErr.Error()), " ")
 		status := "Disconnected: " + reason + " | Reopen comparison before syncing."
 		if len(m.syncErrors) > 0 {
 			status += " [e]errors"

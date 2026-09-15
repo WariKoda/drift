@@ -448,7 +448,7 @@ func TestPreviewErrorUsesPlaceholderWithoutPreviousContent(t *testing.T) {
 		generation: 3,
 		loading:    true,
 	}
-	request := previewRequest{generation: 3, source: PaneLocal, path: "/project/large.txt"}
+	request := previewRequest{generation: 3, source: PaneLocal, path: "/project/large.txt", session: model.remoteSession}
 	_ = model.applyPreviewLoaded(msgPreviewLoaded{request: request, err: errPreviewTooLarge})
 
 	if model.preview.loading {
@@ -462,9 +462,40 @@ func TestPreviewErrorUsesPlaceholderWithoutPreviousContent(t *testing.T) {
 	}
 }
 
+func TestLocalPreviewRejectsAnotherBrowserSession(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(filePath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.preview = filePreview{active: true, source: PaneLocal, generation: 1}
+	request, ok := old.currentPreviewRequest(1)
+	if !ok {
+		t.Fatal("old browser did not create a preview request")
+	}
+
+	current, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.preview = filePreview{active: true, source: PaneLocal, generation: 1}
+	if cmd := current.beginPreviewLoad(request); cmd != nil {
+		t.Fatal("a debounce request from another browser started a local read")
+	}
+	if current.AcceptsPreviewResult(msgPreviewLoaded{request: request, lines: []string{"old"}}) {
+		t.Fatal("a local preview result from another browser was accepted")
+	}
+}
+
 func previewTestModel(entries []*fs.FileEntry) Model {
+	session := "test"
 	return Model{
 		entries:         entries,
+		remoteSession:   &session,
 		Selection:       fs.NewSelectionState(),
 		RemoteSelection: fs.NewSelectionState(),
 		Width:           80,

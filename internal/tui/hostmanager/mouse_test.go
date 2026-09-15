@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -94,6 +95,55 @@ func TestHostManagerHitTestBelowViewport(t *testing.T) {
 // TestViewFitsTerminalHeight guards the row budget. Section headers used to
 // emit a blank line the budget never counted, so the view ran two lines longer
 // than the terminal and pushed the status bar off screen.
+func TestViewFollowsCursorBeyondFirstPage(t *testing.T) {
+	m := testHostModel(12, 0)
+	m.Height = headerLines + 4 + footerLines
+	m.cursor = 12
+	m.ensureCursorVisible()
+
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "global;") {
+		t.Fatalf("view does not contain the selected last host:\n%s", view)
+	}
+	if strings.Contains(view, "global0") {
+		t.Fatalf("view still starts at the first host after the cursor moved past it:\n%s", view)
+	}
+
+	for row := 0; row < m.listHeight(); row++ {
+		if m.hitTest(5, headerLines+row) == m.cursor {
+			return
+		}
+	}
+	t.Fatal("the selected host is visible but no rendered row maps back to it")
+}
+
+func TestClickDoesNotShiftScrolledViewport(t *testing.T) {
+	m := testHostModel(20, 0)
+	m.Height = headerLines + 4 + footerLines
+	m.cursor = 20
+	m.ensureCursorVisible()
+
+	y := headerLines
+	target := m.hitTest(5, y)
+	if target == noHit || target == m.cursor {
+		t.Fatalf("test row maps to %d, need a visible host other than the cursor", target)
+	}
+	offset := m.offset
+	press := tea.MouseMsg{X: 5, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+	m, _ = m.updateMouse(press)
+	if m.offset != offset || m.cursor != target {
+		t.Fatalf("click changed viewport from %d to %d or selected %d instead of %d", offset, m.offset, m.cursor, target)
+	}
+	m, cmd := m.updateMouse(press)
+	if cmd == nil {
+		t.Fatal("second click did not open the selected host")
+	}
+	opened := cmd().(MsgOpenForm)
+	if opened.Host == nil || opened.Host.Name != m.entries[target].host.Name {
+		t.Fatalf("double click opened %+v, want %q", opened.Host, m.entries[target].host.Name)
+	}
+}
+
 func TestViewFitsTerminalHeight(t *testing.T) {
 	for _, tc := range []struct{ global, project int }{
 		{0, 0}, {2, 1}, {5, 5}, {30, 30},

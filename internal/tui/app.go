@@ -70,6 +70,7 @@ type App struct {
 	diffRequest       uint64
 	diffSeq           uint64
 	pendingDiffStatus string
+	pendingDiffErrors []diffview.SyncFailure
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -144,19 +145,18 @@ func registerCandidate(workDir string, cfg *config.MergedConfig, reg *project.Re
 // registerPending adds the pending project to the registry and persists it.
 func (a *App) registerPending() error {
 	now := time.Now().UTC()
-	slug := a.registry.UniqueSlug(project.Slugify(a.state.PendingRegisterName))
-	p := project.Project{
-		Slug:      slug,
-		Name:      a.state.PendingRegisterName,
-		Path:      a.state.PendingRegisterPath,
-		CreatedAt: now,
-		UpdatedAt: now,
-		OpenedAt:  now,
-	}
-	if err := a.registry.Add(p); err != nil {
-		return err
-	}
-	if err := a.store.Save(a.registry); err != nil {
+	var p project.Project
+	if err := a.persist(func(reg *project.Registry) error {
+		p = project.Project{
+			Slug:      reg.UniqueSlug(project.Slugify(a.state.PendingRegisterName)),
+			Name:      a.state.PendingRegisterName,
+			Path:      a.state.PendingRegisterPath,
+			CreatedAt: now,
+			UpdatedAt: now,
+			OpenedAt:  now,
+		}
+		return reg.Add(p)
+	}); err != nil {
 		return err
 	}
 	pc := p
@@ -276,11 +276,6 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.abandonDiffRequest()
-	a.watchConnection(nil)
-	a.state.SelectedHost = nil
-	closeBrowser := a.browser.CloseRemote()
-	closeDiff := a.diffView.Close()
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
 	if err := b.SetConfig(cfg); err != nil {
 		return nil, err
@@ -289,6 +284,15 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	b.SetMouseEnabled(a.mouseEnabled)
 	b.SetTrustManager(a.trust)
 
+	// Preparing the new browser can fail. Keep the old browser and diff session
+	// attached until every fallible setup step has succeeded, so App.Close can
+	// still reach their connection and local root on an error.
+	a.abandonDiffRequest()
+	a.watchConnection(nil)
+	a.state.SelectedHost = nil
+	closeBrowser := a.browser.CloseRemote()
+	closeDiff := a.diffView.Close()
+
 	a.browser = b
 	a.state.Config = cfg
 	a.state.WorkingDir = p.Path
@@ -296,6 +300,7 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	a.state.RemoteSelection = b.RemoteSelection
 	a.state.ScopeOptions.IncludeIgnored = false
 	a.pendingDiffStatus = ""
+	a.pendingDiffErrors = nil
 	pc := p
 	a.state.ActiveProject = &pc
 	a.state.Screen = ScreenBrowser
@@ -349,39 +354,53 @@ func (a *App) bindActiveProject(workDir string, cfg *config.MergedConfig) {
 }
 
 // recordOpened stamps OpenedAt and persists it. A save failure is logged and
-// does not undo the open — the session is already rooted in the project.
+// does not undo the open. It also leaves the registry snapshot unchanged.
 func (a *App) recordOpened(slug string) {
 	if a.registry == nil || a.store == nil || slug == "" {
 		return
 	}
-	existing := a.registry.Find(slug)
-	if existing == nil {
-		return
-	}
-	existing.OpenedAt = time.Now().UTC()
-	pc := *existing
-	a.state.ActiveProject = &pc
-	if err := a.store.Save(a.registry); err != nil {
+	if err := a.persist(func(reg *project.Registry) error {
+		existing := reg.Find(slug)
+		if existing == nil {
+			return fmt.Errorf("project %q not found", slug)
+		}
+		existing.OpenedAt = time.Now().UTC()
+		return nil
+	}); err != nil {
 		log.Error("could not persist last-opened", "err", err, "slug", slug)
 		return
 	}
-	a.dashboard.Refresh(a.registry)
+	if existing := a.registry.Find(slug); existing != nil {
+		pc := *existing
+		a.state.ActiveProject = &pc
+	}
+}
+
+// reloadRegistry replaces the in-memory snapshot only after a successful read.
+func (a *App) reloadRegistry() error {
+	if a.store == nil || a.registry == nil {
+		return fmt.Errorf("project registry is unavailable")
+	}
+	reg, err := a.store.Load()
+	if err != nil {
+		return fmt.Errorf("read %s: %w", a.store.Path(), err)
+	}
+	a.registry = reg
+	return nil
 }
 
 // openPicker shows the project switcher over the current browser session.
 // Remote pane and in-flight diffs stay; they are torn down only by openProject.
-func (a *App) openPicker() {
-	if a.store == nil || a.registry == nil {
-		return
-	}
-	if reg, err := a.store.Load(); err == nil {
-		a.registry = reg
+func (a *App) openPicker() error {
+	if err := a.reloadRegistry(); err != nil {
+		return err
 	}
 	a.projectSel = projectselector.New(
 		a.registry.Active(), a.currentSlug(),
 		a.state.TermWidth, a.state.TermHeight,
 	)
 	a.state.Screen = ScreenProjectSelector
+	return nil
 }
 
 // openDashboard shows the project CRUD screen. When returnable is true, Esc
@@ -405,10 +424,9 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	now := time.Now().UTC()
 
 	if msg.OldSlug == "" {
-		slug := a.registry.UniqueSlug(project.Slugify(msg.Name))
-		return a.persist(func() error {
-			return a.registry.Add(project.Project{
-				Slug:      slug,
+		return a.persist(func(reg *project.Registry) error {
+			return reg.Add(project.Project{
+				Slug:      reg.UniqueSlug(project.Slugify(msg.Name)),
 				Name:      msg.Name,
 				Path:      path,
 				CreatedAt: now,
@@ -425,20 +443,24 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	updated.Name = msg.Name
 	updated.Path = path
 	updated.UpdatedAt = now
-	return a.persist(func() error {
-		return a.registry.Update(msg.OldSlug, updated)
+	return a.persist(func(reg *project.Registry) error {
+		return reg.Update(msg.OldSlug, updated)
 	})
 }
 
-// persist runs a registry mutation and writes the registry to disk, refreshing
-// the dashboard view on success.
-func (a *App) persist(mutate func() error) error {
-	if err := mutate(); err != nil {
+// persist applies a mutation to a private registry snapshot, writes it, then
+// publishes it to the running app. A failed write cannot leak the mutation into
+// a later successful save.
+func (a *App) persist(mutate func(*project.Registry) error) error {
+	candidate := *a.registry
+	candidate.Projects = append([]project.Project(nil), a.registry.Projects...)
+	if err := mutate(&candidate); err != nil {
 		return err
 	}
-	if err := a.store.Save(a.registry); err != nil {
+	if err := a.store.Save(&candidate); err != nil {
 		return err
 	}
+	a.registry = &candidate
 	a.dashboard.Refresh(a.registry)
 	return nil
 }
@@ -550,18 +572,52 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case dashboard.MsgDeleteProject:
-		if err := a.persist(func() error { return a.registry.Remove(msg.Slug) }); err != nil {
+		if err := config.RemoveProjectStore(msg.Slug, func() error {
+			return a.persist(func(reg *project.Registry) error { return reg.Remove(msg.Slug) })
+		}); err != nil {
 			a.dashboard.SetStatus("Delete failed: " + err.Error())
+			a.state.Screen = ScreenDashboard
+			return a, nil
+		}
+
+		var closeRemote tea.Cmd
+		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Slug {
+			closeRemote = a.browser.ClearRemote()
+			a.state.ActiveProject = nil
+			a.state.SelectedHost = nil
+			a.browser.SetProjectName("")
+			cfg, loadErr := config.Load(a.state.WorkingDir, "")
+			if loadErr != nil {
+				cfg = &config.MergedConfig{
+					GlobalDefaults: a.state.Config.GlobalDefaults,
+					UI:             a.state.Config.UI,
+					GlobalHosts:    append([]config.Host(nil), a.state.Config.GlobalHosts...),
+					Hosts:          make(map[string]config.Host, len(a.state.Config.GlobalHosts)),
+					ProjectRoot:    a.state.WorkingDir,
+				}
+				for _, host := range cfg.GlobalHosts {
+					cfg.Hosts[host.Name] = host
+				}
+			}
+			a.state.Config = cfg
+			a.hostManager = hostmanager.New(cfg, a.state.TermWidth, a.state.TermHeight)
+			a.hostManager.SetTrustManager(a.trust)
+			browserErr := a.browser.SetConfig(cfg)
+			if loadErr != nil {
+				a.dashboard.SetStatus("Project removed, but global config reload failed: " + loadErr.Error())
+			} else if browserErr != nil {
+				a.dashboard.SetStatus("Project removed, but browser reload failed: " + browserErr.Error())
+			}
 		}
 		a.state.Screen = ScreenDashboard
-		return a, nil
+		return a, closeRemote
 
 	case dashboard.MsgArchiveProject:
 		if p := a.registry.Find(msg.Slug); p != nil {
 			updated := *p
 			updated.Archived = !updated.Archived
 			updated.UpdatedAt = time.Now().UTC()
-			if err := a.persist(func() error { return a.registry.Update(msg.Slug, updated) }); err != nil {
+			if err := a.persist(func(reg *project.Registry) error { return reg.Update(msg.Slug, updated) }); err != nil {
 				a.dashboard.SetStatus("Archive failed: " + err.Error())
 			}
 		}
@@ -591,7 +647,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Browser → Project picker ──────────────────────────────────────
 	case browser.MsgOpenDashboard:
-		a.openPicker()
+		if err := a.openPicker(); err != nil {
+			a.browser.SetStatus("Cannot load projects: " + err.Error())
+		}
 		return a, nil
 
 	case projectselector.MsgSelectorCancelled:
@@ -599,10 +657,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case projectselector.MsgOpenDashboard:
-		if a.store != nil {
-			if reg, err := a.store.Load(); err == nil {
-				a.registry = reg
-			}
+		if err := a.reloadRegistry(); err != nil {
+			a.projectSel.SetStatus("Cannot load projects: " + err.Error())
+			return a, nil
 		}
 		a.openDashboard(true)
 		return a, nil
@@ -622,6 +679,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// ── Browser → Host Selector / direct sync ─────────────────────────
 	case browser.MsgSyncRequested:
 		a.pendingDiffStatus = ""
+		a.pendingDiffErrors = nil
 		a.state.Selection = msg.Selection
 		a.state.RemoteSelection = msg.RemoteSelection
 		a.state.ScopeOptions = msg.Options
@@ -741,9 +799,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		a.diffView.SetTrustManager(a.trust)
 		a.diffView.SetScope(msg.Scope, msg.Options)
-		if a.pendingDiffStatus != "" {
-			a.diffView.SetStatus(a.pendingDiffStatus)
+		if a.pendingDiffStatus != "" || len(a.pendingDiffErrors) > 0 {
+			a.diffView.SetSyncResult(a.pendingDiffStatus, a.pendingDiffErrors)
 			a.pendingDiffStatus = ""
+			a.pendingDiffErrors = nil
 		}
 		failed := 0
 		for _, session := range msg.Sessions {
@@ -771,6 +830,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		}
 		a.pendingDiffStatus = ""
+		a.pendingDiffErrors = nil
 		return a, nil
 
 	// ── Diff view → rebuild recursive scope ────────────────────────────
@@ -780,6 +840,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.state.ScopeOptions.IncludeIgnored = msg.IncludeIgnored
 		a.pendingDiffStatus = msg.Status
+		a.pendingDiffErrors = append([]diffview.SyncFailure(nil), msg.Errors...)
+		if a.state.Selection != nil {
+			for _, path := range msg.DeletedLocal {
+				delete(a.state.Selection.Marked, path)
+			}
+		}
+		if a.state.RemoteSelection != nil {
+			for _, path := range msg.DeletedRemote {
+				delete(a.state.RemoteSelection.Marked, path)
+			}
+		}
 		host := *a.state.SelectedHost
 		closeDiff := a.diffView.Close()
 		a.watchConnection(nil)

@@ -12,6 +12,10 @@ import (
 
 // SaveGlobalHost adds or replaces a host in the global config file.
 // If oldName != "" the host with that name is replaced; otherwise a new host is appended.
+//
+// The in-memory config changes only after the file is written. A failed write
+// therefore leaves the running session exactly as it was, instead of showing a
+// host that does not exist on disk or hiding one that does.
 func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
 		return fmt.Errorf("host %q: %w", h.Name, err)
@@ -22,17 +26,39 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	if err := validateHostNameAvailable(cfg.GlobalHosts, h.Name, oldName); err != nil {
 		return err
 	}
-	hosts := replaceOrAppend(cfg.GlobalHosts, h, oldName)
-	cfg.GlobalHosts = hosts
+
+	base, err := globalConfigBase(cfg)
+	if err != nil {
+		return err
+	}
+	if err := validateHostNameAvailable(base.Hosts, h.Name, oldName); err != nil {
+		return err
+	}
+
+	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
+	if err := writeGlobal(base); err != nil {
+		return err
+	}
+
+	cfg.GlobalHosts = replaceOrAppend(cfg.GlobalHosts, h, oldName)
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: hosts})
+	return nil
 }
 
 // DeleteGlobalHost removes a host by name from the global config file.
 func DeleteGlobalHost(cfg *MergedConfig, name string) error {
+	base, err := globalConfigBase(cfg)
+	if err != nil {
+		return err
+	}
+	base.Hosts = removeHost(base.Hosts, name)
+	if err := writeGlobal(base); err != nil {
+		return err
+	}
+
 	cfg.GlobalHosts = removeHost(cfg.GlobalHosts, name)
 	rebuildMerged(cfg)
-	return writeGlobal(GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts})
+	return nil
 }
 
 // SaveProjectHost adds or replaces a host in the project's store.
@@ -59,11 +85,14 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 		return err
 	}
 
+	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
+	if err := writeProjectStore(cfg.ProjectSlug, base); err != nil {
+		return err
+	}
+
 	cfg.ProjectHosts = replaceOrAppend(cfg.ProjectHosts, h, oldName)
 	rebuildMerged(cfg)
-
-	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
-	return writeProjectStore(cfg.ProjectSlug, base)
+	return nil
 }
 
 // DeleteProjectHost removes a host by name from the project's store.
@@ -72,11 +101,33 @@ func DeleteProjectHost(cfg *MergedConfig, name string) error {
 	if err != nil {
 		return err
 	}
+	base.Hosts = removeHost(base.Hosts, name)
+	if err := writeProjectStore(cfg.ProjectSlug, base); err != nil {
+		return err
+	}
+
 	cfg.ProjectHosts = removeHost(cfg.ProjectHosts, name)
 	rebuildMerged(cfg)
+	return nil
+}
 
-	base.Hosts = removeHost(base.Hosts, name)
-	return writeProjectStore(cfg.ProjectSlug, base)
+// globalConfigBase is the global config a write starts from: the file as it is
+// on disk, not the merged view in memory. The merged view has [defaults]
+// applied to every host, so writing it back would bake the inherited port and
+// user into each record and a later change under [defaults] would reach nobody.
+//
+// Without a file yet, the in-memory values are the only source, as they are for
+// a project without a store.
+func globalConfigBase(cfg *MergedConfig) (GlobalConfig, error) {
+	path := globalConfigPath()
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts}, nil
+	}
+	gc, err := loadGlobal()
+	if err != nil {
+		return GlobalConfig{}, fmt.Errorf("global config: %w", err)
+	}
+	return *gc, nil
 }
 
 // projectStoreBase is the project config a write starts from: the store as it
@@ -167,7 +218,7 @@ func writeGlobal(cfg GlobalConfig) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return writeToml(path, globalConfigOut{
+	return WriteTOML(path, globalConfigOut{
 		Defaults: defaultsOut{Port: optionalInt(cfg.Defaults.Port), User: cfg.Defaults.User},
 		UI:       cfg.UI,
 		Hosts:    hostsOut(cfg.Hosts),
@@ -233,14 +284,15 @@ func hostsOut(hosts []Host) []hostOut {
 	return out
 }
 
-// writeToml encodes v and replaces path atomically: a temporary file in the
+// WriteTOML encodes v and replaces path atomically: a temporary file in the
 // same directory, then a rename. A crash or a full disk therefore leaves either
-// the old file or the new one, never a truncated one — a project store holds
-// that project's credentials, and half of it is worse than none.
+// the old file or the new one, never a truncated one. A project store holds
+// that project's credentials and the registry holds every project, so half of
+// either file is worse than none.
 //
 // It also makes two drift instances writing the same file lose one of the two
 // writes instead of interleaving into a broken one.
-func writeToml(path string, v any) error {
+func WriteTOML(path string, v any) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
 		return err

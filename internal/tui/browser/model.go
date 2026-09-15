@@ -79,6 +79,8 @@ type Model struct {
 	remoteReading        bool
 	remotePreviewReading bool
 	remotePreviewID      uint64 // generation of the dispatched read, independent of the current selection
+	remotePreviewCancel  context.CancelFunc
+	remotePreviewConn    remote.Client
 	remoteStatus         string
 	remoteLoadID         uint64
 	remoteSession        *string // unique identity across browser/project replacements
@@ -429,6 +431,7 @@ func (m *Model) reload() error {
 // CloseRemote detaches the connection immediately and closes it off the UI thread.
 func (m *Model) CloseRemote() tea.Cmd {
 	conn := m.remoteConn
+	_ = m.cancelRemotePreview(false)
 	m.remoteConn = nil
 	m.CancelRemote()
 	m.remoteReading = false
@@ -444,6 +447,23 @@ func (m *Model) CloseRemote() tea.Cmd {
 	}
 }
 
+// ClearRemote closes the current connection and removes the assigned host and
+// remote tree. Use it when the surrounding project identity is removed.
+func (m *Model) ClearRemote() tea.Cmd {
+	cmd := m.CloseRemote()
+	m.remoteHost = nil
+	m.remoteRoot = ""
+	m.remoteEntries = nil
+	m.remoteCursor = 0
+	m.remoteOffset = 0
+	m.remoteLoading = false
+	m.remoteStatus = ""
+	if m.RemoteSelection != nil {
+		m.RemoteSelection.Clear()
+	}
+	return cmd
+}
+
 // Connection returns the connection currently owned by the browser.
 func (m Model) Connection() remote.Client { return m.remoteConn }
 
@@ -452,6 +472,7 @@ func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
 	if conn == nil || m.remoteConn != conn || err == nil {
 		return false
 	}
+	_ = m.cancelRemotePreview(false)
 	m.remoteLoadID++
 	m.remoteReading = false
 	m.remotePreviewReading = false

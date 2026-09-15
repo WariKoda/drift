@@ -82,6 +82,27 @@ func TestAddUpdateRemoveFind(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsDuplicateCleanedPaths(t *testing.T) {
+	r := &Registry{Projects: []Project{{Slug: "first", Path: "/work/shop"}}}
+
+	if err := r.Add(Project{Slug: "second", Path: "/work/other/../shop/"}); err == nil {
+		t.Fatal("Add accepted a path already owned by another project")
+	}
+	if len(r.Projects) != 1 {
+		t.Fatalf("Add changed the registry after rejecting the duplicate: %+v", r.Projects)
+	}
+
+	if err := r.Add(Project{Slug: "second", Path: "/work/second"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Update("second", Project{Slug: "second", Path: "/work/shop/."}); err == nil {
+		t.Fatal("Update accepted a path already owned by another project")
+	}
+	if got := r.Find("second").Path; got != "/work/second" {
+		t.Fatalf("Update changed the path after rejecting the duplicate: %q", got)
+	}
+}
+
 func TestHasPath(t *testing.T) {
 	r := &Registry{Projects: []Project{
 		{Slug: "a", Path: "/home/u/work/kunde-a"},

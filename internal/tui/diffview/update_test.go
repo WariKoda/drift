@@ -3,6 +3,7 @@ package diffview
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -67,6 +68,7 @@ func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
 
 func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	model := Model{
+		conn:         connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
 		quickSyncing: true,
 		sessions:     []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}},
 		syncDirs:     []SyncDir{DirUpload},
@@ -78,6 +80,9 @@ func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	}
 	if model.sessions[0].Err == nil {
 		t.Fatal("quick-sync error was not recorded on the active session")
+	}
+	if err := model.connectionError(); err != nil {
+		t.Fatalf("ordinary file error disabled a healthy connection: %v", err)
 	}
 }
 
@@ -102,6 +107,82 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 	}
 	if len(model.syncErrors) != 1 || model.syncErrors[0] != failure {
 		t.Fatalf("sync errors = %#v, want %#v", model.syncErrors, failure)
+	}
+}
+
+func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
+	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+	tracker := NewLoadProgressTracker()
+	failure := SyncFailure{
+		Operation: "upload",
+		Path:      "/project/file.php",
+		Reason:    "permission denied",
+		Err:       errors.New("permission denied"),
+	}
+	model := Model{
+		conn:            conn,
+		scopeSet:        true,
+		syncing:         true,
+		activityTracker: tracker,
+		sessions:        []diff.Session{{LocalPath: failure.Path, RemotePath: "/srv/file.php"}},
+		syncDirs:        []SyncDir{DirUpload},
+	}
+
+	_, cmd := model.Update(MsgBulkSyncDone{Errors: []SyncFailure{failure}})
+	if cmd == nil {
+		t.Fatal("bulk sync did not request a scope reload")
+	}
+	value := cmd()
+	request, ok := value.(MsgScopeReloadRequested)
+	if !ok {
+		t.Fatalf("reload command returned %T", value)
+	}
+	if !strings.Contains(request.Status, "[e]") || len(request.Errors) != 1 {
+		t.Fatalf("reload request lost status or errors: %+v", request)
+	}
+	got := request.Errors[0]
+	if got.Operation != failure.Operation || got.Path != failure.Path || got.Reason != failure.Reason || !errors.Is(got.Err, failure.Err) {
+		t.Fatalf("reload error = %+v, want %+v", got, failure)
+	}
+}
+
+func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		direction SyncDir
+	}{{"local", DirDeleteLocal}, {"remote", DirDeleteRemote}} {
+		t.Run(tc.name, func(t *testing.T) {
+			direction := tc.direction
+			conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+			tracker := NewLoadProgressTracker()
+			model := Model{
+				conn:            conn,
+				scopeSet:        true,
+				syncing:         true,
+				activityTracker: tracker,
+				sessions: []diff.Session{
+					{LocalPath: "/project/deleted.php", RemotePath: "/srv/deleted.php"},
+					{LocalPath: "/project/kept.php", RemotePath: "/srv/kept.php"},
+				},
+				syncDirs: []SyncDir{direction, direction},
+			}
+
+			_, cmd := model.Update(MsgBulkSyncDone{Done: 1, Completed: []int{0}})
+			if cmd == nil {
+				t.Fatal("successful delete did not request a scope reload")
+			}
+			request := cmd().(MsgScopeReloadRequested)
+			switch direction {
+			case DirDeleteLocal:
+				if !reflect.DeepEqual(request.DeletedLocal, []string{"/project/deleted.php"}) || len(request.DeletedRemote) != 0 {
+					t.Fatalf("deleted paths = local %v remote %v", request.DeletedLocal, request.DeletedRemote)
+				}
+			case DirDeleteRemote:
+				if !reflect.DeepEqual(request.DeletedRemote, []string{"/srv/deleted.php"}) || len(request.DeletedLocal) != 0 {
+					t.Fatalf("deleted paths = local %v remote %v", request.DeletedLocal, request.DeletedRemote)
+				}
+			}
+		})
 	}
 }
 

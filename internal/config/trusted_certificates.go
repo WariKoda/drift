@@ -114,7 +114,7 @@ func writeTrustedCertificates(entries []TrustedCertificate) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config directory: %w", err)
 	}
-	if err := writeToml(path, trustedCertificateFile{Certificates: entries}); err != nil {
+	if err := WriteTOML(path, trustedCertificateFile{Certificates: entries}); err != nil {
 		return fmt.Errorf("write trusted certificates: %w", err)
 	}
 	return nil

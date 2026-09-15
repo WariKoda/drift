@@ -9,6 +9,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
@@ -21,6 +22,98 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
+
+func TestDeletingActiveProjectClearsItsRuntimeBinding(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	workDir := t.TempDir()
+	reg := &project.Registry{Projects: []project.Project{{Slug: "shop", Name: "Shop", Path: workDir}}}
+	store := project.NewStore()
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(workDir, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SaveProjectHost(cfg, config.Host{Name: "prod", Hostname: "example.com"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	browserModel, err := browser.New(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := browserModel.SetConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cmd := browserModel.StartRemote(config.Host{Name: "prod", Hostname: "example.com"}); cmd == nil {
+		t.Fatal("StartRemote returned no load command")
+	}
+	active := reg.Projects[0]
+	a := App{
+		state:   AppState{Screen: ScreenDashboard, WorkingDir: workDir, Config: cfg, ActiveProject: &active},
+		browser: browserModel, store: store, registry: reg, dashboard: dashboard.New(reg, 80, 24),
+	}
+	globalConfig := filepath.Join(config.Dir(), "config.toml")
+	if err := os.WriteFile(globalConfig, []byte("invalid = ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, cmd := a.Update(dashboard.MsgDeleteProject{Slug: "shop"})
+	if cmd != nil {
+		cmd()
+	}
+	got := updated.(App)
+	if got.state.ActiveProject != nil || got.state.Config.ProjectSlug != "" || got.state.SelectedHost != nil {
+		t.Fatalf("deleted project remained active: %+v", got.state)
+	}
+	if host, ok := got.browser.RemoteHost(); ok {
+		t.Fatalf("deleted project's remote host remained assigned: %q", host.Name)
+	}
+	if got.registry.Find("shop") != nil {
+		t.Fatal("deleted project remained in the registry")
+	}
+	if err := os.Remove(globalConfig); err != nil {
+		t.Fatal(err)
+	}
+	oldStore, err := config.Load(workDir, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := oldStore.Hosts["prod"]; exists {
+		t.Fatal("deleted project's host remained in its slug store")
+	}
+}
+
+func TestScopeReloadRemovesOnlySuccessfulDeleteSelections(t *testing.T) {
+	local := fs.NewSelectionState()
+	local.Toggle("/project/deleted.php")
+	local.Toggle("/project/kept.php")
+	remoteSelection := fs.NewSelectionState()
+	remoteSelection.Toggle("/srv/deleted.php")
+	remoteSelection.Toggle("/srv/kept.php")
+	host := config.Host{Name: "test"}
+	a := App{state: AppState{
+		Screen:          ScreenDiffView,
+		SelectedHost:    &host,
+		Selection:       local,
+		RemoteSelection: remoteSelection,
+	}}
+
+	updated, _ := a.Update(diffview.MsgScopeReloadRequested{
+		DeletedLocal:  []string{"/project/deleted.php"},
+		DeletedRemote: []string{"/srv/deleted.php"},
+	})
+	got := updated.(App)
+	if local.IsMarked("/project/deleted.php") || remoteSelection.IsMarked("/srv/deleted.php") {
+		t.Fatal("successful direct deletes remained selected")
+	}
+	if !local.IsMarked("/project/kept.php") || !remoteSelection.IsMarked("/srv/kept.php") {
+		t.Fatal("scope reload removed an unrelated selection")
+	}
+	if got.state.Screen != ScreenBrowser {
+		t.Fatalf("screen = %v, want browser while the scope reload runs", got.state.Screen)
+	}
+}
 
 func makeProjectDir(t *testing.T) string {
 	t.Helper()

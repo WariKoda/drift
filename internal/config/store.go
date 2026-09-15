@@ -81,11 +81,53 @@ func writeProjectStore(slug string, cfg ProjectConfig) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return writeToml(path, projectConfigOut{
+	return WriteTOML(path, projectConfigOut{
 		Defaults: defaultsOut{Port: optionalInt(cfg.Defaults.Port), User: cfg.Defaults.User},
 		Hosts:    hostsOut(cfg.Hosts),
 		Mappings: cfg.Mappings,
 	})
+}
+
+// RemoveProjectStore hides a project's settings, runs commit, and removes the
+// settings only after commit succeeds. A failed commit renames the store back,
+// so the registry cannot free a slug while its credentials remain loadable.
+func RemoveProjectStore(slug string, commit func() error) error {
+	path, err := projectStorePath(slug)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return commit()
+	} else if err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".deleting-*")
+	if err != nil {
+		return fmt.Errorf("stage project store removal: %w", err)
+	}
+	staged := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	if err := os.Remove(staged); err != nil {
+		return err
+	}
+	if err := os.Rename(path, staged); err != nil {
+		return fmt.Errorf("stage project store removal: %w", err)
+	}
+
+	if err := commit(); err != nil {
+		if rollbackErr := os.Rename(staged, path); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore project store: %w", rollbackErr))
+		}
+		return err
+	}
+	if err := os.Remove(staged); err != nil {
+		return fmt.Errorf("remove staged project store: %w", err)
+	}
+	return nil
 }
 
 // ProjectStorePathForDisplay is a project's store path with $HOME shortened,

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,7 +47,7 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 }
 
 func connect(ctx context.Context, host config.Host, interval, timeout time.Duration) (*Client, error) {
-	methods, authCloser, err := ssh.AuthMethods(host.Auth)
+	methods, authCloser, err := ssh.AuthMethods(ctx, host.Auth)
 	connected := false
 	defer func() {
 		if !connected && authCloser != nil {
@@ -75,7 +76,8 @@ func connect(ctx context.Context, host config.Host, interval, timeout time.Durat
 		Timeout:           15 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%d", host.Hostname, port)
+	// Trim brackets so a bracketed IPv6 literal is not wrapped twice.
+	addr := net.JoinHostPort(strings.Trim(host.Hostname, "[]"), strconv.Itoa(port))
 	// Prefer IPv4: "localhost" often resolves to ::1 first on dual-stack systems,
 	// but many containers (e.g. dockware) only bind on 0.0.0.0, not :::.
 	dialer := &net.Dialer{Timeout: cfg.Timeout}
@@ -335,6 +337,7 @@ func (c *Client) DeleteFile(remotePath string) error {
 }
 
 // WalkFiles calls fn for every regular file under remoteRoot, recursively.
+// Symlinks, FIFOs, sockets and devices are skipped, matching the local walker.
 // A listing error on any directory is propagated rather than skipped: swallowing
 // it would silently drop that subtree from the walk, so its files would never be
 // compared or synced.
@@ -358,6 +361,12 @@ func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error,
 			if walker.Path() != remoteRoot && fs.ShouldSkipDir(path.Base(walker.Path())) {
 				walker.SkipDir()
 			}
+			continue
+		}
+		// Everything that is not a regular file is skipped, as it is locally.
+		// A remote symlink would otherwise be followed by the later Stat and
+		// Open and its target downloaded as an ordinary file.
+		if !walker.Stat().Mode().IsRegular() {
 			continue
 		}
 		if err := fn(walker.Path()); err != nil {

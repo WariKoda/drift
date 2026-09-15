@@ -23,7 +23,10 @@ func ShouldSkipDir(name string) bool {
 }
 
 // WalkFiles calls fn for every regular file under root, recursively, in lexical
-// order. Directories in skipDirs and symlinks are skipped; read errors stop the walk.
+// order. Directories in skipDirs are skipped, and so is everything that is not
+// a regular file: symlinks, FIFOs, sockets and devices. Reading a FIFO would
+// block until someone writes to it, and a device is not a project file. Read
+// errors stop the walk.
 func WalkFiles(root string, fn func(path string) error) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -35,7 +38,7 @@ func WalkFiles(root string, fn func(path string) error) error {
 			}
 			return nil
 		}
-		if d.Type()&os.ModeSymlink != 0 {
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		return fn(path)
@@ -57,12 +60,16 @@ func ReadDir(dir string) ([]*FileEntry, error) {
 			return nil, fmt.Errorf("stat %s: %w", filepath.Join(dir, de.Name()), err)
 		}
 
-		kind := EntryFile
+		var kind EntryKind
 		switch {
 		case de.IsDir():
 			kind = EntryDir
 		case de.Type()&os.ModeSymlink != 0:
 			kind = EntrySymlink
+		case info.Mode().IsRegular():
+			kind = EntryFile
+		default:
+			continue
 		}
 
 		fe := &FileEntry{

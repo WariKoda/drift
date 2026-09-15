@@ -219,3 +219,77 @@ func TestMapperMappingWholeRootWithSlashRemoteRoot(t *testing.T) {
 		t.Fatalf("RemoteToLocal = %q, want %q", local, root)
 	}
 }
+
+// A host without root_path has its remote root at "/", which is what the
+// browser shows. Both directions have to agree on that, or an upload goes to a
+// relative path while the browser's absolute path counts as outside the root.
+func TestEmptyHostRootAnchorsRemoteMappingsAtSlash(t *testing.T) {
+	project := t.TempDir()
+	m := New(project, []config.Mapping{{Local: "src", Remote: "www"}}, config.Host{Name: "h"})
+
+	remote, err := m.LocalToRemote(filepath.Join(project, "src", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote != "/www/main.go" {
+		t.Fatalf("LocalToRemote = %q, want /www/main.go", remote)
+	}
+	local, err := m.RemoteToLocal("/www/main.go")
+	if err != nil || local != filepath.Join(project, "src", "main.go") {
+		t.Fatalf("RemoteToLocal = %q, %v", local, err)
+	}
+}
+
+func TestExplicitDotHostRootRemainsRelative(t *testing.T) {
+	project := t.TempDir()
+	m := New(project, nil, config.Host{Name: "h", RootPath: "."})
+
+	remote, err := m.LocalToRemote(filepath.Join(project, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remote != "main.go" {
+		t.Fatalf("LocalToRemote = %q, want main.go", remote)
+	}
+	local, err := m.RemoteToLocal("main.go")
+	if err != nil || local != filepath.Join(project, "main.go") {
+		t.Fatalf("RemoteToLocal = %q, %v", local, err)
+	}
+}
+
+func TestExplicitDotHostRootPreservesHiddenNames(t *testing.T) {
+	project := t.TempDir()
+	for _, mappings := range [][]config.Mapping{nil, {{Local: ".", Remote: "."}}} {
+		m := New(project, mappings, config.Host{Name: "h", RootPath: "."})
+		for _, remote := range []string{".env", ".config/settings"} {
+			local, err := m.RemoteToLocal(remote)
+			if err != nil {
+				t.Fatalf("RemoteToLocal(%q): %v", remote, err)
+			}
+			if want := filepath.Join(project, filepath.FromSlash(remote)); local != want {
+				t.Errorf("RemoteToLocal(%q) = %q, want %q", remote, local, want)
+			}
+		}
+	}
+}
+
+func TestEmptyHostRootBehavesLikeSlash(t *testing.T) {
+	project := t.TempDir()
+	m := New(project, nil, config.Host{Name: "h"})
+
+	remote, err := m.LocalToRemote(filepath.Join(project, "src", "main.go"))
+	if err != nil {
+		t.Fatalf("LocalToRemote returned error: %v", err)
+	}
+	if remote != "/src/main.go" {
+		t.Errorf("LocalToRemote = %q, want %q", remote, "/src/main.go")
+	}
+
+	local, err := m.RemoteToLocal("/src/main.go")
+	if err != nil {
+		t.Fatalf("RemoteToLocal returned error: %v", err)
+	}
+	if want := filepath.Join(project, "src", "main.go"); local != want {
+		t.Errorf("RemoteToLocal = %q, want %q", local, want)
+	}
+}

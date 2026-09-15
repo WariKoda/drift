@@ -1,11 +1,45 @@
 package browser
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestRemotePreviewCancellationInterruptsStalledRead(t *testing.T) {
+	for _, stall := range []string{"reply", "data", "final reply"} {
+		t.Run(stall, func(t *testing.T) {
+			server := startBrowserConnectionFTP(t, stall)
+			conn, err := remote.Connect(context.Background(), server.host, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+
+			ctx, cancel := context.WithCancel(context.Background())
+			request := previewRequest{source: PaneRemote, path: "/file.txt", session: new(string)}
+			result := make(chan msgPreviewLoaded, 1)
+			go func() { result <- readRemotePreviewCmd(ctx, conn, request)().(msgPreviewLoaded) }()
+			waitBrowserConnectionSignal(t, server.listing)
+			cancel()
+
+			select {
+			case msg := <-result:
+				if !errors.Is(msg.err, context.Canceled) {
+					t.Fatalf("preview error = %v, want context cancellation", msg.err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("cancellation did not interrupt the remote preview")
+			}
+			waitBrowserConnectionSignal(t, server.done)
+		})
+	}
+}
 
 func TestRemotePreviewReleasesCompletedReadAfterSelectionChanges(t *testing.T) {
 	for _, sequence := range []string{"before debounce", "after debounce", "failed read", "multiple files", "directory", "disable", "reopen"} {
@@ -39,9 +73,17 @@ func TestRemotePreviewReleasesCompletedReadAfterSelectionChanges(t *testing.T) {
 			// Hold the actual network result until after the user changes selection.
 			// This controls event ordering without sleeps or transport mocks.
 			if sequence == "disable" || sequence == "reopen" {
-				_ = m.disablePreview()
+				closeCmd := m.disablePreview()
+				if closeCmd == nil {
+					t.Fatal("cancelling a dispatched preview returned no close command")
+				}
+				runBrowserConnectionCmd(t, closeCmd)
 				if sequence == "reopen" {
 					_ = m.togglePreview()
+					if m.remoteConn != nil || m.remoteBusy() {
+						t.Fatal("reopening a cancelled preview retained the closing connection")
+					}
+					return
 				}
 			} else {
 				m.remoteCursor = 1

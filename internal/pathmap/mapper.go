@@ -69,7 +69,7 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 	if best != "" {
 		remoteLocal := filepath.ToSlash(strings.TrimPrefix(absLocal, best))
 		remoteLocal = strings.TrimPrefix(remoteLocal, "/")
-		remoteBase := cleanRemotePath(path.Join(m.host.RootPath, bestMapping.Remote))
+		remoteBase := cleanRemotePath(path.Join(cleanRemoteRoot(m.host.RootPath), bestMapping.Remote))
 		if remoteLocal == "" || remoteLocal == "." {
 			return remoteBase, nil
 		}
@@ -89,7 +89,7 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("pathmap: cannot relativize %q against project root %q: %w", absLocal, m.projectRoot, err)
 	}
-	remoteBase := cleanRemotePath(m.host.RootPath)
+	remoteBase := cleanRemoteRoot(m.host.RootPath)
 	relSuffix := filepath.ToSlash(rel)
 	if relSuffix == "" || relSuffix == "." {
 		return remoteBase, nil
@@ -109,7 +109,7 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 	bestMapping := config.Mapping{}
 
 	for _, mp := range mappings {
-		remoteBase := cleanRemotePath(path.Join(m.host.RootPath, mp.Remote))
+		remoteBase := cleanRemotePath(path.Join(cleanRemoteRoot(m.host.RootPath), mp.Remote))
 		if hasRemotePathPrefix(absRemote, remoteBase) {
 			if len(remoteBase) > len(best) {
 				best = remoteBase
@@ -119,8 +119,7 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 	}
 
 	if best != "" {
-		suffix := strings.TrimPrefix(absRemote, best)
-		suffix = strings.TrimPrefix(suffix, "/")
+		suffix := remoteRelativeSuffix(absRemote, best)
 		localBase := filepath.Join(m.projectRoot, filepath.FromSlash(bestMapping.Local))
 		if suffix == "" {
 			return filepath.Clean(localBase), nil
@@ -134,13 +133,22 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 	}
 
 	// Fallback
-	rootPath := cleanRemotePath(m.host.RootPath)
+	rootPath := cleanRemoteRoot(m.host.RootPath)
 	if !hasRemotePathPrefix(absRemote, rootPath) {
 		return "", fmt.Errorf("pathmap: remote path %q is outside host root %q", absRemote, m.host.RootPath)
 	}
-	rel := strings.TrimPrefix(absRemote, rootPath)
-	rel = strings.TrimPrefix(rel, "/")
+	rel := remoteRelativeSuffix(absRemote, rootPath)
 	return filepath.Join(m.projectRoot, rel), nil
+}
+
+func remoteRelativeSuffix(remotePath, root string) string {
+	if root == "." {
+		if remotePath == "." {
+			return ""
+		}
+		return remotePath
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(remotePath, root), "/")
 }
 
 func hasLocalPathPrefix(path, base string) bool {
@@ -164,10 +172,22 @@ func hasRemotePathPrefix(pathValue, base string) bool {
 	if base == "/" {
 		return strings.HasPrefix(pathValue, base)
 	}
+	if base == "." {
+		return pathValue != ".." && !strings.HasPrefix(pathValue, "../") && !strings.HasPrefix(pathValue, "/")
+	}
 	return strings.HasPrefix(pathValue, base+"/")
 }
 
 func cleanRemotePath(value string) string {
-	value = filepath.ToSlash(value)
-	return path.Clean(value)
+	return path.Clean(filepath.ToSlash(value))
+}
+
+// cleanRemoteRoot normalizes only an omitted host root to "/", matching the
+// browser. An explicit "." remains relative, and mappings join against the
+// normalized root before their own path is cleaned.
+func cleanRemoteRoot(value string) string {
+	if value == "" {
+		return "/"
+	}
+	return cleanRemotePath(value)
 }

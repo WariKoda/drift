@@ -62,6 +62,9 @@ type MsgDiffError struct {
 type MsgScopeReloadRequested struct {
 	IncludeIgnored bool
 	Status         string
+	Errors         []SyncFailure
+	DeletedLocal   []string
+	DeletedRemote  []string
 }
 
 // MsgRefreshed is sent when a full diff refresh has completed.
@@ -271,9 +274,11 @@ func (m *Model) SetScope(scope syncpolicy.ScopeSummary, options syncpolicy.Scope
 	m.scopeSet = true
 }
 
-// SetStatus restores the result of a transfer across a full scope reload.
-func (m *Model) SetStatus(status string) {
+// SetSyncResult restores the result of a transfer across a full scope reload.
+func (m *Model) SetSyncResult(status string, failures []SyncFailure) {
 	m.syncStatus = status
+	m.syncErrors = append([]SyncFailure(nil), failures...)
+	m.showErrors = len(failures) > 0
 }
 
 // Init satisfies the sub-model convention.
@@ -314,6 +319,8 @@ func (m *Model) finishActivity() {
 // A command dequeued after Close cannot touch the already released root.
 func (m Model) trackCommand(cmd tea.Cmd) tea.Cmd {
 	wait := m.activityWait
+	tracker := m.activityTracker
+	conn := m.conn
 	if wait == nil {
 		return cmd
 	}
@@ -326,6 +333,10 @@ func (m Model) trackCommand(cmd tea.Cmd) tea.Cmd {
 		wait.running.Add(1)
 		wait.mu.Unlock()
 		defer wait.running.Done()
+		if tracker != nil && conn != nil {
+			detach := remote.CloseOnContextDone(tracker.Context(), conn)
+			defer detach()
+		}
 		return cmd()
 	}
 }
@@ -353,7 +364,15 @@ func (m Model) connectionError() error {
 	if m.closed || m.conn == nil {
 		return errors.New("connection is closed")
 	}
-	return m.conn.Err()
+	if err := m.conn.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-m.conn.Done():
+		return errors.New("connection is closed")
+	default:
+		return nil
+	}
 }
 
 // Close detaches ownership and cancels pending work immediately. Network close
@@ -1359,6 +1378,9 @@ func (m Model) uploadCmd(idx int) tea.Cmd {
 			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
 		}
 		if err := syncOperationError(conn, uploadFile(conn, root, s.LocalPath, s.RemotePath)); err != nil {
+			if tracker.Canceled() {
+				return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
+			}
 			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
 		}
@@ -1381,6 +1403,9 @@ func (m Model) downloadCmd(idx int) tea.Cmd {
 			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
 		}
 		if err := syncOperationError(conn, downloadFile(conn, root, s.RemotePath, s.LocalPath)); err != nil {
+			if tracker.Canceled() {
+				return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
+			}
 			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
 			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
 		}
@@ -1433,6 +1458,13 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 				continue
 			}
 			err = syncOperationError(conn, err)
+			if tracker.Canceled() {
+				if err == nil {
+					completed = append(completed, i)
+					tracker.Inc()
+				}
+				break
+			}
 			if err != nil {
 				log.Error("sync file", "op", op, "local", s.LocalPath, "remote", s.RemotePath, "err", err)
 				reason := strings.Join(strings.Fields(err.Error()), " ")
@@ -1456,6 +1488,9 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 				completed = append(completed, i)
 			}
 			tracker.Inc()
+		}
+		if tracker.Canceled() {
+			return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: errs, Err: context.Canceled}
 		}
 		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: errs, Err: m.connectionError()}
 	})
@@ -1494,6 +1529,9 @@ func (m Model) refreshCmd() tea.Cmd {
 				Loaded:     true,
 			}
 		})
+		if tracker.Canceled() {
+			return MsgRefreshed{Conn: conn, Sessions: refreshed, Err: context.Canceled}
+		}
 		if securityErr != nil {
 			return MsgRefreshed{Conn: conn, Sessions: refreshed, Err: securityErr}
 		}
@@ -1522,6 +1560,9 @@ func (m Model) reloadSessionCmd(idx int) tea.Cmd {
 			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: s.Result, Err: context.Canceled}
 		}
 		result, err := diff.Compare(root, s.LocalPath, s.RemotePath, conn)
+		if tracker.Canceled() {
+			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: s.Result, Err: context.Canceled}
+		}
 		if terminalErr := conn.Err(); terminalErr != nil {
 			err = terminalErr
 		}

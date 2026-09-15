@@ -3,6 +3,8 @@ package diffview
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,6 +91,55 @@ func TestConnectionLostMatchesOwnerAndPreservesView(t *testing.T) {
 	}
 	if !strings.Contains(model.renderFileRow(0, 40), "✓") {
 		t.Fatal("confirmed success is not visible in the file list")
+	}
+}
+
+func TestCancelActivityInterruptsStalledDownload(t *testing.T) {
+	server := startFTPTestServer(t, 1)
+	server.addFile("/file.txt", "content")
+	started := make(chan struct{})
+	server.mu.Lock()
+	server.sendData = func(data net.Conn, _ string) error {
+		close(started)
+		_, err := io.Copy(io.Discard, data)
+		return err
+	}
+	server.mu.Unlock()
+
+	conn := connectDiffTestHost(t, server.host(t))
+	root, err := fs.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	model := New([]diff.Session{{
+		LocalPath: filepath.Join(root.Base(), "file.txt"), RemotePath: "/file.txt",
+	}}, server.host(t), conn, root, 80, 24)
+	model.quickSyncing = true
+	model.beginActivity("Downloading", 1)
+
+	result := make(chan tea.Msg, 1)
+	go func() { result <- model.downloadCmd(0)() }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not reach the stalled data transfer")
+	}
+	model.CancelActivity()
+
+	var msg tea.Msg
+	select {
+	case msg = <-result:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CancelActivity did not interrupt the download")
+	}
+	syncErr, ok := msg.(MsgSyncError)
+	if !ok || !errors.Is(syncErr.Err, context.Canceled) {
+		t.Fatalf("download result = %#v, want a canceled sync error", msg)
+	}
+	model, _ = model.Update(msg)
+	if model.remoteBusy() || model.connectionError() == nil {
+		t.Fatal("canceled download kept the model busy or reusable")
 	}
 }
 

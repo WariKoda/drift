@@ -40,6 +40,13 @@ func (m Model) listHeight() int {
 	return h
 }
 
+func (m Model) firstVisibleEntry() int {
+	if len(m.entries) == 0 {
+		return 0
+	}
+	return max(0, min(m.offset, len(m.entries)-1))
+}
+
 func (m Model) View() string {
 	var sb strings.Builder
 
@@ -53,7 +60,9 @@ func (m Model) View() string {
 	// Entry list
 	vh := m.listHeight()
 	rendered := 0
-	for i, e := range m.entries {
+	start := m.firstVisibleEntry()
+	for i := start; i < len(m.entries); i++ {
+		e := m.entries[i]
 		span := entryRowSpan(e)
 		if rendered+span > vh {
 			break

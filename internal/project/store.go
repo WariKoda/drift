@@ -1,7 +1,6 @@
 package project
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -40,14 +39,13 @@ func (s *Store) Load() (*Registry, error) {
 	return reg, nil
 }
 
-// Save writes the registry, creating the config directory if needed.
+// Save writes the registry, creating the config directory if needed. The write
+// replaces the file atomically, so a full disk or a killed process leaves the
+// previous registry in place instead of a truncated one that would lose every
+// project.
 func (s *Store) Save(reg *Registry) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(reg); err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, buf.Bytes(), 0o600)
+	return config.WriteTOML(s.path, reg)
 }

@@ -43,10 +43,19 @@ func testCmd(host config.Host, parent context.Context, id uint64, trust *tlstrus
 		} else {
 			root = path.Clean(root)
 		}
-		if _, err := conn.ReadDir(root); err != nil {
+
+		// remote.Client operations do not take a context. Close the transport when
+		// the test deadline expires so a stuck listing cannot outlive the command.
+		detach := remote.CloseOnContextDone(ctx, conn)
+		_, listErr := conn.ReadDir(root)
+		detach()
+		if listErr != nil {
 			_ = conn.Close()
-			log.Error("host root listing failed", "host", host.Name, "remote", root, "err", err)
-			return MsgTestResult{Host: host, Err: fmt.Errorf("list %s: %w", root, err), ID: id}
+			if ctx.Err() != nil {
+				listErr = ctx.Err()
+			}
+			log.Error("host root listing failed", "host", host.Name, "remote", root, "err", listErr)
+			return MsgTestResult{Host: host, Err: fmt.Errorf("list %s: %w", root, listErr), ID: id}
 		}
 		if err := conn.Close(); err != nil {
 			return MsgTestResult{Host: host, Err: fmt.Errorf("close connection: %w", err), ID: id}
@@ -78,8 +87,7 @@ type MsgBackToBrowser struct{}
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.Width = msg.Width
-		m.Height = msg.Height
+		m.SetSize(msg.Width, msg.Height)
 
 	case MsgTestResult:
 		if msg.ID != m.testID {

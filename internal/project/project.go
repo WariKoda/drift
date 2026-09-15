@@ -157,7 +157,7 @@ func pickUnique(query string, hits []*Project) (*Project, error) {
 	return nil, fmt.Errorf("ambiguous project %q: matches %s", query, strings.Join(slugs, ", "))
 }
 
-// Add appends a project. It errors if the slug already exists.
+// Add appends a project. It errors if the slug or cleaned path already exists.
 func (r *Registry) Add(p Project) error {
 	if p.Slug == "" {
 		return fmt.Errorf("project slug must not be empty")
@@ -165,17 +165,25 @@ func (r *Registry) Add(p Project) error {
 	if r.Find(p.Slug) != nil {
 		return fmt.Errorf("project %q already exists", p.Slug)
 	}
+	if existing := r.FindByPath(p.Path); existing != nil {
+		return fmt.Errorf("path %q is already registered as project %q", filepath.Clean(p.Path), existing.Slug)
+	}
 	r.Projects = append(r.Projects, p)
 	return nil
 }
 
-// Update replaces the project identified by slug. It errors if not found.
+// Update replaces the project identified by slug. It errors if not found or if
+// another project already owns the cleaned path.
 func (r *Registry) Update(slug string, p Project) error {
 	for i := range r.Projects {
-		if r.Projects[i].Slug == slug {
-			r.Projects[i] = p
-			return nil
+		if r.Projects[i].Slug != slug {
+			continue
 		}
+		if existing := r.FindByPath(p.Path); existing != nil && existing.Slug != slug {
+			return fmt.Errorf("path %q is already registered as project %q", filepath.Clean(p.Path), existing.Slug)
+		}
+		r.Projects[i] = p
+		return nil
 	}
 	return fmt.Errorf("project %q not found", slug)
 }

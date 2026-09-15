@@ -5,6 +5,7 @@ package textfield
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/WariKoda/drift/internal/styles"
 	tea "github.com/charmbracelet/bubbletea"
@@ -68,6 +69,9 @@ func (f *TextField) HandleKey(msg tea.KeyMsg) {
 		}
 	default:
 		for _, r := range msg.Runes {
+			if unicode.IsControl(r) {
+				continue
+			}
 			if f.MaxLen > 0 && len(f.value) >= f.MaxLen {
 				break
 			}

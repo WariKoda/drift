@@ -54,7 +54,10 @@ func Load(root, slug string) (*MergedConfig, error) {
 // Returns an empty config if the file does not exist.
 func loadGlobal() (*GlobalConfig, error) {
 	path := globalConfigPath()
-	cfg := &GlobalConfig{Defaults: Defaults{Port: 22}}
+	// No default port is seeded here. merge picks one per protocol, and a
+	// seeded value would both override that choice and get written back into
+	// [defaults] on the next save.
+	cfg := &GlobalConfig{}
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
@@ -80,7 +83,7 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *Me
 			if d.Port != 0 {
 				h.Port = d.Port
 			} else {
-				h.Port = 22
+				h.Port = DefaultPort(h.Protocol)
 			}
 		}
 		if h.User == "" {

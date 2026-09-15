@@ -2,6 +2,7 @@ package browser
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 const (
 	previewMaxBytes = 1 << 20
 	previewDebounce = 150 * time.Millisecond
+	previewTimeout  = 30 * time.Second
 )
 
 var (
@@ -115,15 +117,16 @@ func (m *Model) togglePreview() tea.Cmd {
 
 func (m *Model) disablePreview() tea.Cmd {
 	wasActive := m.preview.active
+	closeCmd := m.cancelRemotePreview(true)
 	generation := m.preview.generation + 1
 	m.preview = filePreview{generation: generation}
 	if strings.HasPrefix(m.statusMsg, "Preview failed: ") {
 		m.statusMsg = ""
 	}
 	if wasActive && m.mouseEnabled {
-		return tea.EnableMouseCellMotion
+		return tea.Batch(closeCmd, tea.EnableMouseCellMotion)
 	}
-	return nil
+	return closeCmd
 }
 
 func (m *Model) schedulePreview() tea.Cmd {
@@ -208,6 +211,7 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 		source:     m.preview.source,
 		path:       filePath,
 		size:       entry.Size,
+		session:    m.remoteSession,
 	}
 	if m.preview.source == PaneRemote {
 		request.host = *m.remoteHost
@@ -218,10 +222,10 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 }
 
 func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
-	if !m.preview.active || request.generation != m.preview.generation || request.source != m.preview.source {
+	if !m.preview.active || request.generation != m.preview.generation || request.source != m.preview.source || request.session != m.remoteSession {
 		return nil
 	}
-	if request.source == PaneRemote && (request.session != m.remoteSession || m.remoteHost == nil || request.host.Name != m.remoteHost.Name) {
+	if request.source == PaneRemote && (m.remoteHost == nil || request.host.Name != m.remoteHost.Name) {
 		return nil
 	}
 	if !request.force {
@@ -246,9 +250,12 @@ func (m *Model) beginPreviewLoad(request previewRequest) tea.Cmd {
 				return previewLoadFailure(request, errors.New("remote is not connected"))
 			}
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), previewTimeout)
 		m.remotePreviewReading = true
 		m.remotePreviewID = request.generation
-		return readRemotePreviewCmd(m.remoteConn, request)
+		m.remotePreviewCancel = cancel
+		m.remotePreviewConn = m.remoteConn
+		return readRemotePreviewCmd(ctx, m.remoteConn, request)
 	}
 	return readLocalPreviewCmd(request)
 }
@@ -262,7 +269,7 @@ func (m *Model) resumePreviewLoad() tea.Cmd {
 
 // AcceptsPreviewResult reports whether a preview result is still current.
 func (m Model) AcceptsPreviewResult(msg MsgPreviewLoaded) bool {
-	if !m.preview.active || msg.request.generation != m.preview.generation || msg.request.source != m.preview.source {
+	if !m.preview.active || msg.request.generation != m.preview.generation || msg.request.source != m.preview.source || msg.request.session != m.remoteSession {
 		return false
 	}
 	if !msg.Remote() {
@@ -276,11 +283,17 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 	// Completing the dispatched read releases the connection even when its
 	// content is obsolete or the preview has been closed. Older reads from a
 	// different connection, browser, or operation must not release a newer one.
-	if msg.Remote() && m.remotePreviewReading &&
+	ownedRemoteRead := msg.Remote() && m.remotePreviewReading &&
 		msg.request.generation == m.remotePreviewID &&
 		msg.request.session == m.remoteSession && msg.request.remoteID == m.remoteLoadID &&
-		m.remoteHost != nil && msg.request.host.Name == m.remoteHost.Name {
+		m.remoteHost != nil && msg.request.host.Name == m.remoteHost.Name
+	if ownedRemoteRead {
 		m.remotePreviewReading = false
+		if m.remotePreviewCancel != nil {
+			m.remotePreviewCancel()
+			m.remotePreviewCancel = nil
+		}
+		m.remotePreviewConn = nil
 	}
 
 	if accepted {
@@ -310,7 +323,44 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 		}
 	}
 
+	if ownedRemoteRead && (errors.Is(msg.err, context.Canceled) || errors.Is(msg.err, context.DeadlineExceeded)) {
+		m.remoteConn = nil
+		m.remoteLoadID++
+		m.remoteStatus = "Remote preview timed out. Press [r] to reconnect."
+		m.preview.waiting = false
+		return nil
+	}
 	return m.resumePreviewLoad()
+}
+
+// cancelRemotePreview invalidates a dispatched remote read. The command's
+// context watcher closes the connection to interrupt Open or Read, neither of
+// which accepts a context.
+func (m *Model) cancelRemotePreview(detachConnection bool) tea.Cmd {
+	if m.remotePreviewCancel == nil {
+		return nil
+	}
+	m.remotePreviewCancel()
+	m.remotePreviewCancel = nil
+	conn := m.remotePreviewConn
+	m.remotePreviewConn = nil
+	if m.remotePreviewReading {
+		m.remotePreviewReading = false
+		if detachConnection {
+			m.remoteConn = nil
+			m.remoteLoadID++
+			m.remoteStatus = "Remote preview cancelled. Press [r] to reconnect."
+		}
+	}
+	if !detachConnection || conn == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := conn.Close(); err != nil {
+			log.Error("close cancelled preview connection", "err", err)
+		}
+		return nil
+	}
 }
 
 func readLocalPreviewCmd(request previewRequest) tea.Cmd {
@@ -342,18 +392,26 @@ func readLocalPreviewCmd(request previewRequest) tea.Cmd {
 	}
 }
 
-func readRemotePreviewCmd(conn remote.Client, request previewRequest) tea.Cmd {
+func readRemotePreviewCmd(ctx context.Context, conn remote.Client, request previewRequest) tea.Cmd {
 	return func() tea.Msg {
+		detach := remote.CloseOnContextDone(ctx, conn)
+		defer detach()
 		if request.size > previewMaxBytes {
 			return msgPreviewLoaded{request: request, err: errPreviewTooLarge}
 		}
 		reader, err := conn.Open(request.path)
 		if err != nil {
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
 			return previewLoadFailure(request, fmt.Errorf("open remote %s: %w", request.path, err))
 		}
 		lines, readErr := readPreviewText(reader, request.size)
 		closeErr := reader.Close()
 		if err := errors.Join(readErr, closeErr); err != nil {
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
 			if closeErr == nil && (errors.Is(readErr, errPreviewTooLarge) || errors.Is(readErr, errPreviewBinary)) {
 				return msgPreviewLoaded{request: request, err: readErr}
 			}

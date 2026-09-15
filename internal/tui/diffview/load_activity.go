@@ -205,7 +205,11 @@ func (a *loadActivity) walkLocalScope(root string, classifier *fs.Classifier, in
 			}
 			return nil
 		}
-		if d.Type()&os.ModeSymlink != 0 {
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		if !info.Mode().IsRegular() {
 			return nil
 		}
 		return fn(path)

@@ -42,8 +42,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.completed == nil {
 			m.completed = make(map[int]bool)
 		}
+		var deletedLocal, deletedRemote []string
 		for _, idx := range msg.Completed {
 			if idx >= 0 && idx < len(m.syncDirs) {
+				if idx < len(m.sessions) {
+					switch m.syncDirs[idx] {
+					case DirDeleteLocal:
+						deletedLocal = append(deletedLocal, m.sessions[idx].LocalPath)
+					case DirDeleteRemote:
+						deletedRemote = append(deletedRemote, m.sessions[idx].RemotePath)
+					}
+				}
 				m.completed[idx] = true
 				m.syncDirs[idx] = DirNone
 			}
@@ -89,8 +98,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.scopeSet {
 			m.finishActivity()
 			status := m.syncStatus
+			failures := append([]SyncFailure(nil), m.syncErrors...)
 			return m, func() tea.Msg {
-				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status}
+				return MsgScopeReloadRequested{
+					IncludeIgnored: m.scopeOptions.IncludeIgnored,
+					Status:         status,
+					Errors:         failures,
+					DeletedLocal:   deletedLocal,
+					DeletedRemote:  deletedRemote,
+				}
 			}
 		}
 		// Legacy models without a scope request can only refresh existing pairs.

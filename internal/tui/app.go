@@ -275,11 +275,6 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.abandonDiffRequest()
-	a.watchConnection(nil)
-	a.state.SelectedHost = nil
-	closeBrowser := a.browser.CloseRemote()
-	closeDiff := a.diffView.Close()
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
 	if err := b.SetConfig(cfg); err != nil {
 		return nil, err
@@ -287,6 +282,15 @@ func (a *App) openProject(p project.Project) (tea.Cmd, error) {
 	b.SetProjectName(p.Name)
 	b.SetMouseEnabled(a.mouseEnabled)
 	b.SetTrustManager(a.trust)
+
+	// Preparing the new browser can fail. Keep the old browser and diff session
+	// attached until every fallible setup step has succeeded, so App.Close can
+	// still reach their connection and local root on an error.
+	a.abandonDiffRequest()
+	a.watchConnection(nil)
+	a.state.SelectedHost = nil
+	closeBrowser := a.browser.CloseRemote()
+	closeDiff := a.diffView.Close()
 
 	a.browser = b
 	a.state.Config = cfg

@@ -167,7 +167,15 @@ func hasRemotePathPrefix(pathValue, base string) bool {
 	return strings.HasPrefix(pathValue, base+"/")
 }
 
+// cleanRemotePath normalizes a remote path. An empty root becomes "/", the same
+// root the browser shows for a host without root_path. path.Clean would answer
+// "." instead, which made every upload path relative and made the browser's
+// absolute paths look like they lie outside the root.
 func cleanRemotePath(value string) string {
 	value = filepath.ToSlash(value)
-	return path.Clean(value)
+	cleaned := path.Clean(value)
+	if cleaned == "." {
+		return "/"
+	}
+	return cleaned
 }

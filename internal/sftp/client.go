@@ -47,7 +47,7 @@ func Connect(ctx context.Context, host config.Host) (*Client, error) {
 }
 
 func connect(ctx context.Context, host config.Host, interval, timeout time.Duration) (*Client, error) {
-	methods, authCloser, err := ssh.AuthMethods(host.Auth)
+	methods, authCloser, err := ssh.AuthMethods(ctx, host.Auth)
 	connected := false
 	defer func() {
 		if !connected && authCloser != nil {

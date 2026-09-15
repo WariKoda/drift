@@ -60,12 +60,16 @@ func ReadDir(dir string) ([]*FileEntry, error) {
 			return nil, fmt.Errorf("stat %s: %w", filepath.Join(dir, de.Name()), err)
 		}
 
-		kind := EntryFile
+		var kind EntryKind
 		switch {
 		case de.IsDir():
 			kind = EntryDir
 		case de.Type()&os.ModeSymlink != 0:
 			kind = EntrySymlink
+		case info.Mode().IsRegular():
+			kind = EntryFile
+		default:
+			continue
 		}
 
 		fe := &FileEntry{

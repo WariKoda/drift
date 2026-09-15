@@ -39,6 +39,22 @@ func TestWalkFilesSkipsFifos(t *testing.T) {
 	}
 }
 
+func TestReadDirSkipsFifos(t *testing.T) {
+	dir := t.TempDir()
+	mkfifo(t, filepath.Join(dir, "pipe"))
+	if err := os.WriteFile(filepath.Join(dir, "real.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name != "real.txt" {
+		t.Fatalf("ReadDir returned %v, want only real.txt", entries)
+	}
+}
+
 func TestRootOpenRefusesFifo(t *testing.T) {
 	dir := t.TempDir()
 	pipe := filepath.Join(dir, "pipe")

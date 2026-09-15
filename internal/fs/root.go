@@ -56,10 +56,13 @@ func (r *Root) Base() string {
 	return r.base
 }
 
-// Open opens a local file for reading.
+// Open opens a local regular file for reading.
 func (r *Root) Open(absPath string) (*os.File, error) {
 	rel, err := r.rel(absPath)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.requireRegular(rel, absPath); err != nil {
 		return nil, err
 	}
 	return r.root.Open(rel)
@@ -74,13 +77,32 @@ func (r *Root) Stat(absPath string) (os.FileInfo, error) {
 	return r.root.Stat(rel)
 }
 
-// ReadFile reads a local file in full.
+// ReadFile reads a local regular file in full.
 func (r *Root) ReadFile(absPath string) ([]byte, error) {
 	rel, err := r.rel(absPath)
 	if err != nil {
 		return nil, err
 	}
+	if err := r.requireRegular(rel, absPath); err != nil {
+		return nil, err
+	}
 	return r.root.ReadFile(rel)
+}
+
+// requireRegular refuses anything that is not a regular file before it is
+// opened. Opening a FIFO blocks in the open call until a writer shows up, which
+// would hang a diff or a transfer with no way out; a socket or a device is not
+// a project file to begin with. The check has to come first, because by the
+// time a handle exists the caller is already stuck.
+func (r *Root) requireRegular(rel, absPath string) error {
+	info, err := r.root.Stat(rel)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("local path %s is not a regular file", absPath)
+	}
+	return nil
 }
 
 // Remove deletes a local file.

@@ -447,6 +447,23 @@ func (m *Model) CloseRemote() tea.Cmd {
 	}
 }
 
+// ClearRemote closes the current connection and removes the assigned host and
+// remote tree. Use it when the surrounding project identity is removed.
+func (m *Model) ClearRemote() tea.Cmd {
+	cmd := m.CloseRemote()
+	m.remoteHost = nil
+	m.remoteRoot = ""
+	m.remoteEntries = nil
+	m.remoteCursor = 0
+	m.remoteOffset = 0
+	m.remoteLoading = false
+	m.remoteStatus = ""
+	if m.RemoteSelection != nil {
+		m.RemoteSelection.Clear()
+	}
+	return cmd
+}
+
 // Connection returns the connection currently owned by the browser.
 func (m Model) Connection() remote.Client { return m.remoteConn }
 

@@ -88,15 +88,44 @@ func writeProjectStore(slug string, cfg ProjectConfig) error {
 	})
 }
 
-// DeleteProjectStore removes the hosts and mappings owned by slug. A missing
-// store is already deleted and is not an error.
-func DeleteProjectStore(slug string) error {
+// RemoveProjectStore hides a project's settings, runs commit, and removes the
+// settings only after commit succeeds. A failed commit renames the store back,
+// so the registry cannot free a slug while its credentials remain loadable.
+func RemoveProjectStore(slug string, commit func() error) error {
 	path, err := projectStorePath(slug)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove project store: %w", err)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return commit()
+	} else if err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".deleting-*")
+	if err != nil {
+		return fmt.Errorf("stage project store removal: %w", err)
+	}
+	staged := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(staged)
+		return err
+	}
+	if err := os.Remove(staged); err != nil {
+		return err
+	}
+	if err := os.Rename(path, staged); err != nil {
+		return fmt.Errorf("stage project store removal: %w", err)
+	}
+
+	if err := commit(); err != nil {
+		if rollbackErr := os.Rename(staged, path); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("restore project store: %w", rollbackErr))
+		}
+		return err
+	}
+	if err := os.Remove(staged); err != nil {
+		return fmt.Errorf("remove staged project store: %w", err)
 	}
 	return nil
 }

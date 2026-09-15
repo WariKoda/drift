@@ -572,13 +572,45 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case dashboard.MsgDeleteProject:
-		if err := a.persist(func(reg *project.Registry) error { return reg.Remove(msg.Slug) }); err != nil {
+		if err := config.RemoveProjectStore(msg.Slug, func() error {
+			return a.persist(func(reg *project.Registry) error { return reg.Remove(msg.Slug) })
+		}); err != nil {
 			a.dashboard.SetStatus("Delete failed: " + err.Error())
-		} else if err := config.DeleteProjectStore(msg.Slug); err != nil {
-			a.dashboard.SetStatus("Delete project settings failed: " + err.Error())
+			a.state.Screen = ScreenDashboard
+			return a, nil
+		}
+
+		var closeRemote tea.Cmd
+		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Slug {
+			closeRemote = a.browser.ClearRemote()
+			a.state.ActiveProject = nil
+			a.state.SelectedHost = nil
+			a.browser.SetProjectName("")
+			cfg, loadErr := config.Load(a.state.WorkingDir, "")
+			if loadErr != nil {
+				cfg = &config.MergedConfig{
+					GlobalDefaults: a.state.Config.GlobalDefaults,
+					UI:             a.state.Config.UI,
+					GlobalHosts:    append([]config.Host(nil), a.state.Config.GlobalHosts...),
+					Hosts:          make(map[string]config.Host, len(a.state.Config.GlobalHosts)),
+					ProjectRoot:    a.state.WorkingDir,
+				}
+				for _, host := range cfg.GlobalHosts {
+					cfg.Hosts[host.Name] = host
+				}
+			}
+			a.state.Config = cfg
+			a.hostManager = hostmanager.New(cfg, a.state.TermWidth, a.state.TermHeight)
+			a.hostManager.SetTrustManager(a.trust)
+			browserErr := a.browser.SetConfig(cfg)
+			if loadErr != nil {
+				a.dashboard.SetStatus("Project removed, but global config reload failed: " + loadErr.Error())
+			} else if browserErr != nil {
+				a.dashboard.SetStatus("Project removed, but browser reload failed: " + browserErr.Error())
+			}
 		}
 		a.state.Screen = ScreenDashboard
-		return a, nil
+		return a, closeRemote
 
 	case dashboard.MsgArchiveProject:
 		if p := a.registry.Find(msg.Slug); p != nil {

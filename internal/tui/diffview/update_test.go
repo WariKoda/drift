@@ -68,6 +68,7 @@ func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
 
 func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	model := Model{
+		conn:         connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
 		quickSyncing: true,
 		sessions:     []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}},
 		syncDirs:     []SyncDir{DirUpload},
@@ -79,6 +80,9 @@ func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	}
 	if model.sessions[0].Err == nil {
 		t.Fatal("quick-sync error was not recorded on the active session")
+	}
+	if err := model.connectionError(); err != nil {
+		t.Fatalf("ordinary file error disabled a healthy connection: %v", err)
 	}
 }
 

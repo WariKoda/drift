@@ -98,7 +98,7 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 			server.SetSendData(func(c net.Conn, data string) error {
 				chunk := len(data) / 12
 				for len(data) > 0 {
-					time.Sleep(25 * time.Millisecond)
+					time.Sleep(100 * time.Millisecond)
 					n := min(chunk, len(data))
 					if _, err := io.WriteString(c, data[:n]); err != nil {
 						return err
@@ -115,15 +115,19 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 			host := server.Host(t)
 			host.RootPath = "/"
 			conn := connectTestHost(t, host)
+			// The window has to cover the Git processes that classify the
+			// selection before any byte moves; a busy CI runner needed more than
+			// 150ms for them. The transfer itself still takes three windows.
+			const idle = 400 * time.Millisecond
 			tracker := progress.NewTracker("Connecting…")
 			start := time.Now()
 			loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
-				Local: &fs.SelectionState{Marked: map[string]struct{}{local: {}}}, Conn: conn, IdleTimeout: 150 * time.Millisecond}, tracker)
+				Local: &fs.SelectionState{Marked: map[string]struct{}{local: {}}}, Conn: conn, IdleTimeout: idle}, tracker)
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
 			defer loaded.Root.Close()
-			if time.Since(start) < 300*time.Millisecond || len(loaded.Sessions) != 1 {
+			if time.Since(start) < 2*idle || len(loaded.Sessions) != 1 {
 				t.Fatalf("missing long comparison: %+v", loaded)
 			}
 			if session := loaded.Sessions[0]; session.Err != nil || session.Result == nil || !session.Result.HasDiff() {
@@ -133,7 +137,7 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 				t.Fatal("returned wrapped connection instead of original identity")
 			}
 			tracker.Cancel()
-			time.Sleep(175 * time.Millisecond)
+			time.Sleep(idle + 50*time.Millisecond)
 			if _, err := loaded.Conn.Stat("/file"); err != nil {
 				t.Fatalf("success connection closed late: %v", err)
 			}

@@ -4,26 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Next planned release: **v0.2.0-beta.1**. The beta phase focuses on real-world
-SFTP/FTP/FTPS deployments, sync failure handling, and configuration stability.
-This is a release target, not a published version or a 1.0 stability guarantee.
+## [0.2.0-beta.1] - 2026-09-28
+
+First beta. The beta phase focuses on real-world SFTP/FTP/FTPS deployments, sync
+failure handling, and configuration stability. It is not a 1.0 stability guarantee.
+
+**Upgrading:** with a project open, global hosts are no longer offered as sync
+targets on their own. In each project that used a global host directly, open the
+host manager (`H`) and link it with `l`. See "Sharing a server between projects" in
+the README.
 
 ### Added
 
 - project hosts can link a global server with `server = "<name>"`: the connection comes from the server, `root_path` and `mappings` stay with the project host, so projects on one machine share one set of credentials
 - `l` in the host manager links a global server or a host of another project; a host of another project becomes a global server after confirmation and its project keeps it as a link
 - saving a project host whose hostname, port, user and protocol match a server or another project's host offers to link that one instead
+- a manual test kit for SFTP and FTPS: `scripts/manual-test/mt.sh` runs local servers in Docker and an isolated drift session, `docs/manual-testing.md` is the checklist
 
 ### Changed
 
-- **breaking:** with a project open, global hosts are no longer sync targets on their own. They are servers that project hosts link to. Press `l` in the host manager of each project that used a global host directly. Without an open project, global hosts remain directly available
+- **breaking:** with a project open, global hosts are no longer sync targets on their own. They are servers that project hosts link to. Without an open project, global hosts remain directly available
 - a global server that project hosts link cannot be deleted or renamed; the error names the linking projects
+- connecting to a host keeps the keyboard focus in the active pane instead of moving it to the remote side
+- the host selector moves with the arrow keys and `Ctrl+N` / `Ctrl+P`, so `j` and `k` can be typed into its filter
+- a comparison without differences or without files shows a notice instead of an empty file list; addition and removal colours appear only for files with a planned sync action
+- removing a project also deletes its store with hosts, mappings and credentials, so a later project with the same slug cannot inherit them
+- two registered projects can no longer share one path
+- log files are created with mode `600`
+- `drift version` reports `dev-<rev>-dirty` for a build from a modified worktree
 
 ### Fixed
 
 - staging files left behind by an interrupted upload or download no longer appear in comparisons, so "sync all" can no longer download or delete a partial file
 - a failed connection while loading a comparison no longer crashes drift; wrong credentials, unreachable hosts and unknown FTPS certificates are reported, and the certificate prompt opens as intended
 - a failed host deletion in the host manager is now shown in its status line instead of being discarded
+- a remote preview could stay busy for good; previews now time out after 30 seconds, closing one releases its connection, and a preview from the previous project can no longer appear after switching
+- cancelling a running comparison, upload or download now interrupts it instead of only hiding it
+- a normal file error during sync no longer marks the whole connection as lost
+- bulk sync errors survive a scope reload, and a successfully deleted selection no longer comes back as a comparison error
+- FTP and FTPS hosts without a port use 21 instead of 22, and saving a host no longer writes the inherited `[defaults]` into its record
+- SFTP connects to raw IPv6 addresses
+- a host with an empty `root_path` uses `/` on both the browse and the sync side
+- FIFOs, sockets and devices in the project are skipped instead of blocking the diff, and remote symlinks are no longer downloaded as files
+- an SSH agent that stops answering no longer blocks connecting, and a host connection test no longer hangs on the root listing
+- a failed write of the config or the project registry no longer leaves the running session out of step with the disk; the registry is written atomically, and a failed reload keeps the last valid project list
+- filter highlighting no longer corrupts output or panics on Unicode, and backspace in the browser filter removes a whole character
+- the left arrow in the host form steps the protocol back, single-line fields drop pasted control characters, and a project name of only spaces is rejected
+- the host manager keeps the selected host visible and does not scroll between two clicks, and the host selector no longer panics in a very narrow terminal
 
 ## [0.1.8-alpha] - 2026-09-12
 

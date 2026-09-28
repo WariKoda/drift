@@ -37,9 +37,14 @@ Abweichungen vom Plan:
 Geprüft: `go test ./...`, `go test -race ./...`, `go vet ./...`,
 `go build ./...`. Manuell geprüft gegen einen echten FTP-Host: Laden,
 Bulk-Upload, Textdiff, Einzel-Upload und -Download, Bulk-Löschen lokal und
-remote, ignorierte Dateien einbeziehen, Abbruch während des Ladens. Noch nicht
-manuell geprüft sind SFTP, FTPS mit Zertifikatsabfrage und ein
-Verbindungsabbruch während eines Transfers.
+remote, ignorierte Dateien einbeziehen, Abbruch während des Ladens. Danach
+gegen lokale SFTP- und FTPS-Server: Sync in beide Richtungen, Löschen,
+Keep-alive-Erkennung, Zertifikatsabfrage mit Sitzungs- und dauerhaftem
+Vertrauen, Zertifikatswechsel, Serverabbruch mitten im Upload und Login-Limit.
+Diese Runde fand zwei ältere Fehler, die auf eigenen Branches behoben sind:
+den Absturz bei fehlgeschlagenem Verbindungsaufbau (`fix/connect-nil-client`)
+und Staging-Reste im Vergleich (`fix/skip-staging-files`). Die Abläufe stehen
+als Checkliste in `docs/manual-testing.md` (Branch `chore/manual-test-kit`).
 
 ## Ziel
 

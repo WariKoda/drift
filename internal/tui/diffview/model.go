@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/textproto"
-	"strings"
 	stdsync "sync"
 	"time"
 
@@ -51,7 +49,7 @@ type MsgDiffError struct {
 type MsgScopeReloadRequested struct {
 	IncludeIgnored bool
 	Status         string
-	Errors         []SyncFailure
+	Errors         []syncpolicy.Failure
 	DeletedLocal   []string
 	DeletedRemote  []string
 }
@@ -63,21 +61,13 @@ type MsgRefreshed struct {
 	Err      error
 }
 
-// SyncFailure describes one failed operation in a bulk sync.
-type SyncFailure struct {
-	Operation string
-	Path      string
-	Reason    string
-	Err       error
-}
-
 // MsgBulkSyncDone is sent when bulk sync has finished.
 type MsgBulkSyncDone struct {
 	Conn      remote.Client
-	Done      int           // number of successfully synced files
-	Completed []int         // session indices with confirmed successful operations
-	Errors    []SyncFailure // one entry per failed file
-	Err       error         // terminal connection failure; remaining jobs were not started
+	Done      int                  // number of successfully synced files
+	Completed []int                // session indices with confirmed successful operations
+	Errors    []syncpolicy.Failure // one entry per failed file
+	Err       error                // terminal connection failure; remaining jobs were not started
 }
 
 // MsgSyncProgress is emitted periodically while a bulk sync is running.
@@ -183,18 +173,18 @@ type Model struct {
 	activeIdx       int
 	fileListOffset  int // scroll offset into the file list
 	scroll          int
-	refreshing      bool              // true while async refresh is in flight
-	syncing         bool              // true while bulk sync is in flight
-	quickSyncing    bool              // true while quick upload/download is in flight
-	activityLabel   string            // label shown by the global loading indicator
-	activityTracker *progress.Tracker // progress shared with the global loading indicator
-	activityWait    *commandLifetime  // protects the root handle until running commands exit
-	syncStatus      string            // last bulk sync result message
-	syncErrors      []SyncFailure     // per-file errors from the last bulk sync
-	showErrors      bool              // true while the error overlay is open
-	syncProgress    *progress.Tracker // live counter shared with the running bulk sync
-	syncDone        int               // files processed so far in the active bulk sync
-	syncTotal       int               // total files in the active bulk sync
+	refreshing      bool                 // true while async refresh is in flight
+	syncing         bool                 // true while bulk sync is in flight
+	quickSyncing    bool                 // true while quick upload/download is in flight
+	activityLabel   string               // label shown by the global loading indicator
+	activityTracker *progress.Tracker    // progress shared with the global loading indicator
+	activityWait    *commandLifetime     // protects the root handle until running commands exit
+	syncStatus      string               // last bulk sync result message
+	syncErrors      []syncpolicy.Failure // per-file errors from the last bulk sync
+	showErrors      bool                 // true while the error overlay is open
+	syncProgress    *progress.Tracker    // live counter shared with the running bulk sync
+	syncDone        int                  // files processed so far in the active bulk sync
+	syncTotal       int                  // total files in the active bulk sync
 	scope           syncpolicy.ScopeSummary
 	scopeOptions    syncpolicy.ScopeOptions
 	scopeSet        bool
@@ -246,9 +236,9 @@ func (m *Model) SetScope(scope syncpolicy.ScopeSummary, options syncpolicy.Scope
 }
 
 // SetSyncResult restores the result of a transfer across a full scope reload.
-func (m *Model) SetSyncResult(status string, failures []SyncFailure) {
+func (m *Model) SetSyncResult(status string, failures []syncpolicy.Failure) {
 	m.syncStatus = status
-	m.syncErrors = append([]SyncFailure(nil), failures...)
+	m.syncErrors = append([]syncpolicy.Failure(nil), failures...)
 	m.showErrors = len(failures) > 0
 }
 
@@ -728,94 +718,44 @@ func LoadCmd(requestID uint64, req app.LoadRequest, prog *progress.Tracker) tea.
 	}
 }
 
-// uploadFile streams the local file at localPath to remotePath. The local file
-// is opened inside the project root, so a symlinked path component pointing out
-// of the project fails the upload instead of shipping a file from outside it.
-func uploadFile(conn remote.Client, root *fs.Root, localPath, remotePath string) error {
-	src, err := root.Open(localPath)
-	if err != nil {
-		return fmt.Errorf("open local %s: %w", localPath, err)
-	}
-	uploadErr := conn.Upload(remotePath, src)
-	closeErr := src.Close()
-	if err := errors.Join(uploadErr, closeErr); err != nil {
-		return fmt.Errorf("upload %s to %s: %w", localPath, remotePath, err)
-	}
-	return nil
-}
-
-// downloadFile writes the remote file at remotePath to localPath inside the
-// project root. WriteAtomic closes the remote stream, so a transfer that only
-// fails on close never reaches the target file.
-func downloadFile(conn remote.Client, root *fs.Root, remotePath, localPath string) error {
-	src, err := conn.Open(remotePath)
-	if err != nil {
-		return fmt.Errorf("open remote %s: %w", remotePath, err)
-	}
-	if err := root.WriteAtomic(localPath, src); err != nil {
-		return fmt.Errorf("download %s to %s: %w", remotePath, localPath, err)
-	}
-	return nil
-}
-
-// syncOperationError keeps the operation error and the terminal cause. A failed
-// write may have reached the server, so retrying requires a fresh comparison.
-func syncOperationError(conn remote.Client, err error) error {
-	if err != nil && conn.Err() != nil {
-		return fmt.Errorf("outcome unknown; compare again before syncing: %w", errors.Join(err, conn.Err()))
-	}
-	return err
+// quickSyncCmd runs one upload or download for sessions[idx].
+func (m Model) quickSyncCmd(idx int, dir SyncDir) tea.Cmd {
+	s := m.sessions[idx]
+	conn := m.conn
+	root := m.root
+	tracker := m.activityTracker
+	return m.trackCommand(func() tea.Msg {
+		defer tracker.Finish()
+		if err := m.connectionError(); err != nil {
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: err}
+		}
+		if tracker.Canceled() {
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
+		}
+		item := syncpolicy.Item{LocalPath: s.LocalPath, RemotePath: s.RemotePath, Decision: decisionFromSyncDir(dir)}
+		result := syncpolicy.Run(tracker.Context(), conn, root, []syncpolicy.Item{item}, tracker)
+		if len(result.Completed) == 1 {
+			return MsgSynced{Conn: conn, SessionIdx: idx, Direction: dir}
+		}
+		if len(result.Failures) == 0 {
+			if result.Err == nil {
+				result.Err = context.Canceled
+			}
+			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: result.Err}
+		}
+		path := s.LocalPath
+		if dir == DirDownload {
+			path = s.RemotePath
+		}
+		return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("%s %s: %w", result.Failures[0].Operation, path, result.Failures[0].Err)}
+	})
 }
 
 // uploadCmd uploads the local file of sessions[idx] to remote.
-func (m Model) uploadCmd(idx int) tea.Cmd {
-	s := m.sessions[idx]
-	conn := m.conn
-	root := m.root
-	tracker := m.activityTracker
-	return m.trackCommand(func() tea.Msg {
-		defer tracker.Finish()
-		if err := m.connectionError(); err != nil {
-			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: err}
-		}
-		if tracker.Canceled() {
-			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
-		}
-		if err := syncOperationError(conn, uploadFile(conn, root, s.LocalPath, s.RemotePath)); err != nil {
-			if tracker.Canceled() {
-				return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
-			}
-			log.Error("upload failed", "local", s.LocalPath, "remote", s.RemotePath, "err", err)
-			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("upload %s: %w", s.LocalPath, err)}
-		}
-		return MsgSynced{Conn: conn, SessionIdx: idx, Direction: DirUpload}
-	})
-}
+func (m Model) uploadCmd(idx int) tea.Cmd { return m.quickSyncCmd(idx, DirUpload) }
 
 // downloadCmd downloads the remote file of sessions[idx] to local.
-func (m Model) downloadCmd(idx int) tea.Cmd {
-	s := m.sessions[idx]
-	conn := m.conn
-	root := m.root
-	tracker := m.activityTracker
-	return m.trackCommand(func() tea.Msg {
-		defer tracker.Finish()
-		if err := m.connectionError(); err != nil {
-			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: err}
-		}
-		if tracker.Canceled() {
-			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
-		}
-		if err := syncOperationError(conn, downloadFile(conn, root, s.RemotePath, s.LocalPath)); err != nil {
-			if tracker.Canceled() {
-				return MsgSyncError{Conn: conn, SessionIdx: idx, Err: context.Canceled}
-			}
-			log.Error("download failed", "remote", s.RemotePath, "local", s.LocalPath, "err", err)
-			return MsgSyncError{Conn: conn, SessionIdx: idx, Err: fmt.Errorf("download %s: %w", s.RemotePath, err)}
-		}
-		return MsgSynced{Conn: conn, SessionIdx: idx, Direction: DirDownload}
-	})
-}
+func (m Model) downloadCmd(idx int) tea.Cmd { return m.quickSyncCmd(idx, DirDownload) }
 
 // bulkSyncCmd executes the planned sync direction for the given session indices.
 func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
@@ -826,77 +766,26 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 	tracker := m.syncProgress
 	return m.trackCommand(func() tea.Msg {
 		defer tracker.Finish()
-		var completed []int
-		var errs []SyncFailure
+		if err := m.connectionError(); err != nil {
+			return MsgBulkSyncDone{Conn: conn, Err: err}
+		}
+		var items []syncpolicy.Item
+		var sessionIdx []int // session index of each item
 		for _, i := range indices {
-			if m.connectionError() != nil || tracker.Canceled() {
-				break
-			}
 			if i < 0 || i >= len(sessions) || i >= len(syncDirs) {
 				tracker.Inc()
 				continue
 			}
 			s := sessions[i]
-			var err error
-			var op string
-			var failurePath string
-			switch syncDirs[i] {
-			case DirUpload:
-				op = "upload"
-				failurePath = s.LocalPath
-				err = uploadFile(conn, root, s.LocalPath, s.RemotePath)
-			case DirDownload:
-				op = "download"
-				failurePath = s.RemotePath
-				err = downloadFile(conn, root, s.RemotePath, s.LocalPath)
-			case DirDeleteLocal:
-				op = "delete local"
-				failurePath = s.LocalPath
-				err = root.Remove(s.LocalPath)
-			case DirDeleteRemote:
-				op = "delete remote"
-				failurePath = s.RemotePath
-				err = conn.DeleteFile(s.RemotePath)
-			default:
-				tracker.Inc() // DirNone — skip
-				continue
-			}
-			err = syncOperationError(conn, err)
-			if tracker.Canceled() {
-				if err == nil {
-					completed = append(completed, i)
-					tracker.Inc()
-				}
-				break
-			}
-			if err != nil {
-				log.Error("sync file", "op", op, "local", s.LocalPath, "remote", s.RemotePath, "err", err)
-				reason := strings.Join(strings.Fields(err.Error()), " ")
-				var protocolErr *textproto.Error
-				if conn.Err() == nil && errors.As(err, &protocolErr) {
-					reason = protocolErr.Error()
-				}
-				errs = append(errs, SyncFailure{
-					Operation: op,
-					Path:      failurePath,
-					Reason:    reason,
-					Err:       err,
-				})
-				var verificationErr *tlstrust.VerificationError
-				if errors.As(err, &verificationErr) {
-					tracker.Inc()
-					break
-				}
-			} else {
-				log.Debug("sync file ok", "op", op, "local", s.LocalPath, "remote", s.RemotePath)
-				completed = append(completed, i)
-			}
-			tracker.Inc()
+			items = append(items, syncpolicy.Item{LocalPath: s.LocalPath, RemotePath: s.RemotePath, Decision: decisionFromSyncDir(syncDirs[i])})
+			sessionIdx = append(sessionIdx, i)
 		}
-		if tracker.Canceled() {
-			return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: errs, Err: context.Canceled}
+		result := syncpolicy.Run(tracker.Context(), conn, root, items, tracker)
+		completed := make([]int, len(result.Completed))
+		for n, item := range result.Completed {
+			completed[n] = sessionIdx[item]
 		}
-		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: errs, Err: m.connectionError()}
+		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: result.Failures, Err: result.Err}
 	})
 }
 

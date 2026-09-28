@@ -11,6 +11,7 @@ import (
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/progress"
+	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -96,13 +97,13 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 		sessions:        []diff.Session{{LocalPath: "/project/file.php", RemotePath: "/srv/file.php"}},
 		syncDirs:        []SyncDir{DirUpload},
 	}
-	failure := SyncFailure{
+	failure := syncpolicy.Failure{
 		Operation: "upload",
 		Path:      "/project/file.php",
 		Reason:    "permission denied",
 	}
 
-	model, _ = model.Update(MsgBulkSyncDone{Errors: []SyncFailure{failure}})
+	model, _ = model.Update(MsgBulkSyncDone{Errors: []syncpolicy.Failure{failure}})
 
 	if !model.showErrors {
 		t.Fatal("bulk-sync failure details were not opened")
@@ -115,7 +116,7 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
 	conn := connectDiffTestHost(t, ftptest.Start(t, 1).Host(t))
 	tracker := progress.NewTracker("Connecting…")
-	failure := SyncFailure{
+	failure := syncpolicy.Failure{
 		Operation: "upload",
 		Path:      "/project/file.php",
 		Reason:    "permission denied",
@@ -130,7 +131,7 @@ func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
 		syncDirs:        []SyncDir{DirUpload},
 	}
 
-	_, cmd := model.Update(MsgBulkSyncDone{Errors: []SyncFailure{failure}})
+	_, cmd := model.Update(MsgBulkSyncDone{Errors: []syncpolicy.Failure{failure}})
 	if cmd == nil {
 		t.Fatal("bulk sync did not request a scope reload")
 	}

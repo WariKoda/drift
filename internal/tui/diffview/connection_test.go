@@ -19,6 +19,7 @@ import (
 	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
+	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -193,7 +194,7 @@ func TestTerminalClientBlocksCommandsBeforeRootNotification(t *testing.T) {
 		t.Fatalf("load result = %#v", msg)
 	}
 	operationErr := errors.New("delete reply lost")
-	uncertain := syncOperationError(conn, operationErr)
+	uncertain := syncpolicy.OperationError(conn, operationErr)
 	if !errors.Is(uncertain, terminal) || !errors.Is(uncertain, operationErr) || !strings.Contains(uncertain.Error(), "outcome unknown") {
 		t.Fatalf("uncertainty lost error causes: %v", uncertain)
 	}
@@ -232,7 +233,7 @@ func TestLateSyncCompletionKeepsConfirmedOutcomes(t *testing.T) {
 	if cmd != nil || model.quickSyncing || !model.completed[1] {
 		t.Fatal("late quick completion was lost or started a reload")
 	}
-	uncertain := syncOperationError(conn, errors.New("server reply lost"))
+	uncertain := syncpolicy.OperationError(conn, errors.New("server reply lost"))
 	model.activeIdx = 0
 	model, _ = model.Update(MsgSyncError{Conn: conn, SessionIdx: 1, Err: uncertain})
 	if !errors.Is(model.sessions[1].Err, terminal) || model.sessions[0].Err != nil || !model.completed[0] {
@@ -361,7 +362,7 @@ func TestStaleActivityResultsDoNotChangeNewConnection(t *testing.T) {
 }
 
 func TestUncertainBulkOutcomeRemainsVisibleWithLongCause(t *testing.T) {
-	model := Model{syncErrors: []SyncFailure{{
+	model := Model{syncErrors: []syncpolicy.Failure{{
 		Operation: "upload", Path: "/file", Reason: "outcome unknown; compare again before syncing: " + strings.Repeat("long transport cause ", 10),
 	}}}
 	rows := model.renderErrorListRows(4, 80)

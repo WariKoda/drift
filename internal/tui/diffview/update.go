@@ -7,6 +7,7 @@ import (
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
+	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -98,7 +99,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.scopeSet {
 			m.finishActivity()
 			status := m.syncStatus
-			failures := append([]SyncFailure(nil), m.syncErrors...)
+			failures := append([]syncpolicy.Failure(nil), m.syncErrors...)
 			return m, func() tea.Msg {
 				return MsgScopeReloadRequested{
 					IncludeIgnored: m.scopeOptions.IncludeIgnored,

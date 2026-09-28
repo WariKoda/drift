@@ -14,6 +14,7 @@ import (
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/styles"
+	internalsync "github.com/WariKoda/drift/internal/sync"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
 	"github.com/WariKoda/drift/internal/tui/certtrust"
@@ -73,7 +74,7 @@ type App struct {
 	diffRequest       uint64
 	diffSeq           uint64
 	pendingDiffStatus string
-	pendingDiffErrors []diffview.SyncFailure
+	pendingDiffErrors []internalsync.Failure
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -857,7 +858,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.state.ScopeOptions.IncludeIgnored = msg.IncludeIgnored
 		a.pendingDiffStatus = msg.Status
-		a.pendingDiffErrors = append([]diffview.SyncFailure(nil), msg.Errors...)
+		a.pendingDiffErrors = append([]internalsync.Failure(nil), msg.Errors...)
 		if a.state.Selection != nil {
 			for _, path := range msg.DeletedLocal {
 				delete(a.state.Selection.Marked, path)

@@ -1,8 +1,37 @@
 # Implementierungsplan: Laden und Sync aus `diffview` lösen
 
-Status: geplant, noch nicht begonnen.
+Status: umgesetzt auf `refactor/diffview-orchestration`, automatisiert geprüft.
 Planungsstand: `main` nach `bd5190d` plus `chore/remove-dead-sync-state`.
 Bezug: Phase 2 und 3 in `docs/architecture-target.md`.
+
+## Umsetzungsstand
+
+- `internal/progress` enthält `Tracker`, `Progress` und `IsCanceled`;
+  `loading` zeichnet nur noch den Indikator.
+- `internal/app` enthält `Load` und `Refresh`. `diffview.LoadCmd` nimmt ein
+  `app.LoadRequest`, die übrigen drei Varianten sind entfernt.
+- `internal/sync` enthält `Run`, `Item`, `Failure`, `Result` und
+  `OperationError`. `diffview.SyncFailure` ist entfernt.
+- `diffview/model.go` hat 849 Zeilen und ruft weder `remote.Connect`,
+  `pathmap`, `fs.NewClassifier` noch `diff.Compare` auf.
+
+Abweichungen vom Plan:
+
+- Schritt 2 und 3 sind ein Commit. `refreshCmd` nutzt denselben Worker-Pool
+  wie das Laden, und ein getrennter Commit hätte `forEachCompare`
+  übergangsweise exportieren müssen.
+- `forEachCompare` bekommt den Context als Parameter, statt ihn aus dem
+  Tracker zu lesen. Sonst hätte `Refresh` einen `ctx` angenommen und ignoriert.
+- Der Scan bleibt vorerst in `load.go`. `scan.go` enthält nur die Helfer
+  `sortedMarkedPaths` und `remotePathHidden`; das Zerlegen des Scans steht
+  weiter unter "Nicht im Umfang".
+- Der FTP-Testserver liegt jetzt als `internal/ftptest` in einem eigenen
+  Paket, weil Tests in `app`, `sync` und `diffview` ihn brauchen.
+- `sync.Run` hat eigene Tests gegen diesen Server bekommen.
+
+Geprüft: `go test ./...`, `go test -race ./...`, `go vet ./...`,
+`go build ./...`. Die manuelle Prüfung gegen echte SFTP- und FTPS-Hosts aus
+dem Abschnitt "Abnahme" steht noch aus.
 
 ## Ziel
 

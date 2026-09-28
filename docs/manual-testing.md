@@ -17,7 +17,7 @@ lokal und braucht Docker, Go und Git.
 | `mt.sh rotate-cert` | FTPS bekommt ein neues Zertifikat |
 | `mt.sh pause\|unpause sftp\|ftps` | friert einen Server ein oder lässt ihn weiterlaufen |
 | `mt.sh kill sftp\|ftps` | beendet einen Server hart |
-| `mt.sh status` | zeigt Server und Prüfsummen von Projekt, SFTP- und FTPS-Seite sowie liegengebliebene Staging-Dateien |
+| `mt.sh status` | zeigt Server und Prüfsummen von `src/` und `assets/` im Projekt, der SFTP- und der FTPS-Seite sowie liegengebliebene Staging-Dateien |
 | `mt.sh down` / `mt.sh reset` | stoppt die Server / löscht zusätzlich allen Zustand |
 
 Alles, was das Kit schreibt, liegt in `scripts/manual-test/.state/`:

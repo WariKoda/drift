@@ -12,6 +12,11 @@ export MT_STATE=$STATE MT_UID=$(id -u) MT_GID=$(id -g)
 
 compose() { docker compose -f "$KIT/compose.yml" "$@"; }
 
+# Docker creates missing bind-mount sources as root, and the FTPS container,
+# which runs as MT_UID, then cannot write its certificate. Every command that
+# starts a server creates them first.
+server_dirs() { mkdir -p "$STATE/sftproot" "$STATE/ftproot" "$STATE/tls"; }
+
 usage() {
 	cat <<'USAGE'
 usage: mt.sh <command>
@@ -30,7 +35,8 @@ USAGE
 
 seed() {
 	local home=$STATE/home project=$STATE/project
-	mkdir -p "$STATE/sftproot" "$STATE/ftproot" "$STATE/tls" "$home"
+	server_dirs
+	mkdir -p "$home"
 	[ -d "$project" ] && return
 	mkdir -p "$project/src/nested" "$project/assets"
 	printf 'identical\n' >"$project/src/same.txt"
@@ -72,13 +78,17 @@ HOSTS
 	chmod 600 "$home/.config/drift/projects/manual-test.toml"
 }
 
+# checksums DIR [PATH...] hashes the files under DIR, or only under the given
+# paths of it. Staging files of interrupted transfers are left out.
 checksums() {
-	(cd "$1" 2>/dev/null && find . -path ./.git -prune -o -type f ! -name '.*drift-tmp-*' -print0 | xargs -0 -r sha256sum | sort -k2) || true
+	local dir=$1
+	shift
+	(cd "$dir" 2>/dev/null && find "${@:-.}" -path ./.git -prune -o -type f ! -name '.*drift-tmp-*' -print0 2>/dev/null | xargs -0 -r sha256sum | sort -k2) || true
 }
 
 case ${1:-} in
 up)
-	mkdir -p "$STATE/sftproot" "$STATE/ftproot" "$STATE/tls"
+	server_dirs
 	compose up -d --build
 	;;
 down) compose down ;;
@@ -91,9 +101,11 @@ drift)
 		"$STATE/bin/drift" --no-dashboard --debug --log "$STATE/drift.log"
 	;;
 ftps)
+	server_dirs
 	FTPS_THROTTLE=${2:-0} FTPS_MAX_CONS=${3:-0} compose up -d --force-recreate ftps
 	;;
 rotate-cert)
+	server_dirs
 	rm -f "$STATE/tls/cert.pem" "$STATE/tls/key.pem"
 	compose restart ftps
 	;;
@@ -103,7 +115,11 @@ pause | unpause | kill)
 	;;
 status)
 	compose ps
-	for side in project sftproot ftproot; do
+	# Only src/ and assets/ are synced; .hidden, .gitignore and the ignored
+	# .env stay local and would make matching sides look different.
+	echo "--- project (src, assets)"
+	checksums "$STATE/project" ./src ./assets
+	for side in sftproot ftproot; do
 		echo "--- $side"
 		checksums "$STATE/$side"
 	done

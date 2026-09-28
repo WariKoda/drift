@@ -1,4 +1,4 @@
-package diffview
+package app
 
 import (
 	"errors"
@@ -11,8 +11,8 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/progress"
-	syncpolicy "github.com/WariKoda/drift/internal/sync"
 )
 
 func TestLoadLocalFolderFTPRemoteWalk(t *testing.T) {
@@ -32,29 +32,26 @@ func TestLoadLocalFolderFTPRemoteWalk(t *testing.T) {
 			localFile := filepath.Join(folder, "local.txt")
 			writeScopeFile(t, localFile, "local\n")
 
-			server := startFTPTestServer(t, 16)
-			server.addFile("/deploy/sibling.txt", "outside selection\n")
+			server := ftptest.Start(t, 16)
+			server.AddFile("/deploy/sibling.txt", "outside selection\n")
 			if tc.deniedDir != "" {
-				server.addFile("/deploy/folder/local.txt", "remote\n")
-				server.addFile("/deploy/folder/private/secret.txt", "private\n")
-				server.mu.Lock()
-				server.denyCommand = func(command, argument string) bool {
+				server.AddFile("/deploy/folder/local.txt", "remote\n")
+				server.AddFile("/deploy/folder/private/secret.txt", "private\n")
+				server.SetDenyCommand(func(command, argument string) bool {
 					return command == "LIST" && argument == tc.deniedDir
-				}
-				server.mu.Unlock()
+				})
 			}
-			host := server.host(t)
+			host := server.Host(t)
 			host.RootPath = tc.remoteRoot
-			conn := connectDiffTestHost(t, host)
+			conn := connectTestHost(t, host)
 			defer conn.Close()
 			selection := fs.NewSelectionState()
 			selection.Marked[folder] = struct{}{}
-			msg := loadCmdWithOptions(1, host, selection, nil,
-				&config.MergedConfig{ProjectRoot: root}, conn, progress.NewTracker("Connecting…"), nil, nil,
-				syncpolicy.ScopeOptions{}, 5*time.Second)()
-			loaded, ok := msg.(MsgDiffLoaded)
-			if !ok {
-				t.Fatalf("load result = %T: %#v", msg, msg)
+			tracker := progress.NewTracker("Connecting…")
+			loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
+				Local: selection, Conn: conn, IdleTimeout: 5 * time.Second}, tracker)
+			if err != nil {
+				t.Fatalf("load: %v", err)
 			}
 			defer loaded.Conn.Close()
 			defer loaded.Root.Close()

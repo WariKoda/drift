@@ -1,168 +1,49 @@
-package diffview
+// Package ftptest provides a real in-process FTP server for tests that need
+// a remote host without external infrastructure.
+package ftptest
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	stdsync "sync"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/WariKoda/drift/internal/config"
-	"github.com/WariKoda/drift/internal/fs"
-	"github.com/WariKoda/drift/internal/progress"
-	"github.com/WariKoda/drift/internal/remote"
 )
 
-// TestLoadDiffItemsUsesSingleFTPSession covers a server that permits only one
-// session per user: connecting and browsing succeed, so the diff has to run on
-// the connection that is already open instead of failing every file with a
-// worker connect error.
-func TestLoadDiffItemsUsesSingleFTPSession(t *testing.T) {
-	localDir := t.TempDir()
-	server := startFTPTestServer(t, 1)
-	items := make([]diffLoadItem, 6)
-	for i := range items {
-		localPath := filepath.Join(localDir, fmt.Sprintf("file%d.txt", i))
-		if err := os.WriteFile(localPath, []byte("local\n"), 0o644); err != nil {
-			t.Fatalf("write local file: %v", err)
-		}
-		remotePath := fmt.Sprintf("/file%d.txt", i)
-		server.addFile(remotePath, "remote\n")
-		items[i] = diffLoadItem{LocalPath: localPath, RemotePath: remotePath, Compare: true}
-	}
-
-	host := server.host(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := remote.Connect(ctx, host, nil, nil)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer conn.Close()
-
-	root, err := fs.OpenRoot(localDir)
-	if err != nil {
-		t.Fatalf("open project root: %v", err)
-	}
-	defer root.Close()
-
-	sessions, err := loadDiffItems(root, host, conn, items, progress.NewTracker("Connecting…"), nil, nil)
-	if err != nil {
-		t.Fatalf("load diff items: %v", err)
-	}
-
-	if len(sessions) != len(items) {
-		t.Fatalf("sessions = %d, want %d", len(sessions), len(items))
-	}
-	for _, session := range sessions {
-		if session.Err != nil {
-			t.Fatalf("session %s: %v", session.RemotePath, session.Err)
-		}
-		if session.Result == nil || !session.Result.HasDiff() {
-			t.Fatalf("session %s did not report the content difference", session.RemotePath)
-		}
-	}
-	if rejected := server.rejectedSessions(); rejected != maxFTPDiffLoadWorkers-1 {
-		t.Fatalf("rejected sessions = %d, want %d — extra workers must still try to connect",
-			rejected, maxFTPDiffLoadWorkers-1)
-	}
-}
-
-// TestForEachCompareAddsExtraFTPConnections verifies that reusing the existing
-// connection does not collapse the pool to a single worker: when the server
-// accepts more sessions, additional workers still connect on their own.
-func TestForEachCompareAddsExtraFTPConnections(t *testing.T) {
-	server := startFTPTestServer(t, maxFTPDiffLoadWorkers)
-	host := server.host(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := remote.Connect(ctx, host, nil, nil)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer conn.Close()
-
-	var mu stdsync.Mutex
-	distinct := map[remote.Client]struct{}{}
-	var once stdsync.Once
-	secondWorker := make(chan struct{})
-
-	jobs := []int{0, 1, 2, 3}
-	ran := make([]bool, len(jobs))
-	forEachCompare(host, conn, jobs, nil, nil, nil, func(idx int, workerConn remote.Client) {
-		ran[idx] = true
-		mu.Lock()
-		distinct[workerConn] = struct{}{}
-		count := len(distinct)
-		mu.Unlock()
-		if count > 1 {
-			once.Do(func() { close(secondWorker) })
-			return
-		}
-		// Block the first worker so the remaining jobs can only make progress
-		// once a second worker has connected.
-		select {
-		case <-secondWorker:
-		case <-time.After(5 * time.Second):
-		}
-	})
-
-	for idx, done := range ran {
-		if !done {
-			t.Fatalf("job %d was never run", idx)
-		}
-	}
-	mu.Lock()
-	count := len(distinct)
-	_, usedExisting := distinct[conn]
-	mu.Unlock()
-	if count < 2 {
-		t.Fatalf("distinct worker connections = %d, want at least 2", count)
-	}
-	if !usedExisting {
-		t.Fatal("no worker used the existing connection")
-	}
-}
-
-// ftpTestServer is a real FTP server covering the commands a diff worker sends:
-// the login handshake plus SIZE, LIST and RETR. It serves at most maxSessions logins
+// Server is a real FTP server covering the commands drift sends during a
+// comparison or sync: the login handshake plus SIZE, LIST, RETR and DELE. It serves at most maxSessions logins
 // and answers every further connection with 421, emulating a server that limits
 // sessions per user.
-type ftpTestServer struct {
+type Server struct {
 	listener    net.Listener
 	maxSessions int
 
-	mu       stdsync.Mutex
-	files    map[string]string
-	accepted int
-	rejected int
-	commands []string
-	// Returning true drops this real control connection before its reply.
+	mu          sync.Mutex
+	files       map[string]string
+	accepted    int
+	rejected    int
+	commands    []string
 	dropCommand func(command, argument string) bool
-	// denyCommand returns a permission failure without hiding entries from parents.
 	denyCommand func(command, argument string) bool
-	// sendData controls real data-channel delivery for inactivity tests.
-	sendData func(net.Conn, string) error
-	wg       stdsync.WaitGroup
+	sendData    func(net.Conn, string) error
+	wg          sync.WaitGroup
 }
 
-func startFTPTestServer(t *testing.T, maxSessions int) *ftpTestServer {
+// Start runs a server until the test ends.
+func Start(t testing.TB, maxSessions int) *Server {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := &ftpTestServer{
+	server := &Server{
 		listener:    listener,
 		maxSessions: maxSessions,
 		files:       map[string]string{},
@@ -179,20 +60,47 @@ func startFTPTestServer(t *testing.T, maxSessions int) *ftpTestServer {
 	return server
 }
 
-func (s *ftpTestServer) addFile(remotePath, content string) {
+// SetDropCommand installs a filter; returning true drops the control
+// connection before the command is answered.
+func (s *Server) SetDropCommand(fn func(command, argument string) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dropCommand = fn
+}
+
+// SetDenyCommand installs a filter; returning true answers the command with a
+// 550 permission failure without hiding the path from its parent listing.
+func (s *Server) SetDenyCommand(fn func(command, argument string) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.denyCommand = fn
+}
+
+// SetSendData replaces how RETR content is written to the data connection,
+// for tests that need slow or stalled transfers.
+func (s *Server) SetSendData(fn func(data net.Conn, content string) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sendData = fn
+}
+
+// AddFile stores content at remotePath.
+func (s *Server) AddFile(remotePath, content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.files[path.Clean(remotePath)] = content
 }
 
-func (s *ftpTestServer) file(remotePath string) (string, bool) {
+// File returns the content stored at remotePath.
+func (s *Server) File(remotePath string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	content, ok := s.files[path.Clean(remotePath)]
 	return content, ok
 }
 
-func (s *ftpTestServer) host(t *testing.T) config.Host {
+// Host returns a password-authenticated FTP host for this server.
+func (s *Server) Host(t testing.TB) config.Host {
 	t.Helper()
 	hostname, portString, err := net.SplitHostPort(s.listener.Addr().String())
 	if err != nil {
@@ -212,13 +120,15 @@ func (s *ftpTestServer) host(t *testing.T) config.Host {
 	}
 }
 
-func (s *ftpTestServer) rejectedSessions() int {
+// RejectedSessions counts logins refused because of the session limit.
+func (s *Server) RejectedSessions() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.rejected
 }
 
-func (s *ftpTestServer) commandCount(command string) int {
+// CommandCount counts how often command was received on any connection.
+func (s *Server) CommandCount(command string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	count := 0
@@ -230,7 +140,7 @@ func (s *ftpTestServer) commandCount(command string) int {
 	return count
 }
 
-func (s *ftpTestServer) acceptLoop() {
+func (s *Server) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -250,7 +160,7 @@ func (s *ftpTestServer) acceptLoop() {
 	}
 }
 
-func (s *ftpTestServer) reserveSession() bool {
+func (s *Server) reserveSession() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.accepted >= s.maxSessions {
@@ -261,7 +171,7 @@ func (s *ftpTestServer) reserveSession() bool {
 	return true
 }
 
-func (s *ftpTestServer) serve(conn net.Conn) {
+func (s *Server) serve(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
 	reply := func(format string, args ...any) error {
@@ -325,7 +235,7 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 				err = reply("550 file not found")
 			}
 		case "SIZE":
-			content, ok := s.file(argument)
+			content, ok := s.File(argument)
 			if !ok {
 				err = reply("550 file not found")
 				break
@@ -341,7 +251,7 @@ func (s *ftpTestServer) serve(conn net.Conn) {
 					dataListener.Addr().(*net.TCPAddr).Port)
 			}
 		case "LIST", "RETR":
-			content, ok := s.file(argument)
+			content, ok := s.File(argument)
 			if command == "LIST" {
 				dir := path.Clean(argument)
 				prefix := strings.TrimSuffix(dir, "/") + "/"

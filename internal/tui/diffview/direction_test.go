@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,7 +19,7 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 	for _, key := range []string{" ", "A"} {
 		t.Run(key, func(t *testing.T) {
 			m := Model{
-				conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+				conn: connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 				sessions: []diff.Session{{
 					LocalPath: "/local/file", RemotePath: "/remote/file",
 					Result: &diff.DiffResult{Lines: []diff.DiffLine{
@@ -85,7 +86,7 @@ func TestUploadFoldClickKeepsScrolledSourceLine(t *testing.T) {
 		lines = append(lines, diff.DiffLine{Text: "same", LocalNum: i + 3, RemoteNum: i + 2})
 	}
 	m := Model{
-		conn:     connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		conn:     connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		sessions: []diff.Session{{Result: &diff.DiffResult{Lines: lines}}},
 		syncDirs: []SyncDir{DirNone}, Width: 120, Height: headerLines + footerLines + pathChrome + 7,
 	}

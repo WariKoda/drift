@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
@@ -46,14 +48,14 @@ func waitDiffTestFailure(t *testing.T, conn remote.Client) error {
 }
 
 func TestConnectionLostMatchesOwnerAndPreservesView(t *testing.T) {
-	server := startFTPTestServer(t, 2)
-	conn := connectDiffTestHost(t, server.host(t))
-	other := connectDiffTestHost(t, server.host(t))
+	server := ftptest.Start(t, 2)
+	conn := connectDiffTestHost(t, server.Host(t))
+	other := connectDiffTestHost(t, server.Host(t))
 	sessions := []diff.Session{
 		{LocalPath: "/file", Result: &diff.DiffResult{ContentDiff: true}},
 		{LocalPath: "/second", Result: &diff.DiffResult{ContentDiff: true}},
 	}
-	model := New(sessions, server.host(t), conn, nil, 160, 24)
+	model := New(sessions, server.Host(t), conn, nil, 160, 24)
 	model.completed = map[int]bool{0: true}
 	model.syncDirs[0] = DirNone
 	reason := errors.New("keep-alive peer closed")
@@ -96,18 +98,16 @@ func TestConnectionLostMatchesOwnerAndPreservesView(t *testing.T) {
 }
 
 func TestCancelActivityInterruptsStalledDownload(t *testing.T) {
-	server := startFTPTestServer(t, 1)
-	server.addFile("/file.txt", "content")
+	server := ftptest.Start(t, 1)
+	server.AddFile("/file.txt", "content")
 	started := make(chan struct{})
-	server.mu.Lock()
-	server.sendData = func(data net.Conn, _ string) error {
+	server.SetSendData(func(data net.Conn, _ string) error {
 		close(started)
 		_, err := io.Copy(io.Discard, data)
 		return err
-	}
-	server.mu.Unlock()
+	})
 
-	conn := connectDiffTestHost(t, server.host(t))
+	conn := connectDiffTestHost(t, server.Host(t))
 	root, err := fs.OpenRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestCancelActivityInterruptsStalledDownload(t *testing.T) {
 	t.Cleanup(func() { _ = root.Close() })
 	model := New([]diff.Session{{
 		LocalPath: filepath.Join(root.Base(), "file.txt"), RemotePath: "/file.txt",
-	}}, server.host(t), conn, root, 80, 24)
+	}}, server.Host(t), conn, root, 80, 24)
 	model.quickSyncing = true
 	model.beginActivity("Downloading", 1)
 
@@ -145,11 +145,9 @@ func TestCancelActivityInterruptsStalledDownload(t *testing.T) {
 }
 
 func TestTerminalClientBlocksCommandsBeforeRootNotification(t *testing.T) {
-	server := startFTPTestServer(t, 1)
-	server.mu.Lock()
-	server.dropCommand = func(command, _ string) bool { return command == "NOOP" }
-	server.mu.Unlock()
-	host := server.host(t)
+	server := ftptest.Start(t, 1)
+	server.SetDropCommand(func(command, _ string) bool { return command == "NOOP" })
+	host := server.Host(t)
 	interval := 1
 	host.KeepAliveInterval = &interval
 	conn := connectDiffTestHost(t, host)
@@ -186,13 +184,10 @@ func TestTerminalClientBlocksCommandsBeforeRootNotification(t *testing.T) {
 	if msg := model.bulkSyncCmd([]int{0})().(MsgBulkSyncDone); msg.Done != 0 || !errors.Is(msg.Err, terminal) {
 		t.Fatalf("bulk result = %+v", msg)
 	}
-	if server.commandCount("DELE") != 0 || server.commandCount("RETR") != 0 || server.commandCount("SIZE") != 0 {
+	if server.CommandCount("DELE") != 0 || server.CommandCount("RETR") != 0 || server.CommandCount("SIZE") != 0 {
 		t.Fatal("a queued command touched the failed connection")
 	}
-	if _, err := loadDiffItems(root, host, conn, nil, progress.NewTracker("Connecting…"), nil, nil); !errors.Is(err, terminal) {
-		t.Fatalf("empty comparison lost terminal failure: %v", err)
-	}
-	msg := LoadCmd(42, host, nil, nil, &config.MergedConfig{ProjectRoot: rootDir}, conn, progress.NewTracker("Connecting…"), nil, nil)()
+	msg := LoadCmd(42, app.LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: rootDir}, Conn: conn}, progress.NewTracker("Connecting…"))()
 	failure, ok := msg.(MsgDiffError)
 	if !ok || !errors.Is(failure.Err, terminal) || failure.RequestID != 42 {
 		t.Fatalf("load result = %#v", msg)
@@ -205,9 +200,9 @@ func TestTerminalClientBlocksCommandsBeforeRootNotification(t *testing.T) {
 }
 
 func TestLateSyncCompletionKeepsConfirmedOutcomes(t *testing.T) {
-	server := startFTPTestServer(t, 1)
-	server.addFile("/good", "content")
-	host := server.host(t)
+	server := ftptest.Start(t, 1)
+	server.AddFile("/good", "content")
+	host := server.Host(t)
 	interval := 1
 	host.KeepAliveInterval = &interval
 	conn := connectDiffTestHost(t, host)
@@ -219,9 +214,7 @@ func TestLateSyncCompletionKeepsConfirmedOutcomes(t *testing.T) {
 	if msg.Done != 1 || len(msg.Completed) != 1 || len(msg.Errors) != 1 {
 		t.Fatalf("real delete results = %+v", msg)
 	}
-	server.mu.Lock()
-	server.dropCommand = func(command, _ string) bool { return command == "NOOP" }
-	server.mu.Unlock()
+	server.SetDropCommand(func(command, _ string) bool { return command == "NOOP" })
 	terminal := waitDiffTestFailure(t, conn)
 	model.ConnectionLost(conn, terminal)
 	model, cmd := model.Update(msg)
@@ -247,51 +240,15 @@ func TestLateSyncCompletionKeepsConfirmedOutcomes(t *testing.T) {
 	}
 }
 
-func TestForEachComparePropagatesExtraWorkerTerminalFailure(t *testing.T) {
-	server := startFTPTestServer(t, 2)
-	server.mu.Lock()
-	server.dropCommand = func(command, argument string) bool { return command == "SIZE" && argument == "/drop-worker" }
-	server.mu.Unlock()
-	host := server.host(t)
-	interval := 1
-	host.KeepAliveInterval = &interval
-	conn := connectDiffTestHost(t, host)
-	released := make(chan struct{})
-	var once sync.Once
-	var worker remote.Client
-	err := forEachCompare(host, conn, []int{0, 1}, nil, nil, nil, func(_ int, workerConn remote.Client) {
-		if workerConn == conn {
-			select {
-			case <-released:
-			case <-time.After(5 * time.Second):
-			}
-			return
-		}
-		worker = workerConn // only one extra worker; read after the pool joins
-		_, _ = workerConn.Stat("/drop-worker")
-		select {
-		case <-workerConn.Done():
-		case <-time.After(5 * time.Second):
-		}
-		once.Do(func() { close(released) })
-	})
-	if worker == nil || worker.Err() == nil || !errors.Is(err, worker.Err()) {
-		t.Fatalf("extra worker terminal failure reduced parallelism instead of failing: %v", err)
-	}
-	if conn.Err() != nil {
-		t.Fatalf("primary connection unexpectedly failed: %v", conn.Err())
-	}
-}
-
 func TestCloseWaitsForRunningCommandBeforeClosingRoot(t *testing.T) {
-	server := startFTPTestServer(t, 1)
-	conn := connectDiffTestHost(t, server.host(t))
+	server := ftptest.Start(t, 1)
+	conn := connectDiffTestHost(t, server.Host(t))
 	dir := t.TempDir()
 	root, err := fs.OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := New(nil, server.host(t), conn, root, 80, 24)
+	model := New(nil, server.Host(t), conn, root, 80, 24)
 	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
@@ -328,8 +285,8 @@ func TestCloseWaitsForRunningCommandBeforeClosingRoot(t *testing.T) {
 }
 
 func TestCloseDetachesImmediatelyAndRejectsQueuedCommand(t *testing.T) {
-	server := startFTPTestServer(t, 1)
-	conn := connectDiffTestHost(t, server.host(t))
+	server := ftptest.Start(t, 1)
+	conn := connectDiffTestHost(t, server.Host(t))
 	rootDir := t.TempDir()
 	path := filepath.Join(rootDir, "file")
 	if err := os.WriteFile(path, []byte("local"), 0o600); err != nil {
@@ -339,7 +296,7 @@ func TestCloseDetachesImmediatelyAndRejectsQueuedCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := New([]diff.Session{{LocalPath: path, RemotePath: "/file"}}, server.host(t), conn, root, 100, 24)
+	model := New([]diff.Session{{LocalPath: path, RemotePath: "/file"}}, server.Host(t), conn, root, 100, 24)
 	model.refreshing = true
 	tracker := model.beginActivity("Refreshing", 1)
 	queued := model.reloadSessionCmd(0)
@@ -379,46 +336,10 @@ func TestCloseDetachesImmediatelyAndRejectsQueuedCommand(t *testing.T) {
 	}
 }
 
-func TestCompareCancellationClosesExtraWorker(t *testing.T) {
-	server := startFTPTestServer(t, 2)
-	host := server.host(t)
-	conn := connectDiffTestHost(t, host)
-	tracker := progress.NewTracker("Connecting…")
-	released := make(chan struct{})
-	var worker remote.Client
-	err := forEachCompare(host, conn, []int{0, 1}, tracker, nil, nil, func(_ int, workerConn remote.Client) {
-		if workerConn == conn {
-			select {
-			case <-released:
-			case <-time.After(5 * time.Second):
-			}
-			return
-		}
-		worker = workerConn
-		tracker.Cancel()
-		select {
-		case <-workerConn.Done():
-		case <-time.After(5 * time.Second):
-		}
-		close(released)
-	})
-	if !errors.Is(err, context.Canceled) || worker == nil {
-		t.Fatalf("worker cancellation = %v, worker = %v", err, worker)
-	}
-	if conn.Err() != nil || worker.Err() != nil {
-		t.Fatal("cancellation was reported as a terminal failure")
-	}
-	select {
-	case <-conn.Done():
-		t.Fatal("canceling extra workers closed the owned primary connection")
-	default:
-	}
-}
-
 func TestStaleActivityResultsDoNotChangeNewConnection(t *testing.T) {
-	server := startFTPTestServer(t, 2)
-	old := connectDiffTestHost(t, server.host(t))
-	current := connectDiffTestHost(t, server.host(t))
+	server := ftptest.Start(t, 2)
+	old := connectDiffTestHost(t, server.Host(t))
+	current := connectDiffTestHost(t, server.Host(t))
 	failure := errors.New("old connection failed")
 	messages := []tea.Msg{
 		MsgBulkSyncDone{Conn: old, Completed: []int{0}, Done: 1, Err: failure},
@@ -429,7 +350,7 @@ func TestStaleActivityResultsDoNotChangeNewConnection(t *testing.T) {
 	}
 	for _, msg := range messages {
 		result := &diff.DiffResult{ContentDiff: true}
-		model := New([]diff.Session{{Result: result}}, server.host(t), current, nil, 100, 24)
+		model := New([]diff.Session{{Result: result}}, server.Host(t), current, nil, 100, 24)
 		model.quickSyncing = true
 		model.beginActivity("Current operation", 1)
 		next, cmd := model.Update(msg)

@@ -146,8 +146,7 @@ func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 			return *a, nil
 		}
 		tracker := progress.NewTracker("Connecting…")
-		cmd := diffview.LoadCmdWithOptions(a.beginDiffRequest(), pending.host,
-			a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, &pending.challenge, a.state.ScopeOptions)
+		cmd := diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(pending.host, nil, &pending.challenge), tracker)
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker))
 	case trustOperationNoRetry:
 		cmd := a.browser.RetryRemote(pending.host, pending.challenge)

@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/project"
+	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
@@ -241,6 +243,22 @@ func (a *App) abandonDiffRequest() {
 
 // acceptsDiffResult reports whether a result with requestID belongs to the
 // request the app is still waiting for.
+// loadRequest compares the current selections against host. conn is an
+// optional open connection that the load takes over; required is set only for
+// the first retry after a certificate prompt.
+func (a App) loadRequest(host config.Host, conn remote.Client, required *tlstrust.Challenge) app.LoadRequest {
+	return app.LoadRequest{
+		Host:     host,
+		Config:   a.state.Config,
+		Local:    a.state.Selection,
+		Remote:   a.state.RemoteSelection,
+		Options:  a.state.ScopeOptions,
+		Conn:     conn,
+		Trust:    a.trust,
+		Required: required,
+	}
+}
+
 func (a App) acceptsDiffResult(requestID uint64) bool {
 	return requestID != 0 && requestID == a.diffRequest
 }
@@ -688,8 +706,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h := *msg.Host
 			tracker := progress.NewTracker("Connecting…")
 			return a, tea.Batch(
-				diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
-					a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker, a.trust, nil, a.state.ScopeOptions),
+				diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(h, msg.Conn, nil), tracker),
 				a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 			)
 		}
@@ -715,8 +732,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		tracker := progress.NewTracker("Connecting…")
 		return a, tea.Batch(
-			diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
-				a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions),
+			diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(h, nil, nil), tracker),
 			a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 		)
 
@@ -857,8 +873,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.watchConnection(nil)
 		a.state.Screen = ScreenBrowser
 		tracker := progress.NewTracker("Connecting…")
-		load := diffview.LoadCmdWithOptions(a.beginDiffRequest(), host,
-			a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions)
+		load := diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(host, nil, nil), tracker)
 		return a, tea.Sequence(closeDiff, tea.Batch(load,
 			a.startNetworkActivity(activityDiffLoad, "Rebuilding sync scope…", tracker)))
 

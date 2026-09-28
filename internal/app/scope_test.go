@@ -1,4 +1,4 @@
-package diffview
+package app
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/progress"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 )
@@ -20,20 +21,19 @@ func TestLoadScopeIncludesHiddenAndSkipsRecursiveIgnoredFiles(t *testing.T) {
 	writeScopeFile(t, filepath.Join(root, "normal.txt"), "normal")
 	writeScopeFile(t, filepath.Join(root, "cache", "cached.txt"), "cached")
 
-	server := startFTPTestServer(t, 2*maxFTPDiffLoadWorkers+4)
-	host := server.host(t)
+	server := ftptest.Start(t, 2*maxFTPDiffLoadWorkers+4)
+	host := server.Host(t)
 	selection := fs.NewSelectionState()
 	selection.Marked[root] = struct{}{}
 	cfg := &config.MergedConfig{ProjectRoot: root}
 
-	load := func(includeIgnored bool) MsgDiffLoaded {
-		conn := connectDiffTestHost(t, host)
+	load := func(includeIgnored bool) LoadResult {
+		conn := connectTestHost(t, host)
 		progress := progress.NewTracker("Connecting…")
-		msg := loadCmdWithOptions(1, host, selection, nil, cfg, conn, progress, nil, nil,
-			syncpolicy.ScopeOptions{IncludeIgnored: includeIgnored}, 5*time.Second)()
-		loaded, ok := msg.(MsgDiffLoaded)
-		if !ok {
-			t.Fatalf("load result = %T: %#v", msg, msg)
+		loaded, err := Load(progress.Context(), LoadRequest{Host: host, Config: cfg, Local: selection, Conn: conn,
+			Options: syncpolicy.ScopeOptions{IncludeIgnored: includeIgnored}, IdleTimeout: 5 * time.Second}, progress)
+		if err != nil {
+			t.Fatalf("load: %v", err)
 		}
 		t.Cleanup(func() {
 			_ = loaded.Conn.Close()
@@ -59,18 +59,17 @@ func TestLoadScopeDirectIgnoredFileOverridesOnlyThatFile(t *testing.T) {
 	writeScopeFile(t, selected, "selected")
 	writeScopeFile(t, filepath.Join(root, "neighbor.env"), "neighbor")
 
-	server := startFTPTestServer(t, maxFTPDiffLoadWorkers)
-	host := server.host(t)
-	conn := connectDiffTestHost(t, host)
+	server := ftptest.Start(t, maxFTPDiffLoadWorkers)
+	host := server.Host(t)
+	conn := connectTestHost(t, host)
 	selection := fs.NewSelectionState()
 	selection.Marked[root] = struct{}{}
 	selection.Marked[selected] = struct{}{}
 	progress := progress.NewTracker("Connecting…")
-	msg := loadCmdWithOptions(2, host, selection, nil, &config.MergedConfig{ProjectRoot: root}, conn,
-		progress, nil, nil, syncpolicy.ScopeOptions{}, 5*time.Second)()
-	loaded, ok := msg.(MsgDiffLoaded)
-	if !ok {
-		t.Fatalf("load result = %T: %#v", msg, msg)
+	loaded, err := Load(progress.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root}, Local: selection, Conn: conn,
+		IdleTimeout: 5 * time.Second}, progress)
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
 	defer loaded.Conn.Close()
 	defer loaded.Root.Close()

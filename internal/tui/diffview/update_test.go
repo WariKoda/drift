@@ -9,13 +9,14 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/ftptest"
 	"github.com/WariKoda/drift/internal/progress"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestQuickSyncBlocksOtherRemoteActions(t *testing.T) {
 	model := Model{
-		conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		conn: connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		sessions: []diff.Session{{
 			LocalPath:  "/local/file.txt",
 			RemotePath: "/remote/file.txt",
@@ -47,7 +48,7 @@ func TestQuickSyncBlocksOtherRemoteActions(t *testing.T) {
 
 func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
 	model := Model{
-		conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		conn: connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		sessions: []diff.Session{{
 			LocalPath:  "/local/file.txt",
 			RemotePath: "/remote/file.txt",
@@ -69,7 +70,7 @@ func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
 
 func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 	model := Model{
-		conn:         connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		conn:         connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		quickSyncing: true,
 		sessions:     []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}},
 		syncDirs:     []SyncDir{DirUpload},
@@ -112,7 +113,7 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 }
 
 func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
-	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+	conn := connectDiffTestHost(t, ftptest.Start(t, 1).Host(t))
 	tracker := progress.NewTracker("Connecting…")
 	failure := SyncFailure{
 		Operation: "upload",
@@ -154,7 +155,7 @@ func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
 	}{{"local", DirDeleteLocal}, {"remote", DirDeleteRemote}} {
 		t.Run(tc.name, func(t *testing.T) {
 			direction := tc.direction
-			conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+			conn := connectDiffTestHost(t, ftptest.Start(t, 1).Host(t))
 			tracker := progress.NewTracker("Connecting…")
 			model := Model{
 				conn:            conn,
@@ -188,7 +189,7 @@ func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
 }
 
 func TestCancelledBulkSyncKeepsCompletedFiles(t *testing.T) {
-	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
+	conn := connectDiffTestHost(t, ftptest.Start(t, 1).Host(t))
 	tracker := progress.NewTracker("Connecting…")
 	tracker.Cancel()
 	model := Model{
@@ -444,7 +445,7 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 
 func TestRefreshScrollsToFirstDifference(t *testing.T) {
 	model := Model{
-		conn: connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		conn: connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		sessions: []diff.Session{{
 			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
 		}},
@@ -462,7 +463,7 @@ func TestRefreshScrollsToFirstDifference(t *testing.T) {
 
 func TestSessionReloadScrollsToFirstDifferenceWhenActive(t *testing.T) {
 	model := Model{
-		conn:     connectDiffTestHost(t, startFTPTestServer(t, 1).host(t)),
+		conn:     connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		syncDirs: make([]SyncDir, 2),
 		sessions: []diff.Session{
 			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
@@ -654,8 +655,8 @@ func keyMsg(key string) tea.KeyMsg {
 func TestBulkSyncCmdSkipsRemainingAfterCancel(t *testing.T) {
 	tracker := progress.NewTracker("Connecting…")
 	tracker.Cancel()
-	server := startFTPTestServer(t, 1)
-	conn := connectDiffTestHost(t, server.host(t))
+	server := ftptest.Start(t, 1)
+	conn := connectDiffTestHost(t, server.Host(t))
 	model := Model{
 		sessions: []diff.Session{
 			{RemotePath: "/a"},
@@ -671,7 +672,7 @@ func TestBulkSyncCmdSkipsRemainingAfterCancel(t *testing.T) {
 	if !ok {
 		t.Fatalf("got %T, want MsgBulkSyncDone", msg)
 	}
-	if done.Done != 0 || server.commandCount("DELE") != 0 {
-		t.Fatalf("cancelled sync still ran (done=%d deletes=%d)", done.Done, server.commandCount("DELE"))
+	if done.Done != 0 || server.CommandCount("DELE") != 0 {
+		t.Fatalf("cancelled sync still ran (done=%d deletes=%d)", done.Done, server.CommandCount("DELE"))
 	}
 }

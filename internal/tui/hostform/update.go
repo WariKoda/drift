@@ -11,6 +11,19 @@ type MsgHostSaved struct {
 	Scope   config.HostScope
 	IsEdit  bool
 	OldName string
+
+	// KeepConnection is set when the user was offered a host with the same
+	// endpoint and chose to save this one anyway.
+	KeepConnection bool
+}
+
+// MsgLinkChosen is emitted when the user accepts the offer to link Target
+// instead of saving Host with a connection of its own. Host keeps the form's
+// name, root path and mappings.
+type MsgLinkChosen struct {
+	Target  config.LinkTarget
+	Host    config.Host
+	OldName string
 }
 
 // MsgFormCancelled is emitted when the user presses Esc on the main form.
@@ -28,6 +41,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.offer != nil {
+		return m.handleOffer(msg)
+	}
 	switch m.sub {
 	case subMappingList:
 		return m.handleMappingList(msg)
@@ -269,7 +285,30 @@ func (m Model) handleMappingEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleOffer answers the prompt shown by OfferLink.
+func (m Model) handleOffer(msg tea.KeyMsg) (Model, tea.Cmd) {
+	target := *m.offer
+	m.offer = nil
+	switch msg.String() {
+	case "l":
+		h, err := m.toHost()
+		if err != nil {
+			m.errMsg = err.Error()
+			return m, nil
+		}
+		chosen := MsgLinkChosen{Target: target, Host: h, OldName: m.oldName}
+		return m, func() tea.Msg { return chosen }
+	case "s":
+		return m.save(true)
+	}
+	return m, nil
+}
+
 func (m Model) trySave() (Model, tea.Cmd) {
+	return m.save(false)
+}
+
+func (m Model) save(keepConnection bool) (Model, tea.Cmd) {
 	h, err := m.toHost()
 	if err != nil {
 		m.errMsg = err.Error()
@@ -277,10 +316,11 @@ func (m Model) trySave() (Model, tea.Cmd) {
 	}
 	m.errMsg = ""
 	saved := MsgHostSaved{
-		Host:    h,
-		Scope:   m.scope,
-		IsEdit:  m.isEdit,
-		OldName: m.oldName,
+		Host:           h,
+		Scope:          m.scope,
+		IsEdit:         m.isEdit,
+		OldName:        m.oldName,
+		KeepConnection: keepConnection,
 	}
 	return m, func() tea.Msg { return saved }
 }

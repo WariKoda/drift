@@ -954,12 +954,63 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hostManager.Refresh()
 		if err != nil {
 			log.Error("delete host failed", "host", msg.Name, "err", err)
-			a.hostManager.SetErr("Delete failed: " + err.Error())
+			a.hostManager.SetErr("Delete failed: " + a.describeConfigError(err))
+		}
+		a.state.Screen = ScreenHostManager
+		return a, nil
+
+	case hostmanager.MsgLinkPickerRequested:
+		targets, err := config.LinkTargets(a.state.Config)
+		if err != nil {
+			log.Error("list link targets failed", "err", err)
+			a.hostManager.SetErr("Cannot list servers: " + err.Error())
+			return a, nil
+		}
+		a.hostManager.OpenPicker(targets, a.projectNames())
+		return a, nil
+
+	case hostmanager.MsgLinkTargetChosen:
+		server, err := a.linkServer(msg.Target)
+		if server.Name == "" {
+			a.hostManager.SetErr("Link failed: " + err.Error())
+			return a, nil
+		}
+		source := msg.Target.Host
+		a.hostForm = hostform.NewLink(server, a.freeProjectHostName(source.Name), source.RootPath,
+			a.state.Config.ProjectSlug, a.state.TermWidth, a.state.TermHeight)
+		if err != nil {
+			a.hostForm.SetErr(err.Error())
+		}
+		a.hostManager.Refresh()
+		a.state.Screen = ScreenHostForm
+		return a, nil
+
+	case hostform.MsgLinkChosen:
+		server, err := a.linkServer(msg.Target)
+		if server.Name == "" {
+			a.hostForm.SetErr("Link failed: " + err.Error())
+			return a, nil
+		}
+		link := config.Resolve(config.Host{Name: msg.Host.Name, RootPath: msg.Host.RootPath, Mappings: msg.Host.Mappings}, server)
+		if saveErr := config.SaveProjectHost(a.state.Config, link, msg.OldName); saveErr != nil {
+			a.hostForm.SetErr("Save failed: " + saveErr.Error())
+			a.hostManager.Refresh()
+			return a, nil
+		}
+		a.hostManager.Refresh()
+		if err != nil {
+			a.hostManager.SetErr(err.Error())
 		}
 		a.state.Screen = ScreenHostManager
 		return a, nil
 
 	case hostform.MsgHostSaved:
+		if msg.Scope == config.ScopeProject && !msg.Host.IsLink() && !msg.KeepConnection {
+			if target, ok := a.sameEndpoint(msg.Host); ok {
+				a.hostForm.OfferLink(target, a.describeTarget(target))
+				return a, nil
+			}
+		}
 		var err error
 		if msg.Scope == config.ScopeGlobal {
 			err = config.SaveGlobalHost(a.state.Config, msg.Host, msg.OldName)
@@ -967,7 +1018,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			err = config.SaveProjectHost(a.state.Config, msg.Host, msg.OldName)
 		}
 		if err != nil {
-			a.hostForm.SetErr("Save failed: " + err.Error())
+			a.hostForm.SetErr("Save failed: " + a.describeConfigError(err))
 			a.state.Screen = ScreenHostForm
 			return a, nil
 		}

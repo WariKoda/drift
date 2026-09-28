@@ -59,7 +59,8 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 ## Key types
 
 ```go
-config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings)
+config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings); Server set = link
+config.LinkTarget   // a global server or another project's host a project host can link
 config.Mapping      // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
 tlstrust.Manager    // session + persistent FTPS certificate trust; owned by tui.App
 fs.Root             // project-confined local Open, Stat, ReadFile, Remove, WriteAtomic
@@ -107,7 +108,17 @@ classification so ignored remote-only files cannot become deletion candidates.
 | Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
 | FTPS trust | `~/.config/drift/trusted-certificates.toml` (mode 600)                |
 
-Project hosts override global hosts by name. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
+With a project open, `MergedConfig.Hosts` holds only that project's hosts; global hosts are
+servers that project hosts link with `server = "<name>"` (`internal/config/servers.go`).
+Without a project, `Hosts` holds the global hosts. A link stores only name, server,
+root_path and mappings; `merge` and `rebuildMerged` resolve it with `config.Resolve`, so
+the rest of the app sees a complete `config.Host`. `hostsOut` strips the connection again
+on write. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
+
+`config.LinkTargets` reads every store under `projects/` to list link candidates, and
+`serverUsers` does the same so `DeleteGlobalHost` and renames in `SaveGlobalHost` refuse a
+server that any project links (`ServerInUseError`). `PromoteProjectHost` turns another
+project's host into a server: it writes the global config first, then the source store.
 
 ## Nothing in the project directory
 
@@ -131,7 +142,8 @@ its registry slug.
   They start from `projectStoreBase`, which re-reads the store from disk, so a
   save cannot bake `[defaults]` into the other hosts' records.
 - Global hosts still live in `~/.config/drift/config.toml`, so `HostScope`
-  stays a real distinction.
+  stays a real distinction. With a project open they are link targets, not sync
+  targets.
 
 There is no migration path left in the code: 0.1.7-alpha was the release that
 moved `<project>/.drift/config.toml`, `secrets.toml` and `access.toml` into the

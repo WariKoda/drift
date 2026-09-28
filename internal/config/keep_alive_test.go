@@ -54,7 +54,12 @@ func TestKeepAliveLoadValidation(t *testing.T) {
 				if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				cfg, err := Load(t.TempDir(), "shop")
+				// Global hosts are sync targets only when no project is open.
+				slug := "shop"
+				if scope == "global" {
+					slug = ""
+				}
+				cfg, err := Load(t.TempDir(), slug)
 				valid := value == "" || value == "0" || value == "1" || value == "86400"
 				if !valid {
 					if err == nil || !strings.Contains(err.Error(), "keep_alive_interval") {
@@ -83,10 +88,12 @@ func TestKeepAliveRoundTrip(t *testing.T) {
 		t.Run(fmt.Sprint(scope), func(t *testing.T) {
 			isolate(t)
 			root := t.TempDir()
-			cfg := &MergedConfig{ProjectRoot: root, ProjectSlug: "shop"}
+			// Global hosts are sync targets only when no project is open.
+			slug := ""
 			save, remove := SaveGlobalHost, DeleteGlobalHost
 			path := globalConfigPath()
 			if scope == ScopeProject {
+				slug = "shop"
 				save, remove = SaveProjectHost, DeleteProjectHost
 				var err error
 				path, err = projectStorePath("shop")
@@ -94,6 +101,7 @@ func TestKeepAliveRoundTrip(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			cfg := &MergedConfig{ProjectRoot: root, ProjectSlug: slug}
 			zero, positive, maximum := 0, 17, 86400
 			for _, h := range []Host{
 				{Name: "default"},
@@ -105,7 +113,7 @@ func TestKeepAliveRoundTrip(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			cfg, err := Load(root, "shop")
+			cfg, err := Load(root, slug)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,7 +129,7 @@ func TestKeepAliveRoundTrip(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			loaded, err := Load(root, "shop")
+			loaded, err := Load(root, slug)
 			if err != nil {
 				t.Fatal(err)
 			}

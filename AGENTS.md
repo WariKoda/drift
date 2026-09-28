@@ -95,7 +95,7 @@ Gitignore classification goes through `fs.Classifier`, which batches paths throu
 `git check-ignore`. Hidden state affects browser visibility only. Gitignored paths
 are excluded symmetrically from recursive comparisons unless the user includes
 ignored paths for that operation; directly selected ignored files are exceptions.
-Hard exclusions can never be overridden. Remote paths must be mapped locally before
+Hard exclusions can never be overridden. Staging files from interrupted transfers (`fs.StagingName`, recognized by `fs.IsStagingName`) are hard exclusions too; every upload and download names its staging file through `fs.StagingName`. Remote paths must be mapped locally before
 classification so ignored remote-only files cannot become deletion candidates.
 
 ## Config locations

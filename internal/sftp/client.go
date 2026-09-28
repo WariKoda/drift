@@ -3,8 +3,6 @@ package sftp
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -239,7 +237,7 @@ func (c *Client) Upload(remotePath string, src io.Reader) error {
 		return fmt.Errorf("stat remote %s: %w", remotePath, statErr)
 	}
 
-	stageBase, err := stagingName(path.Base(remotePath))
+	stageBase, err := fs.StagingName(path.Base(remotePath))
 	if err != nil {
 		return err
 	}
@@ -374,14 +372,4 @@ func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error,
 		}
 	}
 	return nil
-}
-
-// stagingName returns an unpredictable hidden sibling name. Staging files must
-// live beside their target so the final rename stays on the same filesystem.
-func stagingName(base string) (string, error) {
-	var token [16]byte
-	if _, err := rand.Read(token[:]); err != nil {
-		return "", fmt.Errorf("generate staging name: %w", err)
-	}
-	return "." + base + ".drift-tmp-" + hex.EncodeToString(token[:]), nil
 }

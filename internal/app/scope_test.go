@@ -78,6 +78,33 @@ func TestLoadScopeDirectIgnoredFileOverridesOnlyThatFile(t *testing.T) {
 	}
 }
 
+func TestLoadScopeSkipsInterruptedStagingFiles(t *testing.T) {
+	root := t.TempDir()
+	writeScopeFile(t, filepath.Join(root, "assets", ".local.bin.drift-tmp-00112233445566778899aabbccddeeff"), "partial local")
+
+	server := ftptest.Start(t, maxFTPDiffLoadWorkers)
+	server.AddFile("/assets/.big.bin.drift-tmp-ed75fbcd7e7466c701845a0190e6ae09", "partial remote")
+	server.AddFile("/assets/remote.txt", "remote")
+	host := server.Host(t)
+	conn := connectTestHost(t, host)
+	selection := fs.NewSelectionState()
+	selection.Marked[root] = struct{}{}
+	tracker := progress.NewTracker("Connecting…")
+	loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
+		Local: selection, Conn: conn, Options: syncpolicy.ScopeOptions{IncludeIgnored: true}, IdleTimeout: 5 * time.Second}, tracker)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer loaded.Conn.Close()
+	defer loaded.Root.Close()
+	if len(loaded.Sessions) != 1 || loaded.Sessions[0].RemotePath != "/assets/remote.txt" {
+		t.Fatalf("sessions = %+v, want only the regular remote file", loaded.Sessions)
+	}
+	if loaded.Scope.HardExcludedSkipped != 2 {
+		t.Fatalf("scope = %+v, want both staging files counted as fixed exclusions", loaded.Scope)
+	}
+}
+
 func writeScopeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

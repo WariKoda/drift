@@ -31,6 +31,12 @@ func TestClassifierSeparatesHiddenIgnoredAndHardExcluded(t *testing.T) {
 		{".git/config", false, true, false, true},
 		{"node_modules/a.js", false, false, false, true},
 		{"node_modules", false, false, false, false},
+		// An interrupted transfer leaves its staging file behind; it must never
+		// become a sync or delete candidate on either side.
+		{"assets/.big.bin.drift-tmp-ed75fbcd7e7466c701845a0190e6ae09", false, true, false, true},
+		{".drift-tmp-ed75fbcd7e7466c701845a0190e6ae09", false, true, false, false},
+		{"assets/.big.bin.drift-tmp-notes", false, true, false, false},
+		{"assets/big.bin.drift-tmp-ed75fbcd7e7466c701845a0190e6ae09", false, false, false, false},
 	}
 	for _, tc := range cases {
 		got := classifyTest(t, classifier, filepath.Join(root, filepath.FromSlash(tc.path)), tc.dir)

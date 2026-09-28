@@ -3,9 +3,7 @@ package ftp
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -307,7 +305,7 @@ func (c *Client) Upload(remotePath string, src io.Reader) (err error) {
 		return err
 	}
 
-	stageBase, err := stagingName(path.Base(remotePath))
+	stageBase, err := fs.StagingName(path.Base(remotePath))
 	if err != nil {
 		return err
 	}
@@ -588,16 +586,6 @@ func (c *Client) ensureDir(dir string) error {
 		_ = c.conn.MakeDir(current) // ignore "already exists" errors
 	}
 	return nil
-}
-
-// stagingName returns an unpredictable hidden sibling name. Staging files must
-// live beside their target so the final rename stays within one directory.
-func stagingName(base string) (string, error) {
-	var token [16]byte
-	if _, err := rand.Read(token[:]); err != nil {
-		return "", fmt.Errorf("generate staging name: %w", err)
-	}
-	return "." + base + ".drift-tmp-" + hex.EncodeToString(token[:]), nil
 }
 
 // lockedReadCloser keeps the FTP control connection reserved for the complete

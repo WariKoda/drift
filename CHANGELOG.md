@@ -8,6 +8,12 @@ Next planned release: **v0.2.0-beta.1**. The beta phase focuses on real-world
 SFTP/FTP/FTPS deployments, sync failure handling, and configuration stability.
 This is a release target, not a published version or a 1.0 stability guarantee.
 
+### Fixed
+
+- staging files left behind by an interrupted upload or download no longer appear in comparisons, so "sync all" can no longer download or delete a partial file
+- a failed connection while loading a comparison no longer crashes drift; wrong credentials, unreachable hosts and unknown FTPS certificates are reported, and the certificate prompt opens as intended
+- a failed host deletion in the host manager is now shown in its status line instead of being discarded
+
 ## [0.1.8-alpha] - 2026-09-12
 
 ### Added

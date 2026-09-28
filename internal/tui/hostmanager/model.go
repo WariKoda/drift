@@ -3,8 +3,8 @@ package hostmanager
 
 import (
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/tlstrust"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -32,7 +32,7 @@ type Model struct {
 	testing     bool   // true while async test is in flight
 	testTarget  string // host name being tested
 	testID      uint64
-	testTracker *loading.Tracker
+	testTracker *progress.Tracker
 	trust       *tlstrust.Manager
 
 	// status line
@@ -61,7 +61,7 @@ func (m *Model) SetTrustManager(trust *tlstrust.Manager) {
 }
 
 // Testing reports whether a connection test is in flight.
-func (m Model) Testing() (string, *loading.Tracker, bool) {
+func (m Model) Testing() (string, *progress.Tracker, bool) {
 	return m.testTarget, m.testTracker, m.testing
 }
 

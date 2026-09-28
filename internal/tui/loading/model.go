@@ -2,121 +2,15 @@
 package loading
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"sync"
 	"time"
 
+	"github.com/WariKoda/drift/internal/progress"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 const showDelay = 200 * time.Millisecond
 const tickInterval = 100 * time.Millisecond
-
-// Progress describes the current phase of a network operation.
-type Progress struct {
-	Phase         string
-	Done          int
-	Total         int
-	Indeterminate bool
-}
-
-// Tracker safely shares progress between a tea.Cmd goroutine and the TUI.
-type Tracker struct {
-	mu       sync.Mutex
-	progress Progress
-	done     bool
-	ctx      context.Context
-	cancel   context.CancelFunc
-}
-
-// NewTracker creates an indeterminate tracker with the given initial phase.
-func NewTracker(phase string) *Tracker {
-	ctx, cancel := context.WithCancel(context.Background())
-	t := &Tracker{ctx: ctx, cancel: cancel}
-	t.Set(phase, 0, 0, true)
-	return t
-}
-
-// Context is canceled when the user aborts the operation.
-func (t *Tracker) Context() context.Context {
-	if t == nil {
-		return context.Background()
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.ctx == nil {
-		return context.Background()
-	}
-	return t.ctx
-}
-
-// Cancel asks the running operation to stop. Already-finished work is kept.
-func (t *Tracker) Cancel() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	cancel := t.cancel
-	t.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-// Canceled reports whether Cancel has been called.
-func (t *Tracker) Canceled() bool {
-	if t == nil {
-		return false
-	}
-	return t.Context().Err() != nil
-}
-
-// IsCanceled reports whether err is a user abort rather than a real failure.
-func IsCanceled(err error) bool {
-	return err != nil && errors.Is(err, context.Canceled)
-}
-
-// Set replaces the current progress values.
-func (t *Tracker) Set(phase string, done, total int, indeterminate bool) {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.progress = Progress{Phase: phase, Done: done, Total: total, Indeterminate: indeterminate}
-}
-
-// Inc advances the completed counter by one.
-func (t *Tracker) Inc() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.progress.Done++
-}
-
-// Finish marks the tracked operation as complete.
-func (t *Tracker) Finish() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.done = true
-}
-
-// Snapshot returns a consistent progress snapshot.
-func (t *Tracker) Snapshot() (Progress, bool) {
-	if t == nil {
-		return Progress{}, false
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.progress, t.done
-}
 
 // Model owns the visual state of one global network operation.
 type Model struct {
@@ -124,8 +18,8 @@ type Model struct {
 	visible  bool
 	revealed bool
 	label    string
-	progress Progress
-	tracker  *Tracker
+	progress progress.Progress
+	tracker  *progress.Tracker
 	frame    int
 	id       uint64
 }
@@ -134,9 +28,9 @@ type showMsg struct{ id uint64 }
 type tickMsg struct{ id uint64 }
 
 // Start begins a new activity and schedules its delayed display.
-func (m *Model) Start(label string, tracker *Tracker) tea.Cmd {
+func (m *Model) Start(label string, tracker *progress.Tracker) tea.Cmd {
 	if tracker == nil {
-		tracker = NewTracker(label)
+		tracker = progress.NewTracker(label)
 	}
 	m.id++
 	m.active = true
@@ -145,7 +39,7 @@ func (m *Model) Start(label string, tracker *Tracker) tea.Cmd {
 	m.label = label
 	m.tracker = tracker
 	m.frame = 0
-	m.progress = Progress{Phase: label, Indeterminate: true}
+	m.progress = progress.Progress{Phase: label, Indeterminate: true}
 	m.progress, _ = tracker.Snapshot()
 	id := m.id
 	return tea.Tick(showDelay, func(time.Time) tea.Msg { return showMsg{id: id} })
@@ -158,7 +52,7 @@ func (m *Model) Finish() {
 	m.visible = false
 	m.revealed = false
 	m.label = ""
-	m.progress = Progress{}
+	m.progress = progress.Progress{}
 	m.tracker = nil
 	m.frame = 0
 }
@@ -177,7 +71,7 @@ func (m *Model) Cancel() {
 }
 
 // Tracker returns the tracker for the current activity, if any.
-func (m Model) Tracker() *Tracker { return m.tracker }
+func (m Model) Tracker() *progress.Tracker { return m.tracker }
 
 // Update advances delayed display, spinner animation, and tracked progress.
 func (m *Model) Update(msg tea.Msg) tea.Cmd {

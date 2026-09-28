@@ -7,10 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/project"
+	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/styles"
+	internalsync "github.com/WariKoda/drift/internal/sync"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
 	"github.com/WariKoda/drift/internal/tui/certtrust"
@@ -70,7 +74,7 @@ type App struct {
 	diffRequest       uint64
 	diffSeq           uint64
 	pendingDiffStatus string
-	pendingDiffErrors []diffview.SyncFailure
+	pendingDiffErrors []internalsync.Failure
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -172,7 +176,7 @@ func (a App) Init() tea.Cmd {
 	return a.browser.Init()
 }
 
-func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *loading.Tracker) tea.Cmd {
+func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *progress.Tracker) tea.Cmd {
 	a.activity = kind
 	a.globalError = ""
 	return a.loader.Start(label, tracker)
@@ -240,6 +244,22 @@ func (a *App) abandonDiffRequest() {
 
 // acceptsDiffResult reports whether a result with requestID belongs to the
 // request the app is still waiting for.
+// loadRequest compares the current selections against host. conn is an
+// optional open connection that the load takes over; required is set only for
+// the first retry after a certificate prompt.
+func (a App) loadRequest(host config.Host, conn remote.Client, required *tlstrust.Challenge) app.LoadRequest {
+	return app.LoadRequest{
+		Host:     host,
+		Config:   a.state.Config,
+		Local:    a.state.Selection,
+		Remote:   a.state.RemoteSelection,
+		Options:  a.state.ScopeOptions,
+		Conn:     conn,
+		Trust:    a.trust,
+		Required: required,
+	}
+}
+
 func (a App) acceptsDiffResult(requestID uint64) bool {
 	return requestID != 0 && requestID == a.diffRequest
 }
@@ -685,10 +705,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.ScopeOptions = msg.Options
 		if msg.Host != nil {
 			h := *msg.Host
-			tracker := diffview.NewLoadProgressTracker()
+			tracker := progress.NewTracker("Connecting…")
 			return a, tea.Batch(
-				diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
-					a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker, a.trust, nil, a.state.ScopeOptions),
+				diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(h, msg.Conn, nil), tracker),
 				a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 			)
 		}
@@ -712,10 +731,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, tracker, _ := a.browser.LoadingActivity()
 			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
-		tracker := diffview.NewLoadProgressTracker()
+		tracker := progress.NewTracker("Connecting…")
 		return a, tea.Batch(
-			diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
-				a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions),
+			diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(h, nil, nil), tracker),
 			a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker),
 		)
 
@@ -737,7 +755,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil && a.openCertificatePrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
 			return a, cmd
 		}
-		if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+		if msg.Err != nil && !progress.IsCanceled(msg.Err) {
 			a.globalError = msg.Err.Error()
 		}
 		return a, cmd
@@ -797,7 +815,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.TermWidth,
 			a.state.TermHeight,
 		)
-		a.diffView.SetTrustManager(a.trust)
 		a.diffView.SetScope(msg.Scope, msg.Options)
 		if a.pendingDiffStatus != "" || len(a.pendingDiffErrors) > 0 {
 			a.diffView.SetSyncResult(a.pendingDiffStatus, a.pendingDiffErrors)
@@ -826,7 +843,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.openCertificatePrompt(trustOperationDiffLoad, msg.Host, msg.Err) {
 			return a, nil
 		}
-		if !loading.IsCanceled(msg.Err) {
+		if !progress.IsCanceled(msg.Err) {
 			a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		}
 		a.pendingDiffStatus = ""
@@ -840,7 +857,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.state.ScopeOptions.IncludeIgnored = msg.IncludeIgnored
 		a.pendingDiffStatus = msg.Status
-		a.pendingDiffErrors = append([]diffview.SyncFailure(nil), msg.Errors...)
+		a.pendingDiffErrors = append([]internalsync.Failure(nil), msg.Errors...)
 		if a.state.Selection != nil {
 			for _, path := range msg.DeletedLocal {
 				delete(a.state.Selection.Marked, path)
@@ -855,9 +872,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		closeDiff := a.diffView.Close()
 		a.watchConnection(nil)
 		a.state.Screen = ScreenBrowser
-		tracker := diffview.NewLoadProgressTracker()
-		load := diffview.LoadCmdWithOptions(a.beginDiffRequest(), host,
-			a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions)
+		tracker := progress.NewTracker("Connecting…")
+		load := diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(host, nil, nil), tracker)
 		return a, tea.Sequence(closeDiff, tea.Batch(load,
 			a.startNetworkActivity(activityDiffLoad, "Rebuilding sync scope…", tracker)))
 
@@ -909,7 +925,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil && a.openCertificatePrompt(trustOperationHostTest, msg.Host, msg.Err) {
 			return a, cmd
 		}
-		if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+		if msg.Err != nil && !progress.IsCanceled(msg.Err) {
 			a.globalError = "Connection test failed: " + msg.Err.Error()
 		}
 		return a, cmd
@@ -935,10 +951,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			err = config.DeleteProjectHost(a.state.Config, msg.Name)
 		}
-		if err != nil {
-			a.state.StatusMsg = "Delete failed: " + err.Error()
-		}
 		a.hostManager.Refresh()
+		if err != nil {
+			log.Error("delete host failed", "host", msg.Name, "err", err)
+			a.hostManager.SetErr("Delete failed: " + err.Error())
+		}
 		a.state.Screen = ScreenHostManager
 		return a, nil
 
@@ -1036,28 +1053,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
 				return a, tea.Batch(closeCmd, cmd)
 			}
-			if !loading.IsCanceled(result.Err) {
+			if !progress.IsCanceled(result.Err) {
 				a.globalError = result.Err.Error()
-			}
-		case diffview.MsgSessionReloaded:
-			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
-				return a, tea.Batch(closeCmd, cmd)
-			}
-			if result.Err != nil && !loading.IsCanceled(result.Err) {
-				a.globalError = "Diff refresh failed: " + result.Err.Error()
-			}
-		case diffview.MsgRefreshed:
-			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
-				return a, tea.Batch(closeCmd, cmd)
-			}
-			failed := 0
-			for _, session := range result.Sessions {
-				if session.Err != nil {
-					failed++
-				}
-			}
-			if failed > 0 {
-				a.globalError = fmt.Sprintf("Diff refresh failed for %d file(s)", failed)
 			}
 		case diffview.MsgBulkSyncDone:
 			for _, failure := range result.Errors {

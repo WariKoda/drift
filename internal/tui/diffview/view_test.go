@@ -94,7 +94,7 @@ func TestViewRendersHunkHeaderAndFold(t *testing.T) {
 
 func TestViewRendersBulkSyncFailureContext(t *testing.T) {
 	model := Model{
-		syncErrors: []SyncFailure{{
+		syncErrors: []syncpolicy.Failure{{
 			Operation: "upload",
 			Path:      "/project/file.php",
 			Reason:    "permission denied",

@@ -1,4 +1,4 @@
-package diffview
+package app
 
 import (
 	"context"
@@ -15,10 +15,10 @@ import (
 	"github.com/WariKoda/drift/internal/remote"
 )
 
-// ErrDiffIdleTimeout distinguishes a stalled comparison from user cancellation.
-var ErrDiffIdleTimeout = errors.New("diff comparison inactivity timeout")
+// ErrIdleTimeout distinguishes a stalled comparison from user cancellation.
+var ErrIdleTimeout = errors.New("diff comparison inactivity timeout")
 
-const diffIdleTimeout = 60 * time.Second
+const defaultIdleTimeout = 60 * time.Second
 
 // loadActivity serializes timeout, cancellation and successful ownership transfer.
 // Close runs outside the lock, independently for each connection.
@@ -70,7 +70,7 @@ func (a *loadActivity) expire() {
 		a.timer.Reset(remaining)
 		return
 	}
-	a.cancel(fmt.Errorf("%w: no progress for %s", ErrDiffIdleTimeout, a.timeout))
+	a.cancel(fmt.Errorf("%w: no progress for %s", ErrIdleTimeout, a.timeout))
 }
 
 func (a *loadActivity) own(c io.Closer) {

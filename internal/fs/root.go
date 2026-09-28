@@ -1,8 +1,6 @@
 package fs
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -211,14 +209,12 @@ func (r *Root) rel(absPath string) (string, error) {
 	return rel, nil
 }
 
-// stagingSibling returns an unpredictable hidden name beside rel. Staging files
-// live next to their target so the final rename stays within one directory.
+// stagingSibling returns a staging name beside rel.
 func stagingSibling(rel string) (string, error) {
-	var token [16]byte
-	if _, err := rand.Read(token[:]); err != nil {
-		return "", fmt.Errorf("generate staging name: %w", err)
+	name, err := StagingName(filepath.Base(rel))
+	if err != nil {
+		return "", err
 	}
-	name := "." + filepath.Base(rel) + ".drift-tmp-" + hex.EncodeToString(token[:])
 	if dir := filepath.Dir(rel); dir != "." {
 		return filepath.Join(dir, name), nil
 	}

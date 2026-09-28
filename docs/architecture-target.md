@@ -12,7 +12,7 @@ Bereits umgesetzt:
 - `diff.Compare()` trennt NotFound grundsätzlich von anderen Stat- und Protokollfehlern
 - `diffview.nextDir()` lässt für fehlerhafte Sessions keine Action-Auswahl zu
 - Auto-Decision- und Action-Cycling-Logik liegt in `internal/sync/policy.go` und ist getestet
-- `internal/sync/plan.go` enthält erste Plan- und Progress-Typen, aber noch keine Engine
+- `internal/sync/scope.go` beschreibt den Vergleichsumfang; Plan-, Progress- und Engine-Typen gibt es noch nicht
 - Hosts und markierte Pfade werden deterministisch sortiert verarbeitet
 - `fs.Root` begrenzt lokale Transfers und Änderungen auf das Projekt und schreibt Downloads atomar
 - Remote-Clients verwenden Streams statt lokaler Pfade und überwachen ihre Verbindung selbst
@@ -20,6 +20,8 @@ Bereits umgesetzt:
 - Mapping- und Keep-alive-Werte werden beim Laden und Schreiben validiert
 - Projekte werden über `internal/project` registriert; projektbezogene Konfiguration liegt slug-basiert außerhalb des Arbeitsverzeichnisses
 - FTPS-Zertifikatsvertrauen liegt in `internal/tlstrust` und wird vom Root-Modell verwaltet
+- Session-Aufbau liegt als `app.Load` in `internal/app`; Refresh und jeder abgeschlossene Sync bauen den Vergleich darüber neu auf, die Sync-Ausführung als `sync.Run` in `internal/sync`; `diffview` übersetzt nur noch Ergebnisse in Messages
+- Fortschritt und Abbruch laufen über `progress.Tracker` in `internal/progress`, ohne Bubble-Tea-Abhängigkeit
 
 Einschränkung:
 
@@ -27,9 +29,7 @@ Einschränkung:
 
 Noch offen:
 
-- Einführung der `internal/app`-Services für Session-Aufbau und Refresh
-- Ersetzen der Sync-Ausführung in `diffview` durch `sync`-/`app`-Services
-- Verschieben der vorhandenen Progress- und Abbruchmechanik an eine UI-unabhängige Orchestrierungsgrenze
+- strukturierte Progress-Events aus `sync.Run` statt reiner Zähler
 - expliziteres Diff-Zustandsmodell für Presence und Fehler
 
 ---
@@ -91,7 +91,7 @@ Pfadmapping, Existenzprüfung, Delete-Verhalten und Konfliktmodell müssen expli
 
 ```text
 internal/
-  app/              # Application-Services / Use-Cases, noch einzuführen
+  app/              # Use-Cases: Session-Aufbau und Refresh
   config/           # TOML-Konfiguration + Persistenz
   diff/             # fachliche Vergleichslogik + Diff-Ergebnisse
   fs/               # lokales Filesystem mit projektgebundenem Root
@@ -124,6 +124,8 @@ Hier liegt der Ablauf über mehrere Subsysteme hinweg, z. B.:
 - Sessions refreshen
 
 ### Empfohlene Services
+
+Status: **umgesetzt**, aber als Funktionen statt Service-Typen. `app.Load(ctx, LoadRequest, tracker)` hat keinen eigenen Zustand; alle Abhängigkeiten kommen pro Aufruf im Request. Die Sync-Ausführung liegt als `sync.Run` direkt in `internal/sync`, ein `SyncService` ist dafür nicht nötig. Die Umsetzung beschreibt `docs/diffview-orchestration-plan.md`. Die folgenden Skizzen bleiben als ursprüngliche Planung stehen.
 
 #### `internal/app/session_service.go`
 
@@ -238,7 +240,7 @@ Status: **teilweise umgesetzt**
 
 ## `internal/sync`
 
-Dieses Paket sollte die eigentliche Sync-Domain werden. `policy.go` enthält bereits Entscheidungen und Action-Cycling. `plan.go` enthält erste Transfer- und Progress-Typen, wird aber noch nicht von der TUI genutzt. Eine Engine fehlt.
+Dieses Paket sollte die eigentliche Sync-Domain werden. `policy.go` enthält bereits Entscheidungen und Action-Cycling. `scope.go` beschreibt den Vergleichsumfang. Die früheren, nie genutzten Plan- und Progress-Typen sind entfernt; eine Engine fehlt.
 
 ### Verantwortung
 
@@ -797,25 +799,27 @@ Phase 1 ist umgesetzt. Bei FTP bleibt die Mehrdeutigkeit von Status `550` als be
 
 ## Phase 2: Session-Orchestrierung entkoppeln
 
-1. `internal/app/session_service.go` als konkreten Service einführen
-2. Ownership von `remote.Client` und `fs.Root` im Service-Ergebnis festlegen
-3. `diffview.LoadCmd()` auf den SessionService umstellen
-4. `refreshCmd()` und den Reload einer einzelnen Session auf den Service umstellen
-5. Lade-, Trust- und Verbindungsfehler weiterhin als bestehende typed messages an die Root-App geben
+1. ~~`internal/app/session_service.go` als konkreten Service einführen~~ (als `app.Load`)
+2. ~~Ownership von `remote.Client` und `fs.Root` im Service-Ergebnis festlegen~~
+3. ~~`diffview.LoadCmd()` auf den SessionService umstellen~~
+4. ~~`refreshCmd()` und den Reload einer einzelnen Session auf den Service umstellen~~ (beide entfernt: Refresh und Sync laden den Vergleich komplett über `app.Load` neu)
+5. ~~Lade-, Trust- und Verbindungsfehler weiterhin als bestehende typed messages an die Root-App geben~~
 
-Als Nächstes sollte `internal/app/session_service.go` entstehen, ohne gleichzeitig die Sync-Ausführung umzubauen.
+Phase 2 ist umgesetzt.
 
 ## Phase 3: Sync-Domain vervollständigen
 
-1. bestehendes `sync.Plan` mit dem Decision-Modell zusammenführen und Deletes abbilden
-2. serielle `sync.Engine` für Upload, Download und Delete über `remote.Client` und `fs.Root` implementieren
-3. Fehleraggregation und strukturierte Progress-Events ergänzen
-4. Single-File- und Bulk-Sync aus `diffview` durch SyncService und Engine ersetzen
+1. ~~Plan-Typen auf Basis des Decision-Modells einführen und Deletes abbilden~~ (`sync.Item`)
+2. ~~serielle `sync.Engine` für Upload, Download und Delete über `remote.Client` und `fs.Root` implementieren~~ (`sync.Run`)
+3. ~~Fehleraggregation~~ und strukturierte Progress-Events ergänzen
+4. ~~Single-File- und Bulk-Sync aus `diffview` durch SyncService und Engine ersetzen~~
+
+Offen ist nur noch der Ersatz der reinen Zähler durch strukturierte Progress-Events.
 
 ## Phase 4: Progress und Cancellation aus der TUI lösen
 
-1. vorhandenen `loading.Tracker` an Engine-Events anbinden oder einen kleinen Adapter ergänzen
-2. Context-Abbruch bis an SessionService und Engine durchreichen
+1. vorhandenen Tracker an Engine-Events anbinden oder einen kleinen Adapter ergänzen; der Tracker liegt inzwischen als `progress.Tracker` außerhalb der TUI
+2. ~~Context-Abbruch bis an SessionService und Engine durchreichen~~
 3. einen eigenen `syncprogress`-Screen nur einführen, wenn die bestehende Overlay-Darstellung nicht ausreicht
 
 ## Phase 5: Diff- und Config-Modell schärfen

@@ -471,19 +471,22 @@ where deleting the file later does not reach it. Rotate it.
 
 ```
 internal/
+  app/          diff session loading and refresh, independent of the TUI
   config/       config types, loader, writer
   project/      project registry model + store (projects.toml)
   diff/         diff engine, result types, renderer
   ftp/          FTP/FTPS client (jlaffaye/ftp)
+  ftptest/      in-process FTP server for tests
   fs/           local file walker, directory reader
   log/          optional file-based diagnostics
   pathmap/      local ↔ remote path resolution with mapping rules
+  progress/     progress and cancellation shared by long operations
   remote/       protocol-agnostic Client interface and connection factory
   tlstrust/     FTPS certificate verification and trust policy
   sftp/         SFTP client
   ssh/          SSH auth and known_hosts verification
   styles/       shared palettes and lipgloss styles
-  sync/         sync plan types and direction policy
+  sync/         direction policy, comparison scope, sync execution
   tui/
     app.go      root Bubble Tea model, screen routing
     browser/    file browser screen
@@ -492,6 +495,7 @@ internal/
     projectform/ project create/edit form
     projectselector/ project switcher modal
     diffview/   diff + sync screen
+    loading/    network activity indicator
     hostform/   host create/edit form (incl. mapping manager)
     hostmanager/ host list screen
     hostselector/sync target picker

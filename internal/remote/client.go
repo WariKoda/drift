@@ -46,7 +46,7 @@ type Client interface {
 func Connect(ctx context.Context, host config.Host, trust *tlstrust.Manager, required *tlstrust.Challenge) (Client, error) {
 	switch host.Protocol {
 	case "ftp":
-		return driftftp.Connect(ctx, host, tlstrust.NewPolicy(nil))
+		return connected(driftftp.Connect(ctx, host, tlstrust.NewPolicy(nil)))
 	case "ftps":
 		endpoint, err := tlstrust.NormalizeEndpoint(host.Protocol, host.Hostname, host.Port)
 		if err != nil {
@@ -69,8 +69,17 @@ func Connect(ctx context.Context, host config.Host, trust *tlstrust.Manager, req
 				return nil, fmt.Errorf("load trusted FTPS certificates: %w", err)
 			}
 		}
-		return driftftp.Connect(ctx, host, policy)
+		return connected(driftftp.Connect(ctx, host, policy))
 	default:
-		return sftp.Connect(ctx, host)
+		return connected(sftp.Connect(ctx, host))
 	}
+}
+
+// connected converts a protocol client into a Client. On error it returns a
+// nil interface: a nil *Client stored in a Client would compare non-nil.
+func connected[C Client](client C, err error) (Client, error) {
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }

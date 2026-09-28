@@ -1,4 +1,4 @@
-package diffview
+package app
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/ftptest"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
-	"github.com/WariKoda/drift/internal/tui/loading"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestLoadActivityIdleAndCancellationCloseResources(t *testing.T) {
@@ -53,10 +53,10 @@ func TestLoadActivityIdleAndCancellationCloseResources(t *testing.T) {
 			}
 			err := context.Cause(a.ctx)
 			if userCancel {
-				if !loading.IsCanceled(err) {
+				if !progress.IsCanceled(err) {
 					t.Fatalf("cancel cause: %v", err)
 				}
-			} else if !errors.Is(err, ErrDiffIdleTimeout) || loading.IsCanceled(err) {
+			} else if !errors.Is(err, ErrIdleTimeout) || progress.IsCanceled(err) {
 				t.Fatalf("idle cause: %v", err)
 			}
 		})
@@ -92,11 +92,10 @@ func TestLoadActivitySuccessfulHandoffSurvivesLateCancellation(t *testing.T) {
 func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 	for _, size := range []int{12, 3 * 1024 * 1024} {
 		t.Run(map[bool]string{false: "text", true: "hash"}[size > 1024], func(t *testing.T) {
-			server := startFTPTestServer(t, 1)
+			server := ftptest.Start(t, 1)
 			content := strings.Repeat("x", size)
-			server.addFile("/file", content)
-			server.mu.Lock()
-			server.sendData = func(c net.Conn, data string) error {
+			server.AddFile("/file", content)
+			server.SetSendData(func(c net.Conn, data string) error {
 				chunk := len(data) / 12
 				for len(data) > 0 {
 					time.Sleep(25 * time.Millisecond)
@@ -107,22 +106,21 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 					data = data[n:]
 				}
 				return nil
-			}
-			server.mu.Unlock()
+			})
 			root := t.TempDir()
 			local := filepath.Join(root, "file")
 			if err := os.WriteFile(local, []byte(strings.Repeat("y", size)), 0600); err != nil {
 				t.Fatal(err)
 			}
-			host := server.host(t)
+			host := server.Host(t)
 			host.RootPath = "/"
-			conn := connectDiffTestHost(t, host)
-			tracker := NewLoadProgressTracker()
+			conn := connectTestHost(t, host)
+			tracker := progress.NewTracker("Connecting…")
 			start := time.Now()
-			msg := loadCmd(17, host, &fs.SelectionState{Marked: map[string]struct{}{local: {}}}, nil, &config.MergedConfig{ProjectRoot: root}, conn, tracker, nil, nil, 150*time.Millisecond)()
-			loaded, ok := msg.(MsgDiffLoaded)
-			if !ok {
-				t.Fatalf("load: %#v", msg)
+			loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
+				Local: &fs.SelectionState{Marked: map[string]struct{}{local: {}}}, Conn: conn, IdleTimeout: 150 * time.Millisecond}, tracker)
+			if err != nil {
+				t.Fatalf("load: %v", err)
 			}
 			defer loaded.Root.Close()
 			if time.Since(start) < 300*time.Millisecond || len(loaded.Sessions) != 1 {
@@ -146,28 +144,28 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 	for _, userCancel := range []bool{false, true} {
 		t.Run(map[bool]string{false: "idle", true: "cancel"}[userCancel], func(t *testing.T) {
-			server := startFTPTestServer(t, 1)
-			server.addFile("/file", "remote")
+			server := ftptest.Start(t, 1)
+			server.AddFile("/file", "remote")
 			started, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
-			server.mu.Lock()
-			server.sendData = func(c net.Conn, data string) error {
+			server.SetSendData(func(c net.Conn, data string) error {
 				close(started)
 				<-release
 				_, err := io.WriteString(c, data)
 				return err
-			}
-			server.mu.Unlock()
+			})
 			root := t.TempDir()
 			local := filepath.Join(root, "file")
-			host := server.host(t)
+			host := server.Host(t)
 			host.RootPath = "/"
-			conn := connectDiffTestHost(t, host)
-			tracker := NewLoadProgressTracker()
-			result := make(chan tea.Msg, 1)
+			conn := connectTestHost(t, host)
+			tracker := progress.NewTracker("Connecting…")
+			result := make(chan error, 1)
 			go func() {
-				result <- loadCmd(18, host, nil, &fs.SelectionState{Marked: map[string]struct{}{"/file": {}}}, &config.MergedConfig{ProjectRoot: root}, conn, tracker, nil, nil, 100*time.Millisecond)()
+				_, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
+					Remote: &fs.SelectionState{Marked: map[string]struct{}{"/file": {}}}, Conn: conn, IdleTimeout: 100 * time.Millisecond}, tracker)
+				result <- err
 			}()
 			select {
 			case <-started:
@@ -178,17 +176,16 @@ func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 				tracker.Cancel()
 			}
 			select {
-			case msg := <-result:
-				failure, ok := msg.(MsgDiffError)
-				if !ok {
-					t.Fatalf("load succeeded: %#v", msg)
+			case err := <-result:
+				if err == nil {
+					t.Fatal("load succeeded")
 				}
 				if userCancel {
-					if !loading.IsCanceled(failure.Err) {
-						t.Fatalf("cancel: %v", failure.Err)
+					if !progress.IsCanceled(err) {
+						t.Fatalf("cancel: %v", err)
 					}
-				} else if !errors.Is(failure.Err, ErrDiffIdleTimeout) || loading.IsCanceled(failure.Err) {
-					t.Fatalf("idle: %v", failure.Err)
+				} else if !errors.Is(err, ErrIdleTimeout) || progress.IsCanceled(err) {
+					t.Fatalf("idle: %v", err)
 				}
 			case <-time.After(2 * time.Second):
 				t.Fatal("stalled transfer not interrupted")
@@ -202,21 +199,19 @@ func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 }
 
 func TestLoadIdleClosesPrimaryAndExtraComparisons(t *testing.T) {
-	server := startFTPTestServer(t, 2)
-	server.addFile("/file", "payload")
+	server := ftptest.Start(t, 2)
+	server.AddFile("/file", "payload")
 	started, release := make(chan struct{}, 2), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
-	server.mu.Lock()
-	server.sendData = func(c net.Conn, data string) error {
+	server.SetSendData(func(c net.Conn, data string) error {
 		started <- struct{}{}
 		<-release
 		_, err := io.WriteString(c, data)
 		return err
-	}
-	server.mu.Unlock()
-	host := server.host(t)
-	primary := connectDiffTestHost(t, host)
+	})
+	host := server.Host(t)
+	primary := connectTestHost(t, host)
 	a := newLoadActivity(context.Background(), 250*time.Millisecond)
 	defer a.cancel(nil)
 	defer a.finish(false)
@@ -224,7 +219,7 @@ func TestLoadIdleClosesPrimaryAndExtraComparisons(t *testing.T) {
 	conn := &loadClient{Client: primary, activity: a}
 	done := make(chan error, 1)
 	go func() {
-		done <- forEachCompare(host, conn, []int{0, 1}, NewLoadProgressTracker(), nil, nil, func(_ int, worker remote.Client) {
+		done <- forEachCompare(a.ctx, host, conn, []int{0, 1}, progress.NewTracker("Connecting…"), nil, nil, func(_ int, worker remote.Client) {
 			_, _ = worker.ReadFile("/file")
 		})
 	}()
@@ -237,7 +232,7 @@ func TestLoadIdleClosesPrimaryAndExtraComparisons(t *testing.T) {
 	}
 	select {
 	case err := <-done:
-		if !errors.Is(err, ErrDiffIdleTimeout) {
+		if !errors.Is(err, ErrIdleTimeout) {
 			t.Fatalf("worker result: %v", err)
 		}
 	case <-time.After(2 * time.Second):

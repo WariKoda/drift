@@ -10,9 +10,9 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/tlstrust"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -72,7 +72,7 @@ func (m *Model) startRemote(host config.Host, required *tlstrust.Challenge) tea.
 	m.remoteReading = false
 	m.remoteStatus = "Connecting to " + host.Name + "…"
 	id := m.remoteLoadID
-	m.remoteTracker = loading.NewTracker(m.remoteStatus)
+	m.remoteTracker = progress.NewTracker(m.remoteStatus)
 	load := loadRemoteCmd(host, m.remoteTracker.Context(), id, m.remoteSession, m.trust, required, m.classifier, m.config, m.WorkDir)
 	if closeCmd == nil {
 		return load
@@ -172,7 +172,7 @@ func (m *Model) applyRemoteLoaded(msg MsgRemoteLoaded) {
 	}
 	m.remoteLoading = false
 	m.remoteTracker = nil
-	if loading.IsCanceled(msg.Err) {
+	if progress.IsCanceled(msg.Err) {
 		m.remoteConn = nil
 		m.remoteEntries = nil
 		m.remoteStatus = "Cancelled"

@@ -271,6 +271,10 @@ func lexicalClass(projectRoot string, candidate ClassifyCandidate) (PathClass, e
 			return class, nil
 		}
 	}
+	if len(parts) > 0 && !candidate.IsDir && IsStagingName(parts[len(parts)-1]) {
+		class.HardExcluded = true
+		class.Reason = "drift staging file"
+	}
 	return class, nil
 }
 

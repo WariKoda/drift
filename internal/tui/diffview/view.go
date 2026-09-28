@@ -99,9 +99,6 @@ func (m Model) View() string {
 }
 
 func (m Model) comparisonEmptyState() comparisonEmptyState {
-	if !m.scopeSet {
-		return comparisonNotEmpty
-	}
 	if len(m.sessions) == 0 {
 		if m.scope.Pairs == 0 {
 			return comparisonNoFiles
@@ -453,17 +450,13 @@ func (m Model) renderStatus(s *diff.Session) string {
 		keys = styles.Warn.Render(m.syncProgressLabel())
 	case m.quickSyncing:
 		keys = styles.Warn.Render("syncing current file…")
-	case m.refreshing:
-		keys = styles.Warn.Render("refreshing…")
 	case m.showErrors:
 		keys = styles.KeyHints("[e/q]close errors", styles.Muted)
 	default:
 		if m.comparisonEmptyState() != comparisonNotEmpty {
 			keys = styles.KeyHints("[i]include ignored  [r]refresh  [q]back", styles.Muted)
-		} else if m.scopeSet {
-			keys = styles.KeyHints("[i]include ignored  [s/S]sync  [r]refresh  [q]back", styles.Muted)
 		} else {
-			keys = styles.KeyHints("[Tab]file  [j/k/Pg/g/G]scroll  [[]/[]]hunk  [Enter]fold  [Space]dir  [s/S]sync  [r]refresh  [u/d]quick  [q]back", styles.Muted)
+			keys = styles.KeyHints("[i]include ignored  [s/S]sync  [r]refresh  [q]back", styles.Muted)
 		}
 		if len(m.syncErrors) > 0 {
 			keys = styles.KeyHints("[e]errors  ", styles.Err) + keys
@@ -490,9 +483,6 @@ func (m Model) renderStatus(s *diff.Session) string {
 }
 
 func (m Model) scopeSummaryLabel() string {
-	if !m.scopeSet {
-		return ""
-	}
 	parts := []string{fmt.Sprintf("%d pairs", m.scope.Pairs), fmt.Sprintf("%d hidden", m.scope.Hidden)}
 	if m.scope.IgnoredFilesSkipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d ignored skipped", m.scope.IgnoredFilesSkipped))

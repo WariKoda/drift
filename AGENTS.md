@@ -32,6 +32,8 @@ intact until a different project is chosen.
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
 
+Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`); every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
+
 Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
 
 Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.
@@ -46,7 +48,7 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 
 ## Code conventions
 
-- **No mocks in tests** — use real connections or skip.
+- **No mocks in tests** — use real connections or skip. `internal/ftptest` runs a real in-process FTP server for tests that need a remote host.
 - **No speculative abstractions** — add helpers only when used in 3+ places.
 - **No backwards-compat shims** — if something is unused, delete it.
 - **No error swallowing** — propagate errors to the TUI as typed messages (`MsgDiffError`, session `.Err` field, etc.). Also log connect/sync/diff failures via `internal/log` (see Logging) so they survive past the TUI session.
@@ -64,6 +66,9 @@ fs.Root             // project-confined local Open, Stat, ReadFile, Remove, Writ
 remote.Client       // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, WalkFilesWithActivity, DeleteFile, Done, Err, Close
 diff.Session        // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}
 diff.DiffResult     // comparison output; HasDiff() reports whether files differ
+app.LoadRequest     // host, selections, scope options, optional connection and trust for app.Load
+progress.Tracker    // progress counters plus the cancellation context of one operation
+sync.Item           // {LocalPath, RemotePath, Decision}; sync.Run executes a list of them
 diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
 ```
 
@@ -90,7 +95,7 @@ Gitignore classification goes through `fs.Classifier`, which batches paths throu
 `git check-ignore`. Hidden state affects browser visibility only. Gitignored paths
 are excluded symmetrically from recursive comparisons unless the user includes
 ignored paths for that operation; directly selected ignored files are exceptions.
-Hard exclusions can never be overridden. Remote paths must be mapped locally before
+Hard exclusions can never be overridden. Staging files from interrupted transfers (`fs.StagingName`, recognized by `fs.IsStagingName`) are hard exclusions too; every upload and download names its staging file through `fs.StagingName`. Remote paths must be mapped locally before
 classification so ignored remote-only files cannot become deletion candidates.
 
 ## Config locations

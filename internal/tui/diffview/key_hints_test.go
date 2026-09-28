@@ -21,8 +21,7 @@ func TestDiffKeyHintsUsePrimaryStyle(t *testing.T) {
 		model Model
 		keys  []string
 	}{
-		{"normal", Model{Width: 500}, []string{"[Tab]", "[[]", "[]]", "[Enter]", "[s/S]", "[q]"}},
-		{"scope", Model{Width: 500, scopeSet: true, sessions: []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}}}, []string{"[i]", "[s/S]", "[r]", "[q]"}},
+		{"scope", Model{Width: 500, sessions: []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}}}, []string{"[i]", "[s/S]", "[r]", "[q]"}},
 		{"errors", Model{Width: 500, showErrors: true}, []string{"[e/q]"}},
 		{"disconnected", Model{Width: 500, disconnected: errors.New("connection lost")}, []string{"[q]"}},
 		{"sync result", Model{Width: 500, syncStatus: "1 error [e] to view"}, []string{"[e]"}},
@@ -36,7 +35,7 @@ func TestDiffKeyHintsUsePrimaryStyle(t *testing.T) {
 			}
 		})
 	}
-	empty := Model{Width: 500, scopeSet: true}
+	empty := Model{Width: 500}
 	empty.scope.Pairs = 2
 	emptyStatus := empty.renderStatus(nil)
 	for _, key := range []string{"[i]", "[r]", "[q]"} {

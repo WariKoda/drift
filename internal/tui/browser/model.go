@@ -11,9 +11,9 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/pathmap"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/tlstrust"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -84,7 +84,7 @@ type Model struct {
 	remoteStatus         string
 	remoteLoadID         uint64
 	remoteSession        *string // unique identity across browser/project replacements
-	remoteTracker        *loading.Tracker
+	remoteTracker        *progress.Tracker
 	trust                *tlstrust.Manager
 
 	// status message (transient)
@@ -233,7 +233,7 @@ func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
 }
 
 // LoadingActivity reports an in-flight remote connection/root listing.
-func (m Model) LoadingActivity() (string, *loading.Tracker, bool) {
+func (m Model) LoadingActivity() (string, *progress.Tracker, bool) {
 	if !m.remoteLoading {
 		return "", nil, false
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 )
 
@@ -54,7 +55,7 @@ func TestLoadDiffItemsUsesSingleFTPSession(t *testing.T) {
 	}
 	defer root.Close()
 
-	sessions, err := loadDiffItems(root, host, conn, items, NewLoadProgressTracker(), nil, nil)
+	sessions, err := loadDiffItems(root, host, conn, items, progress.NewTracker("Connecting…"), nil, nil)
 	if err != nil {
 		t.Fatalf("load diff items: %v", err)
 	}

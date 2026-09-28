@@ -9,6 +9,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/WariKoda/drift/internal/tlstrust"
@@ -172,7 +173,7 @@ func (a App) Init() tea.Cmd {
 	return a.browser.Init()
 }
 
-func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *loading.Tracker) tea.Cmd {
+func (a *App) startNetworkActivity(kind networkActivity, label string, tracker *progress.Tracker) tea.Cmd {
 	a.activity = kind
 	a.globalError = ""
 	return a.loader.Start(label, tracker)
@@ -685,7 +686,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.ScopeOptions = msg.Options
 		if msg.Host != nil {
 			h := *msg.Host
-			tracker := diffview.NewLoadProgressTracker()
+			tracker := progress.NewTracker("Connecting…")
 			return a, tea.Batch(
 				diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
 					a.state.Selection, a.state.RemoteSelection, a.state.Config, msg.Conn, tracker, a.trust, nil, a.state.ScopeOptions),
@@ -712,7 +713,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, tracker, _ := a.browser.LoadingActivity()
 			return a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
-		tracker := diffview.NewLoadProgressTracker()
+		tracker := progress.NewTracker("Connecting…")
 		return a, tea.Batch(
 			diffview.LoadCmdWithOptions(a.beginDiffRequest(), h,
 				a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions),
@@ -737,7 +738,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil && a.openCertificatePrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
 			return a, cmd
 		}
-		if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+		if msg.Err != nil && !progress.IsCanceled(msg.Err) {
 			a.globalError = msg.Err.Error()
 		}
 		return a, cmd
@@ -826,7 +827,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.openCertificatePrompt(trustOperationDiffLoad, msg.Host, msg.Err) {
 			return a, nil
 		}
-		if !loading.IsCanceled(msg.Err) {
+		if !progress.IsCanceled(msg.Err) {
 			a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		}
 		a.pendingDiffStatus = ""
@@ -855,7 +856,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		closeDiff := a.diffView.Close()
 		a.watchConnection(nil)
 		a.state.Screen = ScreenBrowser
-		tracker := diffview.NewLoadProgressTracker()
+		tracker := progress.NewTracker("Connecting…")
 		load := diffview.LoadCmdWithOptions(a.beginDiffRequest(), host,
 			a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, nil, a.state.ScopeOptions)
 		return a, tea.Sequence(closeDiff, tea.Batch(load,
@@ -909,7 +910,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil && a.openCertificatePrompt(trustOperationHostTest, msg.Host, msg.Err) {
 			return a, cmd
 		}
-		if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+		if msg.Err != nil && !progress.IsCanceled(msg.Err) {
 			a.globalError = "Connection test failed: " + msg.Err.Error()
 		}
 		return a, cmd
@@ -1037,14 +1038,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
 				return a, tea.Batch(closeCmd, cmd)
 			}
-			if !loading.IsCanceled(result.Err) {
+			if !progress.IsCanceled(result.Err) {
 				a.globalError = result.Err.Error()
 			}
 		case diffview.MsgSessionReloaded:
 			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
 				return a, tea.Batch(closeCmd, cmd)
 			}
-			if result.Err != nil && !loading.IsCanceled(result.Err) {
+			if result.Err != nil && !progress.IsCanceled(result.Err) {
 				a.globalError = "Diff refresh failed: " + result.Err.Error()
 			}
 		case diffview.MsgRefreshed:

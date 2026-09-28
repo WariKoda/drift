@@ -8,9 +8,9 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/tlstrust"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -95,7 +95,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.testing = false
 		m.testTracker = nil
-		if loading.IsCanceled(msg.Err) {
+		if progress.IsCanceled(msg.Err) {
 			m.statusMsg = "Cancelled"
 		} else if msg.Err != nil {
 			m.statusMsg = fmt.Sprintf("✗ %s: %s", msg.Host.Name, msg.Err.Error())
@@ -222,7 +222,7 @@ func (m *Model) startTest(host config.Host, required *tlstrust.Challenge) tea.Cm
 	m.testTarget = host.Name
 	m.testID++
 	id := m.testID
-	m.testTracker = loading.NewTracker("Testing " + host.Name + "…")
+	m.testTracker = progress.NewTracker("Testing " + host.Name + "…")
 	m.statusMsg = ""
 	return testCmd(host, m.testTracker.Context(), id, m.trust, required)
 }

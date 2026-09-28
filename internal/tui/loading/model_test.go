@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -16,7 +17,7 @@ func TestIndicatorUsesConfiguredDelay(t *testing.T) {
 }
 
 func TestIndicatorIsDelayedAndCanBeHidden(t *testing.T) {
-	tracker := NewTracker("Connecting…")
+	tracker := progress.NewTracker("Connecting…")
 	var model Model
 	if cmd := model.Start("Connecting…", tracker); cmd == nil {
 		t.Fatal("start did not schedule the delayed indicator")
@@ -85,7 +86,7 @@ func TestOverlayKeepsTerminalDimensionsAndBackground(t *testing.T) {
 }
 
 func TestCancelStopsTrackerAndClearsIndicator(t *testing.T) {
-	tracker := NewTracker("Connecting…")
+	tracker := progress.NewTracker("Connecting…")
 	var model Model
 	model.Start("Connecting…", tracker)
 	model.Update(showMsg{id: model.id})
@@ -100,7 +101,7 @@ func TestCancelStopsTrackerAndClearsIndicator(t *testing.T) {
 }
 
 func TestHideDoesNotCancelTracker(t *testing.T) {
-	tracker := NewTracker("Connecting…")
+	tracker := progress.NewTracker("Connecting…")
 	var model Model
 	model.Start("Connecting…", tracker)
 	model.Update(showMsg{id: model.id})

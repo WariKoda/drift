@@ -18,10 +18,10 @@ import (
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/pathmap"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	"github.com/WariKoda/drift/internal/tlstrust"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -39,14 +39,6 @@ type MsgDiffLoaded struct {
 	Root      *fs.Root // project root for local reads and writes; caller must close it
 	Scope     syncpolicy.ScopeSummary
 	Options   syncpolicy.ScopeOptions
-}
-
-// LoadProgressTracker shares operation progress with the global indicator.
-type LoadProgressTracker = loading.Tracker
-
-// NewLoadProgressTracker creates a tracker initialized to the first loading phase.
-func NewLoadProgressTracker() *LoadProgressTracker {
-	return loading.NewTracker("Connecting…")
 }
 
 // MsgDiffError is sent when SSH/SFTP connection or diff loading fails.
@@ -100,7 +92,7 @@ type MsgSyncProgress struct {
 
 // syncProgressTickCmd periodically polls the sync tracker for UI updates and
 // re-arms itself until the tracker reports completion.
-func syncProgressTickCmd(tracker *LoadProgressTracker) tea.Cmd {
+func syncProgressTickCmd(tracker *progress.Tracker) tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
 		progress, done := tracker.Snapshot()
 		return MsgSyncProgress{Done: progress.Done, Total: progress.Total, Finished: done}
@@ -212,18 +204,18 @@ type Model struct {
 	activeIdx       int
 	fileListOffset  int // scroll offset into the file list
 	scroll          int
-	refreshing      bool                 // true while async refresh is in flight
-	syncing         bool                 // true while bulk sync is in flight
-	quickSyncing    bool                 // true while quick upload/download is in flight
-	activityLabel   string               // label shown by the global loading indicator
-	activityTracker *LoadProgressTracker // progress shared with the global loading indicator
-	activityWait    *commandLifetime     // protects the root handle until running commands exit
-	syncStatus      string               // last bulk sync result message
-	syncErrors      []SyncFailure        // per-file errors from the last bulk sync
-	showErrors      bool                 // true while the error overlay is open
-	syncProgress    *LoadProgressTracker // live counter shared with the running bulk sync
-	syncDone        int                  // files processed so far in the active bulk sync
-	syncTotal       int                  // total files in the active bulk sync
+	refreshing      bool              // true while async refresh is in flight
+	syncing         bool              // true while bulk sync is in flight
+	quickSyncing    bool              // true while quick upload/download is in flight
+	activityLabel   string            // label shown by the global loading indicator
+	activityTracker *progress.Tracker // progress shared with the global loading indicator
+	activityWait    *commandLifetime  // protects the root handle until running commands exit
+	syncStatus      string            // last bulk sync result message
+	syncErrors      []SyncFailure     // per-file errors from the last bulk sync
+	showErrors      bool              // true while the error overlay is open
+	syncProgress    *progress.Tracker // live counter shared with the running bulk sync
+	syncDone        int               // files processed so far in the active bulk sync
+	syncTotal       int               // total files in the active bulk sync
 	scope           syncpolicy.ScopeSummary
 	scopeOptions    syncpolicy.ScopeOptions
 	scopeSet        bool
@@ -285,7 +277,7 @@ func (m *Model) SetSyncResult(status string, failures []SyncFailure) {
 func (m Model) Init() tea.Cmd { return nil }
 
 // LoadingActivity exposes the current network activity to the root indicator.
-func (m Model) LoadingActivity() (string, *LoadProgressTracker, bool) {
+func (m Model) LoadingActivity() (string, *progress.Tracker, bool) {
 	return m.activityLabel, m.activityTracker, m.remoteBusy()
 }
 
@@ -297,11 +289,11 @@ func (m *Model) CancelActivity() {
 	}
 }
 
-func (m *Model) beginActivity(label string, total int) *LoadProgressTracker {
+func (m *Model) beginActivity(label string, total int) *progress.Tracker {
 	if m.activityWait == nil {
 		m.activityWait = &commandLifetime{}
 	}
-	tracker := loading.NewTracker(label)
+	tracker := progress.NewTracker(label)
 	if total > 0 {
 		tracker.Set(label, 0, total, false)
 	}
@@ -741,20 +733,20 @@ func (m *Model) scrollToFirstDifference() {
 // inverse and walk the mapped local directory to catch local-only files.
 // requestID is echoed back in the result so the caller can discard results of
 // requests it has abandoned in the meantime.
-func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
+func LoadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
 	return LoadCmdWithOptions(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, syncpolicy.ScopeOptions{})
 }
 
 // LoadCmdWithOptions is LoadCmd with per-comparison recursive scope options.
-func LoadCmdWithOptions(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, options syncpolicy.ScopeOptions) tea.Cmd {
+func LoadCmdWithOptions(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge, options syncpolicy.ScopeOptions) tea.Cmd {
 	return loadCmdWithOptions(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, options, diffIdleTimeout)
 }
 
-func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, idleTimeout time.Duration) tea.Cmd {
+func loadCmd(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge, idleTimeout time.Duration) tea.Cmd {
 	return loadCmdWithOptions(requestID, host, localSel, remoteSel, cfg, existingConn, progress, trust, required, syncpolicy.ScopeOptions{}, idleTimeout)
 }
 
-func loadCmdWithOptions(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, options syncpolicy.ScopeOptions, idleTimeout time.Duration) tea.Cmd {
+func loadCmdWithOptions(requestID uint64, host config.Host, localSel, remoteSel *fs.SelectionState, cfg *config.MergedConfig, existingConn remote.Client, progress *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge, options syncpolicy.ScopeOptions, idleTimeout time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		defer progress.Finish()
 		activity := newLoadActivity(progress.Context(), idleTimeout)
@@ -1115,7 +1107,7 @@ type compareFunc func(idx int, conn remote.Client)
 // connection. A refused extra login lowers parallelism, but a terminal failure
 // on any established connection fails the comparison. fn must only write to data
 // owned by its idx, making the pool race-free without locking. progress may be nil.
-func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge, fn compareFunc) error {
+func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge, fn compareFunc) error {
 	ctx := progress.Context()
 	var activity *loadActivity
 	if tracked, ok := conn.(*loadClient); ok {
@@ -1232,7 +1224,7 @@ func forEachCompare(host config.Host, conn remote.Client, jobs []int, progress *
 	return context.Cause(ctx)
 }
 
-func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *LoadProgressTracker, trust *tlstrust.Manager, required *tlstrust.Challenge) ([]diff.Session, error) {
+func loadDiffItems(root *fs.Root, host config.Host, conn remote.Client, items []diffLoadItem, progress *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge) ([]diff.Session, error) {
 	results := make([]*diff.Session, len(items))
 	var jobs []int
 	for i, item := range items {

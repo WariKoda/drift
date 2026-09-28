@@ -11,6 +11,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/progress"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 )
 
@@ -49,7 +50,7 @@ func TestLoadLocalFolderFTPRemoteWalk(t *testing.T) {
 			selection := fs.NewSelectionState()
 			selection.Marked[folder] = struct{}{}
 			msg := loadCmdWithOptions(1, host, selection, nil,
-				&config.MergedConfig{ProjectRoot: root}, conn, NewLoadProgressTracker(), nil, nil,
+				&config.MergedConfig{ProjectRoot: root}, conn, progress.NewTracker("Connecting…"), nil, nil,
 				syncpolicy.ScopeOptions{}, 5*time.Second)()
 			loaded, ok := msg.(MsgDiffLoaded)
 			if !ok {

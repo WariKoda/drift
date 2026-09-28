@@ -10,6 +10,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
@@ -17,7 +18,6 @@ import (
 	"github.com/WariKoda/drift/internal/tui/dashboard"
 	"github.com/WariKoda/drift/internal/tui/diffview"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	"github.com/WariKoda/drift/internal/tui/projectselector"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -197,7 +197,7 @@ func TestNetworkActivityCancelStopsLoader(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			tracker := loading.NewTracker("Testing host…")
+			tracker := progress.NewTracker("Testing host…")
 			app.startNetworkActivity(activityHostTest, "Testing host…", tracker)
 
 			model, cmd := app.Update(key)

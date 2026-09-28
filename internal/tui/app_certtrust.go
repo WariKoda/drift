@@ -7,6 +7,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/certtrust"
 	"github.com/WariKoda/drift/internal/tui/diffview"
@@ -144,7 +145,7 @@ func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 		if a.state.Screen != ScreenBrowser {
 			return *a, nil
 		}
-		tracker := diffview.NewLoadProgressTracker()
+		tracker := progress.NewTracker("Connecting…")
 		cmd := diffview.LoadCmdWithOptions(a.beginDiffRequest(), pending.host,
 			a.state.Selection, a.state.RemoteSelection, a.state.Config, nil, tracker, a.trust, &pending.challenge, a.state.ScopeOptions)
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker))

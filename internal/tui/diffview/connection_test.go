@@ -15,6 +15,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -188,10 +189,10 @@ func TestTerminalClientBlocksCommandsBeforeRootNotification(t *testing.T) {
 	if server.commandCount("DELE") != 0 || server.commandCount("RETR") != 0 || server.commandCount("SIZE") != 0 {
 		t.Fatal("a queued command touched the failed connection")
 	}
-	if _, err := loadDiffItems(root, host, conn, nil, NewLoadProgressTracker(), nil, nil); !errors.Is(err, terminal) {
+	if _, err := loadDiffItems(root, host, conn, nil, progress.NewTracker("Connecting…"), nil, nil); !errors.Is(err, terminal) {
 		t.Fatalf("empty comparison lost terminal failure: %v", err)
 	}
-	msg := LoadCmd(42, host, nil, nil, &config.MergedConfig{ProjectRoot: rootDir}, conn, NewLoadProgressTracker(), nil, nil)()
+	msg := LoadCmd(42, host, nil, nil, &config.MergedConfig{ProjectRoot: rootDir}, conn, progress.NewTracker("Connecting…"), nil, nil)()
 	failure, ok := msg.(MsgDiffError)
 	if !ok || !errors.Is(failure.Err, terminal) || failure.RequestID != 42 {
 		t.Fatalf("load result = %#v", msg)
@@ -382,7 +383,7 @@ func TestCompareCancellationClosesExtraWorker(t *testing.T) {
 	server := startFTPTestServer(t, 2)
 	host := server.host(t)
 	conn := connectDiffTestHost(t, host)
-	tracker := NewLoadProgressTracker()
+	tracker := progress.NewTracker("Connecting…")
 	released := make(chan struct{})
 	var worker remote.Client
 	err := forEachCompare(host, conn, []int{0, 1}, tracker, nil, nil, func(_ int, workerConn remote.Client) {

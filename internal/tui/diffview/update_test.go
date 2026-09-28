@@ -9,6 +9,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/progress"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -87,7 +88,7 @@ func TestQuickSyncErrorReleasesRemoteActions(t *testing.T) {
 }
 
 func TestBulkSyncFailureOpensDetails(t *testing.T) {
-	tracker := NewLoadProgressTracker()
+	tracker := progress.NewTracker("Connecting…")
 	model := Model{
 		syncing:         true,
 		activityTracker: tracker,
@@ -112,7 +113,7 @@ func TestBulkSyncFailureOpensDetails(t *testing.T) {
 
 func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
 	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
-	tracker := NewLoadProgressTracker()
+	tracker := progress.NewTracker("Connecting…")
 	failure := SyncFailure{
 		Operation: "upload",
 		Path:      "/project/file.php",
@@ -154,7 +155,7 @@ func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			direction := tc.direction
 			conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
-			tracker := NewLoadProgressTracker()
+			tracker := progress.NewTracker("Connecting…")
 			model := Model{
 				conn:            conn,
 				scopeSet:        true,
@@ -188,7 +189,7 @@ func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
 
 func TestCancelledBulkSyncKeepsCompletedFiles(t *testing.T) {
 	conn := connectDiffTestHost(t, startFTPTestServer(t, 1).host(t))
-	tracker := NewLoadProgressTracker()
+	tracker := progress.NewTracker("Connecting…")
 	tracker.Cancel()
 	model := Model{
 		syncing:         true,
@@ -651,7 +652,7 @@ func keyMsg(key string) tea.KeyMsg {
 }
 
 func TestBulkSyncCmdSkipsRemainingAfterCancel(t *testing.T) {
-	tracker := NewLoadProgressTracker()
+	tracker := progress.NewTracker("Connecting…")
 	tracker.Cancel()
 	server := startFTPTestServer(t, 1)
 	conn := connectDiffTestHost(t, server.host(t))

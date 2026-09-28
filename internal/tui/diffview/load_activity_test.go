@@ -14,8 +14,8 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -53,10 +53,10 @@ func TestLoadActivityIdleAndCancellationCloseResources(t *testing.T) {
 			}
 			err := context.Cause(a.ctx)
 			if userCancel {
-				if !loading.IsCanceled(err) {
+				if !progress.IsCanceled(err) {
 					t.Fatalf("cancel cause: %v", err)
 				}
-			} else if !errors.Is(err, ErrDiffIdleTimeout) || loading.IsCanceled(err) {
+			} else if !errors.Is(err, ErrDiffIdleTimeout) || progress.IsCanceled(err) {
 				t.Fatalf("idle cause: %v", err)
 			}
 		})
@@ -117,7 +117,7 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 			host := server.host(t)
 			host.RootPath = "/"
 			conn := connectDiffTestHost(t, host)
-			tracker := NewLoadProgressTracker()
+			tracker := progress.NewTracker("Connecting…")
 			start := time.Now()
 			msg := loadCmd(17, host, &fs.SelectionState{Marked: map[string]struct{}{local: {}}}, nil, &config.MergedConfig{ProjectRoot: root}, conn, tracker, nil, nil, 150*time.Millisecond)()
 			loaded, ok := msg.(MsgDiffLoaded)
@@ -164,7 +164,7 @@ func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 			host := server.host(t)
 			host.RootPath = "/"
 			conn := connectDiffTestHost(t, host)
-			tracker := NewLoadProgressTracker()
+			tracker := progress.NewTracker("Connecting…")
 			result := make(chan tea.Msg, 1)
 			go func() {
 				result <- loadCmd(18, host, nil, &fs.SelectionState{Marked: map[string]struct{}{"/file": {}}}, &config.MergedConfig{ProjectRoot: root}, conn, tracker, nil, nil, 100*time.Millisecond)()
@@ -184,10 +184,10 @@ func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 					t.Fatalf("load succeeded: %#v", msg)
 				}
 				if userCancel {
-					if !loading.IsCanceled(failure.Err) {
+					if !progress.IsCanceled(failure.Err) {
 						t.Fatalf("cancel: %v", failure.Err)
 					}
-				} else if !errors.Is(failure.Err, ErrDiffIdleTimeout) || loading.IsCanceled(failure.Err) {
+				} else if !errors.Is(failure.Err, ErrDiffIdleTimeout) || progress.IsCanceled(failure.Err) {
 					t.Fatalf("idle: %v", failure.Err)
 				}
 			case <-time.After(2 * time.Second):
@@ -224,7 +224,7 @@ func TestLoadIdleClosesPrimaryAndExtraComparisons(t *testing.T) {
 	conn := &loadClient{Client: primary, activity: a}
 	done := make(chan error, 1)
 	go func() {
-		done <- forEachCompare(host, conn, []int{0, 1}, NewLoadProgressTracker(), nil, nil, func(_ int, worker remote.Client) {
+		done <- forEachCompare(host, conn, []int{0, 1}, progress.NewTracker("Connecting…"), nil, nil, func(_ int, worker remote.Client) {
 			_, _ = worker.ReadFile("/file")
 		})
 	}()

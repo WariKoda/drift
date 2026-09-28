@@ -8,6 +8,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/progress"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 )
 
@@ -27,7 +28,7 @@ func TestLoadScopeIncludesHiddenAndSkipsRecursiveIgnoredFiles(t *testing.T) {
 
 	load := func(includeIgnored bool) MsgDiffLoaded {
 		conn := connectDiffTestHost(t, host)
-		progress := NewLoadProgressTracker()
+		progress := progress.NewTracker("Connecting…")
 		msg := loadCmdWithOptions(1, host, selection, nil, cfg, conn, progress, nil, nil,
 			syncpolicy.ScopeOptions{IncludeIgnored: includeIgnored}, 5*time.Second)()
 		loaded, ok := msg.(MsgDiffLoaded)
@@ -64,7 +65,7 @@ func TestLoadScopeDirectIgnoredFileOverridesOnlyThatFile(t *testing.T) {
 	selection := fs.NewSelectionState()
 	selection.Marked[root] = struct{}{}
 	selection.Marked[selected] = struct{}{}
-	progress := NewLoadProgressTracker()
+	progress := progress.NewTracker("Connecting…")
 	msg := loadCmdWithOptions(2, host, selection, nil, &config.MergedConfig{ProjectRoot: root}, conn,
 		progress, nil, nil, syncpolicy.ScopeOptions{}, 5*time.Second)()
 	loaded, ok := msg.(MsgDiffLoaded)

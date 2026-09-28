@@ -6,8 +6,8 @@ import (
 
 	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/tlstrust"
-	"github.com/WariKoda/drift/internal/tui/loading"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -128,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Err != nil || m.connectionError() != nil {
-			if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+			if msg.Err != nil && !progress.IsCanceled(msg.Err) {
 				m.syncStatus = fmt.Sprintf("refresh failed: %v", msg.Err)
 			}
 			m.refreshing = false
@@ -185,7 +185,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		reloadedActiveSession := msg.SessionIdx == m.activeIdx
 		if msg.Err != nil || m.connectionError() != nil {
-			if msg.Err != nil && !loading.IsCanceled(msg.Err) {
+			if msg.Err != nil && !progress.IsCanceled(msg.Err) {
 				m.syncStatus = fmt.Sprintf("sync completed; comparison failed: %v", msg.Err)
 			}
 			m.quickSyncing = false
@@ -211,7 +211,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.quickSyncing = false
 		m.finishActivity()
-		if loading.IsCanceled(msg.Err) && m.disconnected == nil {
+		if progress.IsCanceled(msg.Err) && m.disconnected == nil {
 			return m, nil
 		}
 		log.Error("sync error", "err", msg.Err)

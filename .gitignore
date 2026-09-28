@@ -6,3 +6,4 @@ drift.log
 .idea/
 .claude/
 docs/reviews/
+scripts/manual-test/.state/

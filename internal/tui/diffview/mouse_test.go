@@ -17,7 +17,7 @@ func testDiffModel(n int) Model {
 			LocalPath:  "/project/file.txt",
 			RemotePath: "/remote/file.txt",
 			Loaded:     true,
-			Result:     &diff.DiffResult{},
+			Result:     &diff.DiffResult{ContentDiff: true},
 		}
 	}
 	return Model{
@@ -138,7 +138,6 @@ func TestDiffHitTestContentBand(t *testing.T) {
 
 func TestDiffHitTestIgnoresComparisonSplash(t *testing.T) {
 	m := testDiffModel(0)
-	m.scopeSet = true
 	m.scope.Pairs = 4
 
 	if got := m.hitTest(m.Width/2, bodyTop+m.bodyHeight()/2); got.zone != zoneNone || got.index != -1 {

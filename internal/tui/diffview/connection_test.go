@@ -81,10 +81,6 @@ func TestConnectionLostMatchesOwnerAndPreservesView(t *testing.T) {
 	if cmd != nil || model.syncDirs[0] != DirNone {
 		t.Fatal("double click changed a disconnected file's sync direction")
 	}
-	model, _ = model.Update(MsgRefreshed{Conn: conn})
-	if len(model.sessions) != 2 || !model.completed[0] {
-		t.Fatal("late refresh replaced the retained comparison")
-	}
 	model, _ = model.handleKey(keyMsg("n"))
 	if model.activeIdx != 1 {
 		t.Fatal("disconnect blocked local navigation")
@@ -174,12 +170,6 @@ func TestTerminalClientBlocksCommandsBeforeRootNotification(t *testing.T) {
 	}
 	if msg := model.downloadCmd(0)().(MsgSyncError); !errors.Is(msg.Err, terminal) {
 		t.Fatalf("download error = %v", msg.Err)
-	}
-	if msg := model.refreshCmd()().(MsgRefreshed); !errors.Is(msg.Err, terminal) {
-		t.Fatalf("refresh error = %v", msg.Err)
-	}
-	if msg := model.reloadSessionCmd(0)().(MsgSessionReloaded); !errors.Is(msg.Err, terminal) {
-		t.Fatalf("reload error = %v", msg.Err)
 	}
 	model.syncDirs[0] = DirDeleteRemote
 	if msg := model.bulkSyncCmd([]int{0})().(MsgBulkSyncDone); msg.Done != 0 || !errors.Is(msg.Err, terminal) {
@@ -298,9 +288,9 @@ func TestCloseDetachesImmediatelyAndRejectsQueuedCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := New([]diff.Session{{LocalPath: path, RemotePath: "/file"}}, server.Host(t), conn, root, 100, 24)
-	model.refreshing = true
-	tracker := model.beginActivity("Refreshing", 1)
-	queued := model.reloadSessionCmd(0)
+	model.quickSyncing = true
+	tracker := model.beginActivity("Uploading file…", 0)
+	queued := model.uploadCmd(0)
 	closeCmd := model.Close()
 	if closeCmd == nil || model.Connection() != nil || model.root != nil || model.remoteBusy() || !tracker.Canceled() {
 		t.Fatal("Close did not detach and cancel immediately")
@@ -346,8 +336,6 @@ func TestStaleActivityResultsDoNotChangeNewConnection(t *testing.T) {
 		MsgBulkSyncDone{Conn: old, Completed: []int{0}, Done: 1, Err: failure},
 		MsgSynced{Conn: old, SessionIdx: 0},
 		MsgSyncError{Conn: old, SessionIdx: 0, Err: failure},
-		MsgRefreshed{Conn: old},
-		MsgSessionReloaded{Conn: old, SessionIdx: 0, Err: failure},
 	}
 	for _, msg := range messages {
 		result := &diff.DiffResult{ContentDiff: true}

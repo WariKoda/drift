@@ -96,25 +96,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.syncStatus = fmt.Sprintf("✓ %d  ✗ %d error(s) — [e] to view", msg.Done, len(msg.Errors))
 			m.showErrors = true
 		}
-		if m.scopeSet {
-			m.finishActivity()
-			status := m.syncStatus
-			failures := append([]syncpolicy.Failure(nil), m.syncErrors...)
-			return m, func() tea.Msg {
-				return MsgScopeReloadRequested{
-					IncludeIgnored: m.scopeOptions.IncludeIgnored,
-					Status:         status,
-					Errors:         failures,
-					DeletedLocal:   deletedLocal,
-					DeletedRemote:  deletedRemote,
-				}
+		m.finishActivity()
+		status := m.syncStatus
+		failures := append([]syncpolicy.Failure(nil), m.syncErrors...)
+		return m, func() tea.Msg {
+			return MsgScopeReloadRequested{
+				IncludeIgnored: m.scopeOptions.IncludeIgnored,
+				Status:         status,
+				Errors:         failures,
+				DeletedLocal:   deletedLocal,
+				DeletedRemote:  deletedRemote,
 			}
 		}
-		// Legacy models without a scope request can only refresh existing pairs.
-		m.refreshing = true
-		m.activityLabel = "Refreshing diffs…"
-		m.activityTracker.Set(m.activityLabel, 0, len(m.sessions), len(m.sessions) == 0)
-		return m, m.refreshCmd()
 
 	case MsgSyncProgress:
 		if !m.syncing || msg.Finished {
@@ -123,32 +116,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.syncDone = msg.Done
 		m.syncTotal = msg.Total
 		return m, syncProgressTickCmd(m.syncProgress)
-
-	case MsgRefreshed:
-		if msg.Conn != nil && msg.Conn != m.conn {
-			return m, nil
-		}
-		if msg.Err != nil || m.connectionError() != nil {
-			if msg.Err != nil && !progress.IsCanceled(msg.Err) {
-				m.syncStatus = fmt.Sprintf("refresh failed: %v", msg.Err)
-			}
-			m.refreshing = false
-			m.finishActivity()
-			return m, nil
-		}
-		m.sessions = msg.Sessions
-		m.syncDirs = make([]SyncDir, len(m.sessions))
-		for i := range m.sessions {
-			m.syncDirs[i] = autoDir(&m.sessions[i])
-			if m.sessions[i].Err == nil {
-				delete(m.completed, i)
-			}
-		}
-		m.expandedGaps = map[int]map[int]struct{}{}
-		m.refreshing = false
-		m.finishActivity()
-		m.clampFileList()
-		m.scrollToFirstDifference()
 
 	case MsgSynced:
 		if msg.Conn != nil && msg.Conn != m.conn {
@@ -168,43 +135,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.finishActivity()
 			return m, nil
 		}
-		if m.scopeSet {
-			m.quickSyncing = false
-			m.finishActivity()
-			status := m.syncStatus
-			return m, func() tea.Msg {
-				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status}
-			}
-		}
-		m.activityLabel = "Refreshing diff…"
-		m.activityTracker.Set(m.activityLabel, 0, 1, false)
-		return m, m.reloadSessionCmd(msg.SessionIdx)
-
-	case MsgSessionReloaded:
-		if msg.Conn != nil && msg.Conn != m.conn {
-			return m, nil
-		}
-		reloadedActiveSession := msg.SessionIdx == m.activeIdx
-		if msg.Err != nil || m.connectionError() != nil {
-			if msg.Err != nil && !progress.IsCanceled(msg.Err) {
-				m.syncStatus = fmt.Sprintf("sync completed; comparison failed: %v", msg.Err)
-			}
-			m.quickSyncing = false
-			m.finishActivity()
-			return m, nil
-		}
-		if msg.SessionIdx >= 0 && msg.SessionIdx < len(m.sessions) {
-			m.sessions[msg.SessionIdx].Result = msg.Result
-			m.sessions[msg.SessionIdx].Err = msg.Err
-			m.syncDirs[msg.SessionIdx] = autoDir(&m.sessions[msg.SessionIdx])
-			delete(m.completed, msg.SessionIdx)
-			if reloadedActiveSession {
-				m.resetFolds(msg.SessionIdx)
-				m.scrollToFirstDifference()
-			}
-		}
 		m.quickSyncing = false
 		m.finishActivity()
+		status := m.syncStatus
+		return m, func() tea.Msg {
+			return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored, Status: status}
+		}
 
 	case MsgSyncError:
 		if msg.Conn != nil && msg.Conn != m.conn {
@@ -239,7 +175,7 @@ func (m Model) startBulkSync(indices []int) (Model, tea.Cmd) {
 }
 
 func (m Model) remoteBusy() bool {
-	return m.syncing || m.quickSyncing || m.refreshing
+	return m.syncing || m.quickSyncing
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -368,17 +304,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 
-	// ── Refresh all diffs ──────────────────────────────────────────────
+	// ── Refresh: rebuild the comparison with the same scope ────────────
 	case "r":
 		if !m.remoteBusy() && m.connectionError() == nil {
-			if m.scopeSet {
-				return m, func() tea.Msg {
-					return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored}
-				}
+			return m, func() tea.Msg {
+				return MsgScopeReloadRequested{IncludeIgnored: m.scopeOptions.IncludeIgnored}
 			}
-			m.refreshing = true
-			m.beginActivity("Refreshing diffs…", len(m.sessions))
-			return m, m.refreshCmd()
 		}
 
 	// ── Toggle the bulk-sync error overlay ─────────────────────────────

@@ -815,7 +815,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.TermWidth,
 			a.state.TermHeight,
 		)
-		a.diffView.SetTrustManager(a.trust)
 		a.diffView.SetScope(msg.Scope, msg.Options)
 		if a.pendingDiffStatus != "" || len(a.pendingDiffErrors) > 0 {
 			a.diffView.SetSyncResult(a.pendingDiffStatus, a.pendingDiffErrors)
@@ -1056,26 +1055,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if !progress.IsCanceled(result.Err) {
 				a.globalError = result.Err.Error()
-			}
-		case diffview.MsgSessionReloaded:
-			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
-				return a, tea.Batch(closeCmd, cmd)
-			}
-			if result.Err != nil && !progress.IsCanceled(result.Err) {
-				a.globalError = "Diff refresh failed: " + result.Err.Error()
-			}
-		case diffview.MsgRefreshed:
-			if closeCmd, opened := a.openDiffCertificatePrompt(result.Err); opened {
-				return a, tea.Batch(closeCmd, cmd)
-			}
-			failed := 0
-			for _, session := range result.Sessions {
-				if session.Err != nil {
-					failed++
-				}
-			}
-			if failed > 0 {
-				a.globalError = fmt.Sprintf("Diff refresh failed for %d file(s)", failed)
 			}
 		case diffview.MsgBulkSyncDone:
 			for _, failure := range result.Errors {

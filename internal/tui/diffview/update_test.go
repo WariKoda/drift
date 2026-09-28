@@ -47,7 +47,7 @@ func TestQuickSyncBlocksOtherRemoteActions(t *testing.T) {
 	}
 }
 
-func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
+func TestQuickSyncRequestsScopeReload(t *testing.T) {
 	model := Model{
 		conn: connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
 		sessions: []diff.Session{{
@@ -55,17 +55,21 @@ func TestQuickSyncContinuesThroughAsyncDiffRefresh(t *testing.T) {
 			RemotePath: "/remote/file.txt",
 			Result:     &diff.DiffResult{ContentDiff: true},
 		}},
-		syncDirs: []SyncDir{DirUpload},
+		syncDirs:     []SyncDir{DirUpload},
+		scopeOptions: syncpolicy.ScopeOptions{IncludeIgnored: true},
 	}
 
 	model, _ = model.handleKey(keyMsg("u"))
 	model, cmd := model.Update(MsgSynced{SessionIdx: 0, Direction: DirUpload})
 	if cmd == nil {
-		t.Fatal("successful quick sync did not schedule an asynchronous diff refresh")
+		t.Fatal("successful quick sync did not request a scope reload")
 	}
-	label, tracker, active := model.LoadingActivity()
-	if !active || tracker == nil || label != "Refreshing diff…" {
-		t.Fatalf("activity = (%q, %v, %v), want active diff refresh", label, tracker, active)
+	if _, _, active := model.LoadingActivity(); active || model.quickSyncing {
+		t.Fatal("quick sync kept the screen busy after handing over to the reload")
+	}
+	request, ok := cmd().(MsgScopeReloadRequested)
+	if !ok || !request.IncludeIgnored || request.Status != "✓ synced 1 file" {
+		t.Fatalf("reload request = %#v, want same scope and the sync status", request)
 	}
 }
 
@@ -124,7 +128,6 @@ func TestScopeReloadCarriesBulkSyncErrors(t *testing.T) {
 	}
 	model := Model{
 		conn:            conn,
-		scopeSet:        true,
 		syncing:         true,
 		activityTracker: tracker,
 		sessions:        []diff.Session{{LocalPath: failure.Path, RemotePath: "/srv/file.php"}},
@@ -160,7 +163,6 @@ func TestScopeReloadDropsOnlySuccessfulDirectDelete(t *testing.T) {
 			tracker := progress.NewTracker("Connecting…")
 			model := Model{
 				conn:            conn,
-				scopeSet:        true,
 				syncing:         true,
 				activityTracker: tracker,
 				sessions: []diff.Session{
@@ -251,11 +253,6 @@ func TestBulkSyncAndRefreshBlockQuickSync(t *testing.T) {
 		{name: "bulk sync", model: func() Model {
 			model := base
 			model.syncing = true
-			return model
-		}()},
-		{name: "refresh", model: func() Model {
-			model := base
-			model.refreshing = true
 			return model
 		}()},
 	} {
@@ -441,54 +438,6 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 				t.Fatalf("initial scroll = %d, want %d", model.scroll, test.want)
 			}
 		})
-	}
-}
-
-func TestRefreshScrollsToFirstDifference(t *testing.T) {
-	model := Model{
-		conn: connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
-		sessions: []diff.Session{{
-			Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)},
-		}},
-		Height: 12,
-		scroll: 3,
-	}
-
-	model, _ = model.Update(MsgRefreshed{Sessions: []diff.Session{{
-		Result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 8)},
-	}}})
-	if model.scroll != firstHunkHeader(linesWithDifference(20, 8)) {
-		t.Fatalf("refresh scroll = %d, want first hunk header at %d", model.scroll, firstHunkHeader(linesWithDifference(20, 8)))
-	}
-}
-
-func TestSessionReloadScrollsToFirstDifferenceWhenActive(t *testing.T) {
-	model := Model{
-		conn:     connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)),
-		syncDirs: make([]SyncDir, 2),
-		sessions: []diff.Session{
-			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
-			{Result: &diff.DiffResult{ContentDiff: true, Lines: make([]diff.DiffLine, 20)}},
-		},
-		Height: 13,
-		scroll: 3,
-	}
-
-	model, _ = model.Update(MsgSessionReloaded{
-		SessionIdx: 0,
-		Result:     &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 9)},
-	})
-	if model.scroll != clampedHeader(linesWithDifference(20, 9), 13) {
-		t.Fatalf("active session reload scroll = %d, want first hunk header at %d", model.scroll, clampedHeader(linesWithDifference(20, 9), 13))
-	}
-
-	model.scroll = 4
-	model, _ = model.Update(MsgSessionReloaded{
-		SessionIdx: 1,
-		Result:     &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 12)},
-	})
-	if model.scroll != 4 {
-		t.Fatalf("inactive session reload changed scroll to %d, want 4", model.scroll)
 	}
 }
 

@@ -16,7 +16,6 @@ import (
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
-	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -52,13 +51,6 @@ type MsgScopeReloadRequested struct {
 	Errors         []syncpolicy.Failure
 	DeletedLocal   []string
 	DeletedRemote  []string
-}
-
-// MsgRefreshed is sent when a full diff refresh has completed.
-type MsgRefreshed struct {
-	Conn     remote.Client
-	Sessions []diff.Session
-	Err      error
 }
 
 // MsgBulkSyncDone is sent when bulk sync has finished.
@@ -97,14 +89,6 @@ type MsgSynced struct {
 type MsgSyncError struct {
 	Conn       remote.Client
 	SessionIdx int
-	Err        error
-}
-
-// MsgSessionReloaded is sent after a quick sync re-compares the changed file.
-type MsgSessionReloaded struct {
-	Conn       remote.Client
-	SessionIdx int
-	Result     *diff.DiffResult
 	Err        error
 }
 
@@ -173,7 +157,6 @@ type Model struct {
 	activeIdx       int
 	fileListOffset  int // scroll offset into the file list
 	scroll          int
-	refreshing      bool                 // true while async refresh is in flight
 	syncing         bool                 // true while bulk sync is in flight
 	quickSyncing    bool                 // true while quick upload/download is in flight
 	activityLabel   string               // label shown by the global loading indicator
@@ -187,14 +170,12 @@ type Model struct {
 	syncTotal       int                  // total files in the active bulk sync
 	scope           syncpolicy.ScopeSummary
 	scopeOptions    syncpolicy.ScopeOptions
-	scopeSet        bool
 	host            config.Host
 	conn            remote.Client // kept open for sync ops, including after connection loss
 	disconnected    error         // sticky until a new model/comparison is opened
 	closed          bool
 	completed       map[int]bool // confirmed sync successes, retained when refresh cannot run
 	root            *fs.Root     // confines every local read, write and delete to the project
-	trust           *tlstrust.Manager
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
 	Width           int
@@ -223,16 +204,10 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 	return model
 }
 
-// SetTrustManager provides certificate trust for additional FTPS diff workers.
-func (m *Model) SetTrustManager(trust *tlstrust.Manager) {
-	m.trust = trust
-}
-
 // SetScope attaches the immutable scope summary used to build these sessions.
 func (m *Model) SetScope(scope syncpolicy.ScopeSummary, options syncpolicy.ScopeOptions) {
 	m.scope = scope
 	m.scopeOptions = options
-	m.scopeSet = true
 }
 
 // SetSyncResult restores the result of a transfer across a full scope reload.
@@ -349,7 +324,7 @@ func (m *Model) Close() tea.Cmd {
 	}
 	m.conn, m.root = nil, nil
 	m.closed = true
-	m.syncing, m.quickSyncing, m.refreshing = false, false, false
+	m.syncing, m.quickSyncing = false, false
 	m.syncProgress = nil
 	m.finishActivity()
 	if conn == nil && root == nil {
@@ -786,64 +761,5 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			completed[n] = sessionIdx[item]
 		}
 		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: result.Failures, Err: result.Err}
-	})
-}
-
-// refreshCmd re-diffs all sessions in parallel using the worker pool. The
-// session set (and order) is preserved so the file list stays stable.
-func (m Model) refreshCmd() tea.Cmd {
-	sessions := m.sessions
-	host := m.host
-	conn := m.conn
-	root := m.root
-	tracker := m.activityTracker
-	trust := m.trust
-	return m.trackCommand(func() tea.Msg {
-		defer tracker.Finish()
-		if err := m.connectionError(); err != nil {
-			return MsgRefreshed{Conn: conn, Err: err}
-		}
-		refreshed, err := app.Refresh(tracker.Context(), app.RefreshRequest{
-			Host:     host,
-			Conn:     conn,
-			Root:     root,
-			Sessions: sessions,
-			Trust:    trust,
-		}, tracker)
-		return MsgRefreshed{Conn: conn, Sessions: refreshed, Err: err}
-	})
-}
-
-// reloadSessionCmd recomputes one diff asynchronously after a quick sync.
-func (m Model) reloadSessionCmd(idx int) tea.Cmd {
-	s := m.sessions[idx]
-	host := m.host
-	conn := m.conn
-	root := m.root
-	tracker := m.activityTracker
-	trust := m.trust
-	return m.trackCommand(func() tea.Msg {
-		defer tracker.Finish()
-		if err := m.connectionError(); err != nil {
-			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Err: err}
-		}
-		if tracker.Canceled() {
-			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: s.Result, Err: context.Canceled}
-		}
-		refreshed, err := app.Refresh(tracker.Context(), app.RefreshRequest{
-			Host:     host,
-			Conn:     conn,
-			Root:     root,
-			Sessions: []diff.Session{s},
-			Trust:    trust,
-		}, tracker)
-		if tracker.Canceled() {
-			return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: s.Result, Err: context.Canceled}
-		}
-		result := refreshed[0].Result
-		if err == nil {
-			err = refreshed[0].Err
-		}
-		return MsgSessionReloaded{Conn: conn, SessionIdx: idx, Result: result, Err: err}
 	})
 }

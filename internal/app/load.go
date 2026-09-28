@@ -1,6 +1,6 @@
-// Package app runs the use cases behind the TUI screens: building the diff
-// sessions for a selection and comparing them again. It knows nothing about
-// Bubble Tea; screens wrap these functions in commands and messages.
+// Package app runs the use cases behind the TUI screens, currently building
+// the diff sessions for a selection. It knows nothing about Bubble Tea;
+// screens wrap these functions in commands and messages.
 package app
 
 import (

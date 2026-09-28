@@ -20,7 +20,7 @@ Bereits umgesetzt:
 - Mapping- und Keep-alive-Werte werden beim Laden und Schreiben validiert
 - Projekte werden über `internal/project` registriert; projektbezogene Konfiguration liegt slug-basiert außerhalb des Arbeitsverzeichnisses
 - FTPS-Zertifikatsvertrauen liegt in `internal/tlstrust` und wird vom Root-Modell verwaltet
-- Session-Aufbau und Refresh liegen als `app.Load` und `app.Refresh` in `internal/app`, die Sync-Ausführung als `sync.Run` in `internal/sync`; `diffview` übersetzt nur noch Ergebnisse in Messages
+- Session-Aufbau liegt als `app.Load` in `internal/app`; Refresh und jeder abgeschlossene Sync bauen den Vergleich darüber neu auf, die Sync-Ausführung als `sync.Run` in `internal/sync`; `diffview` übersetzt nur noch Ergebnisse in Messages
 - Fortschritt und Abbruch laufen über `progress.Tracker` in `internal/progress`, ohne Bubble-Tea-Abhängigkeit
 
 Einschränkung:
@@ -125,7 +125,7 @@ Hier liegt der Ablauf über mehrere Subsysteme hinweg, z. B.:
 
 ### Empfohlene Services
 
-Status: **umgesetzt**, aber als Funktionen statt Service-Typen. `app.Load(ctx, LoadRequest, tracker)` und `app.Refresh(ctx, RefreshRequest, tracker)` haben keinen eigenen Zustand; alle Abhängigkeiten kommen pro Aufruf im Request. Die Sync-Ausführung liegt als `sync.Run` direkt in `internal/sync`, ein `SyncService` ist dafür nicht nötig. Die Umsetzung beschreibt `docs/diffview-orchestration-plan.md`. Die folgenden Skizzen bleiben als ursprüngliche Planung stehen.
+Status: **umgesetzt**, aber als Funktionen statt Service-Typen. `app.Load(ctx, LoadRequest, tracker)` hat keinen eigenen Zustand; alle Abhängigkeiten kommen pro Aufruf im Request. Die Sync-Ausführung liegt als `sync.Run` direkt in `internal/sync`, ein `SyncService` ist dafür nicht nötig. Die Umsetzung beschreibt `docs/diffview-orchestration-plan.md`. Die folgenden Skizzen bleiben als ursprüngliche Planung stehen.
 
 #### `internal/app/session_service.go`
 
@@ -802,7 +802,7 @@ Phase 1 ist umgesetzt. Bei FTP bleibt die Mehrdeutigkeit von Status `550` als be
 1. ~~`internal/app/session_service.go` als konkreten Service einführen~~ (als `app.Load`)
 2. ~~Ownership von `remote.Client` und `fs.Root` im Service-Ergebnis festlegen~~
 3. ~~`diffview.LoadCmd()` auf den SessionService umstellen~~
-4. ~~`refreshCmd()` und den Reload einer einzelnen Session auf den Service umstellen~~ (als `app.Refresh`)
+4. ~~`refreshCmd()` und den Reload einer einzelnen Session auf den Service umstellen~~ (beide entfernt: Refresh und Sync laden den Vergleich komplett über `app.Load` neu)
 5. ~~Lade-, Trust- und Verbindungsfehler weiterhin als bestehende typed messages an die Root-App geben~~
 
 Phase 2 ist umgesetzt.

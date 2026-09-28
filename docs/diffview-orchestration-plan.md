@@ -8,8 +8,13 @@ Bezug: Phase 2 und 3 in `docs/architecture-target.md`.
 
 - `internal/progress` enthält `Tracker`, `Progress` und `IsCanceled`;
   `loading` zeichnet nur noch den Indikator.
-- `internal/app` enthält `Load` und `Refresh`. `diffview.LoadCmd` nimmt ein
+- `internal/app` enthält `Load`. `diffview.LoadCmd` nimmt ein
   `app.LoadRequest`, die übrigen drei Varianten sind entfernt.
+- `app.Refresh`, `refreshCmd`, `reloadSessionCmd`, `MsgRefreshed`,
+  `MsgSessionReloaded` und das Flag `scopeSet` sind nach der manuellen
+  Abnahme entfernt. Die App setzt bei jedem geladenen Diff einen Scope, daher
+  lösen `r` und jeder Sync immer einen Neuaufbau über `app.Load` aus; die
+  Einzel-Reload-Pfade waren nur aus Tests erreichbar.
 - `internal/sync` enthält `Run`, `Item`, `Failure`, `Result` und
   `OperationError`. `diffview.SyncFailure` ist entfernt.
 - `diffview/model.go` hat 849 Zeilen und ruft weder `remote.Connect`,
@@ -30,8 +35,11 @@ Abweichungen vom Plan:
 - `sync.Run` hat eigene Tests gegen diesen Server bekommen.
 
 Geprüft: `go test ./...`, `go test -race ./...`, `go vet ./...`,
-`go build ./...`. Die manuelle Prüfung gegen echte SFTP- und FTPS-Hosts aus
-dem Abschnitt "Abnahme" steht noch aus.
+`go build ./...`. Manuell geprüft gegen einen echten FTP-Host: Laden,
+Bulk-Upload, Textdiff, Einzel-Upload und -Download, Bulk-Löschen lokal und
+remote, ignorierte Dateien einbeziehen, Abbruch während des Ladens. Noch nicht
+manuell geprüft sind SFTP, FTPS mit Zertifikatsabfrage und ein
+Verbindungsabbruch während eines Transfers.
 
 ## Ziel
 

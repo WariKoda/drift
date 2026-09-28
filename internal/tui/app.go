@@ -935,10 +935,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			err = config.DeleteProjectHost(a.state.Config, msg.Name)
 		}
-		if err != nil {
-			a.state.StatusMsg = "Delete failed: " + err.Error()
-		}
 		a.hostManager.Refresh()
+		if err != nil {
+			log.Error("delete host failed", "host", msg.Name, "err", err)
+			a.hostManager.SetErr("Delete failed: " + err.Error())
+		}
 		a.state.Screen = ScreenHostManager
 		return a, nil
 

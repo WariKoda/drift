@@ -273,3 +273,6 @@ func (m Model) updateConfirm(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m *Model) Refresh() {
 	m.rebuild()
 }
+
+// SetErr shows a failed host operation in the status line.
+func (m *Model) SetErr(msg string) { m.statusMsg = "✗ " + msg }

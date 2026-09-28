@@ -248,15 +248,15 @@ func (s *Server) serve(conn net.Conn) {
 	var dataListener net.Listener
 	protected := false // PROT P: data connections use TLS
 	renameFrom := ""
-	acceptData := func() (net.Conn, error) {
-		data, err := dataListener.Accept()
-		if err != nil || !protected {
-			return data, err
+	// secureData runs after the 150 reply: clients start the data-channel
+	// handshake only once the server has accepted the transfer.
+	secureData := func(data net.Conn) (net.Conn, error) {
+		if !protected {
+			return data, nil
 		}
 		secured := tls.Server(data, s.tlsConfig)
 		if err := secured.Handshake(); err != nil {
-			_ = data.Close()
-			return nil, err
+			return data, err // the caller still closes the raw connection
 		}
 		return secured, nil
 	}
@@ -337,10 +337,13 @@ func (s *Server) serve(conn net.Conn) {
 				break
 			}
 			var data net.Conn
-			if data, err = acceptData(); err != nil {
+			if data, err = dataListener.Accept(); err != nil {
 				break
 			}
 			if err = reply("150 opening data connection"); err == nil {
+				data, err = secureData(data)
+			}
+			if err == nil {
 				var received strings.Builder
 				_, err = io.Copy(&received, data)
 				if err == nil {
@@ -433,11 +436,14 @@ func (s *Server) serve(conn net.Conn) {
 				break
 			}
 			var data net.Conn
-			data, err = acceptData()
+			data, err = dataListener.Accept()
 			if err != nil {
 				break
 			}
 			if err = reply("150 opening data connection"); err == nil {
+				data, err = secureData(data)
+			}
+			if err == nil {
 				s.mu.Lock()
 				send := s.sendData
 				s.mu.Unlock()

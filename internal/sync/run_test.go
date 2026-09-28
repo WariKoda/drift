@@ -94,6 +94,36 @@ func TestRunAppliesEachDecision(t *testing.T) {
 	}
 }
 
+// Uploads write a staging file and rename it into place. A connection lost
+// before the rename must leave the target untouched, report the outcome as
+// unknown and not try again.
+func TestRunLeavesTargetIntactWhenConnectionDropsBeforeRename(t *testing.T) {
+	server := ftptest.Start(t, 1)
+	server.AddFile("/file", "old")
+	server.SetDropCommand(func(command, _ string) bool { return command == "RNFR" })
+	conn := connect(t, server.Host(t))
+	dir, root := openRoot(t)
+	local := filepath.Join(dir, "file")
+	if err := os.WriteFile(local, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := Run(context.Background(), conn, root, []Item{{LocalPath: local, RemotePath: "/file", Decision: DecisionUpload}}, nil)
+
+	if len(result.Completed) != 0 || len(result.Failures) != 1 {
+		t.Fatalf("result = %+v, want one failed upload", result)
+	}
+	if !strings.Contains(result.Failures[0].Err.Error(), "outcome unknown") || result.Err == nil {
+		t.Fatalf("failure = %v, run error = %v; want an unknown outcome on a dead connection", result.Failures[0].Err, result.Err)
+	}
+	if content, _ := server.File("/file"); content != "old" {
+		t.Fatalf("target = %q, want the previous content", content)
+	}
+	if stored := server.CommandCount("STOR"); stored != 1 {
+		t.Fatalf("STOR sent %d times, want exactly one attempt", stored)
+	}
+}
+
 func TestRunDoesNotTouchFailedConnection(t *testing.T) {
 	server := ftptest.Start(t, 1)
 	server.AddFile("/file", "content")

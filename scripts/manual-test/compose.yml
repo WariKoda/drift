@@ -1,0 +1,27 @@
+# Local SFTP and FTPS servers for docs/manual-testing.md. Start them through
+# mt.sh, which sets MT_STATE, MT_UID and MT_GID.
+name: drift-manual-test
+
+services:
+  sftp:
+    image: atmoz/sftp:alpine
+    command: drift:secret:${MT_UID}::upload
+    ports:
+      - "127.0.0.1:2222:22"
+    volumes:
+      - ${MT_STATE}/sftproot:/home/drift/upload
+
+  ftps:
+    build: ./ftps
+    user: "${MT_UID}:${MT_GID}"
+    environment:
+      FTPS_ROOT: /data
+      FTPS_TLS_DIR: /tls
+      FTPS_THROTTLE: ${FTPS_THROTTLE:-0}
+      FTPS_MAX_CONS: ${FTPS_MAX_CONS:-0}
+    ports:
+      - "127.0.0.1:2121:2121"
+      - "127.0.0.1:30000-30009:30000-30009"
+    volumes:
+      - ${MT_STATE}/ftproot:/data
+      - ${MT_STATE}/tls:/tls

@@ -48,6 +48,11 @@ go vet ./...
 go build ./...
 ```
 
+Changes to transfers, connection handling or the diff view also deserve a pass through
+[docs/manual-testing.md](docs/manual-testing.md). `scripts/manual-test/mt.sh` starts
+local SFTP and FTPS servers in Docker and runs drift against them with an isolated
+config.
+
 ## Git workflow
 
 Please keep `main` stable and use short-lived branches for changes.

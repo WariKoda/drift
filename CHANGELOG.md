@@ -10,6 +10,7 @@ This is a release target, not a published version or a 1.0 stability guarantee.
 
 ### Fixed
 
+- a failed connection while loading a comparison no longer crashes drift; wrong credentials, unreachable hosts and unknown FTPS certificates are reported, and the certificate prompt opens as intended
 - a failed host deletion in the host manager is now shown in its status line instead of being discarded
 
 ## [0.1.8-alpha] - 2026-09-12

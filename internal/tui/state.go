@@ -2,7 +2,6 @@ package tui
 
 import (
 	"github.com/WariKoda/drift/internal/config"
-	"github.com/WariKoda/drift/internal/diff"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/project"
 	internalsync "github.com/WariKoda/drift/internal/sync"
@@ -17,7 +16,6 @@ const (
 	ScreenHostManager            // CRUD list of all hosts
 	ScreenHostForm               // create / edit a host
 	ScreenDiffView               // unified diff
-	ScreenSyncProgress           // transfer progress (Phase 4)
 	ScreenDashboard              // project dashboard (optional landing screen)
 	ScreenProjectForm            // create / edit a project
 	ScreenRegisterPrompt         // offer to register the current unregistered project
@@ -30,15 +28,6 @@ type HostSelectorPurpose int
 const (
 	HostSelectorForSync HostSelectorPurpose = iota
 	HostSelectorForRemoteBrowse
-)
-
-// StatusKind classifies the severity of a status bar message.
-type StatusKind int
-
-const (
-	StatusInfo StatusKind = iota
-	StatusWarn
-	StatusError
 )
 
 // AppState is the root state of the application.
@@ -62,18 +51,6 @@ type AppState struct {
 	// Host selector / selected sync target
 	SelectedHost        *config.Host
 	HostSelectorPurpose HostSelectorPurpose
-
-	// Diff (Phase 3)
-	DiffSessions  []diff.Session
-	ActiveSession int
-
-	// Sync (Phase 4)
-	SyncPlan     *internalsync.Plan
-	SyncProgress *internalsync.Progress
-
-	// Status bar
-	StatusMsg  string
-	StatusKind StatusKind
 
 	TermWidth  int
 	TermHeight int

@@ -12,7 +12,7 @@ Bereits umgesetzt:
 - `diff.Compare()` trennt NotFound grundsätzlich von anderen Stat- und Protokollfehlern
 - `diffview.nextDir()` lässt für fehlerhafte Sessions keine Action-Auswahl zu
 - Auto-Decision- und Action-Cycling-Logik liegt in `internal/sync/policy.go` und ist getestet
-- `internal/sync/plan.go` enthält erste Plan- und Progress-Typen, aber noch keine Engine
+- `internal/sync/scope.go` beschreibt den Vergleichsumfang; Plan-, Progress- und Engine-Typen gibt es noch nicht
 - Hosts und markierte Pfade werden deterministisch sortiert verarbeitet
 - `fs.Root` begrenzt lokale Transfers und Änderungen auf das Projekt und schreibt Downloads atomar
 - Remote-Clients verwenden Streams statt lokaler Pfade und überwachen ihre Verbindung selbst
@@ -238,7 +238,7 @@ Status: **teilweise umgesetzt**
 
 ## `internal/sync`
 
-Dieses Paket sollte die eigentliche Sync-Domain werden. `policy.go` enthält bereits Entscheidungen und Action-Cycling. `plan.go` enthält erste Transfer- und Progress-Typen, wird aber noch nicht von der TUI genutzt. Eine Engine fehlt.
+Dieses Paket sollte die eigentliche Sync-Domain werden. `policy.go` enthält bereits Entscheidungen und Action-Cycling. `scope.go` beschreibt den Vergleichsumfang. Die früheren, nie genutzten Plan- und Progress-Typen sind entfernt; eine Engine fehlt.
 
 ### Verantwortung
 
@@ -807,7 +807,7 @@ Als Nächstes sollte `internal/app/session_service.go` entstehen, ohne gleichzei
 
 ## Phase 3: Sync-Domain vervollständigen
 
-1. bestehendes `sync.Plan` mit dem Decision-Modell zusammenführen und Deletes abbilden
+1. Plan-Typen auf Basis des Decision-Modells einführen und Deletes abbilden
 2. serielle `sync.Engine` für Upload, Download und Delete über `remote.Client` und `fs.Root` implementieren
 3. Fehleraggregation und strukturierte Progress-Events ergänzen
 4. Single-File- und Bulk-Sync aus `diffview` durch SyncService und Engine ersetzen

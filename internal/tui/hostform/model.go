@@ -76,6 +76,16 @@ type Model struct {
 	isEdit      bool
 	isDuplicate bool
 	oldName     string
+
+	// linked is set when the host takes its connection from a global server:
+	// the resolved host, whose connection fields the form shows but does not
+	// edit.
+	linked *config.Host
+
+	// offer is a host with the same endpoint found on save; the form asks
+	// whether to link it instead of storing a second copy of the connection.
+	offer       *config.LinkTarget
+	offerLabel  string
 	projectSlug string // registry slug of the open project; empty when none is
 	errMsg      string
 
@@ -140,9 +150,30 @@ func NewEdit(h config.Host, scope config.HostScope, projectSlug string, width, h
 	}
 
 	m.mappings = append([]config.Mapping(nil), h.Mappings...)
+	if h.IsLink() {
+		linked := h
+		m.linked = &linked
+	}
 
 	m.fields[fName].Focused = true
 	return m
+}
+
+// NewLink returns a form for a new project host that connects through server.
+func NewLink(server config.Host, name, rootPath, projectSlug string, width, height int) Model {
+	h := config.Resolve(config.Host{Name: name, RootPath: rootPath}, server)
+	m := NewEdit(h, config.ScopeProject, projectSlug, width, height)
+	m.isEdit = false
+	m.oldName = ""
+	return m
+}
+
+// OfferLink asks, instead of saving, whether to link target: a host found
+// with the same endpoint. label names it for the prompt.
+func (m *Model) OfferLink(target config.LinkTarget, label string) {
+	m.offer = &target
+	m.offerLabel = label
+	m.errMsg = ""
 }
 
 // NewDuplicate returns an independent pre-filled form that saves as a new host.
@@ -205,6 +236,9 @@ func (m *Model) initFields() {
 // Identity first, then where the host is, then how to get in, then the scope
 // toggle. fScope stays last because Enter on the last row saves.
 func (m Model) visibleRows() []int {
+	if m.linked != nil {
+		return []int{fName, fRootPath, fMappings}
+	}
 	rows := []int{fName, fHostname, fPort, fProtocol, fKeepAliveDisabled}
 	if !m.keepAliveDisabled {
 		rows = append(rows, fKeepAliveInterval)
@@ -292,6 +326,9 @@ func (m Model) toHost() (config.Host, error) {
 	if name == "" {
 		return config.Host{}, fmt.Errorf("Name is required")
 	}
+	if m.linked != nil {
+		return m.toLink(name)
+	}
 	hostname := m.fields[fHostname].Value()
 	if hostname == "" {
 		return config.Host{}, fmt.Errorf("Hostname is required")
@@ -358,4 +395,25 @@ func (m Model) toHost() (config.Host, error) {
 		h.Auth = config.Auth{Type: "agent"}
 	}
 	return h, nil
+}
+
+// toLink builds a link from the fields a link owns: name, root path, mappings.
+func (m Model) toLink(name string) (config.Host, error) {
+	root := m.fields[fRootPath].Value()
+	if root == "" {
+		return config.Host{}, fmt.Errorf("Root Path is required")
+	}
+	if err := config.ValidateMappings(m.mappings); err != nil {
+		return config.Host{}, fmt.Errorf("Mappings: %w", err)
+	}
+	link := config.Host{Name: name, RootPath: root, Mappings: append([]config.Mapping(nil), m.mappings...)}
+	return config.Resolve(link, serverOf(*m.linked)), nil
+}
+
+// serverOf recovers the server a resolved link connects through.
+func serverOf(link config.Host) config.Host {
+	server := link
+	server.Name = link.Server
+	server.Server = ""
+	return server
 }

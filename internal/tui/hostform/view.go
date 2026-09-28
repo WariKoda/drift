@@ -28,6 +28,8 @@ func (m Model) viewMain() string {
 		title = "Edit Host: " + m.oldName
 	} else if m.isDuplicate {
 		title = "Duplicate Host"
+	} else if m.linked != nil {
+		title = "Link Server: " + m.linked.Server
 	}
 	header := styles.Header.Render("drift") + "  " + styles.Muted.Render(title)
 	sb.WriteString(padRight(header, m.Width))
@@ -35,6 +37,10 @@ func (m Model) viewMain() string {
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
 	sb.WriteByte('\n')
+
+	if m.linked != nil {
+		sb.WriteString(m.renderServer())
+	}
 
 	rows := m.visibleRows()
 	for ri, rowIdx := range rows {
@@ -77,11 +83,21 @@ func (m Model) viewMain() string {
 		sb.WriteString("  " + styles.Err.Render("✗ "+m.errMsg))
 		sb.WriteByte('\n')
 	}
+	if m.offer != nil {
+		sb.WriteString("  " + styles.Warn.Render("Same server as "+m.offerLabel+". Link it instead of storing the connection twice?"))
+		sb.WriteByte('\n')
+		sb.WriteString(styles.KeyHints("  [l]ink, keeping name, root path and mappings  [s]ave as its own connection  [any]back", styles.Muted))
+		sb.WriteByte('\n')
+	}
 
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
-	sb.WriteString(styles.KeyHints("  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel", styles.Muted))
+	hints := "  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S / Enter on last]save  [Esc]cancel"
+	if m.linked != nil {
+		hints = "  [Tab/↓]next  [Shift+Tab/↑]prev  [Ctrl+S]save  [Esc]cancel"
+	}
+	sb.WriteString(styles.KeyHints(hints, styles.Muted))
 
 	return sb.String()
 }
@@ -175,6 +191,27 @@ func (m Model) viewMappingEdit() string {
 	sb.WriteString(styles.KeyHints("  [Tab/↓]next  [Ctrl+S / Enter on last]save  [Esc]cancel", styles.Muted))
 
 	return sb.String()
+}
+
+// renderServer shows the connection a link takes from its server. It is not a
+// row: nothing here is edited in this form.
+func (m Model) renderServer() string {
+	h := m.linked
+	endpoint := h.Hostname
+	if h.User != "" {
+		endpoint = h.User + "@" + endpoint
+	}
+	if h.Port != 0 && h.Port != config.DefaultPort(h.Protocol) {
+		endpoint += fmt.Sprintf(":%d", h.Port)
+	}
+	protocol := h.Protocol
+	if protocol == "" {
+		protocol = "sftp"
+	}
+	line := "  " + styles.Muted.Render(padStr("Server", 14)) + " " +
+		styles.Badge.Render(h.Server) + "  " + styles.File.Render(endpoint) + "  " + styles.Muted.Render(protocol)
+	note := "  " + styles.Muted.Render("Connection and credentials belong to the global server; edit them there.")
+	return line + "\n" + note + "\n\n"
 }
 
 func (m Model) renderMappingsRow(focused bool) string {

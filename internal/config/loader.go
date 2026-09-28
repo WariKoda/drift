@@ -29,9 +29,15 @@ func Load(root, slug string) (*MergedConfig, error) {
 	}
 
 	for _, host := range global.Hosts {
+		if host.IsLink() {
+			return nil, fmt.Errorf("global host %q: server is only valid for project hosts", host.Name)
+		}
 		if err := ValidateMappings(host.Mappings); err != nil {
 			return nil, fmt.Errorf("global host %q mappings: %w", host.Name, err)
 		}
+	}
+	if slug != "" && project == nil {
+		project = &ProjectConfig{} // registered, but no hosts of its own yet
 	}
 	if project != nil {
 		if err := ValidateMappings(project.Mappings); err != nil {
@@ -42,10 +48,12 @@ func Load(root, slug string) (*MergedConfig, error) {
 				return nil, fmt.Errorf("project host %q mappings: %w", host.Name, err)
 			}
 		}
+		if err := validateLinks(project.Hosts, global.Hosts); err != nil {
+			return nil, fmt.Errorf("project store: %w", err)
+		}
 	}
 
-	merged := merge(global, project, root)
-	merged.ProjectSlug = slug
+	merged := merge(global, project, root, slug)
 
 	return merged, nil
 }
@@ -74,54 +82,53 @@ func loadGlobal() (*GlobalConfig, error) {
 	return cfg, nil
 }
 
-// merge combines global and project configs. Project hosts override global hosts by name.
-func merge(global *GlobalConfig, project *ProjectConfig, projectRoot string) *MergedConfig {
-	hosts := make(map[string]Host)
-
-	applyDefaults := func(h Host, d Defaults) Host {
-		if h.Port == 0 {
-			if d.Port != 0 {
-				h.Port = d.Port
-			} else {
-				h.Port = DefaultPort(h.Protocol)
-			}
+// withDefaults fills the port and user a host omits from d, and the port from
+// its protocol when d has none either.
+func withDefaults(h Host, d Defaults) Host {
+	if h.Port == 0 {
+		if d.Port != 0 {
+			h.Port = d.Port
+		} else {
+			h.Port = DefaultPort(h.Protocol)
 		}
-		if h.User == "" {
-			h.User = d.User
-		}
-		return h
 	}
+	if h.User == "" {
+		h.User = d.User
+	}
+	return h
+}
 
+// merge combines global and project configs. An empty slug means no project is
+// open, and the global hosts are the sync targets. Otherwise the targets are
+// the project's own hosts, with links resolved against the global ones.
+func merge(global *GlobalConfig, project *ProjectConfig, projectRoot, slug string) *MergedConfig {
 	globalHosts := make([]Host, 0, len(global.Hosts))
 	for _, h := range global.Hosts {
-		h = applyDefaults(h, global.Defaults)
-		hosts[h.Name] = h
-		globalHosts = append(globalHosts, h)
+		globalHosts = append(globalHosts, withDefaults(h, global.Defaults))
 	}
 
 	merged := &MergedConfig{
 		GlobalDefaults: global.Defaults,
 		UI:             global.UI,
-		Hosts:          hosts,
 		GlobalHosts:    globalHosts,
 		ProjectHosts:   []Host{},
 		ProjectRoot:    projectRoot,
+		ProjectSlug:    slug,
 	}
 
-	if project == nil {
-		return merged
+	if project != nil {
+		projectHosts := make([]Host, 0, len(project.Hosts))
+		for _, h := range project.Hosts {
+			if !h.IsLink() {
+				h = withDefaults(h, project.Defaults)
+			}
+			projectHosts = append(projectHosts, h)
+		}
+		merged.ProjectDefaults = project.Defaults
+		merged.ProjectHosts = projectHosts
+		merged.Mappings = project.Mappings
 	}
-
-	projectHosts := make([]Host, 0, len(project.Hosts))
-	for _, h := range project.Hosts {
-		h = applyDefaults(h, project.Defaults)
-		hosts[h.Name] = h
-		projectHosts = append(projectHosts, h)
-	}
-	merged.ProjectDefaults = project.Defaults
-	merged.ProjectHosts = projectHosts
-	merged.Mappings = project.Mappings
-
+	rebuildMerged(merged)
 	return merged
 }
 

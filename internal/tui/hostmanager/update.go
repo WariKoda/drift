@@ -114,6 +114,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.updateMouse(msg)
 
 	case tea.KeyMsg:
+		if m.picker != nil {
+			return m.updatePicker(msg)
+		}
+		if m.choosingNew {
+			return m.updateChooseNew(msg)
+		}
 		if m.confirmDelete {
 			return m.updateConfirm(msg)
 		}
@@ -153,9 +159,16 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		} else if m.cursor >= 0 && m.cursor < len(m.entries) && m.entries[m.cursor].isHeader {
 			scope = m.entries[m.cursor].scope
 		}
+		if scope == config.ScopeProject && m.cfg.ProjectSlug != "" {
+			m.choosingNew = true
+			break
+		}
 		return m, func() tea.Msg {
 			return MsgOpenForm{Scope: scope}
 		}
+
+	case "l":
+		return m, m.requestPicker()
 
 	case "e", "enter":
 		e := m.currentEntry()
@@ -225,6 +238,27 @@ func (m *Model) startTest(host config.Host, required *tlstrust.Challenge) tea.Cm
 	m.testTracker = progress.NewTracker("Testing " + host.Name + "…")
 	m.statusMsg = ""
 	return testCmd(host, m.testTracker.Context(), id, m.trust, required)
+}
+
+// updateChooseNew answers "n" in the project section: a host with its own
+// connection, or one that links a server.
+func (m Model) updateChooseNew(msg tea.KeyMsg) (Model, tea.Cmd) {
+	m.choosingNew = false
+	switch msg.String() {
+	case "n":
+		return m, func() tea.Msg { return MsgOpenForm{Scope: config.ScopeProject} }
+	case "l":
+		return m, m.requestPicker()
+	}
+	return m, nil
+}
+
+func (m *Model) requestPicker() tea.Cmd {
+	if m.cfg.ProjectSlug == "" {
+		m.statusMsg = "Open a project to link a server to it"
+		return nil
+	}
+	return func() tea.Msg { return MsgLinkPickerRequested{} }
 }
 
 func (m Model) updateResetConfirm(msg tea.KeyMsg) (Model, tea.Cmd) {

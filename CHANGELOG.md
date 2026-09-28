@@ -8,6 +8,17 @@ Next planned release: **v0.2.0-beta.1**. The beta phase focuses on real-world
 SFTP/FTP/FTPS deployments, sync failure handling, and configuration stability.
 This is a release target, not a published version or a 1.0 stability guarantee.
 
+### Added
+
+- project hosts can link a global server with `server = "<name>"`: the connection comes from the server, `root_path` and `mappings` stay with the project host, so projects on one machine share one set of credentials
+- `l` in the host manager links a global server or a host of another project; a host of another project becomes a global server after confirmation and its project keeps it as a link
+- saving a project host whose hostname, port, user and protocol match a server or another project's host offers to link that one instead
+
+### Changed
+
+- **breaking:** with a project open, global hosts are no longer sync targets on their own. They are servers that project hosts link to. Press `l` in the host manager of each project that used a global host directly. Without an open project, global hosts remain directly available
+- a global server that project hosts link cannot be deleted or renamed; the error names the linking projects
+
 ### Fixed
 
 - staging files left behind by an interrupted upload or download no longer appear in comparisons, so "sync all" can no longer download or delete a partial file

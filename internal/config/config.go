@@ -6,7 +6,9 @@
 //
 // Nothing is stored in the project directory. Which project a directory belongs
 // to is the registry's answer, so the caller passes the slug in.
-// Project hosts with the same name override global hosts.
+// With a project open, only its own hosts are sync targets; a project host can
+// link to a global host to share its connection. Without a project, the global
+// hosts are the targets.
 // Env vars in auth fields ($VAR) are expanded at connection time.
 package config
 
@@ -26,8 +28,12 @@ const (
 // omitted from a written file, so a project config reads as the small,
 // reviewable description of an environment it is rather than as a form with
 // every blank filled in.
+//
+// A project host that names a Server is a link: its connection comes from that
+// global host, and only Name, RootPath and Mappings are its own (see servers.go).
 type Host struct {
 	Name              string    `toml:"name"`               // unique identifier, e.g. "prod"
+	Server            string    `toml:"server,omitempty"`   // global host to connect through; project hosts only
 	Hostname          string    `toml:"hostname,omitempty"` // IP or domain
 	Port              int       `toml:"port,omitempty"`     // default: 22 (sftp) or 21 (ftp)
 	User              string    `toml:"user,omitempty"`
@@ -123,12 +129,16 @@ const (
 type MergedConfig struct {
 	GlobalDefaults  Defaults
 	ProjectDefaults Defaults
-	UI              UI              // from the global config only
-	GlobalHosts     []Host          // hosts from ~/.config/drift/config.toml
-	ProjectHosts    []Host          // hosts from the project store
-	Hosts           map[string]Host // merged view: project overrides global, keyed by Name
-	Mappings        []Mapping
-	ProjectRoot     string // the project directory, from the registry
+	UI              UI     // from the global config only
+	GlobalHosts     []Host // hosts from ~/.config/drift/config.toml, the servers projects link to
+	ProjectHosts    []Host // hosts from the project store, links resolved against GlobalHosts
+
+	// Hosts are the hosts the open project can sync with, keyed by Name: its
+	// own and linked ones. Global hosts are servers to link to, not targets of
+	// every project, so they appear here only when no project is open.
+	Hosts       map[string]Host
+	Mappings    []Mapping
+	ProjectRoot string // the project directory, from the registry
 
 	// ProjectSlug is the registry slug of the open project, and with it the
 	// name of its store under <config.Dir()>/projects/. Empty when the caller

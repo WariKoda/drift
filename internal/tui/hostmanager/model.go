@@ -23,6 +23,15 @@ type Model struct {
 	cursor  int // index into entries (headers are skipped)
 	offset  int // first entry rendered in the list viewport
 
+	// "n" in the project section: new connection or link a server
+	choosingNew bool
+
+	// picker lists the hosts a project host can link to; nil when closed.
+	picker         []pickRow
+	pickCursor     int // index into picker, never a header
+	pickOffset     int
+	confirmPromote bool
+
 	// delete confirmation
 	confirmDelete bool
 	deleteTarget  entry
@@ -83,9 +92,19 @@ func (m *Model) CancelTest() {
 	m.statusMsg = "Cancelled"
 }
 
+// Picking reports whether the link picker is open.
+func (m Model) Picking() bool {
+	return m.picker != nil
+}
+
 // StartsNetworkOperation reports whether key would start a connection test.
 func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
-	return key.String() == "t" && m.currentEntry() != nil && !m.testing
+	return key.String() == "t" && m.currentEntry() != nil && !m.testing && !m.modal()
+}
+
+// modal reports whether a prompt or the picker takes the keys.
+func (m Model) modal() bool {
+	return m.picker != nil || m.choosingNew || m.confirmDelete || m.confirmReset
 }
 
 // rebuild flattens global + project hosts into the entries slice.

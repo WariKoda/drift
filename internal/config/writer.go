@@ -17,6 +17,18 @@ import (
 // therefore leaves the running session exactly as it was, instead of showing a
 // host that does not exist on disk or hiding one that does.
 func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
+	if h.IsLink() {
+		return fmt.Errorf("host %q: a global host cannot link a server", h.Name)
+	}
+	if oldName != "" && oldName != h.Name {
+		users, err := serverUsers(oldName)
+		if err != nil {
+			return err
+		}
+		if len(users) > 0 {
+			return &ServerInUseError{Server: oldName, Projects: users}
+		}
+	}
 	if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
 		return fmt.Errorf("host %q: %w", h.Name, err)
 	}
@@ -45,8 +57,16 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	return nil
 }
 
-// DeleteGlobalHost removes a host by name from the global config file.
+// DeleteGlobalHost removes a host by name from the global config file. A server
+// that project hosts still link cannot be deleted.
 func DeleteGlobalHost(cfg *MergedConfig, name string) error {
+	users, err := serverUsers(name)
+	if err != nil {
+		return err
+	}
+	if len(users) > 0 {
+		return &ServerInUseError{Server: name, Projects: users}
+	}
 	base, err := globalConfigBase(cfg)
 	if err != nil {
 		return err
@@ -63,6 +83,12 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 
 // SaveProjectHost adds or replaces a host in the project's store.
 func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
+	if h.IsLink() {
+		h = linkFields(h)
+		if err := validateLinks([]Host{h}, cfg.GlobalHosts); err != nil {
+			return err
+		}
+	}
 	if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
 		return fmt.Errorf("host %q: %w", h.Name, err)
 	}
@@ -154,14 +180,27 @@ func projectStoreBase(cfg *MergedConfig) (ProjectConfig, error) {
 	}, nil
 }
 
-// rebuildMerged reconstructs cfg.Hosts from GlobalHosts + ProjectHosts.
+// rebuildMerged resolves the project's links against the current servers and
+// reconstructs cfg.Hosts: the project's hosts when a project is open, the
+// global ones otherwise.
 func rebuildMerged(cfg *MergedConfig) {
-	m := make(map[string]Host, len(cfg.GlobalHosts)+len(cfg.ProjectHosts))
+	servers := make(map[string]Host, len(cfg.GlobalHosts))
 	for _, h := range cfg.GlobalHosts {
-		m[h.Name] = h
+		servers[h.Name] = h
 	}
-	for _, h := range cfg.ProjectHosts {
-		m[h.Name] = h // project overrides global
+	for i, h := range cfg.ProjectHosts {
+		if server, ok := servers[h.Server]; ok && h.IsLink() {
+			cfg.ProjectHosts[i] = Resolve(h, server)
+		}
+	}
+
+	targets := cfg.GlobalHosts
+	if cfg.ProjectSlug != "" {
+		targets = cfg.ProjectHosts
+	}
+	m := make(map[string]Host, len(targets))
+	for _, h := range targets {
+		m[h.Name] = h
 	}
 	cfg.Hosts = m
 }
@@ -207,6 +246,9 @@ func removeHost(hosts []Host, name string) []Host {
 
 func writeGlobal(cfg GlobalConfig) error {
 	for _, host := range cfg.Hosts {
+		if host.IsLink() {
+			return fmt.Errorf("global host %q: server is only valid for project hosts", host.Name)
+		}
 		if err := ValidateKeepAliveInterval(host.KeepAliveInterval); err != nil {
 			return fmt.Errorf("host %q: %w", host.Name, err)
 		}
@@ -232,6 +274,7 @@ func writeGlobal(cfg GlobalConfig) error {
 // decorate them.
 type hostOut struct {
 	Name              string    `toml:"name"`
+	Server            string    `toml:"server,omitempty"`
 	Hostname          string    `toml:"hostname,omitempty"`
 	Port              *int      `toml:"port,omitempty"`
 	User              string    `toml:"user,omitempty"`
@@ -269,6 +312,12 @@ func optionalInt(v int) *int {
 func hostsOut(hosts []Host) []hostOut {
 	out := make([]hostOut, len(hosts))
 	for i, h := range hosts {
+		if h.IsLink() {
+			// In memory a link carries its server's connection; on disk it
+			// names the server and nothing else of it.
+			out[i] = hostOut{Name: h.Name, Server: h.Server, RootPath: h.RootPath, Mappings: h.Mappings}
+			continue
+		}
 		out[i] = hostOut{
 			Name:              h.Name,
 			Hostname:          h.Hostname,

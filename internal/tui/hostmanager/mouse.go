@@ -46,8 +46,8 @@ func (m Model) hitTest(x, y int) int {
 
 // updateMouse handles wheel and click events for the host list.
 func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
-	// The delete prompt is modal: nothing behind it is clickable.
-	if m.confirmDelete || m.confirmReset {
+	// Prompts and the picker are modal: nothing behind them is clickable.
+	if m.modal() {
 		return m, nil
 	}
 

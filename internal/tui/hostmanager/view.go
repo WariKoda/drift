@@ -51,11 +51,30 @@ func (m Model) View() string {
 	var sb strings.Builder
 
 	// Header
-	title := styles.Header.Render("drift") + "  " + styles.Muted.Render("Host Manager")
+	subtitle := "Host Manager"
+	if m.picker != nil {
+		subtitle = "Link a server to this project"
+	}
+	title := styles.Header.Render("drift") + "  " + styles.Muted.Render(subtitle)
 	sb.WriteString(padRight(title, m.Width))
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
+
+	if m.picker != nil {
+		lines := m.viewPicker()
+		for len(lines) < m.listHeight() {
+			lines = append(lines, strings.Repeat(" ", m.Width))
+		}
+		for _, line := range lines {
+			sb.WriteString(line)
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
+		sb.WriteByte('\n')
+		sb.WriteString(m.pickerStatus())
+		return sb.String()
+	}
 
 	// Entry list
 	vh := m.listHeight()
@@ -99,8 +118,11 @@ func (m Model) renderHeader(scope config.HostScope) string {
 	var label, sub string
 	switch scope {
 	case config.ScopeGlobal:
-		label = "GLOBAL HOSTS"
+		label = "GLOBAL SERVERS"
 		sub = "~/.config/drift/config.toml"
+		if m.cfg.ProjectSlug != "" {
+			sub += " · link one to this project with [l]"
+		}
 	case config.ScopeProject:
 		label = "PROJECT HOSTS"
 		if m.cfg.ProjectSlug != "" {
@@ -120,6 +142,9 @@ func (m Model) renderHost(e entry, isCursor bool) string {
 	if authLabel == "" {
 		authLabel = "keyfile"
 	}
+	if h.IsLink() {
+		authLabel = "→ " + h.Server
+	}
 
 	port := ""
 	if h.Port != 0 && h.Port != 22 {
@@ -130,12 +155,16 @@ func (m Model) renderHost(e entry, isCursor bool) string {
 	host := fmt.Sprintf("%-30s", h.Hostname+port)
 	root := fmt.Sprintf("%-24s", h.RootPath)
 	auth := fmt.Sprintf("%-10s", authLabel)
+	authStyle := styles.Muted
+	if h.IsLink() {
+		authStyle = styles.Key
+	}
 
 	line := "  " +
 		styles.Dir.Render(name) + " " +
 		styles.File.Render(host) + " " +
 		styles.Muted.Render(root) + " " +
-		styles.Muted.Render(auth)
+		authStyle.Render(auth)
 
 	if lipgloss.Width(line) > m.Width {
 		line = lipgloss.NewStyle().MaxWidth(m.Width).Render(line)
@@ -169,6 +198,9 @@ func (m Model) renderStatus() string {
 				styles.Dir.Render("[n]") + styles.Muted.Render("o")
 		}
 	}
+	if m.choosingNew {
+		return padRight(styles.KeyHints("  New project host:  [n]ew connection  [l]ink a server  [any]cancel", styles.Muted), m.Width)
+	}
 	if m.testing {
 		return styles.Warn.Render(fmt.Sprintf("  Testing %s…", m.testTarget))
 	}
@@ -178,7 +210,7 @@ func (m Model) renderStatus() string {
 		}
 		return padRight(styles.Err.Render("  "+m.statusMsg), m.Width)
 	}
-	help := "  [n]new  [e]edit  [c]copy  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
+	help := "  [n]new  [l]ink server  [e]edit  [c]copy  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
 	return padRight(styles.KeyHints(help, styles.Muted), m.Width)
 }
 

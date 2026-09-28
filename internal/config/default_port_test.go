@@ -14,7 +14,7 @@ func TestMergeDefaultsPortPerProtocol(t *testing.T) {
 		{Name: "ftps-host", Protocol: "ftps"},
 	}}
 
-	merged := merge(global, nil, "")
+	merged := merge(global, nil, "", "")
 
 	want := map[string]int{
 		"sftp-host":     22,
@@ -35,7 +35,7 @@ func TestMergeDefaultsPortPrefersConfiguredDefault(t *testing.T) {
 		Hosts:    []Host{{Name: "ftp-host", Protocol: "ftp"}},
 	}
 
-	merged := merge(global, nil, "")
+	merged := merge(global, nil, "", "")
 
 	if got := merged.Hosts["ftp-host"].Port; got != 2222 {
 		t.Errorf("host port = %d, want the configured default 2222", got)

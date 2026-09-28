@@ -25,8 +25,9 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 - Esc hides a running connect or sync; `q` / `Ctrl+C` cancel it. Files already transferred stay; the rest is skipped
 - Per-host path mappings (like PHPStorm's Deployment Mappings tab)
 - Host manager: create, duplicate, edit, delete, and test connections
+- Shared servers: several projects link one global server and keep their own root path and mappings, so credentials live in one place
 - Interactive FTPS certificate verification with session-only or persistent, fingerprint-bound trust
-- Nothing is written into your project: global hosts in `~/.config/drift/config.toml`, per-project hosts and mappings in `~/.config/drift/projects/<slug>.toml`
+- Nothing is written into your project: global servers in `~/.config/drift/config.toml`, per-project hosts and mappings in `~/.config/drift/projects/<slug>.toml`
 - Skips `.git`, `node_modules`, `.idea`, and other irrelevant directories automatically
 
 ---
@@ -232,11 +233,13 @@ setting does not change the global config.
 
 | Key | Action |
 | ----- | -------- |
-| `n` | New host |
+| `n` | New host. In the project section, choose a new connection or a link to a server |
+| `l` | Link a global server, or a host of another project, to the open project |
 | `e` / `Enter` | Edit host |
 | `c` | Duplicate host into a pre-filled form with a free name |
 | `d` | Delete host |
 | `t` | Test connection |
+| `r` | Reset certificate trust of an FTPS host |
 | `q` / `Esc` | Back |
 
 ### Mouse
@@ -317,6 +320,10 @@ only holds the most recent bulk sync.
 
 ### Global config: `~/.config/drift/config.toml`
 
+Global hosts are servers. A project does not see them until one of its hosts links
+to one (see [Sharing a server between projects](#sharing-a-server-between-projects)).
+Without an open project, drift offers the global hosts directly.
+
 ```toml
 [defaults]
 user = "deploy"
@@ -367,6 +374,39 @@ remote = "html"
 The file holds credentials verbatim, so it is mode `600` in a `700` directory. Use
 `$ENV_VAR` for a password or passphrase if you would rather keep the secret in your shell
 environment or a password manager; drift expands it at connect time.
+
+### Sharing a server between projects
+
+When several projects deploy to the same machine, keep the connection once as a
+global server and let each project link to it. A link names the server and adds
+only what differs per project:
+
+```toml
+# ~/.config/drift/projects/shop-b.toml
+[[hosts]]
+name      = "prod"
+server    = "kunde-x"          # a host in ~/.config/drift/config.toml
+root_path = "/var/www/shop-b"
+
+  [[hosts.mappings]]
+  local  = "public"
+  remote = "htdocs"
+```
+
+Hostname, port, user, auth, protocol and keep-alive come from the server; a link
+that sets any of them is rejected. A changed password therefore needs one edit, and
+every linked project uses it on its next connection. `root_path` and `mappings` stay
+with the link, and the server's own mappings are not inherited.
+
+In the host manager, press `l` (or `n` in the project section, then `l`) and pick a
+server. The list also shows the hosts of your other projects. Picking one of those
+turns it into a global server after you confirm, and its project keeps using it
+through a link. When you save a new or edited project host whose hostname, port,
+user and protocol match a server or another project's host, drift offers to link
+that one instead of saving a second copy of the connection.
+
+A server that projects still link cannot be deleted or renamed; the error names
+those projects.
 
 ### Keep-alive
 
@@ -440,7 +480,7 @@ add to `.gitignore` and nothing to commit by accident:
 
 | File | Holds |
 | --- | --- |
-| `~/.config/drift/config.toml` | global hosts, `[ui]` |
+| `~/.config/drift/config.toml` | global servers, `[ui]` |
 | `~/.config/drift/projects.toml` | the registry: slug, name, path, timestamps |
 | `~/.config/drift/projects/<slug>.toml` | one project's hosts and mappings, mode `600` |
 | `~/.config/drift/trusted-certificates.toml` | persistent FTPS certificate exceptions, mode `600` |

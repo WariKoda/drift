@@ -44,6 +44,10 @@ func TestRunAppliesEachDecision(t *testing.T) {
 	server := ftptest.Start(t, 1)
 	server.AddFile("/pulled", "remote content")
 	server.AddFile("/stale", "old")
+	// Refuse the staged upload of "pushed" to get a protocol failure reply.
+	server.SetDenyCommand(func(command, argument string) bool {
+		return command == "STOR" && strings.Contains(argument, ".pushed.")
+	})
 	conn := connect(t, server.Host(t))
 	dir, root := openRoot(t)
 	obsolete := filepath.Join(dir, "obsolete")
@@ -58,7 +62,6 @@ func TestRunAppliesEachDecision(t *testing.T) {
 		{LocalPath: filepath.Join(dir, "stale"), RemotePath: "/stale", Decision: DecisionDeleteRemote},
 		{LocalPath: obsolete, RemotePath: "/obsolete", Decision: DecisionDeleteLocal},
 		{LocalPath: filepath.Join(dir, "skipped"), RemotePath: "/skipped", Decision: DecisionNone},
-		// The test server has no STOR, so the upload fails with a protocol reply.
 		{LocalPath: pushed, RemotePath: "/pushed", Decision: DecisionUpload},
 	}
 	tracker := progress.NewTracker("Syncing files…")

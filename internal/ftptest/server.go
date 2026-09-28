@@ -4,8 +4,15 @@ package ftptest
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"path"
 	"sort"
@@ -13,17 +20,20 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/WariKoda/drift/internal/config"
 )
 
 // Server is a real FTP server covering the commands drift sends during a
-// comparison or sync: the login handshake plus SIZE, LIST, RETR and DELE. It serves at most maxSessions logins
+// comparison or sync: the login handshake, optional explicit TLS, SIZE,
+// LIST, RETR, STOR, rename and DELE. It serves at most maxSessions logins
 // and answers every further connection with 421, emulating a server that limits
 // sessions per user.
 type Server struct {
 	listener    net.Listener
 	maxSessions int
+	tlsConfig   *tls.Config // non-nil for explicit-TLS FTPS
 
 	mu          sync.Mutex
 	files       map[string]string
@@ -36,8 +46,21 @@ type Server struct {
 	wg          sync.WaitGroup
 }
 
-// Start runs a server until the test ends.
+// Start runs a plain FTP server until the test ends.
 func Start(t testing.TB, maxSessions int) *Server {
+	t.Helper()
+	return start(t, maxSessions, nil)
+}
+
+// StartTLS runs an explicit-TLS FTPS server with a fresh self-signed
+// certificate for 127.0.0.1, so clients must trust it explicitly. Control and
+// data connections are protected once the client sends AUTH TLS and PROT P.
+func StartTLS(t testing.TB, maxSessions int) *Server {
+	t.Helper()
+	return start(t, maxSessions, &tls.Config{Certificates: []tls.Certificate{selfSignedCertificate(t)}})
+}
+
+func start(t testing.TB, maxSessions int, tlsConfig *tls.Config) *Server {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -46,6 +69,7 @@ func Start(t testing.TB, maxSessions int) *Server {
 	server := &Server{
 		listener:    listener,
 		maxSessions: maxSessions,
+		tlsConfig:   tlsConfig,
 		files:       map[string]string{},
 	}
 	server.wg.Add(1)
@@ -58,6 +82,28 @@ func Start(t testing.TB, maxSessions int) *Server {
 		server.wg.Wait()
 	})
 	return server
+}
+
+func selfSignedCertificate(t testing.TB) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "ftptest"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
 // SetDropCommand installs a filter; returning true drops the control
@@ -116,8 +162,22 @@ func (s *Server) Host(t testing.TB) config.Host {
 		Port:     port,
 		User:     "drift",
 		Auth:     config.Auth{Password: "secret"},
-		Protocol: "ftp",
+		Protocol: s.protocol(),
 	}
+}
+
+func (s *Server) protocol() string {
+	if s.tlsConfig != nil {
+		return "ftps"
+	}
+	return "ftp"
+}
+
+// AcceptedSessions counts logins admitted within the session limit.
+func (s *Server) AcceptedSessions() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.accepted
 }
 
 // RejectedSessions counts logins refused because of the session limit.
@@ -186,6 +246,20 @@ func (s *Server) serve(conn net.Conn) {
 	}
 
 	var dataListener net.Listener
+	protected := false // PROT P: data connections use TLS
+	renameFrom := ""
+	acceptData := func() (net.Conn, error) {
+		data, err := dataListener.Accept()
+		if err != nil || !protected {
+			return data, err
+		}
+		secured := tls.Server(data, s.tlsConfig)
+		if err := secured.Handshake(); err != nil {
+			_ = data.Close()
+			return nil, err
+		}
+		return secured, nil
+	}
 	defer func() {
 		if dataListener != nil {
 			_ = dataListener.Close()
@@ -214,6 +288,74 @@ func (s *Server) serve(conn net.Conn) {
 			continue
 		}
 		switch command {
+		case "AUTH":
+			if s.tlsConfig == nil || strings.ToUpper(argument) != "TLS" {
+				err = reply("502 TLS not available")
+				break
+			}
+			if err = reply("234 continue with TLS"); err != nil {
+				break
+			}
+			secured := tls.Server(conn, s.tlsConfig)
+			if err = secured.Handshake(); err != nil {
+				break
+			}
+			conn = secured
+			reader = bufio.NewReader(conn)
+			writer = bufio.NewWriter(conn)
+		case "PBSZ":
+			err = reply("200 PBSZ=0")
+		case "PROT":
+			protected = strings.ToUpper(argument) == "P"
+			err = reply("200 protection level set")
+		case "MKD":
+			err = reply("257 created")
+		case "RNFR":
+			if _, ok := s.File(argument); !ok {
+				err = reply("550 file not found")
+				break
+			}
+			renameFrom = path.Clean(argument)
+			err = reply("350 ready for RNTO")
+		case "RNTO":
+			s.mu.Lock()
+			content, ok := s.files[renameFrom]
+			if ok {
+				delete(s.files, renameFrom)
+				s.files[path.Clean(argument)] = content
+			}
+			s.mu.Unlock()
+			renameFrom = ""
+			if ok {
+				err = reply("250 renamed")
+			} else {
+				err = reply("503 RNFR first")
+			}
+		case "STOR":
+			if dataListener == nil {
+				err = reply("425 use EPSV first")
+				break
+			}
+			var data net.Conn
+			if data, err = acceptData(); err != nil {
+				break
+			}
+			if err = reply("150 opening data connection"); err == nil {
+				var received strings.Builder
+				_, err = io.Copy(&received, data)
+				if err == nil {
+					s.AddFile(argument, received.String())
+				}
+			}
+			closeErr := data.Close()
+			if err == nil {
+				err = closeErr
+			}
+			if err == nil {
+				err = reply("226 transfer complete")
+			}
+			_ = dataListener.Close()
+			dataListener = nil
 		case "USER":
 			err = reply("331 password required")
 		case "PASS":
@@ -291,7 +433,7 @@ func (s *Server) serve(conn net.Conn) {
 				break
 			}
 			var data net.Conn
-			data, err = dataListener.Accept()
+			data, err = acceptData()
 			if err != nil {
 				break
 			}

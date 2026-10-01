@@ -1,5 +1,6 @@
 //! Application state independent of GPUI and transport implementations.
 pub mod browser;
+pub mod navigation;
 
 /// Selection uses the displayed row's stable path, independent of filtering.
 pub struct FileList {
@@ -46,6 +47,10 @@ impl FileList {
     }
     pub fn selected(&self) -> Option<&str> {
         self.selected.map(|i| self.entries[i].as_str())
+    }
+    pub fn selected_row(&self) -> Option<usize> {
+        self.selected
+            .and_then(|selected| self.visible.iter().position(|i| *i == selected))
     }
 }
 

@@ -50,6 +50,18 @@ pub struct Location {
     pub slug: Option<String>,
     pub config: RuntimeConfig,
 }
+impl Location {
+    pub fn parent_directory(&self) -> Option<PathBuf> {
+        let directory = self.directory.components().collect::<PathBuf>();
+        let parent = directory.parent()?;
+        if self.slug.is_some()
+            && (directory == self.root.base() || !parent.starts_with(self.root.base()))
+        {
+            return None;
+        }
+        Some(parent.into())
+    }
+}
 pub struct Directory {
     pub location: Location,
     pub entries: Vec<Entry>,

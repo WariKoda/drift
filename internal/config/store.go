@@ -91,7 +91,12 @@ func writeProjectStore(slug string, cfg ProjectConfig) error {
 // RemoveProjectStore hides a project's settings, runs commit, and removes the
 // settings only after commit succeeds. A failed commit renames the store back,
 // so the registry cannot free a slug while its credentials remain loadable.
-func RemoveProjectStore(slug string, commit func() error) error {
+func RemoveProjectStore(slug string, commit func(*WriteLock) error) error {
+	return WithWriteLock(func(lock *WriteLock) error {
+		return removeProjectStore(slug, func() error { return commit(lock) })
+	})
+}
+func removeProjectStore(slug string, commit func() error) error {
 	path, err := projectStorePath(slug)
 	if err != nil {
 		return err

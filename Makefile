@@ -33,4 +33,4 @@ rust-install:
 	cd rust && cargo install --locked --path crates/drift-gui
 
 rust-run:
-	cd rust && cargo run --locked -p drift-gui
+	cd rust && cargo run --locked -p drift-gui -- "$(CURDIR)"

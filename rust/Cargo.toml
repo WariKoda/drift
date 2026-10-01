@@ -15,6 +15,16 @@ drift-app = { path = "crates/drift-app" }
 gpui-kit = "=0.7.0"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+cap-std = "4"
+fs2 = "0.4"
+thiserror = "2"
+getrandom = "0.4"
+nix = "0.31"
+tempfile = "3"
+libc = "0.2"
+chrono = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

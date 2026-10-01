@@ -1,8 +1,7 @@
 //! Application state independent of GPUI and transport implementations.
-use drift_core::staging::is_staging_name;
+pub mod browser;
 
-/// Filtered row identities remain stable as a query changes. Hard exclusions
-/// cannot be made visible by searching for their names.
+/// Selection uses the displayed row's stable path, independent of filtering.
 pub struct FileList {
     entries: Vec<String>,
     visible: Vec<usize>,
@@ -12,7 +11,7 @@ impl FileList {
     pub fn new(entries: Vec<String>) -> Self {
         let entries: Vec<_> = entries
             .into_iter()
-            .filter(|name| !is_staging_name(name))
+            .filter(|p| !browser::hard_excluded(std::path::Path::new(p), false))
             .collect();
         let visible = (0..entries.len()).collect();
         Self {
@@ -27,9 +26,9 @@ impl FileList {
             .entries
             .iter()
             .enumerate()
-            .filter_map(|(index, name)| name.to_lowercase().contains(&query).then_some(index))
+            .filter_map(|(i, name)| name.to_lowercase().contains(&query).then_some(i))
             .collect();
-        if self.selected.is_some_and(|id| !self.visible.contains(&id)) {
+        if self.selected.is_some_and(|i| !self.visible.contains(&i)) {
             self.selected = None;
         }
     }
@@ -40,13 +39,13 @@ impl FileList {
         self.visible.is_empty()
     }
     pub fn row(&self, index: usize) -> Option<&str> {
-        self.visible.get(index).map(|id| self.entries[*id].as_str())
+        self.visible.get(index).map(|i| self.entries[*i].as_str())
     }
     pub fn select(&mut self, index: usize) {
         self.selected = self.visible.get(index).copied();
     }
     pub fn selected(&self) -> Option<&str> {
-        self.selected.map(|id| self.entries[id].as_str())
+        self.selected.map(|i| self.entries[i].as_str())
     }
 }
 

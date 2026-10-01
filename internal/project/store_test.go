@@ -75,3 +75,56 @@ func TestStorePathUsesConfigDir(t *testing.T) {
 		t.Fatalf("Path() = %q, want %q", got, want)
 	}
 }
+
+func TestConcurrentRegistryChangesMergeDifferentRecordsAndConflictOnSameRecord(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	store := NewStore()
+	initial := &Registry{Projects: []Project{{Slug: "a", Name: "A", Path: "/work/a"}, {Slug: "b", Name: "B", Path: "/work/b"}}}
+	if err := store.Save(initial); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Find("a").Name = "A edited"
+	second.Find("b").Name = "B edited"
+	if err := store.Save(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(second); err != nil {
+		t.Fatal(err)
+	}
+	if second.Find("a").Name != "A edited" || second.Find("b").Name != "B edited" {
+		t.Fatal("unrelated changes lost")
+	}
+	first.Find("b").Name = "stale edit"
+	if err := store.Save(first); err == nil {
+		t.Fatal("stale record overwritten")
+	}
+}
+
+func TestRegistrySaveComparesPersistedTimestampInstants(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	store := NewStore()
+	date := time.Now() // includes process-local monotonic metadata
+	reg := &Registry{Projects: []Project{{Slug: "clock", Name: "Clock", Path: t.TempDir(), CreatedAt: date, UpdatedAt: date}}}
+	if err := store.Save(reg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reg.Projects[0].Equal(loaded.Projects[0]) {
+		t.Fatal("persistence changed the timestamp instant")
+	}
+	reg.Find("clock").Name = "Clock edited"
+	if err := store.Save(reg); err != nil {
+		t.Fatalf("monotonic clock metadata caused a false conflict: %v", err)
+	}
+}

@@ -148,7 +148,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
-| 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | Offen |
+| 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive vorhanden; FTPS/TLS/Trust offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
 
@@ -206,6 +206,23 @@ für POSIX Rename einen optionalen zweiten SFTP-Kanal derselben SSH-Verbindung.
 Bei dessen Ablehnung bleibt Standard-Rename verfügbar; Server ohne geeigneten
 Zielersatz melden einen Fehler und behalten das bisherige Ziel. Diese Servergrenze
 ist vor vollständiger Protokollparität noch aufzulösen.
+
+Der FTP-Durchstich verwendet `suppaftp = 12.1.0` mit Tokio und dieselben
+Remote-/Vergleichs-/Sync-Services wie SFTP. Eine Session besitzt höchstens vier
+Verbindungen; zusätzliche abgelehnte Logins reduzieren den Pool. Eine Verbindung
+bleibt über Datenstrom und Abschlussantwort reserviert. Unfertig verworfene
+Operationen schließen die Session; mehrdeutige Transferantworten werden nicht
+wiederholt. Keep-alive überspringt belegte Verbindungen, Shutdown unterbricht auch
+laufende Kontroll- und Daten-I/O. EPSV/PASV sowie MLST/SIZE/MDTM/LIST-Fallbacks sind
+gegen einen echten lokalen, dateisystemgestützten FTP-Server geprüft. `550` wird
+nur durch eine erfolgreiche Eltern-/Vorfahrenliste als fehlend eingeordnet.
+Vergleich und alle Sync-Aktionen sind gegen Go geprüft; Fehler beim Datenkanal-
+Abschluss und Ziel-Rename erhalten alte Inhalte und sperren bei Verlust weitere
+Aktionen. GUI-Tests führen Connect, Vorschau, Vergleich, Sync, Refresh und
+Projektwechsel mit echten FTP-Verbindungen aus. Remote-FTP-Dateirechte entsprechen
+der vom Server angelegten Staging-Datei wie in Go; lokale Downloads erhalten Rechte.
+Explizites FTPS mit Rustls/TLS 1.2, Challenges, Zertifikatsspeicher und
+Vertrauensdialog bleibt der nächste eigenständige Protokollschritt.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

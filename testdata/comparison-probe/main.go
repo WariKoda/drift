@@ -43,7 +43,11 @@ func run() error {
 		return err
 	}
 	zero := 0
-	host := config.Host{Name: "test", Hostname: "127.0.0.1", Port: port, User: "testuser", RootPath: os.Args[2], Protocol: "sftp", Auth: config.Auth{Type: "password", Password: "test-password"}, Mappings: input.Mappings, KeepAliveInterval: &zero}
+	protocol := "sftp"
+	if len(os.Args) > 4 {
+		protocol = os.Args[4]
+	}
+	host := config.Host{Name: "test", Hostname: "127.0.0.1", Port: port, User: "testuser", RootPath: os.Args[2], Protocol: protocol, Auth: config.Auth{Type: "password", Password: "test-password"}, Mappings: input.Mappings, KeepAliveInterval: &zero}
 	local, remote := fs.NewSelectionState(), fs.NewSelectionState()
 	for _, p := range input.Local {
 		local.Marked[p] = struct{}{}

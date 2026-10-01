@@ -77,6 +77,9 @@ pub async fn connect(
         "" | "sftp" => Ok(std::sync::Arc::new(
             crate::sftp::connect(host, options, cancel).await?,
         )),
+        "ftp" => Ok(std::sync::Arc::new(
+            crate::ftp::connect(host, options, cancel).await?,
+        )),
         protocol => Err(Error::Invalid(format!(
             "{protocol} connections are not implemented yet"
         ))),

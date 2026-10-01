@@ -66,6 +66,13 @@ go env -w GOBIN="$HOME/.local/bin"
 make update
 ```
 
+### Rust desktop port (in development)
+
+The native `drift-gui` port lives in [`rust/`](rust/README.md) alongside the TUI.
+Its first foundation currently displays a filterable, virtualized test list;
+project management and remote sync are not implemented yet. See the Rust README
+for platform dependencies, build targets and the remaining milestones.
+
 ---
 
 ## Usage

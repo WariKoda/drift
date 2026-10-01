@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -25,6 +26,19 @@ func main() {
 	}
 }
 func run() error {
+	// macOS uses its keychain verifier and ignores SSL_CERT_FILE. This test-only
+	// process uses the fixture CA explicitly, with the pure Go verifier on every OS.
+	if path := os.Getenv("DRIFT_TEST_CA"); path != "" {
+		pem, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(pem) {
+			return fmt.Errorf("test CA contains no certificates")
+		}
+		x509.SetFallbackRoots(roots)
+	}
 	var input struct {
 		Local          []string          `json:"local"`
 		Remote         []string          `json:"remote"`

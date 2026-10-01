@@ -8,8 +8,8 @@ a local browser with directory navigation, filtering, a project-wide finder and 
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
 projects or registers the current folder. Hosts manages project targets and global
 servers with forms, duplication, deletion, server links and mappings.
-SFTP and FTP browsing, preview, comparison with a unified diff and serial sync are implemented.
-Explicit FTPS and certificate trust challenges remain pending.
+SFTP, FTP and explicit FTPS browsing, preview, unified comparison and serial sync
+are implemented. FTPS certificate challenges offer session or permanent trust.
 
 ## Standalone applications
 
@@ -69,7 +69,7 @@ displayed folder. Closing Projects keeps the browser session and restores focus.
 Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
-Use **Remote** in the toolbar, then **Connect <host>**, to open an SFTP or FTP target
+Use **Remote** in the toolbar, then **Connect <host>**, to open an SFTP, FTP or FTPS target
 beside the local browser. Each side keeps its own path, filter, selection, history,
 scroll and focus. Remote Back/Forward/Up and the browser keys navigate within the
 configured host root. Remote text preview opens in the left pane; **Local files**
@@ -145,8 +145,7 @@ while Hosts is open. Project changes, changed host configuration and window clos
 cancel/close remote resources. Explicitly cancelling active remote I/O closes that
 connection; reconnect is explicit. Replacing a preview lets its bounded read finish
 and close the file handle, discards the old result, then reads the latest selection.
-Only one preview reads at a time per session, with a 15-second deadline. FTPS targets currently show
-an unsupported-connection error.
+Only one preview reads at a time per session, with a 15-second deadline.
 
 FTP uses native [SuppaFTP](https://docs.rs/suppaftp/12.1.0/suppaftp/) with Tokio.
 A session owns at most four control connections; refused extra logins reduce the
@@ -161,6 +160,26 @@ operations invalidates the session rather than reusing an ambiguous control repl
 FTP uploads stage next to the destination and rename only after source close and
 successful transfer completion. FTP remote replacement keeps the server's staging
 file permissions, matching the Go transport; local downloads preserve target modes.
+
+Explicit FTPS uses Rustls with TLS 1.2 and native certificate roots. Certificate
+failures return an asynchronous challenge before any credentials are sent. The
+separate prompt shows the endpoint, SHA-256 fingerprint, subject, issuer, names,
+validity and verification problems; choose **Reject**, **Trust for this session**
+or **Trust permanently**. An exception applies only to that endpoint, fingerprint
+and exact problem set. Signatures, key usage and chain constraints remain mandatory.
+Permanent entries use the Go-compatible `trusted-certificates.toml` with mode 600,
+atomic writes and the shared transaction lock. A changed record keeps the dialog
+open with a conflict; failed writes grant no session fallback.
+
+The first connection after approval requires the inspected certificate. Every
+additional control connection and protected data handshake is pinned to the
+primary certificate, including certificates otherwise signed by a trusted CA.
+TLS session resumption is disabled so those checks are never bypassed. A data
+certificate change invalidates the session and opens a new prompt. Approval
+connects the browser again; interrupted comparisons and transfers require an
+explicit new comparison and are never repeated automatically. The small Rustls
+stream adapter defers data handshakes until first I/O, so a real preliminary `550`
+can be classified without waiting for a data channel the server will not open.
 
 Hosts opens a separate management view and keeps the browser session. Project
 hosts and global servers have separate lists; links use an existing global server
@@ -219,7 +238,9 @@ and `actions.rs` defines key bindings. `remote.rs` owns the remote pane and its
 connection/listing identities. `comparison.rs` and `comparison/view.rs` own the
 comparison lifetime and file list; `diff.rs` owns immutable-data rendering,
 direction, folds, source anchors, line selection and scroll state. Shell comparison
-entry routing lives separately in `shell/comparison.rs`.
+entry routing lives separately in `shell/comparison.rs`. Certificate presentation
+lives in `certificates.rs`; `shell/certificates.rs` coordinates background trust
+writes and identity-checked connection retries.
 
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
@@ -231,8 +252,13 @@ history and cancellation; preview tests verify replacement and clipboard content
 FTP tests start a filesystem-backed local daemon from `../testdata/ftp-server/`
 and cover login limits, EPSV/MLST fallback, ambiguous permission failures, busy
 keep-alive, completion errors after EOF, staged upload/download/delete, abort and
-Go comparison/sync parity. A headless GUI test connects, previews, syncs, refreshes
-and changes projects over real FTP.
+Go comparison/sync parity. The same application and GUI scenarios also run over real FTPS. Additional TLS
+tests cover self-signed certificates, unknown CAs, expired/future certificates, name mismatch, invalid usage
+and signatures, exact exceptions, retry/data-channel pins, permanent trust reload
+and conflicts. GUI tests exercise rejection, session/permanent trust, a data
+certificate change, retained sync outcomes/focus after approval and project
+switches while a prompt is open. Temporary Go build caches are released once each
+test daemon/probe has been built.
 SSH/SFTP tests start a real Go daemon from `../testdata/sftp-server/` against
 isolated temporary trees and use real OpenSSH keys/agents. Go, `ssh-keygen`,
 `ssh-agent` and `ssh-add` are required for `cargo test`. Comparison parity tests run
@@ -268,11 +294,11 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 ## Remaining port work
 
 Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
-and dashboard/startup restoration, GUI preferences and full certificate-store
-roundtrip coverage remain. SFTP transport/browser and comparison/unified diff are
+and dashboard/startup restoration, GUI preferences and certificate reset/host
+management controls remain. SFTP transport/browser and comparison/unified diff are
 available, including serial upload/download/delete sync. FTP now uses these same
-workflows. FTPS, certificate
-challenges, complete CLI and keyboard/selection parity, packaging and native
+workflows, including FTPS and certificate challenges. Complete CLI and
+keyboard/selection parity, packaging and native
 release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

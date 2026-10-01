@@ -150,12 +150,21 @@ async fn selected_sync_deletion_errors_and_cancel_are_visible_without_reusing_a_
         !shell.read(cx).comparison.read(cx).is_loading()
     })
     .await;
+    // Keep the real transfer active until Cancel has been delivered and a new
+    // frame has rendered. A fast server could previously finish between clicks.
+    fs::write(server.dir.path().join("slow-data"), "").unwrap();
     cx.update_window(handle, |_, w, cx| {
         w.click("sync-all", cx);
         w.click("sync-confirm", cx);
-        w.click("comparison-back", cx);
     })
     .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        shell.read(cx).comparison.read(cx).is_loading()
+            && server.dir.path().join("write-started").exists()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| w.click("comparison-back", cx))
+        .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
         !shell.read(cx).comparison.read(cx).is_loading()
             && !shell.read(cx).remote.read(cx).has_session()

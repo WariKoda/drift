@@ -164,6 +164,13 @@ func TestGoCannotWriteWhileRustHoldsFlock(t *testing.T) {
 	if err := config.SaveGlobalHost(cfg, config.Host{Name: "blocked"}, ""); !errors.Is(err, config.ErrWriteBusy) {
 		t.Fatalf("Go wrote through Rust lock: %v", err)
 	}
+	certificate := config.TrustedCertificate{Protocol: "ftps", Hostname: "locked.example", Port: 21, Fingerprint: strings.TrimSuffix(strings.Repeat("AB:", 32), ":"), Problems: []string{"unknown_authority"}, TrustedAt: time.Now().UTC()}
+	if err := config.SaveTrustedCertificate(certificate); !errors.Is(err, config.ErrWriteBusy) {
+		t.Fatalf("Go trust save wrote through Rust lock: %v", err)
+	}
+	if err := config.DeleteTrustedCertificate("ftps", "locked.example", 21); !errors.Is(err, config.ErrWriteBusy) {
+		t.Fatalf("Go trust delete wrote through Rust lock: %v", err)
+	}
 	if _, err := input.Write([]byte("x")); err != nil {
 		t.Fatal(err)
 	}
@@ -172,5 +179,59 @@ func TestGoCannotWriteWhileRustHoldsFlock(t *testing.T) {
 	}
 	if err := config.SaveGlobalHost(cfg, config.Host{Name: "allowed"}, ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCertificateTrustRoundtripAndSharedFlock(t *testing.T) {
+	binary := probe(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	date := time.Date(2026, 1, 2, 3, 4, 5, 123456789, time.FixedZone("test", 3600))
+	original := config.TrustedCertificate{Protocol: "ftps", Hostname: "go.example", Port: 2121, Fingerprint: strings.TrimSuffix(strings.Repeat("CD:", 32), ":"), Problems: []string{"expired", "unknown_authority"}, TrustedAt: date}
+	if err := config.SaveTrustedCertificate(original); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command(binary, config.Dir(), "roundtrip").CombinedOutput(); err != nil {
+		t.Fatalf("Go→Rust trust: %v %s", err, output)
+	}
+	entries, err := config.LoadTrustedCertificates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Fingerprint != original.Fingerprint || !entries[0].TrustedAt.Equal(date) || strings.Join(entries[0].Problems, ",") != strings.Join(original.Problems, ",") {
+		t.Fatalf("trust record changed: %+v", entries)
+	}
+	lock, err := config.LockWrites()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, writeErr := exec.Command(binary, config.Dir(), "trust", "rust.example").CombinedOutput()
+	if err = lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if writeErr == nil || !strings.Contains(string(output), "another drift process") {
+		t.Fatalf("Rust wrote trust through Go lock: %v %s", writeErr, output)
+	}
+	if output, err = exec.Command(binary, config.Dir(), "trust", "rust.example").CombinedOutput(); err != nil {
+		t.Fatalf("Rust→Go trust: %v %s", err, output)
+	}
+	entries, err = config.LoadTrustedCertificates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[1].Hostname != "rust.example" || len(entries[1].Problems) != 2 {
+		t.Fatalf("lost concurrent endpoint: %+v", entries)
+	}
+	if err = config.SaveTrustedCertificate(entries[1]); err != nil {
+		t.Fatal(err)
+	}
+	if output, err = exec.Command(binary, config.Dir(), "roundtrip").CombinedOutput(); err != nil {
+		t.Fatalf("Rust→Go→Rust trust: %v %s", err, output)
+	}
+	info, err := os.Stat(filepath.Join(config.Dir(), "trusted-certificates.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("trust permissions: %v", info.Mode())
 	}
 }

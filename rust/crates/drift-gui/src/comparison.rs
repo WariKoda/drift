@@ -17,7 +17,7 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
 };
 use gpui_kit::{
-    AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
     Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
 };
@@ -61,6 +61,11 @@ pub struct ComparisonPane {
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     _subscription: Subscription,
+}
+impl Focusable for ComparisonPane {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
 }
 impl Drop for ComparisonPane {
     fn drop(&mut self) {

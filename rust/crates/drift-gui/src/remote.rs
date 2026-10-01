@@ -8,7 +8,9 @@ use drift_app::{
 };
 use drift_core::{
     config::Host,
+    error::Error,
     remote::{ConnectionState, RemoteEntry},
+    tlstrust::Challenge,
 };
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
@@ -42,6 +44,11 @@ pub enum RemoteEvent {
         path: String,
         project: u64,
     },
+    Certificate {
+        project: u64,
+        connection: u64,
+        challenge: Box<Challenge>,
+    },
     ShowLocalPreview,
 }
 impl EventEmitter<RemoteEvent> for RemotePane {}
@@ -59,6 +66,7 @@ pub struct RemotePane {
     operation: u64,
     hosts: Vec<Host>,
     target: Option<Host>,
+    pending: Option<Challenge>,
     session: Option<RemoteSession>,
     listing: Option<CancellationToken>,
     observer: Option<CancellationToken>,
@@ -108,6 +116,7 @@ impl RemotePane {
             operation: 0,
             hosts: vec![],
             target: None,
+            pending: None,
             session: None,
             listing: None,
             observer: None,
@@ -189,6 +198,7 @@ impl RemotePane {
             self.service.close(session);
         }
         self.target = None;
+        self.pending = None;
         self.path.clear();
         self.entries.clear();
         self.files = FileList::new(vec![]);
@@ -201,6 +211,15 @@ impl RemotePane {
         self.status("Remote operation cancelled; connection closed".into(), cx);
     }
     fn connect(&mut self, host: Host, window: &mut Window, cx: &mut Context<Self>) {
+        self.connect_required(host, None, window, cx);
+    }
+    fn connect_required(
+        &mut self,
+        host: Host,
+        required: Option<Challenge>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.disconnect(cx);
         self.focus.focus(window, cx);
         self.target = Some(host.clone());
@@ -209,7 +228,7 @@ impl RemotePane {
             project: self.project,
             operation: self.operation,
         };
-        let operation = self.service.connect(host.clone(), id);
+        let operation = self.service.connect_required(host.clone(), required, id);
         self.listing = Some(operation.cancel);
         self.navigation = Navigation::Reset;
         self.status(format!("Connecting to {}…", host.name), cx);
@@ -228,6 +247,7 @@ impl RemotePane {
                         this.apply(directory, window, cx);
                         this.observe(connection, window, cx);
                     }
+                    Ok(Err(Error::Certificate { challenge, .. })) => this.challenge(*challenge, cx),
                     Ok(Err(error)) => this.status(error.to_string(), cx),
                     Err(error) => this.status(format!("Remote task failed: {error}"), cx),
                 }
@@ -236,6 +256,41 @@ impl RemotePane {
         })
         .detach();
         cx.notify();
+    }
+    fn challenge(&mut self, challenge: Challenge, cx: &mut Context<Self>) {
+        self.status(challenge.to_string(), cx);
+        self.pending = Some(challenge.clone());
+        cx.emit(RemoteEvent::Certificate {
+            project: self.project,
+            connection: self.connection,
+            challenge: Box::new(challenge),
+        });
+    }
+    pub fn retry_certificate(
+        &mut self,
+        project: u64,
+        connection: u64,
+        challenge: Challenge,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.project != project
+            || self.connection != connection
+            || self.pending.as_ref() != Some(&challenge)
+        {
+            return;
+        }
+        if let Some(host) = self.target.clone() {
+            self.connect_required(host, Some(challenge), window, cx);
+        }
+    }
+    pub fn trust_certificate(
+        &self,
+        challenge: Challenge,
+        permanent: bool,
+        id: OperationId,
+    ) -> drift_app::browser::Operation<()> {
+        self.service.trust_certificate(challenge, permanent, id)
     }
     fn observe(&mut self, connection: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(session) = self.session.clone() else {
@@ -254,6 +309,13 @@ impl RemotePane {
             let result = operation.task.await;
             let _ = this.update_in(cx, |this, _, cx| {
                 if this.connection != connection || this.project != project {
+                    return;
+                }
+                if let Ok(Ok(ConnectionState::Certificate(challenge))) = &result {
+                    let host = this.target.clone();
+                    this.disconnect(cx);
+                    this.target = host;
+                    this.challenge(*challenge.clone(), cx);
                     return;
                 }
                 let message = match result {

@@ -2,6 +2,7 @@ use crate::{
     config::{Defaults, GlobalConfig, Host, ProjectConfig, RuntimeConfig, project_store_path},
     error::{Error, Result},
     project::{Project, Registry, now},
+    tlstrust::TrustedCertificate,
 };
 use fs2::FileExt;
 use serde::{Serialize, de::DeserializeOwned};
@@ -23,12 +24,58 @@ pub struct HostCatalog {
     pub defaults: Defaults,
     pub runtime: RuntimeConfig,
 }
+#[derive(Default, serde::Deserialize, Serialize)]
+struct CertificateFile {
+    #[serde(default)]
+    certificates: Vec<TrustedCertificate>,
+}
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
         Self { dir }
     }
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+    pub fn trusted_certificates(&self) -> Result<Vec<TrustedCertificate>> {
+        let file: CertificateFile = self.read(&self.dir.join("trusted-certificates.toml"))?;
+        let mut endpoints = std::collections::BTreeSet::new();
+        for entry in &file.certificates {
+            entry.validate()?;
+            if !endpoints.insert(entry.endpoint()) {
+                return Err(Error::Invalid(
+                    "duplicate trusted certificate endpoint".into(),
+                ));
+            }
+        }
+        Ok(file.certificates)
+    }
+    pub fn save_trusted_certificate(
+        &self,
+        expected: Option<&TrustedCertificate>,
+        desired: TrustedCertificate,
+    ) -> Result<()> {
+        self.with_lock(|| {
+            desired.validate()?;
+            let mut certificates = self.trusted_certificates()?;
+            let endpoint = desired.endpoint();
+            if certificates
+                .iter()
+                .find(|entry| entry.endpoint() == endpoint)
+                != expected
+            {
+                return Err(Error::Conflict(format!(
+                    "certificate trust for {}",
+                    endpoint.address()
+                )));
+            }
+            certificates.retain(|entry| entry.endpoint() != endpoint);
+            certificates.push(desired);
+            certificates.sort_by_key(TrustedCertificate::endpoint);
+            self.write(
+                &self.dir.join("trusted-certificates.toml"),
+                &CertificateFile { certificates },
+            )
+        })
     }
     pub fn global(&self) -> Result<GlobalConfig> {
         self.read(&self.dir.join("config.toml"))

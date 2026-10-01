@@ -11,3 +11,5 @@ pub mod store;
 mod ftp;
 pub mod remote;
 mod sftp;
+
+pub mod tlstrust;

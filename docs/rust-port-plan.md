@@ -148,7 +148,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
-| 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive vorhanden; FTPS/TLS/Trust offen |
+| 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
 
@@ -221,8 +221,34 @@ Abschluss und Ziel-Rename erhalten alte Inhalte und sperren bei Verlust weitere
 Aktionen. GUI-Tests führen Connect, Vorschau, Vergleich, Sync, Refresh und
 Projektwechsel mit echten FTP-Verbindungen aus. Remote-FTP-Dateirechte entsprechen
 der vom Server angelegten Staging-Datei wie in Go; lokale Downloads erhalten Rechte.
-Explizites FTPS mit Rustls/TLS 1.2, Challenges, Zertifikatsspeicher und
-Vertrauensdialog bleibt der nächste eigenständige Protokollschritt.
+Explizites FTPS verwendet Rustls/TLS 1.2 mit nativen CA-Roots. Ein Verifikationsfehler
+liefert eine typisierte Challenge; `certificates.rs` zeigt Endpunkt, SHA-256,
+Aussteller, Namen, Gültigkeit und Probleme. `shell/certificates.rs` koordiniert
+Ablehnen, Sitzungsvertrauen und dauerhafte Ausnahmen über Hintergrundaufgaben.
+Ausnahmen gelten exakt für Endpunkt, Fingerabdruck und Problemmenge. Signaturen,
+Key Usage und Kettenbedingungen bleiben verbindlich. Dauerhaftes Vertrauen nutzt
+Go-kompatibles TOML, Modus 600, atomare Writes und dieselbe `write.lock`; bei
+Änderung desselben Eintrags bleibt der Dialog mit einem Konflikt erhalten. Ein
+fehlgeschlagener Write vergibt kein Sitzungsvertrauen.
+
+Der erste Connect nach Bestätigung verlangt das geprüfte Zertifikat. Zusätzliche
+Kontrollverbindungen und sämtliche Datenhandshakes sind an das primäre Zertifikat
+gebunden; TLS-Resumption bleibt deaktiviert. Datenkanal-Zertifikatswechsel schließen
+die Sitzung und erzeugen eine neue Challenge. Bestätigung verbindet den Browser;
+Vergleich und Sync werden niemals automatisch wiederholt. Projekt-/Hostwechsel
+verwerfen überholte Dialoge und Trust-Ergebnisse. Ein kleiner Rustls-Streamadapter
+beginnt Datenhandshakes erst bei I/O, damit eine vorausgehende echte `550`-Antwort
+keinen TLS-Handshake für einen abgewiesenen Transfer blockiert.
+
+Die gemeinsamen FTP-Sync-/Go-Paritätsszenarien laufen ebenfalls über echtes FTPS,
+einschließlich sämtlicher Aktionen, Abbruch, Verlust und Abschlussfehlern. Echte
+TLS-Tests prüfen Unknown CA, Name, Ablauf/noch nicht gültig, ungültige Usage und
+Signaturen, genaue Problemmengen, Pins und permanente Konflikte. GUI-Tests prüfen
+Ablehnen, Sitzung/dauerhaft, Datenzertifikatswechsel und Projektwechsel bei offenem
+Dialog; Prozess-Tests prüfen Trust-TOML in beiden Richtungen und die Schreibsperre.
+Der SFTP-Abbruchtest wartet auf einen tatsächlich gestarteten, gedrosselten Upload,
+bevor er Cancel auslöst. Native Rendering-/Server-Abnahme sowie Trust-Reset in der
+Hostverwaltung gehören weiterhin zu den offenen Paritätsaufgaben.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

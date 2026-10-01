@@ -1,4 +1,4 @@
-use super::{command_value, ftp_error, unsupported};
+use super::{AsyncFtpStream, command_value, ftp_error, unsupported};
 use crate::{
     error::{Error, Result},
     remote::{RemoteEntry, RemoteMetadata},
@@ -7,7 +7,6 @@ use std::{path::Path, time::SystemTime};
 use suppaftp::{
     FtpError,
     list::{File, ListParser},
-    tokio::AsyncFtpStream,
 };
 
 fn parse_listing(lines: Vec<String>) -> Result<Vec<File>> {

@@ -7,12 +7,15 @@ use std::rc::Rc;
 
 pub enum ToolbarEvent {
     Projects,
+    Remote,
+    LocalBrowser,
     Hosts,
     OpenFolder,
     Cancel,
     Browser(BrowserCommand),
 }
 pub struct ToolbarState {
+    pub remote_preview: bool,
     pub has_location: bool,
     pub listing: bool,
     pub cancellable: bool,
@@ -66,6 +69,18 @@ impl RenderOnce for Toolbar {
             .border_color(cx.theme().border)
             .child(div().font_weight(gpui_kit::FontWeight::BOLD).child("drift"))
             .child(self.button("projects", "Projects", false, ToolbarEvent::Projects))
+            .child(self.button(
+                "remote",
+                "Remote",
+                !state.has_location,
+                ToolbarEvent::Remote,
+            ))
+            .child(self.button(
+                "local-browser",
+                "Local files",
+                !state.remote_preview,
+                ToolbarEvent::LocalBrowser,
+            ))
             .child(self.button(
                 "hosts",
                 "Hosts",

@@ -6,3 +6,6 @@ pub mod pathmap;
 pub mod project;
 pub mod staging;
 pub mod store;
+
+pub mod remote;
+mod sftp;

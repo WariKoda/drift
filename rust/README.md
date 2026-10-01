@@ -7,8 +7,9 @@ The Rust desktop application develops alongside the Go TUI. It currently provide
 a local browser with directory navigation, filtering, a project-wide finder and a
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
 projects or registers the current folder. Hosts manages project targets and global
-servers with forms, duplication, deletion, server links and mappings. Remote
-browsing and sync are not yet implemented.
+servers with forms, duplication, deletion, server links and mappings.
+SFTP browsing and preview are implemented. Comparison/sync and FTP/FTPS
+connections remain pending.
 
 ## Standalone applications
 
@@ -68,6 +69,30 @@ displayed folder. Closing Projects keeps the browser session and restores focus.
 Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
+Use **Remote** in the toolbar, then **Connect <host>**, to open an SFTP target
+beside the local browser. Each side keeps its own path, filter, selection, history,
+scroll and focus. Remote Back/Forward/Up and the browser keys navigate within the
+configured host root. Remote text preview opens in the left pane; **Local files**
+restores the local browser. Selecting a local file restores the right preview;
+**Remote** returns to the connected remote tree. **Disconnect** closes it.
+
+SFTP supports password, key file (including passphrase) and SSH-agent authentication.
+Password, passphrase and key path expand environment variables; `~/` expands in
+key paths. Empty auth/key-file settings use `SSH_AUTH_SOCK`. Connect/auth is bounded
+by 15 seconds. Unknown host keys are added to `~/.ssh/known_hosts` following Go's
+TOFU behavior. Hashed entries, OpenSSH patterns, preferred known host-key algorithms
+and revocation are checked; changed keys fail visibly. Host certificates/CA entries
+are currently rejected explicitly and still need parity work.
+
+Keep-alive belongs to the connection: default 60 seconds, zero disables it and
+missing replies time out after 15 seconds. Connection failures are observed even
+while Hosts is open. Project changes, changed host configuration and window closure
+cancel/close remote resources. Explicitly cancelling active remote I/O closes that
+connection; reconnect is explicit. Replacing a preview lets its bounded read finish
+and close the file handle, discards the old result, then reads the latest selection.
+Only one preview reads at a time per session, with a 15-second deadline. FTP/FTPS targets currently show
+an unsupported-connection error.
+
 Hosts opens a separate management view and keeps the browser session. Project
 hosts and global servers have separate lists; links use an existing global server
 and store only their name, server, root path and mappings. Connection forms support
@@ -121,8 +146,8 @@ management through typed child-view events. Each `BrowserPane` in `browser.rs`
 owns its navigation/history, selection, filter, finder, focus, scroll and listing
 cancellation. `preview.rs` owns its editor and separate request lifetime;
 `projects.rs` owns project-panel inputs. `toolbar.rs` renders stateless controls
-and `actions.rs` defines key bindings. Remote browsing and unified diff will gain
-their own views as those features are implemented.
+and `actions.rs` defines key bindings. `remote.rs` owns the remote pane and its
+connection/listing identities. Unified diff will gain its own view.
 
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
@@ -131,6 +156,12 @@ headless test window, including nested navigation, project boundaries, input foc
 failed loads, registration, stale-result rejection and picker/session lifetime.
 Two panes in one headless window verify independent filter, selection, focus,
 history and cancellation; preview tests verify replacement and clipboard content.
+SSH/SFTP tests start a real Go daemon from `../testdata/sftp-server/` against
+isolated temporary trees and use real OpenSSH keys/agents. Go, `ssh-keygen`,
+`ssh-agent` and `ssh-add` are required for `cargo test`; production builds and the
+GUI executable are native Rust. Tests include authentication, hashed/pattern/revoked
+host keys, key changes, agent and keep-alive timeout, connection loss, scope,
+remote navigation and cross-view preview/clipboard. No protocol tests are skipped.
 Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards.
 
@@ -154,9 +185,10 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 
 Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
 and dashboard/startup restoration, GUI preferences and full certificate-store
-roundtrip coverage remain. Later milestones add SFTP, FTP/FTPS, certificate
-challenges, keep-alive, comparisons/unified diff, serial sync, complete CLI and
+roundtrip coverage remain. SFTP transport/browser is available;
+its comparison/unified diff and serial sync remain to be implemented, as do
+FTP/FTPS, certificate challenges, complete CLI and
 keyboard parity, packaging and native release acceptance. Safe atomic-write
-primitives are tested; there is no transfer implementation yet. Blocking local
-filesystem calls already running cannot be interrupted by Tokio; their eventual
+primitives are tested; there is no upload/download/delete sync implementation yet.
+Blocking local filesystem calls already running cannot be interrupted by Tokio; their eventual
 results are discarded after cancellation and concurrency remains bounded.

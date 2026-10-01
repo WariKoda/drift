@@ -23,8 +23,13 @@ nix = "0.31"
 tempfile = "3"
 libc = "0.2"
 chrono = "0.4"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "process", "io-util", "time", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+russh = { version = "=0.63.3", default-features = false, features = ["ring", "rsa"] }
+russh-sftp = "=3.0.1"
+async-trait = "0.1"
+hmac = "0.12"
+sha1 = "0.10"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

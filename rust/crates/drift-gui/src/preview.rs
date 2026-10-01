@@ -27,6 +27,7 @@ pub struct PreviewPane {
     selection: Option<PathBuf>,
     id: OperationId,
     cancel: Option<CancellationToken>,
+    remote: bool,
 }
 impl Drop for PreviewPane {
     fn drop(&mut self) {
@@ -52,6 +53,7 @@ impl PreviewPane {
                 operation: 0,
             },
             cancel: None,
+            remote: false,
         }
     }
     pub fn id(&self) -> OperationId {
@@ -59,6 +61,9 @@ impl PreviewPane {
     }
     pub fn is_loading(&self) -> bool {
         self.cancel.is_some()
+    }
+    pub fn is_loading_remote(&self) -> bool {
+        self.remote && self.is_loading()
     }
     pub fn select(
         &mut self,
@@ -75,10 +80,49 @@ impl PreviewPane {
             cancel.cancel();
         }
         self.title = "Preview".into();
+        self.remote = false;
         self.text.clear();
         self.selection = selection;
         self.editor
             .update(cx, |editor, cx| editor.set_value("", window, cx));
+        cx.notify();
+    }
+    pub fn show_remote(
+        &mut self,
+        session: drift_app::remote::RemoteSession,
+        path: String,
+        project: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select(Some(path.clone().into()), project, window, cx);
+        self.remote = true;
+        self.title = format!("{}: {path}", session.host_name);
+        let id = self.id;
+        let operation =
+            drift_app::remote::RemoteService::new(self.service.clone()).preview(session, path, id);
+        self.cancel = Some(operation.cancel);
+        cx.spawn_in(window, async move |this, cx| {
+            let result = operation.task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.id != id {
+                    return;
+                }
+                this.cancel = None;
+                match result {
+                    Ok(Ok(text)) => {
+                        this.editor
+                            .update(cx, |editor, cx| editor.set_value(text.clone(), window, cx));
+                        this.text = text;
+                        cx.emit(PreviewEvent::Loaded(id));
+                    }
+                    Ok(Err(error)) => cx.emit(PreviewEvent::Failed(id, error.to_string())),
+                    Err(error) => cx.emit(PreviewEvent::Failed(id, error.to_string())),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
     pub fn show(

@@ -48,7 +48,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc g++ clang pkg-config libfontconfig-dev \
             libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev \
-            libzstd-dev libvulkan1
+            libzstd-dev libvulkan1 openssh-client
 
       - name: Pinned Rust toolchain
         run: rustup show active-toolchain
@@ -59,14 +59,14 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Test (including headless GPUI interactions)
-        run: cargo test --locked --workspace
-
-      - name: Setup Go for cross-process persistence tests
+      - name: Setup Go for real SSH/SFTP and persistence test daemons
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Test (real SSH/SFTP and headless GPUI interactions)
+        run: cargo test --locked --workspace
 
       - name: Go and Rust shared-store parity
         run: |

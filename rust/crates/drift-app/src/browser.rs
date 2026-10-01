@@ -27,10 +27,10 @@ pub struct OperationId {
 }
 #[derive(Clone)]
 pub struct BrowserService {
-    runtime: Arc<BackgroundRuntime>,
+    pub(crate) runtime: Arc<BackgroundRuntime>,
     permits: Arc<Semaphore>,
 }
-struct BackgroundRuntime(Option<Runtime>);
+pub(crate) struct BackgroundRuntime(Option<Runtime>);
 impl Deref for BackgroundRuntime {
     type Target = Runtime;
     fn deref(&self) -> &Runtime {

@@ -12,10 +12,14 @@ pub enum ToolbarEvent {
     Hosts,
     OpenFolder,
     Cancel,
+    CompareProject,
+    CompareLocal,
+    CompareRemote,
     Browser(BrowserCommand),
 }
 pub struct ToolbarState {
     pub remote_preview: bool,
+    pub can_compare: bool,
     pub has_location: bool,
     pub listing: bool,
     pub cancellable: bool,
@@ -74,6 +78,24 @@ impl RenderOnce for Toolbar {
                 "Remote",
                 !state.has_location,
                 ToolbarEvent::Remote,
+            ))
+            .child(self.button(
+                "compare-project",
+                "Compare project",
+                !state.can_compare,
+                ToolbarEvent::CompareProject,
+            ))
+            .child(self.button(
+                "compare-local",
+                "Compare local selection",
+                !state.can_compare,
+                ToolbarEvent::CompareLocal,
+            ))
+            .child(self.button(
+                "compare-remote",
+                "Compare remote selection",
+                !state.can_compare,
+                ToolbarEvent::CompareRemote,
             ))
             .child(self.button(
                 "local-browser",

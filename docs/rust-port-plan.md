@@ -147,7 +147,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: Passwort, Schlüssel/Passphrase, Agent, TOFU/known_hosts, Remote-Browser/Vorschau, Keep-alive, Abbruch und Verbindungsverlust vorhanden; Vergleich, Diff und Sync offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau sowie rekursiver Vergleich und Unified-Diff mit Richtung/Faltung vorhanden; Sync-Ausführung und vollständige Auswahl-/Textselektionsparität offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | Offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
@@ -169,7 +169,22 @@ OpenSSH-Schlüssel und einen echten Agent. Geprüft sind Passwort/Schlüssel mit
 Passphrase, Agent-Timeout, Hash-/Pattern-Einträge und Widerruf in `known_hosts`,
 Hostkey-Wechsel, Listing-/Vorschau-Limits, Keep-alive einschließlich Timeout,
 Session-Scope, Projektwechsel und die GUI-Verbindung/Vorschau. Go ist nur für
-diesen Test-Daemon erforderlich; das GUI-Binary hat keine Go-Laufzeitabhängigkeit.
+diesen Test-Daemon und die Paritäts-Probe erforderlich; das GUI-Binary hat keine Go-Laufzeitabhängigkeit.
+
+Der SFTP-Vergleich läuft in `drift-app::comparison` mit höchstens acht Workern.
+Er hält Projekt-Root, Verbindung, Auswahl und Ignore-Scope als Session. Ganze
+Projekte vergleichen die wirksamen Mapping-Roots; direkte lokale oder entfernte
+Auswahlen erweitern die Gegenverzeichnisse rekursiv. Einzelfehler bleiben sichtbar
+und erhalten keine Aktion. Metadaten-Schnellpfad, 2-MiB-Textlimit, gestreamtes SHA-256
+und Aktionsvorschläge sind gegen echte Go-Vergleiche geprüft. F5 erhält den Scope;
+Fortschritt kann ohne Abbruch verborgen werden. Ein Abbruch schließt die Verbindung.
+
+`comparison.rs`/`comparison/view.rs` besitzen Dateiliste und Operationen;
+`diff.rs` besitzt Unified-Zeilen, Richtung, Faltung, Quellanker und Scrollzustand
+je Datei. Textauswahl erfolgt derzeit zeilenweise mit Shift-Klick und nativer
+Zwischenablage; Auswahl einzelner Zeichen über Zeilengrenzen und Mehrfachmarkierung
+in den Browsern bleiben offen. Die Aktionswahl zeigt bislang nur die Vorschau;
+Upload/Download/Delete werden im nächsten SFTP-Schritt umgesetzt.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

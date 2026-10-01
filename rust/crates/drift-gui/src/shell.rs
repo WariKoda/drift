@@ -2,6 +2,7 @@
 use crate::{
     actions::*,
     browser::{BrowserCommand, BrowserEvent, BrowserPane},
+    comparison::{ComparisonEvent, ComparisonPane},
     hosts::{HostEvent, HostManager},
     preview::{PreviewEvent, PreviewPane},
     projects::{ProjectEvent, ProjectsPanel},
@@ -24,6 +25,7 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 pub struct Shell {
+    comparison: Entity<ComparisonPane>,
     browser: Entity<BrowserPane>,
     preview: Entity<PreviewPane>,
     projects: Entity<ProjectsPanel>,
@@ -65,7 +67,26 @@ impl Shell {
         let preview = cx.new(|cx| PreviewPane::new(service.clone(), window, cx));
         let projects = cx.new(|cx| ProjectsPanel::new(window, cx));
         let remote = cx.new(|cx| RemotePane::new(remote_service, window, cx));
+        let comparison = cx.new(|cx| ComparisonPane::new(service.clone(), window, cx));
         let subscriptions = vec![
+            cx.subscribe_in(&comparison, window, |this, _, event, window, cx| {
+                match event {
+                    ComparisonEvent::Status {
+                        project,
+                        connection,
+                        message,
+                    } if *project == this.browser.read(cx).id().project
+                        && Some(*connection) == this.remote.read(cx).session_id() =>
+                    {
+                        this.status.clone_from(message)
+                    }
+                    ComparisonEvent::Closed => this
+                        .browser
+                        .update(cx, |browser, cx| browser.focus(window, cx)),
+                    _ => {}
+                }
+                cx.notify();
+            }),
             cx.subscribe_in(&remote, window, |this, _, event, window, cx| {
                 match event {
                     RemoteEvent::SelectionChanged {
@@ -77,6 +98,9 @@ impl Shell {
                         {
                             return;
                         }
+                        let session = this.remote.read(cx).session_id();
+                        this.comparison
+                            .update(cx, |pane, cx| pane.context(*project, session, cx));
                         if this.remote_preview || this.preview.read(cx).is_loading_remote() {
                             this.remote_preview = false;
                             this.preview.update(cx, |preview, cx| {
@@ -162,6 +186,7 @@ impl Shell {
             ),
         ];
         let shell = Self {
+            comparison,
             browser,
             preview,
             projects,
@@ -196,6 +221,9 @@ impl Shell {
         }
         match event {
             BrowserEvent::Changed(_) => {
+                let session = self.remote.read(cx).session_id();
+                self.comparison
+                    .update(cx, |pane, cx| pane.context(id.project, session, cx));
                 if self.remote.read(cx).project() != id.project {
                     self.remote
                         .update(cx, |remote, cx| remote.set_context(id.project, vec![], cx));
@@ -487,6 +515,9 @@ impl Shell {
             ToolbarEvent::Hosts => self.open_hosts(window, cx),
             ToolbarEvent::OpenFolder => self.open_folder(window, cx),
             ToolbarEvent::Cancel => self.cancel(&Cancel, window, cx),
+            ToolbarEvent::CompareProject
+            | ToolbarEvent::CompareLocal
+            | ToolbarEvent::CompareRemote => self.compare(event, window, cx),
             ToolbarEvent::Browser(command) => {
                 self.remote_preview = false;
                 self.browser
@@ -501,10 +532,24 @@ impl Render for Shell {
         if let Some(hosts) = &self.hosts {
             return div().size_full().child(hosts.clone()).into_any_element();
         }
+        if self.comparison.read(cx).visible() {
+            return div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .bg(cx.theme().background)
+                .text_color(cx.theme().foreground)
+                .child(self.comparison.clone())
+                .child(div().p_2().child(self.status.clone()))
+                .into_any_element();
+        }
         let browser = self.browser.read(cx);
         let toolbar = Toolbar::new(
             ToolbarState {
                 remote_preview: self.remote_preview,
+                can_compare: self.remote.read(cx).has_session()
+                    && !self.remote.read(cx).is_loading()
+                    && !browser.is_loading(),
                 has_location: browser.location().is_some(),
                 listing: browser.is_loading(),
                 cancellable: browser.is_loading()
@@ -598,5 +643,8 @@ impl Render for Shell {
     }
 }
 
+mod comparison;
+#[cfg(test)]
+mod comparison_tests;
 #[cfg(test)]
 mod tests;

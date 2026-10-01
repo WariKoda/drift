@@ -7,6 +7,18 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
+#[derive(Clone, Debug)]
+pub struct RemoteMetadata {
+    pub size: u64,
+    pub modified: Option<std::time::SystemTime>,
+    pub directory: bool,
+    pub regular: bool,
+}
+/// Transfer completion is separate from EOF: callers must also check close.
+#[async_trait]
+pub trait RemoteRead: tokio::io::AsyncRead + Unpin + Send {
+    async fn close(self: Box<Self>) -> Result<()>;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConnectionState {
@@ -25,6 +37,8 @@ pub struct RemoteEntry {
 }
 #[async_trait]
 pub trait RemoteClient: Send + Sync {
+    async fn stat(&self, path: &str) -> Result<RemoteMetadata>;
+    async fn open(&self, path: &str) -> Result<Box<dyn RemoteRead>>;
     async fn canonicalize(&self, path: &str) -> Result<String>;
     async fn read_dir(&self, path: &str) -> Result<Vec<RemoteEntry>>;
     async fn read_limited(&self, path: &str, limit: usize) -> Result<Vec<u8>>;

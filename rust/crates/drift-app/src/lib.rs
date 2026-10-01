@@ -1,5 +1,6 @@
 //! Application state independent of GPUI and transport implementations.
 pub mod browser;
+pub mod comparison;
 pub mod hosts;
 pub mod navigation;
 pub mod remote;

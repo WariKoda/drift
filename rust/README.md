@@ -8,8 +8,8 @@ a local browser with directory navigation, filtering, a project-wide finder and 
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
 projects or registers the current folder. Hosts manages project targets and global
 servers with forms, duplication, deletion, server links and mappings.
-SFTP browsing and preview are implemented. Comparison/sync and FTP/FTPS
-connections remain pending.
+SFTP browsing, preview and comparison with a unified diff are implemented.
+Transfers and FTP/FTPS connections remain pending.
 
 ## Standalone applications
 
@@ -75,6 +75,35 @@ scroll and focus. Remote Back/Forward/Up and the browser keys navigate within th
 configured host root. Remote text preview opens in the left pane; **Local files**
 restores the local browser. Selecting a local file restores the right preview;
 **Remote** returns to the connected remote tree. **Disconnect** closes it.
+
+After connecting, **Compare project** compares the project (or all effective mapping
+roots). **Compare local selection** and **Compare remote selection** compare the
+selected file, or the current folder when no row is selected. Directories expand
+both counterparts recursively, including files that exist on only one side.
+Hidden visibility does not narrow comparison scope. **Include ignored** is a
+separate operation setting; directly selected ignored files remain exceptions,
+while fixed exclusions and transfer staging files never enter the comparison.
+
+The comparison shows differing files and per-file errors, with suggested actions.
+Click the action button or press Enter/Space in the file list to cycle valid
+previews. Upload shows Remote → Local, Download Local → Remote and deletion shows
+the affected side being removed. These actions are previews; transfer execution
+is still pending. Unified rows have two number columns, hunk headers and three
+context lines. Click an unchanged fold to expand it; **Fold context** collapses it.
+Alt+Up/Down and the hunk buttons navigate changes. Click a text row, Shift-click
+another to select a line range, then Ctrl/Cmd+C to copy; **Copy diff / selection**
+copies that range or all displayed rows. Selection currently operates on whole
+lines. Each file retains its own fold/scroll state while browsing the results.
+
+F5 rebuilds the comparison with the same selection and ignore scope. Progress can
+be hidden without cancelling. Cancelling a running comparison closes its remote
+connection and requires an explicit reconnect. Back from a completed comparison
+restores the existing browser session. Project/host changes and connection loss
+invalidate comparison handles and reject late results.
+
+Comparisons use eight or fewer SFTP workers, a metadata fast path, a 2-MiB text
+limit and streaming SHA-256 for larger files. A 60-second idle deadline aborts
+stalled comparisons; byte reads and completed scan/compare work reset it.
 
 SFTP supports password, key file (including passphrase) and SSH-agent authentication.
 Password, passphrase and key path expand environment variables; `~/` expands in
@@ -147,7 +176,10 @@ owns its navigation/history, selection, filter, finder, focus, scroll and listin
 cancellation. `preview.rs` owns its editor and separate request lifetime;
 `projects.rs` owns project-panel inputs. `toolbar.rs` renders stateless controls
 and `actions.rs` defines key bindings. `remote.rs` owns the remote pane and its
-connection/listing identities. Unified diff will gain its own view.
+connection/listing identities. `comparison.rs` and `comparison/view.rs` own the
+comparison lifetime and file list; `diff.rs` owns immutable-data rendering,
+direction, folds, source anchors, line selection and scroll state. Shell comparison
+entry routing lives separately in `shell/comparison.rs`.
 
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
@@ -158,7 +190,10 @@ Two panes in one headless window verify independent filter, selection, focus,
 history and cancellation; preview tests verify replacement and clipboard content.
 SSH/SFTP tests start a real Go daemon from `../testdata/sftp-server/` against
 isolated temporary trees and use real OpenSSH keys/agents. Go, `ssh-keygen`,
-`ssh-agent` and `ssh-add` are required for `cargo test`; production builds and the
+`ssh-agent` and `ssh-add` are required for `cargo test`. Comparison parity tests run
+the real Go `app.Load` workflow through `../testdata/comparison-probe/` against the
+same trees/server and compare file pairs, statuses, suggested actions and binary
+classification. Production builds and the
 GUI executable are native Rust. Tests include authentication, hashed/pattern/revoked
 host keys, key changes, agent and keep-alive timeout, connection loss, scope,
 remote navigation and cross-view preview/clipboard. No protocol tests are skipped.
@@ -185,8 +220,8 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 
 Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
 and dashboard/startup restoration, GUI preferences and full certificate-store
-roundtrip coverage remain. SFTP transport/browser is available;
-its comparison/unified diff and serial sync remain to be implemented, as do
+roundtrip coverage remain. SFTP transport/browser and comparison/unified diff are
+available. Serial sync remains to be implemented, as do
 FTP/FTPS, certificate challenges, complete CLI and
 keyboard parity, packaging and native release acceptance. Safe atomic-write
 primitives are tested; there is no upload/download/delete sync implementation yet.

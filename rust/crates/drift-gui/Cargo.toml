@@ -9,6 +9,7 @@ license.workspace = true
 drift-app.workspace = true
 drift-core.workspace = true
 tokio-util.workspace = true
+tokio.workspace = true
 gpui-kit.workspace = true
 
 [dev-dependencies]

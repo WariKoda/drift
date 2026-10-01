@@ -35,6 +35,9 @@ impl ProjectRoot {
     pub fn base(&self) -> &Path {
         &self.base
     }
+    pub fn metadata(&self, path: &Path) -> Result<cap_std::fs::Metadata> {
+        Ok(self.dir.metadata(self.relative(path)?)?)
+    }
     fn relative<'a>(&self, path: &'a Path) -> Result<&'a Path> {
         let relative = if path.is_absolute() {
             path.strip_prefix(&self.base)

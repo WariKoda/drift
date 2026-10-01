@@ -12,12 +12,24 @@ gpui_kit::actions!(
         GoForward,
         CursorUp,
         CursorDown,
-        Activate
+        Activate,
+        NextHunk,
+        PreviousHunk
     ]
 );
 pub fn bind_keys(cx: &mut App) {
     crate::hosts::bind_keys(cx);
     cx.bind_keys([
+        KeyBinding::new("up", CursorUp, Some("DriftComparisonFiles")),
+        KeyBinding::new("k", CursorUp, Some("DriftComparisonFiles")),
+        KeyBinding::new("down", CursorDown, Some("DriftComparisonFiles")),
+        KeyBinding::new("j", CursorDown, Some("DriftComparisonFiles")),
+        KeyBinding::new("enter", Activate, Some("DriftComparisonFiles")),
+        KeyBinding::new("space", Activate, Some("DriftComparisonFiles")),
+        KeyBinding::new("alt-down", NextHunk, Some("DriftDiff")),
+        KeyBinding::new("alt-up", PreviousHunk, Some("DriftDiff")),
+        KeyBinding::new("ctrl-c", CopySelection, Some("DriftDiff")),
+        KeyBinding::new("cmd-c", CopySelection, Some("DriftDiff")),
         KeyBinding::new("ctrl-f", FocusFilter, Some("Drift")),
         KeyBinding::new("cmd-f", FocusFilter, Some("Drift")),
         KeyBinding::new("ctrl-shift-c", CopySelection, Some("Drift")),

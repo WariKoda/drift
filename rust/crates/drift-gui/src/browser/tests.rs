@@ -43,11 +43,15 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
     cx.executor().allow_parking();
     let left_root = tempfile::tempdir().unwrap();
     let right_root = tempfile::tempdir().unwrap();
+    let right_directory = right_root
+        .path()
+        .join("long-project-directory-name-".repeat(7));
+    fs::create_dir(&right_directory).unwrap();
     let config = tempfile::tempdir().unwrap();
     fs::create_dir(left_root.path().join("child")).unwrap();
     fs::write(left_root.path().join("left.txt"), "left").unwrap();
-    fs::write(right_root.path().join("right.txt"), "right").unwrap();
-    fs::write(right_root.path().join("other.txt"), "other").unwrap();
+    fs::write(right_directory.join("right.txt"), "right").unwrap();
+    fs::write(right_directory.join("other.txt"), "other").unwrap();
     let (handle, panes) = cx.update(|cx| {
         gpui_kit::init(cx);
         crate::actions::bind_keys(cx);
@@ -74,13 +78,13 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
                         )
                     });
                     let right = cx.new(|cx| {
-                        BrowserPane::new(store, service, right_root.path().into(), window, cx)
+                        BrowserPane::new(store, service, right_directory.clone(), window, cx)
                     });
                     left.update(cx, |pane, cx| {
                         pane.open(left_root.path().into(), window, cx)
                     });
                     right.update(cx, |pane, cx| {
-                        pane.open(right_root.path().into(), window, cx)
+                        pane.open(right_directory.clone(), window, cx)
                     });
                     TwoPanes { left, right }
                 })
@@ -97,10 +101,15 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         window.within("right").click("filter", cx);
+        assert!(
+            right.read(cx).filter.focus_handle(cx).is_focused(window),
+            "right filter did not receive focus after clicking its bounds"
+        );
         window.input("right", cx);
     })
     .unwrap();
-    // Input notifications may arrive after a frame on macOS.
+    // Keep the filter clickable even with paths longer than the pane, including
+    // macOS temporary roots. Then wait for the asynchronous input notification.
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
         right.read(cx).len() == 1
     })
@@ -127,7 +136,7 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
         assert!(!right.read(cx).can_back());
         assert_eq!(
             right.read(cx).location().unwrap().directory,
-            right_root.path()
+            right_directory
         );
         assert_eq!(right.read(cx).selected(), Some("right.txt"));
         window.press("alt-left", cx); // Focus still belongs to the left pane.

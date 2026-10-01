@@ -39,6 +39,9 @@ pub struct RemoteEntry {
 pub trait RemoteClient: Send + Sync {
     async fn stat(&self, path: &str) -> Result<RemoteMetadata>;
     async fn open(&self, path: &str) -> Result<Box<dyn RemoteRead>>;
+    /// Consumes and closes the source, including error paths, before commit.
+    async fn upload(&self, path: &str, source: Box<dyn RemoteRead>) -> Result<()>;
+    async fn delete(&self, path: &str) -> Result<()>;
     async fn canonicalize(&self, path: &str) -> Result<String>;
     async fn read_dir(&self, path: &str) -> Result<Vec<RemoteEntry>>;
     async fn read_limited(&self, path: &str, limit: usize) -> Result<Vec<u8>>;

@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -80,7 +81,12 @@ func serve(conn net.Conn, config *ssh.ServerConfig, root string) {
 			_ = request.Reply(request.Type == "keepalive@openssh.com", nil)
 		}
 	}()
+	opened := 0
 	for request := range channels {
+		if _, limited := os.Stat(filepath.Join(filepath.Dir(root), "one-channel")); limited == nil && opened > 0 {
+			_ = request.Reject(ssh.ResourceShortage, "only one session channel allowed")
+			continue
+		}
 		if request.ChannelType() != "session" {
 			_ = request.Reject(ssh.UnknownChannelType, "session required")
 			continue
@@ -89,6 +95,7 @@ func serve(conn net.Conn, config *ssh.ServerConfig, root string) {
 		if err != nil {
 			return
 		}
+		opened++
 		go func() {
 			defer channel.Close()
 			for request := range requests {
@@ -98,7 +105,8 @@ func serve(conn net.Conn, config *ssh.ServerConfig, root string) {
 					continue
 				}
 				_ = request.Reply(true, nil)
-				server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(root))
+				stream := &closeFaultChannel{Channel: channel, conn: conn, controlDir: filepath.Dir(root)}
+				server, err := sftp.NewServer(stream, sftp.WithServerWorkingDirectory(root))
 				if err != nil {
 					return
 				}
@@ -110,4 +118,37 @@ func serve(conn net.Conn, config *ssh.ServerConfig, root string) {
 			}
 		}()
 	}
+}
+
+// Pass real SFTP frames through unchanged. A test can arm a socket failure at
+// CLOSE after it has finished comparison, so EOF succeeds but close cannot be
+// acknowledged. This is a real connection loss, not a fabricated SFTP reply.
+type closeFaultChannel struct {
+	ssh.Channel
+	conn       net.Conn
+	controlDir string
+	pending    []byte
+}
+
+func (c *closeFaultChannel) Read(p []byte) (int, error) {
+	n, err := c.Channel.Read(p)
+	c.pending = append(c.pending, p[:n]...)
+	for len(c.pending) >= 4 {
+		length := int(binary.BigEndian.Uint32(c.pending[:4]))
+		if length < 1 || length > 1024*1024 {
+			return 0, fmt.Errorf("invalid SFTP frame length")
+		}
+		if len(c.pending) < 4+length {
+			break
+		}
+		if c.pending[4] == 4 { // SSH_FXP_CLOSE
+			if _, armed := os.Stat(filepath.Join(c.controlDir, "drop-on-close")); armed == nil {
+				_ = os.WriteFile(filepath.Join(c.controlDir, "close-dropped"), []byte("socket closed\n"), 0600)
+				_ = c.conn.Close()
+				return 0, io.EOF
+			}
+		}
+		c.pending = c.pending[4+length:]
+	}
+	return n, err
 }

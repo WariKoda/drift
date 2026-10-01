@@ -26,10 +26,11 @@ func main() {
 }
 func run() error {
 	var input struct {
-		Local          []string         `json:"local"`
-		Remote         []string         `json:"remote"`
-		Mappings       []config.Mapping `json:"mappings"`
-		IncludeIgnored bool             `json:"include_ignored"`
+		Local          []string          `json:"local"`
+		Remote         []string          `json:"remote"`
+		Mappings       []config.Mapping  `json:"mappings"`
+		IncludeIgnored bool              `json:"include_ignored"`
+		Sync           map[string]string `json:"sync"`
 	}
 	if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
 		return err
@@ -58,6 +59,34 @@ func run() error {
 	}
 	defer result.Root.Close()
 	defer result.Conn.Close()
+	if input.Sync != nil {
+		items := make([]syncpolicy.Item, 0, len(result.Sessions))
+		for _, session := range result.Sessions {
+			name, err := filepath.Rel(os.Args[1], session.LocalPath)
+			if err != nil {
+				return err
+			}
+			decision := map[string]syncpolicy.Decision{"Upload": syncpolicy.DecisionUpload, "Download": syncpolicy.DecisionDownload, "Delete local": syncpolicy.DecisionDeleteLocal, "Delete remote": syncpolicy.DecisionDeleteRemote}[input.Sync[name]]
+			items = append(items, syncpolicy.Item{LocalPath: session.LocalPath, RemotePath: session.RemotePath, Decision: decision})
+		}
+		synced := syncpolicy.Run(ctx, result.Conn, result.Root, items, progress.NewTracker("sync test"))
+		if synced.Err != nil {
+			return synced.Err
+		}
+		completed := make([]string, 0, len(synced.Completed))
+		for _, index := range synced.Completed {
+			name, err := filepath.Rel(os.Args[1], items[index].LocalPath)
+			if err != nil {
+				return err
+			}
+			completed = append(completed, name)
+		}
+		sort.Strings(completed)
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Completed []string `json:"completed"`
+			Failures  int      `json:"failures"`
+		}{completed, len(synced.Failures)})
+	}
 	type row struct {
 		Local    string `json:"local"`
 		Remote   string `json:"remote"`

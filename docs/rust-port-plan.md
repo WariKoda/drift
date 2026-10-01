@@ -147,7 +147,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau sowie rekursiver Vergleich und Unified-Diff mit Richtung/Faltung vorhanden; Sync-Ausführung und vollständige Auswahl-/Textselektionsparität offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | Offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
@@ -183,8 +183,29 @@ Fortschritt kann ohne Abbruch verborgen werden. Ein Abbruch schließt die Verbin
 `diff.rs` besitzt Unified-Zeilen, Richtung, Faltung, Quellanker und Scrollzustand
 je Datei. Textauswahl erfolgt derzeit zeilenweise mit Shift-Klick und nativer
 Zwischenablage; Auswahl einzelner Zeichen über Zeilengrenzen und Mehrfachmarkierung
-in den Browsern bleiben offen. Die Aktionswahl zeigt bislang nur die Vorschau;
-Upload/Download/Delete werden im nächsten SFTP-Schritt umgesetzt.
+in den Browsern bleiben offen. Die Aktionswahl zeigt die Vorschau; Sync selected
+und Sync all actions führen die bestätigten Aktionen seriell aus. Die Bestätigung
+nennt Upload-/Download-/Delete-Zahlen; der Dateifilter reduziert Sync all nicht.
+
+`drift-app::sync` validiert Entscheidungen und Mapping-/Root-Grenzen gegen den
+Vergleich und hält dessen Root/Verbindung während der Ausführung. Der Bericht
+unterscheidet bestätigt, übersprungen, fehlgeschlagen, unklar und nicht versucht.
+Abbruch/Verlust schließen Netzwerk-I/O, stoppen weitere Dateien und erhalten
+bestätigte Abschlüsse. Bereits laufende lokale Mutationen werden bis zu ihrem
+Ergebnis abgewartet. Nach einem regulär beendeten Sync entsteht ein neuer Vergleich
+mit erhaltenem Scope; Fehlerberichte bleiben daneben sichtbar. Bestätigte Änderungen
+aktualisieren auch die Browser. Nach Abbruch/Verlust ist ein neuer Connect und
+Vergleich erforderlich, ohne automatische Transferwiederholung.
+
+SFTP-Upload schließt Quelle und Staging-Datei vor Rename; Download verwendet
+ProjectRoot::write_atomic und prüft den Remote-Close vor dem Zielersatz. Staging
+verwendet auf beiden Seiten denselben Namensgenerator. Go/Rust-Sync-Parität prüft
+Aktionen, Inhalte und Rechte. Echte Tests unterbrechen Transfers sowie die
+Verbindung beim CLOSE nach erfolgreichem EOF. Der aktuelle Bibliotheksstand nutzt
+für POSIX Rename einen optionalen zweiten SFTP-Kanal derselben SSH-Verbindung.
+Bei dessen Ablehnung bleibt Standard-Rename verfügbar; Server ohne geeigneten
+Zielersatz melden einen Fehler und behalten das bisherige Ziel. Diese Servergrenze
+ist vor vollständiger Protokollparität noch aufzulösen.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

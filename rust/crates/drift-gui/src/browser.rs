@@ -476,7 +476,7 @@ impl BrowserPane {
             cx.notify();
         }
     }
-    fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.reload(window, cx);
     }
     pub fn stop_listing(&mut self, cx: &mut Context<Self>) {
@@ -510,10 +510,16 @@ impl BrowserPane {
             .unwrap_or_else(|| self.start.display().to_string());
         div()
             .flex()
+            .min_w_0()
             .gap_3()
             .p_3()
-            .child(Input::new(&self.filter).id("filter").w(px(300.)))
-            .child(path)
+            .child(
+                Input::new(&self.filter)
+                    .id("filter")
+                    .w(px(300.))
+                    .flex_shrink_0(),
+            )
+            .child(div().flex_1().min_w_0().truncate().child(path))
             .into_any_element()
     }
 }

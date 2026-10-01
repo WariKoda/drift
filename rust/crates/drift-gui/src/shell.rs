@@ -71,6 +71,17 @@ impl Shell {
         let subscriptions = vec![
             cx.subscribe_in(&comparison, window, |this, _, event, window, cx| {
                 match event {
+                    ComparisonEvent::FilesChanged {
+                        project,
+                        connection,
+                    } if *project == this.browser.read(cx).id().project => {
+                        this.browser
+                            .update(cx, |browser, cx| browser.refresh(&Refresh, window, cx));
+                        if Some(*connection) == this.remote.read(cx).session_id() {
+                            this.remote
+                                .update(cx, |remote, cx| remote.refresh(&Refresh, window, cx));
+                        }
+                    }
                     ComparisonEvent::Status {
                         project,
                         connection,
@@ -646,5 +657,7 @@ impl Render for Shell {
 mod comparison;
 #[cfg(test)]
 mod comparison_tests;
+#[cfg(test)]
+mod sync_tests;
 #[cfg(test)]
 mod tests;

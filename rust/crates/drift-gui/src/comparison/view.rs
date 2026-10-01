@@ -1,4 +1,6 @@
 use super::*;
+use drift_app::sync::{ItemOutcome, StopReason};
+use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
 use gpui_kit::test::TestSupportExt;
 impl Render for ComparisonPane {
@@ -24,7 +26,9 @@ impl Render for ComparisonPane {
                     .p_2()
                     .child(
                         Button::new("comparison-back")
-                            .label(if self.is_loading() {
+                            .label(if self.syncing.is_some() {
+                                "Cancel sync"
+                            } else if self.is_loading() {
                                 "Cancel comparison"
                             } else {
                                 "Back to browser"
@@ -34,7 +38,7 @@ impl Render for ComparisonPane {
                     .child(
                         Button::new("comparison-refresh")
                             .label("Refresh comparison")
-                            .disabled(self.is_loading())
+                            .disabled(self.is_loading() || self.request.as_ref().is_none_or(|r| r.connection.state() != drift_core::remote::ConnectionState::Connected))
                             .on_click(cx.listener(|this, _, w, cx| this.refresh(&Refresh, w, cx))),
                     )
                     .child(
@@ -74,14 +78,45 @@ impl Render for ComparisonPane {
                         Button::new("comparison-action")
                             .label(self.selected.map_or("Skip", |i| self.decisions[i].label()))
                             .disabled(
-                                self.is_loading()
+                                self.is_loading() || self.confirm_sync.is_some()
                                     || self.selected.is_none_or(|i| {
                                         self.session.as_ref().unwrap().entries[i].error.is_some()
                                     }),
                             )
                             .on_click(cx.listener(|this, _, w, cx| this.cycle(w, cx))),
-                    ),
+                    )
+                    .child(Button::new("sync-selected").label("Sync selected")
+                        .disabled(!self.can_sync() || self.selected.is_none_or(|i| self.decisions[i] == Decision::Skip))
+                        .on_click(cx.listener(|this, _, _, cx| this.prepare_sync(false, cx))))
+                    .child(Button::new("sync-all").label("Sync all actions")
+                        .disabled(!self.can_sync() || self.decisions.iter().all(|d| *d == Decision::Skip))
+                        .on_click(cx.listener(|this, _, _, cx| this.prepare_sync(true, cx)))),
             )
+            .when_some(self.confirm_sync.as_ref(), |view, decisions| {
+                let uploads = decisions.iter().filter(|d| **d == Decision::Upload).count();
+                let downloads = decisions.iter().filter(|d| **d == Decision::Download).count();
+                let deletes = decisions.iter().filter(|d| matches!(d, Decision::DeleteLocal | Decision::DeleteRemote)).count();
+                view.child(div().p_2().flex().gap_2()
+                    .child(format!("Run {uploads} uploads, {downloads} downloads and {deletes} deletions in the comparison scope?"))
+                    .child(Button::new("sync-confirm").label("Run sync").on_click(cx.listener(|this, _, w, cx| this.start_sync(w, cx))))
+                    .child(Button::new("sync-dismiss").label("Cancel").on_click(cx.listener(|this, _, _, cx| { this.confirm_sync = None; cx.notify(); }))))
+            })
+            .when_some(self.sync_result.as_ref(), |view, report| {
+                let completed = report.outcomes.iter().filter(|o| **o == ItemOutcome::Completed).count();
+                let suffix = match &report.stopped {
+                    None => "",
+                    Some(StopReason::Cancelled) => "; cancelled",
+                    Some(StopReason::ConnectionLost(_)) => "; connection lost — reconnect and compare again",
+                    Some(StopReason::TimedOut) => "; timed out — reconnect and compare again",
+                };
+                let errors: Vec<_> = report.items.iter().zip(&report.outcomes).filter_map(|(item, outcome)| {
+                    let (label, reason) = match outcome { ItemOutcome::Failed(e) => ("Failed",e), ItemOutcome::Unknown(e) => ("Outcome unknown",e), _ => return None };
+                    Some(format!("{label}: {} {} — {reason}", item.decision.label(), item.local.display()))
+                }).collect();
+                view.child(div().id("sync-report").p_2().max_h(px(160.)).overflow_y_scroll()
+                    .child(format!("Sync: {completed} completed, {} errors{suffix}", errors.len()))
+                    .children(errors.into_iter().map(|error| div().text_color(cx.theme().danger).child(error))))
+            })
             .child(
                 div()
                     .p_2()
@@ -95,9 +130,9 @@ impl Render for ComparisonPane {
                         )
                     } else {
                         if self.is_loading() {
-                            "Comparison running; progress hidden".into()
+                            if self.syncing.is_some() { "Sync running; progress hidden".into() } else { "Comparison running; progress hidden".into() }
                         } else {
-                            "Action preview".into()
+                            if self.stale { "Compare again before syncing".into() } else { "Choose actions, then sync selected or all actions".into() }
                         }
                     }),
             )

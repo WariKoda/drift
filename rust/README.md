@@ -1,112 +1,120 @@
 # drift-gui
 
-The Rust desktop application develops alongside the Go TUI. This branch
-implements the foundation of milestone 1; it is **not yet a file browser or a
-sync client**.
-The window displays 10,000 generated filenames to exercise retained input state,
-filtering, selection, virtualization, focus actions and native clipboard access.
-It does not load or modify the user's drift configuration.
+The Rust desktop application develops alongside the Go TUI. It currently provides
+a local browser with directory navigation, filtering, a project-wide finder and a
+read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
+projects or registers the current folder. Remote browsing and sync are not yet
+implemented.
 
 ## Standalone applications
 
-The Go TUI and Rust GUI remain independently maintained products in one
-repository. Each has its own executable, build dependencies, installation,
-version and release cycle. Neither application invokes or requires the other
-at runtime. The TUI currently installs as `drift`; the GUI installs as
-`drift-gui`. Existing TUI commands and installation paths remain available.
+The Go TUI and Rust GUI remain independently maintained products in one repository.
+Each has its own executable, build dependencies, installation, version and release
+cycle. The TUI installs as `drift`, the GUI as `drift-gui`; neither requires the
+other executable. Rust implements its own core instead of wrapping Go.
 
-The Rust core is implemented in Rust rather than wrapping the Go application.
-Shared behavior is specified through parity fixtures and tests, so changes to
-one implementation can be checked against the other without a runtime bridge.
+Both use the existing configuration directory, registry, project hosts and mappings.
+Stored records remain separate from resolved defaults and server connections.
+The updated Go implementation and Rust store coordinate management operations with
+`flock` on `<config.Dir()>/write.lock`. The lock spans fresh reads, validation and
+all writes. A stale edit of the same record conflicts; unrelated registry edits
+are merged. The lock file is never removed. Contention returns a visible retry
+error instead of waiting on the UI thread.
 
-Once the persistence milestone is complete, both applications use the same
-configuration directory, registry, project hosts, mappings and certificate
-exceptions. UI preferences stay separate: terminal preferences in the existing
-global config, GUI preferences in `gui.toml`. Shared store changes must preserve
-the documented format for both applications and use the complete transaction
-lock described below. Independent product versions do not permit uncoordinated
-changes to shared file formats.
+Use the Go TUI built from this branch when running both applications against shared
+configuration. Older Go installations do not participate in the common transaction
+lock. GUI window/theme/pane preferences will live separately in `gui.toml`; that
+persistence is not implemented yet. Shared file format changes still require
+coordination despite independent application versions.
 
 ## Build and run
 
-Rust is pinned in `rust-toolchain.toml`; with rustup, entering this directory
-selects the compiler and installs the specified rustfmt/Clippy components.
-`Cargo.lock` fixes GPUI Kit and its matching GPUI snapshot together. Do not
-upgrade individual `gpui-pre-*` packages independently.
-
-From the repository root:
+Rust is pinned in `rust-toolchain.toml`; Cargo.lock fixes GPUI Kit and its matching
+GPUI packages together. From the repository root:
 
 ```sh
 make rust-check
 make rust-test
 make rust-build
 make rust-run
-# Optional: install drift-gui into Cargo's binary directory.
+# Browse a particular folder:
+cd rust && cargo run --locked -p drift-gui -- /path/to/project
+# Optional: install the GUI into Cargo's binary directory.
 make rust-install
 ```
 
-`make rust-build` creates `rust/target/release/drift-gui`. Existing Go build and
-installation targets continue to build the TUI.
+The GUI starts in the current directory. A registered containing project supplies
+its capability root and hosts; the longest registered path wins. Up cannot leave
+that project root. Click a directory to enter it or a file to preview it in the
+opposite pane. The finder searches the entire project; the filter narrows the
+returned paths. Hidden and ignored entries have separate visibility toggles.
+Fixed exclusions and interrupted transfer staging files remain excluded.
 
-Linux needs a graphical Wayland or X11 session and a working Vulkan driver.
-For Ubuntu 24.04, install the build dependencies:
+Preview uses Kit's read-only text control with line numbers, wrapping and native
+text selection/copy. Copy text copies the complete preview; Copy path copies the
+selected project-relative path. Ctrl+F/Cmd+F focuses the file filter, F5 refreshes,
+and Cancel stops the active listing/finder/preview. Closing Projects keeps the
+browser session. Directory and preview responses carry separate generations;
+stale responses are discarded and their root handles released.
+
+Filesystem and Git work run outside rendering on a bounded Tokio/background pool.
+Git itself classifies ignored paths in batches, including tracked files and
+worktree/global ignore rules. Outside a repository it uses temporary bare metadata
+outside the project. Local I/O uses cap-std directory capabilities, not a
+canonicalize-then-open check. Preview refuses escapes, FIFOs, special files, NUL
+bytes, invalid UTF-8 and oversized files. Filenames that cannot be displayed as
+UTF-8 currently produce an error rather than being silently renamed.
+
+Linux needs a Wayland or X11 session and a Vulkan driver. On Ubuntu 24.04:
 
 ```sh
 sudo apt-get install gcc g++ clang pkg-config libfontconfig-dev libwayland-dev \
   libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan1
 ```
 
-macOS requires macOS 15+ and Xcode Command Line Tools. For local release builds,
-set `MACOSX_DEPLOYMENT_TARGET=15.0`, as CI does. Platform requirements follow the
+macOS needs macOS 15+ and Xcode Command Line Tools. Set
+`MACOSX_DEPLOYMENT_TARGET=15.0` for local release builds as CI does. See the
 [GPUI Kit installation guide](https://gpui-kit.com/docs/installation/).
+`make rust-build` creates `rust/target/release/drift-gui`; Go build targets remain
+independent.
 
-## Crate boundaries
+## Architecture and verification
 
-- `drift-core`: UI-independent mapping validation, path translation and staging
-  name classification. Translation is lexical policy, **not** filesystem
-  confinement; it must not be used to authorize local file operations.
-- `drift-app`: filtered file-list state with stable selection identities. No GPUI
-  dependency; application workflows and resource ownership will live here.
-- `drift-gui`: native window, Kit input/button/theme, contextual actions and
-  virtualized rendering. Views perform no filesystem or network operations.
+- `drift-core`: raw TOML types, runtime resolution, transactional stores, registry,
+  mapping and capability-confined local operations. Atomic local writes use drift
+  staging names, preserve target permissions, check source completion, flush/sync
+  and explicit close before rename.
+- `drift-app`: background local listing, batched Git classification, finder and
+  preview, bounded workers and cancellation. No GPUI dependency.
+- `drift-gui`: Kit controls, view state, operation identities and clipboard actions.
+  Views do not perform filesystem or network I/O.
 
-The shared `../testdata/parity/*.toml` fixtures are consumed by Rust integration
-and Go package tests. They establish mapping fallback, host precedence, mapping
-scope, segment boundaries, ambiguous overlaps and staging exclusions against the
-existing Go implementation. They do not establish protocol or persistence parity.
+Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
+Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
+locks and failed completion operations. GPUI tests use real file listings in a
+headless test window, including stale-result rejection and picker/session lifetime.
 
-The GPUI interaction test runs in a headless test window and checks typing,
-retained focus, filtered row selection, copying and offscreen row omission. It
-cannot establish native rendering or real OS clipboard integration. CI builds
-and tests on Ubuntu 24.04 and macOS 15; native platform acceptance requires the
-manual checks below.
+Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
-## Platform acceptance checks
+```sh
+cd rust && cargo build --locked -p drift-core --example store_probe
+cd ..
+DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test ./internal/parity
+```
 
-Run `make rust-run` separately in Linux Wayland, Linux X11, macOS Intel and macOS
-Apple Silicon sessions, and record OS, renderer and result with the PR:
+All test stores use temporary directories. Native Wayland, X11, macOS Intel and
+Apple Silicon rendering/OS clipboard checks remain manual: navigate a temporary
+project, filter and find files, preview/copy text into another app, toggle hidden
+and ignored paths, change projects during loading, close the picker, and close the
+window. Headless tests cannot establish native rendering or OS clipboard behavior.
 
-1. Resize the window and scroll the 10,000-row list from beginning to end.
-2. Enter `00042` in the filter; only `file-00042.txt` should remain.
-3. Click that row, then Copy filename. Paste into another application and verify
-   the exact filename. Repeat after selecting another row.
-4. Use Ctrl+F (Cmd+F on macOS) to focus the filter; typing must edit the input.
-5. Add `x` to the filter; the list becomes empty and Copy filename is disabled.
-6. Close the window; the process must exit.
+## Remaining port work
 
-## Remaining milestone work
-
-Milestone 1 still requires native rendering/input/clipboard verification on all
-supported platforms. Later milestones are not implemented on this branch:
-
-2. Shared TOML/registry persistence, complete Go/Rust write transactions and
-   conflict detection, capability-confined local browser, finder and preview.
-3. SFTP authentication/connection lifecycle, comparison, unified diff and sync.
-4. FTP/FTPS, trust prompts, keep-alive and real-server protocol tests.
-5. All management and keyboard workflows and Rust CLI parity.
-6. Linux packages, dual-architecture macOS bundles and release acceptance.
-
-Do not allow Rust writes to shared stores before both applications implement
-`<config.Dir()>/write.lock` around the complete read/validate/update/write
-operation. Go currently has no such shared transaction lock. Do not advertise
-sync support or release parity until real-server and cross-process tests pass.
+Milestone 2 is in progress: full host forms/server promotion, project edit/delete
+and dashboard/startup restoration, GUI preferences and full certificate-store
+roundtrip coverage remain. Later milestones add SFTP, FTP/FTPS, certificate
+challenges, keep-alive, comparisons/unified diff, serial sync, complete CLI and
+keyboard parity, packaging and native release acceptance. Safe atomic-write
+primitives are tested; there is no transfer implementation yet. Blocking local
+filesystem calls already running cannot be interrupted by Tokio; their eventual
+results are discarded after cancellation and concurrency remains bounded.

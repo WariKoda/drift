@@ -62,5 +62,17 @@ jobs:
       - name: Test (including headless GPUI interactions)
         run: cargo test --locked --workspace
 
+      - name: Setup Go for cross-process persistence tests
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go and Rust shared-store parity
+        run: |
+          cargo build --locked -p drift-core --example store_probe
+          cd ..
+          DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test ./internal/parity
+
       - name: Release build
         run: cargo build --locked --release --workspace

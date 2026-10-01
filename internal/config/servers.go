@@ -135,6 +135,15 @@ func MatchingTargets(targets []LinkTarget, h Host) []LinkTarget {
 // afterwards, the server exists as a copy of the host, which is harmless; the
 // opposite order could leave a link to a server that does not exist.
 func PromoteProjectHost(cfg *MergedConfig, slug, name string) (Host, error) {
+	var host Host
+	err := WithWriteLock(func(_ *WriteLock) error {
+		var err error
+		host, err = promoteProjectHost(cfg, slug, name)
+		return err
+	})
+	return host, err
+}
+func promoteProjectHost(cfg *MergedConfig, slug, name string) (Host, error) {
 	if slug == cfg.ProjectSlug {
 		return Host{}, errors.New("the host belongs to the open project")
 	}

@@ -7,9 +7,12 @@ license.workspace = true
 
 [dependencies]
 drift-app.workspace = true
+drift-core.workspace = true
+tokio-util.workspace = true
 gpui-kit.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 gpui-kit = { workspace = true, features = ["test-support"] }
 
 [lints]

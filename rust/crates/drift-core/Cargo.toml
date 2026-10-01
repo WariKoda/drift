@@ -7,9 +7,15 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
-
-[dev-dependencies]
+thiserror.workspace = true
 toml.workspace = true
+cap-std.workspace = true
+fs2.workspace = true
+tempfile.workspace = true
+libc.workspace = true
+getrandom.workspace = true
+nix.workspace = true
+chrono.workspace = true
 
 [lints]
 workspace = true

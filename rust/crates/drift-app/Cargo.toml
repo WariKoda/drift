@@ -7,6 +7,10 @@ license.workspace = true
 
 [dependencies]
 drift-core.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tempfile.workspace = true
+
 
 [lints]
 workspace = true

@@ -68,7 +68,13 @@ make update
 
 ### Rust desktop port (in development)
 
-The native `drift-gui` port lives in [`rust/`](rust/README.md) alongside the TUI.
+The native `drift-gui` application lives in [`rust/`](rust/README.md) alongside
+the Go TUI. Both are standalone applications in this repository, with independent
+builds, installation and release cycles. The TUI remains a maintained product;
+the GUI implements its own Rust core and requires no Go executable at runtime.
+Once shared persistence is implemented, both applications will use the same
+project, host and certificate-trust files with coordinated writes.
+
 Its first foundation currently displays a filterable, virtualized test list;
 project management and remote sync are not implemented yet. See the Rust README
 for platform dependencies, build targets and the remaining milestones.

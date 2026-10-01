@@ -1,10 +1,31 @@
 # drift-gui
 
-The Rust desktop port develops alongside the Go TUI. This branch implements the
-foundation of milestone 1; it is **not yet a file browser or a sync client**.
+The Rust desktop application develops alongside the Go TUI. This branch
+implements the foundation of milestone 1; it is **not yet a file browser or a
+sync client**.
 The window displays 10,000 generated filenames to exercise retained input state,
 filtering, selection, virtualization, focus actions and native clipboard access.
 It does not load or modify the user's drift configuration.
+
+## Standalone applications
+
+The Go TUI and Rust GUI remain independently maintained products in one
+repository. Each has its own executable, build dependencies, installation,
+version and release cycle. Neither application invokes or requires the other
+at runtime. The TUI currently installs as `drift`; the GUI installs as
+`drift-gui`. Existing TUI commands and installation paths remain available.
+
+The Rust core is implemented in Rust rather than wrapping the Go application.
+Shared behavior is specified through parity fixtures and tests, so changes to
+one implementation can be checked against the other without a runtime bridge.
+
+Once the persistence milestone is complete, both applications use the same
+configuration directory, registry, project hosts, mappings and certificate
+exceptions. UI preferences stay separate: terminal preferences in the existing
+global config, GUI preferences in `gui.toml`. Shared store changes must preserve
+the documented format for both applications and use the complete transaction
+lock described below. Independent product versions do not permit uncoordinated
+changes to shared file formats.
 
 ## Build and run
 

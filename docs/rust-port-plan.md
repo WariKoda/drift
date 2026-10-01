@@ -146,7 +146,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | Meilenstein | Ergebnis / Abnahme | Stand |
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
-| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings, Verbindungstest und Trust-Reset vorhanden; Promotion, Projektverwaltung und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
@@ -247,8 +247,27 @@ Signaturen, genaue Problemmengen, Pins und permanente Konflikte. GUI-Tests prüf
 Ablehnen, Sitzung/dauerhaft, Datenzertifikatswechsel und Projektwechsel bei offenem
 Dialog; Prozess-Tests prüfen Trust-TOML in beiden Richtungen und die Schreibsperre.
 Der SFTP-Abbruchtest wartet auf einen tatsächlich gestarteten, gedrosselten Upload,
-bevor er Cancel auslöst. Native Rendering-/Server-Abnahme sowie Trust-Reset in der
-Hostverwaltung gehören weiterhin zu den offenen Paritätsaufgaben.
+bevor er Cancel auslöst. Die Go-Paritätsprobe lädt ihre Test-CA auf Linux und macOS
+ausdrücklich; TLS-Tests mit begrenzten Logins warten auf das beobachtete Ende der
+Serververbindungen, bevor sie den nächsten Connect beginnen.
+
+Die Hostverwaltung bietet Verbindungstests für gespeicherte Hosts und ungespeicherte
+Formulare. `Store::preview_host` löst frische Defaults und Serverlinks unter der
+Schreibsperre auf, ohne Host-Datensätze zu speichern. Der App-Service besitzt eine
+separate Testverbindung, prüft Root und Listing und schließt sie auch bei Fehler
+oder Abbruch. Browserverbindungen bleiben erhalten. Der eigene Dialog in
+`hosts/tools.rs` verwendet den root-eigenen Trust-Manager und die gemeinsame
+Zertifikats-View; Freigabe wiederholt ausschließlich den Verbindungstest mit Pin.
+Formularwerte und Fokus bleiben beim Zurückkehren erhalten.
+
+Trust-Reset zeigt den aufgelösten FTPS-Endpunkt und Sitzung-/Datei-Ausnahmen vor
+Bestätigung. Frische Daten werden unter `write.lock` mit der angezeigten Momentaufnahme
+verglichen. Konflikte und Schreibfehler erhalten Dialog und Sitzungsausnahme;
+unabhängige Endpunkte bleiben erhalten. Bestehende Verbindungen besitzen weiterhin
+ihre unveränderliche Policy, neue Handshakes verifizieren wieder. Reset verbindet
+nicht neu und wiederholt keine Transfers. Echte Protokoll-/GUI- und Go/Rust-Prozesstests
+prüfen diese Abläufe. `hosts.rs`, `hosts/form.rs` und `hosts/tools.rs` trennen Liste,
+Formular und Netzwerk-/Trust-Dialoge. Native Rendering-/Server-Abnahme bleibt offen.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

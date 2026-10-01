@@ -40,6 +40,7 @@ pub struct Shell {
     hosts: Option<Entity<HostManager>>,
     store: Store,
     service: BrowserService,
+    remote_service: RemoteService,
     configuration: u64,
     config_cancel: Option<(OperationId, CancellationToken)>,
     registration: Option<(OperationId, CancellationToken)>,
@@ -78,7 +79,7 @@ impl Shell {
             .new(|cx| BrowserPane::new(store.clone(), service.clone(), start.clone(), window, cx));
         let preview = cx.new(|cx| PreviewPane::new(service.clone(), window, cx));
         let projects = cx.new(|cx| ProjectsPanel::new(window, cx));
-        let remote = cx.new(|cx| RemotePane::new(remote_service, window, cx));
+        let remote = cx.new(|cx| RemotePane::new(remote_service.clone(), window, cx));
         let comparison = cx.new(|cx| ComparisonPane::new(service.clone(), window, cx));
         let subscriptions = vec![
             cx.subscribe_in(&comparison, window, |this, _, event, window, cx| {
@@ -240,6 +241,7 @@ impl Shell {
             hosts: None,
             store,
             service,
+            remote_service,
             configuration: 0,
             config_cancel: None,
             registration: None,
@@ -276,6 +278,8 @@ impl Shell {
                 self.comparison
                     .update(cx, |pane, cx| pane.context(id.project, session, cx));
                 if self.remote.read(cx).project() != id.project {
+                    self.hosts = None;
+                    self.host_subscription = None;
                     self.remote
                         .update(cx, |remote, cx| remote.set_context(id.project, vec![], cx));
                     self.remote_preview = false;
@@ -396,8 +400,16 @@ impl Shell {
             .read(cx)
             .location()
             .and_then(|location| location.slug.clone());
-        let hosts = cx
-            .new(|cx| HostManager::new(self.store.clone(), self.service.clone(), slug, window, cx));
+        let hosts = cx.new(|cx| {
+            HostManager::new(
+                self.store.clone(),
+                self.service.clone(),
+                self.remote_service.clone(),
+                slug,
+                window,
+                cx,
+            )
+        });
         self.host_subscription =
             Some(
                 cx.subscribe_in(&hosts, window, |this, _, event: &HostEvent, window, cx| {

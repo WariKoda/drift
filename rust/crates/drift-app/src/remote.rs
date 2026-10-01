@@ -4,7 +4,8 @@ use drift_core::{
     config::Host,
     error::{Error, Result},
     remote::{self, ConnectOptions, ConnectionState, RemoteClient, RemoteEntry},
-    tlstrust::{Challenge, Manager},
+    store::Store,
+    tlstrust::{Challenge, Endpoint, Manager, TrustSnapshot},
 };
 use std::{future::Future, sync::Arc};
 use tokio_util::sync::CancellationToken;
@@ -53,6 +54,83 @@ pub struct RemoteService {
     trust: Option<Arc<Manager>>,
 }
 impl RemoteService {
+    /// Test a fresh resolved draft using a separate, always closed connection.
+    /// The active browser session and the stored host records remain untouched.
+    pub fn test_host(
+        &self,
+        store: Store,
+        slug: Option<String>,
+        draft: Host,
+        required: Option<Challenge>,
+        id: OperationId,
+    ) -> Operation<String> {
+        let service = self.clone();
+        self.run(id, move |cancel| async move {
+            let host = service
+                .browser
+                .blocking(&cancel, move || store.preview_host(slug.as_deref(), draft))
+                .await?;
+            let operation = service.connect_required(host, required, id);
+            let mut task = operation.task;
+            let result = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    operation.cancel.cancel();
+                    task.await
+                },
+                result = &mut task => result,
+            }
+            .map_err(|error| Error::Connection(format!("host test failed: {error}")))?;
+            match result {
+                Ok(directory) => {
+                    directory.session.shutdown().await;
+                    if cancel.is_cancelled() {
+                        return Err(Error::Invalid("host test cancelled".into()));
+                    }
+                    Ok(directory.path)
+                }
+                Err(error) => Err(error),
+            }
+        })
+    }
+    pub fn inspect_host_trust(
+        &self,
+        store: Store,
+        slug: Option<String>,
+        draft: Host,
+        id: OperationId,
+    ) -> Operation<TrustSnapshot> {
+        let browser = self.browser.clone();
+        let manager = self.trust.clone();
+        self.run(id, move |cancel| async move {
+            browser
+                .blocking(&cancel, move || {
+                    let host = store.preview_host(slug.as_deref(), draft)?;
+                    if host.protocol != "ftps" {
+                        return Err(Error::Invalid(
+                            "certificate trust applies only to FTPS hosts".into(),
+                        ));
+                    }
+                    manager
+                        .ok_or_else(|| Error::Invalid("FTPS trust manager unavailable".into()))?
+                        .inspect(Endpoint::new(&host.hostname, host.port)?)
+                })
+                .await
+        })
+    }
+    pub fn reset_host_trust(&self, snapshot: TrustSnapshot, id: OperationId) -> Operation<()> {
+        let browser = self.browser.clone();
+        let manager = self.trust.clone();
+        self.run(id, move |cancel| async move {
+            browser
+                .blocking_mutation(&cancel, move || {
+                    manager
+                        .ok_or_else(|| Error::Invalid("FTPS trust manager unavailable".into()))?
+                        .reset(&snapshot)
+                })
+                .await
+        })
+    }
     pub fn new(browser: BrowserService) -> Self {
         Self {
             browser,
@@ -116,6 +194,9 @@ impl RemoteService {
         let manager = self.trust.clone();
         let browser = self.browser.clone();
         self.run(id, move |cancel| async move {
+            if required.is_some() && host.protocol != "ftps" {
+                return Err(Error::Invalid("FTPS certificate retry requires an FTPS host".into()));
+            }
             let mut options = match options { Some(options) => options, None => ConnectOptions::from_environment()? };
             if host.protocol=="ftps" {
                 if let Some(manager)=manager { options.tls=Some(browser.blocking(&cancel, move || manager.policy()).await?); }
@@ -123,9 +204,13 @@ impl RemoteService {
             }
             let client = remote::connect(host.clone(), options, cancel.clone()).await?;
             let root = if host.root_path.is_empty() { "." } else { &host.root_path };
-            let path = tokio::select! { _ = cancel.cancelled() => return Err(Error::Invalid("connection cancelled".into())), path = client.canonicalize(root) => path? };
+            let path = tokio::select! { _ = cancel.cancelled() => Err(Error::Invalid("connection cancelled".into())), path = client.canonicalize(root) => path };
+            let path = match path { Ok(path) => path, Err(error) => { client.shutdown().await; return Err(error); } };
             let session = RemoteSession { id, host_name: host.name, root: path.clone(), client, preview_lock: Arc::new(tokio::sync::Mutex::new(())) };
-            Self::directory(session, path, cancel).await
+            match Self::directory(session.clone(), path, cancel).await {
+                Ok(directory) => Ok(directory),
+                Err(error) => { session.shutdown().await; Err(error) },
+            }
         })
     }
     async fn directory(

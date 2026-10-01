@@ -176,6 +176,55 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
             .len()),
         4
     );
+    cx.update_window(handle, |_, w, cx| {
+        w.click("sync-all", cx);
+        w.click("sync-dismiss", cx);
+    })
+    .unwrap();
+    assert!(!local.path().join("ignored.txt").exists());
+    cx.update_window(handle, |_, w, cx| {
+        w.click("sync-all", cx);
+        w.click("sync-confirm", cx);
+        w.click("comparison-progress", cx); // Keep transfers running while hidden.
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).comparison.read(cx).is_loading()
+            && !shell.read(cx).browser.read(cx).is_loading()
+            && !shell.read(cx).remote.read(cx).is_loading()
+    })
+    .await;
+    shell.read_with(cx, |s, cx| {
+        let pane = s.comparison.read(cx);
+        let report = pane.sync_result_for_test().unwrap();
+        assert!(report.stopped.is_none());
+        assert_eq!(
+            report
+                .outcomes
+                .iter()
+                .filter(|o| **o == drift_app::sync::ItemOutcome::Completed)
+                .count(),
+            4
+        );
+        assert!(pane.session.as_ref().unwrap().entries.is_empty());
+        assert!(pane.session.as_ref().unwrap().request.scope.include_ignored);
+    });
+    assert_eq!(
+        fs::read(local.path().join("ignored.txt")).unwrap(),
+        b"ignored remote"
+    );
+    assert_eq!(
+        fs::read(local.path().join("new.txt")).unwrap(),
+        b"new remote"
+    );
+    assert_eq!(
+        fs::read(server.dir.path().join("files/only.txt")).unwrap(),
+        b"local only"
+    );
+    assert_eq!(
+        fs::read(local.path().join("changed.txt")).unwrap(),
+        fs::read(&remote_path).unwrap()
+    );
     cx.update_window(handle, |_, w, cx| w.click("comparison-back", cx))
         .unwrap();
     assert!(!shell.read_with(cx, |s, cx| s.comparison.read(cx).visible()));

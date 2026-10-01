@@ -248,6 +248,30 @@ impl BrowserService {
             result = task => result.map_err(|e| Error::Invalid(format!("background operation failed: {e}")))?,
         }
     }
+    /// Mutations must finish before a sync reports their outcome. Cancellation
+    /// can stop admission, but cannot detach an already-running commit/delete.
+    pub(crate) async fn blocking_mutation<T: Send + 'static>(
+        &self,
+        cancel: &CancellationToken,
+        action: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let permit = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Error::Invalid("operation cancelled".into())),
+            permit = self.permits.clone().acquire_owned() => permit.map_err(|_| Error::Invalid("background worker closed".into()))?,
+        };
+        let token = cancel.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                let _permit = permit;
+                if token.is_cancelled() {
+                    return Err(Error::Invalid("operation cancelled".into()));
+                }
+                action()
+            })
+            .await
+            .map_err(|e| Error::Invalid(format!("background mutation failed: {e}")))?
+    }
     async fn list(
         &self,
         cancel: &CancellationToken,

@@ -1,5 +1,6 @@
 //! Native SSH/SFTP transport; the monitor outlives the connect operation.
 mod known_hosts;
+mod transfer;
 use crate::{
     config::Host,
     error::{Error, Result},
@@ -12,7 +13,7 @@ use russh::{
     client,
     keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate, agent::client::AgentClient},
 };
-use russh_sftp::client::SftpSession;
+use russh_sftp::client::{RawSftpSession, SftpSession};
 use std::{net::Shutdown, sync::Arc, time::Duration};
 use tokio::{io::AsyncReadExt, sync::watch};
 use tokio_util::sync::CancellationToken;
@@ -46,6 +47,9 @@ impl Drop for SocketGuard {
 }
 pub struct SftpClient {
     sftp: Arc<SftpSession>,
+    rename: Option<Arc<RawSftpSession>>,
+    posix_rename: bool,
+    rename_unavailable: Option<String>,
     stop: CancellationToken,
     state: watch::Receiver<ConnectionState>,
 }
@@ -60,6 +64,13 @@ impl From<russh::Error> for Error {
     }
 }
 fn sftp_error(e: russh_sftp::client::error::Error) -> Error {
+    use russh_sftp::client::error::Error as SftpError;
+    if matches!(
+        e,
+        SftpError::IO(_) | SftpError::Timeout | SftpError::UnexpectedBehavior(_)
+    ) {
+        return Error::Connection(e.to_string());
+    }
     if let russh_sftp::client::error::Error::Status(status) = &e {
         let kind = match status.status_code {
             russh_sftp::protocol::StatusCode::NoSuchFile => Some(std::io::ErrorKind::NotFound),
@@ -73,6 +84,24 @@ fn sftp_error(e: russh_sftp::client::error::Error) -> Error {
         }
     }
     Error::Invalid(format!("SFTP: {e}"))
+}
+fn transfer_io_error(e: std::io::Error) -> Error {
+    if let Some(error) = e
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<russh_sftp::client::error::Error>())
+    {
+        return sftp_error(error.clone());
+    }
+    if matches!(
+        e.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::TimedOut
+    ) {
+        return Error::Connection(e.to_string());
+    }
+    Error::Io(e)
 }
 
 pub async fn connect(
@@ -227,11 +256,32 @@ async fn establish(host: Host, options: ConnectOptions) -> Result<SftpClient> {
             .await
             .map_err(sftp_error)?,
     );
+    // The pinned high-level API doesn't expose SSH_FXP_EXTENDED. A second
+    // subsystem channel on the same authenticated SSH connection handles
+    // POSIX rename; there is no additional login or separate connection.
+    let control: Result<_> = async {
+        let channel = ssh.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let rename = RawSftpSession::new(channel.into_stream());
+        let version = rename.init().await.map_err(sftp_error)?;
+        let supported = version
+            .extensions
+            .get("posix-rename@openssh.com")
+            .is_some_and(|v| v == "1");
+        Ok((Arc::new(rename), supported))
+    }
+    .await;
+    let (rename, posix_rename, rename_unavailable) = match control {
+        Ok((rename, supported)) => (Some(rename), supported, None),
+        Err(Error::Connection(error)) => return Err(Error::Connection(error)),
+        Err(error) => (None, false, Some(error.to_string())),
+    };
     let stop = CancellationToken::new();
     let (state, receiver) = watch::channel(ConnectionState::Connected);
     let interval = host.keep_alive_seconds();
     let monitor_stop = stop.clone();
     let monitor_sftp = sftp.clone();
+    let monitor_rename = rename.clone();
     tokio::spawn(async move {
         let mut ticks = tokio::time::interval(Duration::from_secs(interval.max(1)));
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -254,6 +304,9 @@ async fn establish(host: Host, options: ConnectOptions) -> Result<SftpClient> {
             }
         };
         drop(guard); // Interrupt socket I/O before waiting for subsystem cleanup.
+        if let Some(rename) = monitor_rename {
+            let _ = rename.close_session();
+        }
         let _ = tokio::time::timeout(Duration::from_secs(2), monitor_sftp.close()).await;
         if !joined {
             let _ = tokio::time::timeout(Duration::from_secs(2), ssh).await;
@@ -262,6 +315,9 @@ async fn establish(host: Host, options: ConnectOptions) -> Result<SftpClient> {
     });
     Ok(SftpClient {
         sftp,
+        rename,
+        posix_rename,
+        rename_unavailable,
         stop,
         state: receiver,
     })
@@ -302,11 +358,21 @@ fn expand_env(value: &str) -> String {
 #[async_trait]
 impl RemoteRead for russh_sftp::client::fs::File {
     async fn close(self: Box<Self>) -> Result<()> {
-        (*self).close().await.map_err(Error::Io)
+        (*self).close().await.map_err(transfer_io_error)
     }
 }
 #[async_trait]
 impl RemoteClient for SftpClient {
+    async fn upload(&self, path: &str, source: Box<dyn RemoteRead>) -> Result<()> {
+        let result = self.upload_staged(path, source).await;
+        if matches!(result, Err(Error::Connection(_))) {
+            self.stop.cancel();
+        }
+        result
+    }
+    async fn delete(&self, path: &str) -> Result<()> {
+        self.sftp.remove_file(path).await.map_err(sftp_error)
+    }
     async fn stat(&self, path: &str) -> Result<RemoteMetadata> {
         let metadata = self.sftp.metadata(path).await.map_err(sftp_error)?;
         Ok(RemoteMetadata {

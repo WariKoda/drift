@@ -4,6 +4,7 @@ pub mod comparison;
 pub mod hosts;
 pub mod navigation;
 pub mod remote;
+pub mod sync;
 
 /// Selection uses the displayed row's stable path, independent of filtering.
 pub struct FileList {

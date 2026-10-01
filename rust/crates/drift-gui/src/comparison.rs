@@ -7,6 +7,7 @@ use crate::{
 use drift_app::{
     browser::{BrowserService, OperationId},
     comparison::{ComparisonService, ComparisonSession, LoadRequest, Progress},
+    sync::{SyncResult, SyncService},
 };
 use drift_core::diff::Decision;
 use gpui_kit::base::Disableable;
@@ -24,6 +25,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
 pub enum ComparisonEvent {
+    FilesChanged {
+        project: u64,
+        connection: OperationId,
+    },
     Status {
         project: u64,
         connection: OperationId,
@@ -34,10 +39,15 @@ pub enum ComparisonEvent {
 impl EventEmitter<ComparisonEvent> for ComparisonPane {}
 pub struct ComparisonPane {
     service: ComparisonService,
+    sync_service: SyncService,
     request: Option<LoadRequest>,
     pub session: Option<ComparisonSession>,
     id: OperationId,
     loading: Option<CancellationToken>,
+    syncing: Option<CancellationToken>,
+    stale: bool,
+    sync_result: Option<SyncResult>,
+    confirm_sync: Option<Vec<Decision>>,
     progress_stop: Option<CancellationToken>,
     progress: Progress,
     hide_progress: bool,
@@ -55,6 +65,9 @@ pub struct ComparisonPane {
 impl Drop for ComparisonPane {
     fn drop(&mut self) {
         if let Some(token) = self.loading.take() {
+            token.cancel();
+        }
+        if let Some(token) = self.syncing.take() {
             token.cancel();
         }
         if let Some(token) = self.progress_stop.take() {
@@ -96,7 +109,8 @@ impl ComparisonPane {
             }
         });
         Self {
-            service: ComparisonService::new(service),
+            service: ComparisonService::new(service.clone()),
+            sync_service: SyncService::new(service),
             request: None,
             session: None,
             id: OperationId {
@@ -104,6 +118,10 @@ impl ComparisonPane {
                 operation: 0,
             },
             loading: None,
+            syncing: None,
+            stale: true,
+            sync_result: None,
+            confirm_sync: None,
             progress_stop: None,
             progress: Progress {
                 phase: "Scanning",
@@ -128,7 +146,11 @@ impl ComparisonPane {
         self.visible
     }
     pub fn is_loading(&self) -> bool {
-        self.loading.is_some()
+        self.loading.is_some() || self.syncing.is_some()
+    }
+    #[cfg(test)]
+    pub(crate) fn sync_result_for_test(&self) -> Option<&SyncResult> {
+        self.sync_result.as_ref()
     }
     pub fn context(
         &mut self,
@@ -136,6 +158,14 @@ impl ComparisonPane {
         connection: Option<OperationId>,
         cx: &mut Context<Self>,
     ) {
+        if self.request.is_some() && project == self.id.project && connection.is_none() {
+            // Retain the active sync report when the connection observer detaches
+            // the browser. A new connection still requires a new comparison.
+            self.stale = true;
+            self.confirm_sync = None;
+            cx.notify();
+            return;
+        }
         if self
             .request
             .as_ref()
@@ -149,6 +179,9 @@ impl ComparisonPane {
         if let Some(token) = self.loading.take() {
             token.cancel();
         }
+        if let Some(token) = self.syncing.take() {
+            token.cancel();
+        }
         if let Some(token) = self.progress_stop.take() {
             token.cancel();
         }
@@ -157,6 +190,9 @@ impl ComparisonPane {
         self.files.clear();
         self.selected = None;
         self.states.clear();
+        self.stale = true;
+        self.sync_result = None;
+        self.confirm_sync = None;
         self.visible = false;
         self.diff.update(cx, |diff, cx| {
             diff.show(None, DiffState::default(), String::new(), cx)
@@ -193,9 +229,11 @@ impl ComparisonPane {
         let Some(request) = self.request.clone() else {
             return;
         };
-        if self.loading.is_some() {
+        if self.is_loading() {
             return;
         }
+        self.confirm_sync = None;
+        self.stale = true;
         self.id.operation += 1;
         let id = self.id;
         let operation = self.service.load(request, id);
@@ -220,6 +258,7 @@ impl ComparisonPane {
                 if let Some(stop) = this.progress_stop.take() { stop.cancel(); }
                 match result {
                     Ok(Ok(session)) => {
+                        this.stale = false;
                         let previous = this.selected.and_then(|i| this.session.as_ref()?.entries.get(i)).map(|e| e.local.clone());
                         this.decisions = session.entries.iter().map(|entry| if entry.error.is_some() { Decision::Skip } else { entry.result.as_ref().map_or(Decision::Skip,|r| r.suggestion()) }).collect();
                         let errors = session.entries.iter().filter(|e| e.error.is_some()).count();
@@ -275,6 +314,9 @@ impl ComparisonPane {
         cx.notify();
     }
     fn cycle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() || self.confirm_sync.is_some() {
+            return;
+        }
         let Some(index) = self.selected else {
             return;
         };
@@ -296,6 +338,18 @@ impl ComparisonPane {
         self.load(window, cx);
     }
     pub fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.confirm_sync.take().is_some() {
+            cx.notify();
+            return;
+        }
+        if let Some(token) = &self.syncing {
+            token.cancel();
+            self.status(
+                "Cancelling sync; waiting for transfer completion…".into(),
+                cx,
+            );
+            return;
+        }
         if self.is_loading() {
             self.invalidate(cx);
         } else {
@@ -318,4 +372,5 @@ impl ComparisonPane {
         self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
     }
 }
+mod sync;
 mod view;

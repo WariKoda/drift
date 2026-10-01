@@ -8,8 +8,8 @@ a local browser with directory navigation, filtering, a project-wide finder and 
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
 projects or registers the current folder. Hosts manages project targets and global
 servers with forms, duplication, deletion, server links and mappings.
-SFTP browsing, preview and comparison with a unified diff are implemented.
-Transfers and FTP/FTPS connections remain pending.
+SFTP browsing, preview, comparison with a unified diff and serial sync are implemented.
+FTP/FTPS connections remain pending.
 
 ## Standalone applications
 
@@ -87,19 +87,45 @@ while fixed exclusions and transfer staging files never enter the comparison.
 The comparison shows differing files and per-file errors, with suggested actions.
 Click the action button or press Enter/Space in the file list to cycle valid
 previews. Upload shows Remote → Local, Download Local → Remote and deletion shows
-the affected side being removed. These actions are previews; transfer execution
-is still pending. Unified rows have two number columns, hunk headers and three
+the affected side being removed. Unified rows have two number columns, hunk headers and three
 context lines. Click an unchanged fold to expand it; **Fold context** collapses it.
 Alt+Up/Down and the hunk buttons navigate changes. Click a text row, Shift-click
 another to select a line range, then Ctrl/Cmd+C to copy; **Copy diff / selection**
 copies that range or all displayed rows. Selection currently operates on whole
 lines. Each file retains its own fold/scroll state while browsing the results.
 
+**Sync selected** runs the active file's chosen action. **Sync all actions** runs
+all chosen actions in the comparison, including rows hidden by the text filter.
+Both first show the upload/download/delete counts for confirmation. Skip and error
+rows are never executed. The runner streams uploads and downloads and executes
+all operations serially. Existing regular targets retain their permissions;
+adjacent staging files prevent partial content from replacing the old target.
+Sources, transfer completion, flush and file close are checked before commit.
+The sync report retains confirmed completions, individual errors, cancellation
+and unknown remote outcomes, including errors after successful EOF.
+
+Every normally ended sync rebuilds the comparison with its original selection,
+mappings and ignore scope, and refreshes both browsers after confirmed changes.
+Cancelled or disconnected syncs keep their report and require reconnecting and
+comparing again. Transfers are never automatically retried. Hide progress leaves
+the operation running; Cancel waits for the active operation's result, closes the
+connection and stops subsequent items. Project/window changes cancel in the
+background and reject stale completions.
+
+The pinned SFTP library's high-level API lacks the
+[OpenSSH POSIX rename extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL).
+An optional second SFTP subsystem channel on the same authenticated SSH connection
+handles that extension. Servers that reject it retain browsing and standard
+SFTP rename support. If a server's standard rename cannot replace an existing
+target, the upload fails visibly and leaves that target intact; drift never deletes
+the target to force a rename or resends a rename after an ambiguous response.
+
 F5 rebuilds the comparison with the same selection and ignore scope. Progress can
 be hidden without cancelling. Cancelling a running comparison closes its remote
 connection and requires an explicit reconnect. Back from a completed comparison
 restores the existing browser session. Project/host changes and connection loss
-invalidate comparison handles and reject late results.
+invalidate comparison handles and reject late results. Connection loss retains
+the current sync report while disabling further sync on the stale comparison.
 
 Comparisons use eight or fewer SFTP workers, a metadata fast path, a 2-MiB text
 limit and streaming SHA-256 for larger files. A 60-second idle deadline aborts
@@ -191,12 +217,16 @@ history and cancellation; preview tests verify replacement and clipboard content
 SSH/SFTP tests start a real Go daemon from `../testdata/sftp-server/` against
 isolated temporary trees and use real OpenSSH keys/agents. Go, `ssh-keygen`,
 `ssh-agent` and `ssh-add` are required for `cargo test`. Comparison parity tests run
-the real Go `app.Load` workflow through `../testdata/comparison-probe/` against the
+the real Go `app.Load` and `sync.Run` workflows through `../testdata/comparison-probe/` against the
 same trees/server and compare file pairs, statuses, suggested actions and binary
 classification. Production builds and the
 GUI executable are native Rust. Tests include authentication, hashed/pattern/revoked
 host keys, key changes, agent and keep-alive timeout, connection loss, scope,
 remote navigation and cross-view preview/clipboard. No protocol tests are skipped.
+Sync tests compare confirmed actions and final tree contents/permissions against
+Go, interrupt active uploads/downloads, stop a real server mid-transfer, and drop
+the SSH socket at SFTP CLOSE after EOF. They also cover source/target changes to
+symlinks after comparison and servers restricted to one session channel.
 Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards.
 
@@ -221,9 +251,8 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
 and dashboard/startup restoration, GUI preferences and full certificate-store
 roundtrip coverage remain. SFTP transport/browser and comparison/unified diff are
-available. Serial sync remains to be implemented, as do
-FTP/FTPS, certificate challenges, complete CLI and
-keyboard parity, packaging and native release acceptance. Safe atomic-write
-primitives are tested; there is no upload/download/delete sync implementation yet.
-Blocking local filesystem calls already running cannot be interrupted by Tokio; their eventual
-results are discarded after cancellation and concurrency remains bounded.
+available, including serial upload/download/delete sync. FTP/FTPS, certificate
+challenges, complete CLI and keyboard/selection parity, packaging and native
+release acceptance remain. Blocking local filesystem calls already running cannot
+be interrupted by Tokio. Sync waits for their outcomes before reporting completion
+or cancellation; browsing discards stale results. Concurrency remains bounded.

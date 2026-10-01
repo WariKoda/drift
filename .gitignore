@@ -7,3 +7,4 @@ drift.log
 .claude/
 docs/reviews/
 scripts/manual-test/.state/
+rust/target/

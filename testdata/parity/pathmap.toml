@@ -1,0 +1,97 @@
+# Shared by Go and Rust. Paths use POSIX syntax on Linux and macOS.
+[[cases]]
+name = "omitted root"
+project_root = "/work"
+local = "/work/src/main.go"
+remote = "/src/main.go"
+
+[[cases]]
+name = "relative root"
+project_root = "/work"
+root_path = "."
+local = "/work/src/main.go"
+remote = "src/main.go"
+
+[[cases]]
+name = "project root itself"
+project_root = "/work"
+root_path = "/srv/app"
+local = "/work"
+remote = "/srv/app"
+
+[[cases]]
+name = "mapped file"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/src/main.go"
+remote = "/srv/app/main.go"
+project_mappings = [{local = "src", remote = "app"}]
+
+[[cases]]
+name = "host mappings override project"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/src/main.go"
+remote = "/srv/host/main.go"
+project_mappings = [{local = "src", remote = "project"}]
+host_mappings = [{local = "src", remote = "host"}]
+
+[[cases]]
+name = "compatible nested mappings"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/src/lib/main.go"
+remote = "/srv/app/lib/main.go"
+host_mappings = [{local = "src", remote = "app"}, {local = "src/lib", remote = "app/lib"}]
+
+[[cases]]
+name = "segment boundary"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/src-other/main.go"
+remote = "/srv/app-other/main.go"
+host_mappings = [{local = "src", remote = "app"}]
+error = true
+
+[[cases]]
+name = "fallback confinement"
+project_root = "/work"
+root_path = "/srv"
+local = "/work-other/main.go"
+remote = "/srv-other/main.go"
+error = true
+
+[[cases]]
+name = "parent escape"
+project_root = "/work"
+root_path = "."
+local = "/work/../secret"
+remote = "../secret"
+error = true
+
+[[cases]]
+name = "mapping parent segment"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/main.go"
+remote = "/srv/main.go"
+host_mappings = [{local = "src/../.", remote = "."}]
+error = true
+
+[[cases]]
+name = "ambiguous nested mappings"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/src/lib/main.go"
+remote = "/srv/other/main.go"
+host_mappings = [{local = "src", remote = "app"}, {local = "src/lib", remote = "other"}]
+error = true
+
+[[cases]]
+name = "normalized duplicate mappings"
+project_root = "/work"
+root_path = "/srv"
+local = "/work/src/main.go"
+remote = "/srv/app/main.go"
+host_mappings = [{local = "src", remote = "app"}, {local = "src/.", remote = "other"}]
+error = true

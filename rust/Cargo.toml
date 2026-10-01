@@ -1,0 +1,30 @@
+[workspace]
+members = ["crates/drift-core", "crates/drift-app", "crates/drift-gui"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/WariKoda/drift"
+
+[workspace.dependencies]
+drift-core = { path = "crates/drift-core" }
+drift-app = { path = "crates/drift-app" }
+gpui-kit = "=0.7.0"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+
+# GPUI's dependency graph is large. Keep CI and local debug links bounded.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0

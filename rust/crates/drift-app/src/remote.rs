@@ -13,7 +13,7 @@ pub struct RemoteSession {
     pub id: OperationId,
     pub host_name: String,
     pub root: String,
-    client: Arc<dyn RemoteClient>,
+    pub(crate) client: Arc<dyn RemoteClient>,
     preview_lock: Arc<tokio::sync::Mutex<()>>,
 }
 impl RemoteSession {

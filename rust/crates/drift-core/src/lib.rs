@@ -1,5 +1,6 @@
 //! Protocol- and UI-independent drift policies.
 pub mod config;
+pub mod diff;
 pub mod error;
 pub mod local;
 pub mod pathmap;

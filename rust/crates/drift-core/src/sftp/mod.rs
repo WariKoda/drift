@@ -3,7 +3,9 @@ mod known_hosts;
 use crate::{
     config::Host,
     error::{Error, Result},
-    remote::{ConnectOptions, ConnectionState, RemoteClient, RemoteEntry},
+    remote::{
+        ConnectOptions, ConnectionState, RemoteClient, RemoteEntry, RemoteMetadata, RemoteRead,
+    },
 };
 use async_trait::async_trait;
 use russh::{
@@ -58,6 +60,18 @@ impl From<russh::Error> for Error {
     }
 }
 fn sftp_error(e: russh_sftp::client::error::Error) -> Error {
+    if let russh_sftp::client::error::Error::Status(status) = &e {
+        let kind = match status.status_code {
+            russh_sftp::protocol::StatusCode::NoSuchFile => Some(std::io::ErrorKind::NotFound),
+            russh_sftp::protocol::StatusCode::PermissionDenied => {
+                Some(std::io::ErrorKind::PermissionDenied)
+            }
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            return Error::Io(std::io::Error::new(kind, e));
+        }
+    }
     Error::Invalid(format!("SFTP: {e}"))
 }
 
@@ -286,7 +300,27 @@ fn expand_env(value: &str) -> String {
     result
 }
 #[async_trait]
+impl RemoteRead for russh_sftp::client::fs::File {
+    async fn close(self: Box<Self>) -> Result<()> {
+        (*self).close().await.map_err(Error::Io)
+    }
+}
+#[async_trait]
 impl RemoteClient for SftpClient {
+    async fn stat(&self, path: &str) -> Result<RemoteMetadata> {
+        let metadata = self.sftp.metadata(path).await.map_err(sftp_error)?;
+        Ok(RemoteMetadata {
+            size: metadata.size.unwrap_or(0),
+            modified: metadata
+                .mtime
+                .map(|seconds| std::time::UNIX_EPOCH + Duration::from_secs(seconds.into())),
+            directory: metadata.file_type().is_dir(),
+            regular: metadata.file_type().is_file(),
+        })
+    }
+    async fn open(&self, path: &str) -> Result<Box<dyn RemoteRead>> {
+        Ok(Box::new(self.sftp.open(path).await.map_err(sftp_error)?))
+    }
     async fn canonicalize(&self, path: &str) -> Result<String> {
         self.sftp.canonicalize(path).await.map_err(sftp_error)
     }

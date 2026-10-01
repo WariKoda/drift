@@ -100,6 +100,11 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
         window.input("right", cx);
     })
     .unwrap();
+    // Input notifications may arrive after a frame on macOS.
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        right.read(cx).len() == 1
+    })
+    .await;
     cx.update_window(handle, |_, window, cx| {
         assert_eq!(left.read(cx).len(), 2);
         assert_eq!(right.read(cx).len(), 1);

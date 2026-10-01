@@ -226,7 +226,7 @@ impl BrowserService {
         });
         Operation { id, cancel, task }
     }
-    async fn blocking<T: Send + 'static>(
+    pub(crate) async fn blocking<T: Send + 'static>(
         &self,
         cancel: &CancellationToken,
         action: impl FnOnce() -> Result<T> + Send + 'static,
@@ -308,7 +308,7 @@ impl BrowserService {
 
 /// Git owns ignore semantics (including tracked files, worktrees and global
 /// excludes). One NUL-delimited query per scan also supports remote-only paths.
-async fn classify_ignored(
+pub(crate) async fn classify_ignored(
     cancel: &CancellationToken,
     root: &Path,
     entries: &[Entry],
@@ -377,7 +377,11 @@ async fn classify_ignored(
         if relative.contains('\0') {
             return Err(Error::Invalid("ignore path contains NUL".into()));
         }
-        input.extend_from_slice(relative.as_bytes());
+        input.extend_from_slice(if relative.is_empty() {
+            b"."
+        } else {
+            relative.as_bytes()
+        });
         if entry.directory {
             input.push(b'/');
         }

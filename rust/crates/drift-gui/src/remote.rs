@@ -170,6 +170,12 @@ impl RemotePane {
     pub fn has_session(&self) -> bool {
         self.session.is_some()
     }
+    pub fn comparison_target(&self) -> Option<(Host, RemoteSession)> {
+        Some((self.target.clone()?, self.session.clone()?))
+    }
+    pub fn directory(&self) -> &str {
+        &self.path
+    }
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.connection += 1;
         self.operation += 1;

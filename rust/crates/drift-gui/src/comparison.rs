@@ -1,0 +1,321 @@
+//! Comparison controls and file list. Transport/scanning live in drift-app;
+//! the unified renderer has its own view and per-file folding/scroll state.
+use crate::{
+    actions::*,
+    diff::{DiffPane, DiffState},
+};
+use drift_app::{
+    browser::{BrowserService, OperationId},
+    comparison::{ComparisonService, ComparisonSession, LoadRequest, Progress},
+};
+use drift_core::diff::Decision;
+use gpui_kit::base::Disableable;
+use gpui_kit::component::{
+    ActiveTheme,
+    button::Button,
+    input::{Input, InputEvent, InputState},
+};
+use gpui_kit::{
+    AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
+    Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
+};
+use std::{collections::BTreeMap, sync::Arc};
+use tokio_util::sync::CancellationToken;
+
+pub enum ComparisonEvent {
+    Status {
+        project: u64,
+        connection: OperationId,
+        message: String,
+    },
+    Closed,
+}
+impl EventEmitter<ComparisonEvent> for ComparisonPane {}
+pub struct ComparisonPane {
+    service: ComparisonService,
+    request: Option<LoadRequest>,
+    pub session: Option<ComparisonSession>,
+    id: OperationId,
+    loading: Option<CancellationToken>,
+    progress_stop: Option<CancellationToken>,
+    progress: Progress,
+    hide_progress: bool,
+    visible: bool,
+    filter: Entity<InputState>,
+    files: Vec<usize>,
+    selected: Option<usize>,
+    decisions: Vec<Decision>,
+    states: BTreeMap<usize, DiffState>,
+    diff: Entity<DiffPane>,
+    scroll: UniformListScrollHandle,
+    focus: FocusHandle,
+    _subscription: Subscription,
+}
+impl Drop for ComparisonPane {
+    fn drop(&mut self) {
+        if let Some(token) = self.loading.take() {
+            token.cancel();
+        }
+        if let Some(token) = self.progress_stop.take() {
+            token.cancel();
+        }
+    }
+}
+impl ComparisonPane {
+    pub fn new(service: BrowserService, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter comparison files…"));
+        let subscription = cx.subscribe_in(&filter, window, |this, state, event, window, cx| {
+            if matches!(event, InputEvent::Change) {
+                let query = state.read(cx).value().to_lowercase();
+                this.files = this.session.as_ref().map_or_else(Vec::new, |s| {
+                    s.entries
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, e)| {
+                            (e.local
+                                .strip_prefix(s.request.location.root.base())
+                                .unwrap_or(&e.local)
+                                .to_string_lossy()
+                                .to_lowercase()
+                                .contains(&query)
+                                || e.remote
+                                    .strip_prefix(&s.request.connection.root)
+                                    .unwrap_or(&e.remote)
+                                    .to_lowercase()
+                                    .contains(&query))
+                            .then_some(i)
+                        })
+                        .collect()
+                });
+                if this.selected.is_some_and(|i| !this.files.contains(&i)) {
+                    this.choose(None, window, cx);
+                }
+                cx.notify();
+            }
+        });
+        Self {
+            service: ComparisonService::new(service),
+            request: None,
+            session: None,
+            id: OperationId {
+                project: 0,
+                operation: 0,
+            },
+            loading: None,
+            progress_stop: None,
+            progress: Progress {
+                phase: "Scanning",
+                completed: 0,
+                total: 0,
+                bytes: 0,
+            },
+            hide_progress: false,
+            visible: false,
+            filter,
+            files: vec![],
+            selected: None,
+            decisions: vec![],
+            states: BTreeMap::new(),
+            diff: cx.new(DiffPane::new),
+            scroll: UniformListScrollHandle::new(),
+            focus: cx.focus_handle().tab_stop(true),
+            _subscription: subscription,
+        }
+    }
+    pub fn visible(&self) -> bool {
+        self.visible
+    }
+    pub fn is_loading(&self) -> bool {
+        self.loading.is_some()
+    }
+    pub fn context(
+        &mut self,
+        project: u64,
+        connection: Option<OperationId>,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .request
+            .as_ref()
+            .is_some_and(|r| project != self.id.project || Some(r.connection.id) != connection)
+        {
+            self.invalidate(cx);
+        }
+    }
+    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
+        self.id.operation += 1;
+        if let Some(token) = self.loading.take() {
+            token.cancel();
+        }
+        if let Some(token) = self.progress_stop.take() {
+            token.cancel();
+        }
+        self.request = None;
+        self.session = None;
+        self.files.clear();
+        self.selected = None;
+        self.states.clear();
+        self.visible = false;
+        self.diff.update(cx, |diff, cx| {
+            diff.show(None, DiffState::default(), String::new(), cx)
+        });
+        cx.notify();
+    }
+    pub fn open(
+        &mut self,
+        request: LoadRequest,
+        project: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.invalidate(cx);
+        self.id.project = project;
+        self.visible = true;
+        self.hide_progress = false;
+        self.request = Some(request);
+        self.filter
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.focus.focus(window, cx);
+        self.load(window, cx);
+    }
+    fn status(&self, message: String, cx: &mut Context<Self>) {
+        if let Some(request) = &self.request {
+            cx.emit(ComparisonEvent::Status {
+                project: self.id.project,
+                connection: request.connection.id,
+                message,
+            });
+        }
+    }
+    fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(request) = self.request.clone() else {
+            return;
+        };
+        if self.loading.is_some() {
+            return;
+        }
+        self.id.operation += 1;
+        let id = self.id;
+        let operation = self.service.load(request, id);
+        self.loading = Some(operation.operation.cancel);
+        self.progress = operation.progress.borrow().clone();
+        let stop = CancellationToken::new();
+        self.progress_stop = Some(stop.clone());
+        let mut progress = operation.progress;
+        cx.spawn_in(window,async move |this,cx| {
+            loop {
+                let update = tokio::select! { _ = stop.cancelled() => break, update = progress.changed() => update };
+                if update.is_err() { break; }
+                let current = progress.borrow_and_update().clone();
+                if this.update_in(cx,|this,_,cx| { if this.id == id && this.loading.is_some() { this.progress = current; cx.notify(); } }).is_err() { break; }
+            }
+        }).detach();
+        cx.spawn_in(window,async move |this,cx| {
+            let result = operation.operation.task.await;
+            let _ = this.update_in(cx,|this,window,cx| {
+                if this.id != id { return; }
+                this.loading = None;
+                if let Some(stop) = this.progress_stop.take() { stop.cancel(); }
+                match result {
+                    Ok(Ok(session)) => {
+                        let previous = this.selected.and_then(|i| this.session.as_ref()?.entries.get(i)).map(|e| e.local.clone());
+                        this.decisions = session.entries.iter().map(|entry| if entry.error.is_some() { Decision::Skip } else { entry.result.as_ref().map_or(Decision::Skip,|r| r.suggestion()) }).collect();
+                        let errors = session.entries.iter().filter(|e| e.error.is_some()).count();
+                        let message = format!("{} pairs; {} differences/errors; {errors} errors; {} ignored skipped; {} explicit ignored; {} hidden",session.scope.pairs,session.entries.len(),session.scope.ignored_skipped,session.scope.explicit_ignored,session.scope.hidden);
+                        this.session = Some(session); this.states.clear(); this.selected = None;
+                        this.filter.update(cx,|input,cx| input.set_value("",window,cx));
+                        this.files = (0..this.session.as_ref().unwrap().entries.len()).collect();
+                        let index = previous.and_then(|path| this.session.as_ref().unwrap().entries.iter().position(|e| e.local == path)).or_else(|| this.files.first().copied());
+                        this.choose(index,window,cx);
+                        this.status(message,cx);
+                    }
+                    Ok(Err(error)) => { this.session = None; this.files.clear(); this.selected = None; this.diff.update(cx,|diff,cx| diff.show(None,DiffState::default(),error.to_string(),cx)); this.status(error.to_string(),cx); }
+                    Err(error) => this.status(format!("Comparison task failed: {error}"),cx),
+                }
+                cx.notify();
+            });
+        }).detach();
+        self.status("Scanning and comparing…".into(), cx);
+        cx.notify();
+    }
+    fn choose(&mut self, index: Option<usize>, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(old) = self.selected {
+            self.states.insert(old, self.diff.read(cx).state.clone());
+        }
+        self.selected = index;
+        let (result, state, message) =
+            if let Some(entry) = index.and_then(|i| self.session.as_ref()?.entries.get(i)) {
+                let state = self
+                    .states
+                    .get(&index.unwrap())
+                    .cloned()
+                    .unwrap_or(DiffState {
+                        direction: self.decisions[index.unwrap()],
+                        ..Default::default()
+                    });
+                (
+                    entry.result.as_ref().map(Arc::clone),
+                    state,
+                    entry
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "Empty file or no renderable changes".into()),
+                )
+            } else {
+                (
+                    None,
+                    DiffState::default(),
+                    "No differences in this scope".into(),
+                )
+            };
+        self.diff
+            .update(cx, |diff, cx| diff.show(result, state, message, cx));
+        cx.notify();
+    }
+    fn cycle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.selected else {
+            return;
+        };
+        let Some(entry) = self.session.as_ref().and_then(|s| s.entries.get(index)) else {
+            return;
+        };
+        if entry.error.is_some() {
+            return;
+        }
+        if let Some(result) = &entry.result {
+            self.decisions[index] = result.next_decision(self.decisions[index]);
+            self.diff
+                .update(cx, |diff, cx| diff.direction(self.decisions[index], cx));
+            self.focus.focus(window, cx);
+            cx.notify();
+        }
+    }
+    pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+        self.load(window, cx);
+    }
+    pub fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() {
+            self.invalidate(cx);
+        } else {
+            self.visible = false;
+        }
+        cx.emit(ComparisonEvent::Closed);
+        cx.notify();
+    }
+    fn cursor(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self
+            .selected
+            .and_then(|i| self.files.iter().position(|v| *v == i))
+            .unwrap_or(0);
+        let row = if next {
+            (current + 1).min(self.files.len().saturating_sub(1))
+        } else {
+            current.saturating_sub(1)
+        };
+        self.choose(self.files.get(row).copied(), window, cx);
+        self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
+    }
+}
+mod view;

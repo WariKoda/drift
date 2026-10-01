@@ -1,5 +1,7 @@
 mod actions;
 mod browser;
+mod comparison;
+mod diff;
 mod hosts;
 mod preview;
 mod projects;

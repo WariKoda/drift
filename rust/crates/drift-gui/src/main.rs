@@ -3,6 +3,10 @@ mod browser;
 mod hosts;
 mod preview;
 mod projects;
+mod remote;
+#[cfg(test)]
+#[path = "../../drift-core/tests/support/mod.rs"]
+mod sftp_test_support;
 mod shell;
 mod toolbar;
 
@@ -46,7 +50,12 @@ fn main() {
                     ..Default::default()
                 },
                 cx,
-                |window, cx| cx.new(|cx| Shell::new(window, cx, store, service, start)),
+                |window, cx| {
+                    cx.new(|cx| {
+                        let remote = drift_app::remote::RemoteService::new(service.clone());
+                        Shell::new(window, cx, store, service, remote, start)
+                    })
+                },
             ) {
                 // Startup has not entered a TUI or opened a logging session.
                 eprintln!("drift-gui: cannot open window: {error}");

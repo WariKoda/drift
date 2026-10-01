@@ -1,0 +1,111 @@
+use super::*;
+use crate::sftp_test_support as support;
+use gpui_kit::test::{TestAppContextExt, TestWindowExt};
+use gpui_kit::{Bounds, TestAppContext, WindowBounds, WindowOptions, point, size};
+use std::{fs, time::Duration};
+struct RemoteWindow {
+    pane: Entity<RemotePane>,
+}
+impl Render for RemoteWindow {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .key_context("Drift")
+            .size_full()
+            .flex()
+            .child(self.pane.clone())
+    }
+}
+#[gpui_kit::test]
+async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let server = support::Server::new(false);
+    let root = server.dir.path().join("files");
+    fs::create_dir(root.join("child")).unwrap();
+    fs::write(root.join("child/text.txt"), "remote").unwrap();
+    fs::write(root.join("top.txt"), "top").unwrap();
+    let host = server.host();
+    let options = server.options();
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1000.), px(700.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                cx.new(|cx| {
+                    let pane = cx.new(|cx| {
+                        RemotePane::new(
+                            RemoteService::with_options(
+                                drift_app::browser::BrowserService::new().unwrap(),
+                                options,
+                            ),
+                            window,
+                            cx,
+                        )
+                    });
+                    pane.update(cx, |pane, cx| pane.set_context(1, vec![host], cx));
+                    RemoteWindow { pane }
+                })
+            },
+        )
+        .unwrap()
+    });
+    let pane = view.read_with(cx, |view, _| view.pane.clone());
+    cx.update_window(handle, |_, window, cx| {
+        window.click(("connect-host", 0usize), cx)
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    let session = pane.read_with(cx, |pane, _| pane.session.clone().unwrap());
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(pane.read(cx).path, root.to_string_lossy());
+        window.click(0usize, cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(pane.read(cx).path, root.join("child").to_string_lossy());
+        window.press("alt-left", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(pane.read(cx).path, root.to_string_lossy());
+        window.click("remote-filter", cx);
+        window.input("top", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(pane.read(cx).files.len(), 1);
+        window.click(0usize, cx);
+        window.press("ctrl-shift-c", cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            root.join("top.txt").to_string_lossy()
+        );
+        pane.update(cx, |pane, cx| pane.set_context(2, vec![], cx));
+        assert!(pane.read(cx).session.is_none());
+        assert!(pane.read(cx).entries.is_empty());
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, _| {
+        session.state() != ConnectionState::Connected
+    })
+    .await;
+    assert_eq!(session.state(), ConnectionState::Closed);
+}

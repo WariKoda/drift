@@ -32,7 +32,14 @@ async fn real_nested_navigation_buttons_history_and_input_focus(cx: &mut TestApp
                 cx,
                 |w, cx| {
                     cx.new(|cx| {
-                        Shell::new(w, cx, store, BrowserService::new().unwrap(), root.clone())
+                        Shell::new(
+                            w,
+                            cx,
+                            store,
+                            BrowserService::new().unwrap(),
+                            RemoteService::new(BrowserService::new().unwrap()),
+                            root.clone(),
+                        )
                     })
                 },
             )
@@ -186,6 +193,7 @@ async fn vanished_directory_keeps_the_previous_location_and_history(cx: &mut Tes
                     cx,
                     Store::new(config.path().into()),
                     BrowserService::new().unwrap(),
+                    RemoteService::new(BrowserService::new().unwrap()),
                     root.path().into(),
                 )
             })
@@ -242,6 +250,7 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
                         cx,
                         Store::new(config.path().into()),
                         BrowserService::new().unwrap(),
+                        RemoteService::new(BrowserService::new().unwrap()),
                         dir.path().into(),
                     )
                 })
@@ -299,4 +308,110 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(window));
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
+    cx: &mut TestAppContext,
+) {
+    use crate::sftp_test_support as support;
+    cx.executor().allow_parking();
+    let server = support::Server::new(false);
+    fs::write(
+        server.dir.path().join("files/remote.txt"),
+        "remote contents",
+    )
+    .unwrap();
+    fs::write(
+        server.dir.path().join("files/second.txt"),
+        "latest remote contents",
+    )
+    .unwrap();
+    let local = tempfile::tempdir().unwrap();
+    fs::write(local.path().join("local.txt"), "local contents").unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    store.save_host(None, None, server.host()).unwrap();
+    let (handle, shell) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1200.), px(800.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    let remote = RemoteService::with_options(service.clone(), server.options());
+                    Shell::new(window, cx, store, service, remote, local.path().into())
+                })
+            },
+        )
+        .unwrap()
+    });
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        shell.read(cx).browser.read(cx).location().is_some()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.click("remote", cx);
+        window.click(("connect-host", 0usize), cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).remote.read(cx).is_loading()
+    })
+    .await;
+    assert!(shell.read_with(cx, |shell, cx| shell.remote.read(cx).has_session()));
+    cx.update_window(handle, |_, window, cx| {
+        window.within("remote-pane").click(0usize, cx);
+        window.within("remote-pane").click(1usize, cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        shell.read(cx).remote_preview && !shell.read(cx).preview.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.click("copy-preview", cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().as_deref(),
+            Some("latest remote contents")
+        );
+        assert!(shell.read(cx).remote.read(cx).has_session());
+        window.click("local-browser", cx);
+        window.within("browser-pane").click(0usize, cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).preview.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.click("copy-preview", cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().as_deref(),
+            Some("local contents")
+        );
+        shell.update(cx, |shell, cx| {
+            shell.open_project(other.path().into(), window, cx)
+        });
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        shell
+            .read(cx)
+            .browser
+            .read(cx)
+            .location()
+            .is_some_and(|l| l.directory == other.path())
+    })
+    .await;
+    assert!(!shell.read_with(cx, |shell, cx| shell.remote.read(cx).has_session()));
 }

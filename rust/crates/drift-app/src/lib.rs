@@ -2,6 +2,7 @@
 pub mod browser;
 pub mod hosts;
 pub mod navigation;
+pub mod remote;
 
 /// Selection uses the displayed row's stable path, independent of filtering.
 pub struct FileList {

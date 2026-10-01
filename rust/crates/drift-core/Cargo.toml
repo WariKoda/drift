@@ -16,6 +16,13 @@ libc.workspace = true
 getrandom.workspace = true
 nix.workspace = true
 chrono.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+russh.workspace = true
+russh-sftp.workspace = true
+async-trait.workspace = true
+hmac.workspace = true
+sha1.workspace = true
 
 [lints]
 workspace = true

@@ -5,18 +5,20 @@ use crate::{
     hosts::{HostEvent, HostManager},
     preview::{PreviewEvent, PreviewPane},
     projects::{ProjectEvent, ProjectsPanel},
+    remote::{RemoteEvent, RemotePane},
     toolbar::{Toolbar, ToolbarEvent, ToolbarState},
 };
 use drift_app::{
     browser::{BrowserService, OperationId},
     hosts::{HostCommand, HostResponse},
+    remote::RemoteService,
 };
 use drift_core::store::Store;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, PathPromptOptions,
-    Render, Styled, Subscription, Window, div,
+    AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
+    PathPromptOptions, Render, Styled, Subscription, Window, div,
 };
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
@@ -25,6 +27,9 @@ pub struct Shell {
     browser: Entity<BrowserPane>,
     preview: Entity<PreviewPane>,
     projects: Entity<ProjectsPanel>,
+    remote: Entity<RemotePane>,
+    show_remote: bool,
+    remote_preview: bool,
     hosts: Option<Entity<HostManager>>,
     store: Store,
     service: BrowserService,
@@ -52,13 +57,75 @@ impl Shell {
         cx: &mut Context<Self>,
         store: Store,
         service: BrowserService,
+        remote_service: RemoteService,
         start: PathBuf,
     ) -> Self {
         let browser = cx
             .new(|cx| BrowserPane::new(store.clone(), service.clone(), start.clone(), window, cx));
         let preview = cx.new(|cx| PreviewPane::new(service.clone(), window, cx));
         let projects = cx.new(|cx| ProjectsPanel::new(window, cx));
+        let remote = cx.new(|cx| RemotePane::new(remote_service, window, cx));
         let subscriptions = vec![
+            cx.subscribe_in(&remote, window, |this, _, event, window, cx| {
+                match event {
+                    RemoteEvent::SelectionChanged {
+                        project,
+                        connection,
+                    } => {
+                        if *project != this.browser.read(cx).id().project
+                            || *connection != this.remote.read(cx).connection()
+                        {
+                            return;
+                        }
+                        if this.remote_preview || this.preview.read(cx).is_loading_remote() {
+                            this.remote_preview = false;
+                            this.preview.update(cx, |preview, cx| {
+                                preview.select(None, *project, window, cx)
+                            });
+                        }
+                    }
+                    RemoteEvent::Status {
+                        project,
+                        connection,
+                        message,
+                    } => {
+                        if *project != this.browser.read(cx).id().project
+                            || *connection != this.remote.read(cx).connection()
+                        {
+                            return;
+                        }
+                        this.status.clone_from(message);
+                    }
+                    RemoteEvent::ShowLocalPreview => {
+                        this.show_remote = false;
+                        this.remote_preview = false;
+                        this.preview.update(cx, |preview, cx| {
+                            preview.select(None, this.browser.read(cx).id().project, window, cx)
+                        });
+                        this.browser
+                            .update(cx, |browser, cx| browser.focus(window, cx));
+                    }
+                    RemoteEvent::Preview {
+                        session,
+                        path,
+                        project,
+                    } => {
+                        if *project != this.browser.read(cx).id().project
+                            || Some(session.id) != this.remote.read(cx).session_id()
+                            || this.remote.read(cx).selected() != Some(path.as_str())
+                        {
+                            return;
+                        }
+                        this.show_remote = true;
+                        this.remote_preview = true;
+                        this.preview.update(cx, |preview, cx| {
+                            preview.show_remote(session.clone(), path.clone(), *project, window, cx)
+                        });
+                        this.status = "Loading remote preview…".into();
+                    }
+                }
+                cx.notify();
+            }),
             cx.subscribe_in(&browser, window, |this, _, event, window, cx| {
                 this.browser_event(event, window, cx)
             }),
@@ -68,7 +135,11 @@ impl Shell {
                         if *id == this.preview.read(cx).id()
                             && id.project == this.browser.read(cx).id().project =>
                     {
-                        this.status = format!("{} entries", this.browser.read(cx).len())
+                        this.status = if this.remote_preview {
+                            "Remote preview loaded".into()
+                        } else {
+                            format!("{} entries", this.browser.read(cx).len())
+                        }
                     }
                     PreviewEvent::Failed(id, error)
                         if *id == this.preview.read(cx).id()
@@ -94,6 +165,9 @@ impl Shell {
             browser,
             preview,
             projects,
+            remote,
+            show_remote: false,
+            remote_preview: false,
             hosts: None,
             store,
             service,
@@ -122,6 +196,11 @@ impl Shell {
         }
         match event {
             BrowserEvent::Changed(_) => {
+                if self.remote.read(cx).project() != id.project {
+                    self.remote
+                        .update(cx, |remote, cx| remote.set_context(id.project, vec![], cx));
+                    self.remote_preview = false;
+                }
                 if self
                     .registration
                     .as_ref()
@@ -139,6 +218,14 @@ impl Shell {
                 }
             }
             BrowserEvent::Opened { registry, .. } => {
+                let hosts = self
+                    .browser
+                    .read(cx)
+                    .location()
+                    .map(|l| l.config.hosts.clone())
+                    .unwrap_or_default();
+                self.remote
+                    .update(cx, |remote, cx| remote.set_context(id.project, hosts, cx));
                 let can_register = self
                     .browser
                     .read(cx)
@@ -154,6 +241,8 @@ impl Shell {
                 }
                 let location = self.browser.read(cx).location().cloned();
                 if *preview && let (Some(location), Some(path)) = (location, path) {
+                    self.show_remote = false;
+                    self.remote_preview = false;
                     self.preview.update(cx, |preview, cx| {
                         preview.show(location, path.clone(), id.project, window, cx)
                     });
@@ -275,6 +364,9 @@ impl Shell {
                 this.config_cancel = None;
                 match result {
                     Ok(Ok(HostResponse::Loaded(catalog))) => {
+                        this.remote.update(cx, |remote, cx| {
+                            remote.set_context(id.project, catalog.runtime.hosts.clone(), cx)
+                        });
                         this.browser.update(cx, |browser, cx| {
                             browser.replace_config(catalog.runtime, cx)
                         })
@@ -320,6 +412,12 @@ impl Shell {
         cx.notify();
     }
     fn focus_filter(&mut self, _: &FocusFilter, window: &mut Window, cx: &mut Context<Self>) {
+        if self.remote_preview {
+            self.remote.update(cx, |remote, cx| {
+                remote.focus_filter(&FocusFilter, window, cx)
+            });
+            return;
+        }
         self.browser
             .update(cx, |browser, cx| browser.focus_filter_input(window, cx));
     }
@@ -329,10 +427,20 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.remote_preview {
+            self.remote
+                .update(cx, |remote, cx| remote.copy(action, window, cx));
+            return;
+        }
         self.browser
             .update(cx, |browser, cx| browser.copy_selection(action, window, cx));
     }
     fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+        if self.remote_preview {
+            self.remote
+                .update(cx, |remote, cx| remote.refresh(&Refresh, window, cx));
+            return;
+        }
         self.browser.update(cx, |browser, cx| {
             browser.command(BrowserCommand::Refresh, window, cx)
         });
@@ -344,6 +452,9 @@ impl Shell {
                 .update(cx, |browser, cx| browser.focus(window, cx));
         } else {
             self.cancel_registration(cx);
+            if self.remote.read(cx).is_loading() || self.preview.read(cx).is_loading_remote() {
+                self.remote.update(cx, |remote, cx| remote.cancel(cx));
+            }
             self.browser.update(cx, |browser, cx| {
                 browser.command(BrowserCommand::Cancel, window, cx)
             });
@@ -355,6 +466,16 @@ impl Shell {
     }
     fn toolbar_event(&mut self, event: &ToolbarEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
+            ToolbarEvent::Remote => {
+                self.show_remote = true;
+                self.remote_preview = false;
+                self.remote.focus_handle(cx).focus(window, cx);
+            }
+            ToolbarEvent::LocalBrowser => {
+                self.remote_preview = false;
+                self.browser
+                    .update(cx, |browser, cx| browser.focus(window, cx));
+            }
             ToolbarEvent::Projects => {
                 self.projects
                     .update(cx, |projects, cx| projects.toggle(window, cx));
@@ -366,9 +487,11 @@ impl Shell {
             ToolbarEvent::Hosts => self.open_hosts(window, cx),
             ToolbarEvent::OpenFolder => self.open_folder(window, cx),
             ToolbarEvent::Cancel => self.cancel(&Cancel, window, cx),
-            ToolbarEvent::Browser(command) => self
-                .browser
-                .update(cx, |browser, cx| browser.command(*command, window, cx)),
+            ToolbarEvent::Browser(command) => {
+                self.remote_preview = false;
+                self.browser
+                    .update(cx, |browser, cx| browser.command(*command, window, cx));
+            }
         }
         cx.notify();
     }
@@ -381,11 +504,13 @@ impl Render for Shell {
         let browser = self.browser.read(cx);
         let toolbar = Toolbar::new(
             ToolbarState {
+                remote_preview: self.remote_preview,
                 has_location: browser.location().is_some(),
                 listing: browser.is_loading(),
                 cancellable: browser.is_loading()
                     || self.preview.read(cx).is_loading()
-                    || self.registration.is_some(),
+                    || self.registration.is_some()
+                    || self.remote.read(cx).is_loading(),
                 folder_prompt: self.folder_prompt,
                 can_back: browser.can_back(),
                 can_forward: browser.can_forward(),
@@ -439,8 +564,14 @@ impl Render for Shell {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(self.browser.clone())
-                    .child(
+                    .child(if self.remote_preview {
+                        self.preview.clone().into_any_element()
+                    } else {
+                        self.browser.clone().into_any_element()
+                    })
+                    .child(if self.show_remote {
+                        self.remote.clone().into_any_element()
+                    } else {
                         div()
                             .flex()
                             .flex_col()
@@ -452,8 +583,9 @@ impl Render for Shell {
                                 "No hosts configured".into()
                             } else {
                                 format!("Hosts: {hosts}")
-                            })),
-                    ),
+                            }))
+                            .into_any_element()
+                    }),
             )
             .child(
                 div()

@@ -81,21 +81,25 @@ async fn tracked_files_and_parent_worktree_rules_survive_subdirectory_browsing()
         );
     }
     let service = BrowserService::new().unwrap();
-    let operation = service.open(
-        Store::new(config.path().into()),
-        child,
-        OperationId {
-            project: 1,
-            operation: 1,
-        },
-        false,
-        false,
-    );
-    let directory = operation.task.await.unwrap().unwrap();
-    let names: Vec<_> = directory
-        .entries
-        .iter()
-        .map(|e| e.path.file_name().unwrap())
-        .collect();
-    assert_eq!(names, ["tracked.txt", "visible.txt"]);
+    let aliases = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(repo.path(), aliases.path().join("repo")).unwrap();
+    for directory in [child, aliases.path().join("repo/child")] {
+        let operation = service.open(
+            Store::new(config.path().into()),
+            directory,
+            OperationId {
+                project: 1,
+                operation: 1,
+            },
+            false,
+            false,
+        );
+        let directory = operation.task.await.unwrap().unwrap();
+        let names: Vec<_> = directory
+            .entries
+            .iter()
+            .map(|e| e.path.file_name().unwrap())
+            .collect();
+        assert_eq!(names, ["tracked.txt", "visible.txt"]);
+    }
 }

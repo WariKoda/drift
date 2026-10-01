@@ -275,14 +275,11 @@ async fn classify_ignored(
         output = discover.output() => output?,
     };
     let mut command = tokio::process::Command::new("git");
-    let repo_root;
+    // Let Git resolve worktree prefixes itself. Its reported canonical root
+    // may differ from the opened project's spelling (e.g. /var on macOS).
+    // Local file access remains through ProjectRoot's directory capability.
+    command.arg("-C").arg(root);
     let temporary = if output.status.success() {
-        repo_root = PathBuf::from(
-            String::from_utf8(output.stdout)
-                .map_err(|_| Error::Invalid("Git root is not UTF-8".into()))?
-                .trim(),
-        );
-        command.arg("-C").arg(&repo_root);
         None
     } else if output.status.code() == Some(128)
         && String::from_utf8_lossy(&output.stderr)
@@ -301,7 +298,6 @@ async fn classify_ignored(
                 String::from_utf8_lossy(&init.stderr)
             )));
         }
-        repo_root = root.into();
         command
             .arg(format!("--git-dir={}", dir.path().display()))
             .arg(format!("--work-tree={}", root.display()))
@@ -325,11 +321,8 @@ async fn classify_ignored(
         .kill_on_drop(true);
     let mut input = Vec::new();
     for entry in entries {
-        let absolute = root.join(&entry.path);
-        let relative = absolute
-            .strip_prefix(&repo_root)
-            .map_err(|_| Error::Invalid("ignore path outside worktree".into()))?;
-        let relative = relative
+        let relative = entry
+            .path
             .to_str()
             .ok_or_else(|| Error::Invalid("ignore path is not UTF-8".into()))?;
         if relative.contains('\0') {

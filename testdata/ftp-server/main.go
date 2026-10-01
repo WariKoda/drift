@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -16,11 +17,12 @@ import (
 )
 
 type server struct {
-	root    *os.Root
-	control string
-	limit   int
-	mu      sync.Mutex
-	active  int
+	root         *os.Root
+	control      string
+	limit        int
+	mu           sync.Mutex
+	active       int
+	certificates [2]tls.Certificate
 }
 
 func main() {
@@ -38,8 +40,13 @@ func main() {
 		panic(err)
 	}
 	defer listener.Close()
-	fmt.Println(listener.Addr().(*net.TCPAddr).Port)
 	s := &server{root: root, control: os.Args[3], limit: limit}
+	if len(os.Args) > 4 {
+		if err = s.prepareTLS(os.Args[4]); err != nil {
+			panic(err)
+		}
+	}
+	fmt.Println(listener.Addr().(*net.TCPAddr).Port)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -106,6 +113,7 @@ func (s *server) serve(conn net.Conn) {
 		return
 	}
 	cwd, from, logged := "/", "", false
+	protected := false
 	var passive net.Listener
 	defer func() {
 		if passive != nil {
@@ -136,13 +144,31 @@ func (s *server) serve(conn net.Conn) {
 			}
 			continue
 		}
-		if !logged && command != "USER" && command != "PASS" && command != "QUIT" {
+		if !logged && command != "USER" && command != "PASS" && command != "QUIT" && command != "AUTH" && command != "PBSZ" && command != "PROT" {
 			if reply(530, "login first") != nil {
 				return
 			}
 			continue
 		}
 		switch command {
+		case "AUTH":
+			if s.certificates[0].PrivateKey == nil || argument != "TLS" {
+				err = reply(502, "TLS unavailable")
+				break
+			}
+			if reply(234, "start TLS") != nil {
+				return
+			}
+			conn, err = s.secure(conn, false)
+			if err != nil {
+				return
+			}
+			reader = bufio.NewReader(conn)
+		case "PBSZ":
+			err = reply(200, "ok")
+		case "PROT":
+			protected = argument == "P"
+			err = reply(200, "ok")
 		case "USER":
 			err = reply(331, "password required")
 		case "PASS":
@@ -293,6 +319,18 @@ func (s *server) serve(conn net.Conn) {
 					_ = file.Close()
 				}
 				return
+			}
+			if protected {
+				data, e = s.secure(data, true)
+				if e != nil {
+					if file != nil {
+						_ = file.Close()
+					}
+					if s.flag("hold-tls-failure") {
+						continue
+					}
+					return
+				}
 			}
 			if command == "STOR" {
 				_ = os.WriteFile(path.Join(s.control, "stor-started"), []byte(p), 0600)

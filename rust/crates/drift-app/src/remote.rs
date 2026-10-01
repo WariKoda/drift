@@ -4,6 +4,7 @@ use drift_core::{
     config::Host,
     error::{Error, Result},
     remote::{self, ConnectOptions, ConnectionState, RemoteClient, RemoteEntry},
+    tlstrust::{Challenge, Manager},
 };
 use std::{future::Future, sync::Arc};
 use tokio_util::sync::CancellationToken;
@@ -49,19 +50,45 @@ pub struct RemoteDirectory {
 pub struct RemoteService {
     browser: BrowserService,
     options: Option<ConnectOptions>,
+    trust: Option<Arc<Manager>>,
 }
 impl RemoteService {
     pub fn new(browser: BrowserService) -> Self {
         Self {
             browser,
             options: None,
+            trust: None,
         }
     }
     pub fn with_options(browser: BrowserService, options: ConnectOptions) -> Self {
         Self {
             browser,
             options: Some(options),
+            trust: None,
         }
+    }
+    pub fn with_trust(mut self, manager: Arc<Manager>) -> Self {
+        self.trust = Some(manager);
+        self
+    }
+    pub fn trust_manager(&self) -> Option<Arc<Manager>> {
+        self.trust.clone()
+    }
+    pub fn trust_certificate(
+        &self,
+        challenge: Challenge,
+        permanent: bool,
+        id: OperationId,
+    ) -> Operation<()> {
+        let manager = self.trust.clone();
+        let browser = self.browser.clone();
+        self.run(id, move |cancel| async move {
+            let manager =
+                manager.ok_or_else(|| Error::Invalid("FTPS trust manager unavailable".into()))?;
+            browser
+                .blocking_mutation(&cancel, move || manager.grant(&challenge, permanent))
+                .await
+        })
     }
     fn run<T: Send + 'static, F: Future<Output = Result<T>> + Send + 'static>(
         &self,
@@ -77,9 +104,23 @@ impl RemoteService {
         Operation { id, cancel, task }
     }
     pub fn connect(&self, host: Host, id: OperationId) -> Operation<RemoteDirectory> {
+        self.connect_required(host, None, id)
+    }
+    pub fn connect_required(
+        &self,
+        host: Host,
+        required: Option<Challenge>,
+        id: OperationId,
+    ) -> Operation<RemoteDirectory> {
         let options = self.options.clone();
+        let manager = self.trust.clone();
+        let browser = self.browser.clone();
         self.run(id, move |cancel| async move {
-            let options = match options { Some(options) => options, None => ConnectOptions::from_environment()? };
+            let mut options = match options { Some(options) => options, None => ConnectOptions::from_environment()? };
+            if host.protocol=="ftps" {
+                if let Some(manager)=manager { options.tls=Some(browser.blocking(&cancel, move || manager.policy()).await?); }
+                if let Some(challenge)=required { options.tls=Some(options.tls.take().ok_or_else(||Error::Invalid("FTPS certificate policy unavailable".into()))?.require(challenge)); }
+            }
             let client = remote::connect(host.clone(), options, cancel.clone()).await?;
             let root = if host.root_path.is_empty() { "." } else { &host.root_path };
             let path = tokio::select! { _ = cancel.cancelled() => return Err(Error::Invalid("connection cancelled".into())), path = client.canonicalize(root) => path? };

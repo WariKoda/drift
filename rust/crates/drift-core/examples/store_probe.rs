@@ -4,6 +4,7 @@ use drift_core::{
     error::{Error, Result},
     project::now,
     store::Store,
+    tlstrust::{Problem, TrustedCertificate},
 };
 use std::path::PathBuf;
 fn run() -> Result<()> {
@@ -45,7 +46,25 @@ fn run() -> Result<()> {
                 ..Host::default()
             },
         ),
+        "trust" => store.save_trusted_certificate(
+            None,
+            TrustedCertificate {
+                protocol: "ftps".into(),
+                hostname: args
+                    .get(2)
+                    .ok_or_else(|| Error::Invalid("missing hostname".into()))?
+                    .clone(),
+                port: 21,
+                fingerprint: vec!["AB"; 32].join(":"),
+                problems: vec![Problem::UnknownAuthority, Problem::Expired],
+                trusted_at: now(),
+            },
+        ),
         "roundtrip" => {
+            for entry in store.trusted_certificates()? {
+                store.save_trusted_certificate(Some(&entry), entry.clone())?;
+            }
+
             let registry = store.registry()?;
             for p in registry.projects {
                 store.save_project(Some(&p), p.clone())?;

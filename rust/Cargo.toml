@@ -32,7 +32,11 @@ hmac = "0.12"
 sha1 = "0.10"
 sha2 = "0.10"
 similar = { version = "=3.2.0", features = ["bytes"] }
-suppaftp = { version = "=12.1.0", default-features = false, features = ["tokio"] }
+suppaftp = { version = "=12.1.0", default-features = false, features = ["tokio-rustls-ring"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "0.8"
+x509-parser = "=0.18.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

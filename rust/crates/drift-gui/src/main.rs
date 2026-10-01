@@ -1,5 +1,6 @@
 mod actions;
 mod browser;
+mod certificates;
 mod comparison;
 mod diff;
 mod hosts;

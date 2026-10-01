@@ -1,5 +1,6 @@
 //! Native FTP. A lease reserves one control connection through the final reply.
 mod metadata;
+mod tls;
 mod transfer;
 use crate::{
     config::{Host, expand_env},
@@ -7,6 +8,7 @@ use crate::{
     remote::{
         ConnectOptions, ConnectionState, RemoteClient, RemoteEntry, RemoteMetadata, RemoteRead,
     },
+    tlstrust::{Endpoint, Verifier},
 };
 use async_trait::async_trait;
 use std::{
@@ -14,15 +16,17 @@ use std::{
     sync::{Arc, Mutex, Weak},
     time::{Duration, Instant},
 };
-use suppaftp::{FtpError, Mode, Status, tokio::AsyncFtpStream, types::FileType};
+use suppaftp::{FtpError, Mode, Status, tokio::ImplAsyncFtpStream, types::FileType};
 use tokio::{
     io::AsyncReadExt,
     sync::{OwnedMutexGuard, OwnedSemaphorePermit, Semaphore, watch},
 };
 use tokio_util::sync::CancellationToken;
 
+type AsyncFtpStream = ImplAsyncFtpStream<tls::Stream>;
 type Socket = Arc<Mutex<Option<std::net::TcpStream>>>;
 struct Lifetime {
+    verifier: Option<Arc<Verifier>>,
     stop: CancellationToken,
     state: watch::Sender<ConnectionState>,
     sockets: Mutex<Vec<Weak<Mutex<Option<std::net::TcpStream>>>>>,
@@ -33,6 +37,15 @@ impl Lifetime {
         if self.stop.is_cancelled() {
             return;
         }
+        let state = if matches!(state, ConnectionState::Failed(_)) {
+            self.verifier
+                .as_ref()
+                .and_then(|v| v.take_challenge())
+                .map(|challenge| ConnectionState::Certificate(Box::new(challenge)))
+                .unwrap_or(state)
+        } else {
+            state
+        };
         self.state.send_replace(state);
         self.stop.cancel();
         for socket in sockets.iter().filter_map(Weak::upgrade) {
@@ -46,6 +59,10 @@ impl Lifetime {
             ConnectionState::Connected => Ok(()),
             ConnectionState::Closed => Err(Error::Connection("FTP connection closed".into())),
             ConnectionState::Failed(message) => Err(Error::Connection(message.clone())),
+            ConnectionState::Certificate(challenge) => Err(Error::Certificate {
+                challenge: challenge.clone(),
+                cause: "FTPS handshake rejected".into(),
+            }),
         }
     }
     fn slot(&self) -> Socket {
@@ -89,8 +106,27 @@ struct Lease {
 }
 impl Lease {
     fn complete<T>(&mut self, result: Result<T>) -> Result<T> {
+        let result = result.map_err(|error| {
+            match self.life.verifier.as_ref().and_then(|v| v.take_challenge()) {
+                Some(challenge) => Error::Certificate {
+                    challenge: Box::new(challenge),
+                    cause: error.to_string(),
+                },
+                None => match &*self.life.state.borrow() {
+                    ConnectionState::Certificate(challenge) => Error::Certificate {
+                        challenge: challenge.clone(),
+                        cause: error.to_string(),
+                    },
+                    _ => error,
+                },
+            }
+        });
         self.completed = true;
         self.connection.last_activity = Instant::now();
+        if let Err(Error::Certificate { challenge, .. }) = &result {
+            self.life
+                .terminate(ConnectionState::Certificate(challenge.clone()));
+        }
         if let Err(Error::Connection(message)) = &result {
             self.life
                 .terminate(ConnectionState::Failed(message.clone()));
@@ -128,7 +164,10 @@ impl Drop for Setup {
 fn ftp_error(error: FtpError) -> Error {
     let terminal = matches!(
         &error,
-        FtpError::ConnectionError(_) | FtpError::BadResponse | FtpError::DataConnectionAlreadyOpen
+        FtpError::SecureError(_)
+            | FtpError::ConnectionError(_)
+            | FtpError::BadResponse
+            | FtpError::DataConnectionAlreadyOpen
     ) || matches!(&error, FtpError::UnexpectedResponse(response) if matches!(response.status.code(), 421 | 426));
     if terminal {
         Error::Connection(format!("FTP: {error}"))
@@ -152,8 +191,20 @@ pub async fn connect(
     options: ConnectOptions,
     cancel: CancellationToken,
 ) -> Result<FtpClient> {
+    let verifier = if host.protocol == "ftps" {
+        Some(
+            options
+                .tls
+                .as_ref()
+                .ok_or_else(|| Error::Invalid("FTPS certificate policy is required".into()))?
+                .verifier(Endpoint::new(&host.hostname, host.port)?)?,
+        )
+    } else {
+        None
+    };
     let (state, _) = watch::channel(ConnectionState::Connected);
     let life = Arc::new(Lifetime {
+        verifier: verifier.clone(),
         stop: CancellationToken::new(),
         state,
         sockets: Mutex::new(vec![]),
@@ -164,6 +215,21 @@ pub async fn connect(
         _ = cancel.cancelled() => Err(Error::Invalid("FTP connection cancelled".into())),
         result = tokio::time::timeout(options.timeout, establish(host, life)) => result.map_err(|_| Error::Invalid("FTP connection/authentication timed out".into()))?,
     };
+    let result = result.map_err(
+        |error| match verifier.as_ref().and_then(|v| v.take_challenge()) {
+            Some(challenge) => Error::Certificate {
+                challenge: Box::new(challenge),
+                cause: error.to_string(),
+            },
+            None => match &*setup.0.as_ref().unwrap().state.borrow() {
+                ConnectionState::Certificate(challenge) => Error::Certificate {
+                    challenge: challenge.clone(),
+                    cause: error.to_string(),
+                },
+                _ => error,
+            },
+        },
+    );
     // The successful client owns shutdown now. No setup cancellation escapes.
     if result.is_ok() {
         setup.0 = None;
@@ -232,6 +298,8 @@ async fn login(
     password: &str,
     life: Arc<Lifetime>,
 ) -> std::result::Result<Connection, FtpError> {
+    let verifier = life.verifier.clone();
+    let tls_life = life.clone();
     let data = life.slot();
     let mut ftp = AsyncFtpStream::connect_with_stream(stream)
         .await?
@@ -244,6 +312,17 @@ async fn login(
                     .map_err(FtpError::ConnectionError)
             })
         });
+    if let Some(verifier) = verifier {
+        let config = verifier
+            .config()
+            .map_err(|e| FtpError::SecureError(e.to_string()))?;
+        ftp = ftp
+            .into_secure(
+                tls::Connector(tokio_rustls::TlsConnector::from(Arc::new(config)), tls_life),
+                &verifier.endpoint().hostname,
+            )
+            .await?;
+    }
     // Preserve status for adaptive worker admission, without a credential reply.
     ftp.login(user, password)
         .await

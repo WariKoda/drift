@@ -103,12 +103,13 @@ fn go_rows(request: &LoadRequest) -> serde_json::Value {
             .unwrap()
             .to_path_buf();
         let dir = tempfile::tempdir().unwrap().keep();
+        let cache = tempfile::tempdir().unwrap();
         let binary = dir.join("comparison-probe");
         let output = Command::new("go")
             .args(["build", "-o"])
             .arg(&binary)
             .arg("./testdata/comparison-probe")
-            .env("GOCACHE", dir.join("cache"))
+            .env("GOCACHE", cache.path())
             .current_dir(repo)
             .output()
             .unwrap();

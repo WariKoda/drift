@@ -1,4 +1,5 @@
 //! Window/session coordination. Child views own their interaction and load state.
+use crate::certificates::CertificatePrompt;
 use crate::{
     actions::*,
     browser::{BrowserCommand, BrowserEvent, BrowserPane},
@@ -14,7 +15,7 @@ use drift_app::{
     hosts::{HostCommand, HostResponse},
     remote::RemoteService,
 };
-use drift_core::store::Store;
+use drift_core::{store::Store, tlstrust::Manager};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -22,9 +23,13 @@ use gpui_kit::{
     PathPromptOptions, Render, Styled, Subscription, Window, div,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 pub struct Shell {
+    certificate: Option<(u64, u64, Entity<CertificatePrompt>)>,
+    certificate_subscription: Option<Subscription>,
+    certificate_cancel: Option<CancellationToken>,
     comparison: Entity<ComparisonPane>,
     browser: Entity<BrowserPane>,
     preview: Entity<PreviewPane>,
@@ -45,6 +50,9 @@ pub struct Shell {
 }
 impl Drop for Shell {
     fn drop(&mut self) {
+        if let Some(cancel) = self.certificate_cancel.take() {
+            cancel.cancel();
+        }
         if let Some((_, cancel)) = self.config_cancel.take() {
             cancel.cancel();
         }
@@ -62,6 +70,10 @@ impl Shell {
         remote_service: RemoteService,
         start: PathBuf,
     ) -> Self {
+        let trust = remote_service
+            .trust_manager()
+            .unwrap_or_else(|| Arc::new(Manager::new(store.clone())));
+        let remote_service = remote_service.with_trust(trust);
         let browser = cx
             .new(|cx| BrowserPane::new(store.clone(), service.clone(), start.clone(), window, cx));
         let preview = cx.new(|cx| PreviewPane::new(service.clone(), window, cx));
@@ -100,6 +112,17 @@ impl Shell {
             }),
             cx.subscribe_in(&remote, window, |this, _, event, window, cx| {
                 match event {
+                    RemoteEvent::Certificate {
+                        project,
+                        connection,
+                        challenge,
+                    } => this.certificate_challenge(
+                        *project,
+                        *connection,
+                        *challenge.clone(),
+                        window,
+                        cx,
+                    ),
                     RemoteEvent::SelectionChanged {
                         project,
                         connection,
@@ -108,6 +131,13 @@ impl Shell {
                             || *connection != this.remote.read(cx).connection()
                         {
                             return;
+                        }
+                        if this
+                            .certificate
+                            .as_ref()
+                            .is_some_and(|(p, c, _)| (*p, *c) != (*project, *connection))
+                        {
+                            this.close_certificate(window, cx);
                         }
                         let session = this.remote.read(cx).session_id();
                         this.comparison
@@ -197,6 +227,9 @@ impl Shell {
             ),
         ];
         let shell = Self {
+            certificate: None,
+            certificate_subscription: None,
+            certificate_cancel: None,
             comparison,
             browser,
             preview,
@@ -232,6 +265,13 @@ impl Shell {
         }
         match event {
             BrowserEvent::Changed(_) => {
+                if self
+                    .certificate
+                    .as_ref()
+                    .is_some_and(|(p, _, _)| *p != id.project)
+                {
+                    self.close_certificate(window, cx);
+                }
                 let session = self.remote.read(cx).session_id();
                 self.comparison
                     .update(cx, |pane, cx| pane.context(id.project, session, cx));
@@ -540,6 +580,9 @@ impl Shell {
 }
 impl Render for Shell {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some((_, _, prompt)) = &self.certificate {
+            return div().size_full().child(prompt.clone()).into_any_element();
+        }
         if let Some(hosts) = &self.hosts {
             return div().size_full().child(hosts.clone()).into_any_element();
         }
@@ -654,11 +697,14 @@ impl Render for Shell {
     }
 }
 
+mod certificates;
 mod comparison;
 #[cfg(test)]
 mod comparison_tests;
 #[cfg(test)]
 mod ftp_tests;
+#[cfg(test)]
+mod ftps_tests;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

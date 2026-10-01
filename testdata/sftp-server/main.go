@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -140,6 +141,12 @@ func (c *closeFaultChannel) Read(p []byte) (int, error) {
 		}
 		if len(c.pending) < 4+length {
 			break
+		}
+		if c.pending[4] == 6 { // SSH_FXP_WRITE: throttle real uploads for cancellation tests.
+			if _, armed := os.Stat(filepath.Join(c.controlDir, "slow-data")); armed == nil {
+				_ = os.WriteFile(filepath.Join(c.controlDir, "write-started"), []byte("write\n"), 0600)
+				time.Sleep(20 * time.Millisecond)
+			}
 		}
 		if c.pending[4] == 4 { // SSH_FXP_CLOSE
 			if _, armed := os.Stat(filepath.Join(c.controlDir, "drop-on-close")); armed == nil {

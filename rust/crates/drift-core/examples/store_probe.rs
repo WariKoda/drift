@@ -4,7 +4,7 @@ use drift_core::{
     error::{Error, Result},
     project::now,
     store::Store,
-    tlstrust::{Problem, TrustedCertificate},
+    tlstrust::{Manager, Problem, TrustedCertificate},
 };
 use std::path::PathBuf;
 fn run() -> Result<()> {
@@ -60,6 +60,18 @@ fn run() -> Result<()> {
                 trusted_at: now(),
             },
         ),
+        "reset-trust" => {
+            let hostname = args
+                .get(2)
+                .ok_or_else(|| Error::Invalid("missing hostname".into()))?;
+            let certificate = store
+                .trusted_certificates()?
+                .into_iter()
+                .find(|entry| &entry.hostname == hostname)
+                .ok_or_else(|| Error::Invalid("missing trust record".into()))?;
+            let manager = Manager::new(store);
+            manager.reset(&manager.inspect(certificate.endpoint())?)
+        }
         "roundtrip" => {
             for entry in store.trusted_certificates()? {
                 store.save_trusted_certificate(Some(&entry), entry.clone())?;

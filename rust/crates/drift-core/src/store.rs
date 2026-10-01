@@ -2,7 +2,7 @@ use crate::{
     config::{Defaults, GlobalConfig, Host, ProjectConfig, RuntimeConfig, project_store_path},
     error::{Error, Result},
     project::{Project, Registry, now},
-    tlstrust::TrustedCertificate,
+    tlstrust::{Endpoint, TrustedCertificate},
 };
 use fs2::FileExt;
 use serde::{Serialize, de::DeserializeOwned};
@@ -79,6 +79,53 @@ impl Store {
     }
     pub fn global(&self) -> Result<GlobalConfig> {
         self.read(&self.dir.join("config.toml"))
+    }
+    pub fn delete_trusted_certificate(
+        &self,
+        endpoint: &Endpoint,
+        expected: Option<&TrustedCertificate>,
+    ) -> Result<()> {
+        self.with_lock(|| {
+            let mut certificates = self.trusted_certificates()?;
+            let current = certificates
+                .iter()
+                .find(|entry| entry.endpoint() == *endpoint);
+            if current != expected {
+                return Err(Error::Conflict(format!(
+                    "certificate trust for {}",
+                    endpoint.address()
+                )));
+            }
+            if current.is_none() {
+                return Ok(());
+            }
+            certificates.retain(|entry| entry.endpoint() != *endpoint);
+            self.write(
+                &self.dir.join("trusted-certificates.toml"),
+                &CertificateFile { certificates },
+            )
+        })
+    }
+    /// Resolve an unsaved form against freshly loaded defaults/server links.
+    /// No host record is written, including when its name already exists.
+    pub fn preview_host(&self, slug: Option<&str>, desired: Host) -> Result<Host> {
+        self.with_lock(|| {
+            desired.validate(slug.is_none())?;
+            let name = desired.name.clone();
+            let mut global = self.global()?;
+            let mut project = slug.map(|slug| self.project(slug)).transpose()?;
+            let hosts = match &mut project {
+                Some(project) => &mut project.hosts,
+                None => &mut global.hosts,
+            };
+            hosts.retain(|host| host.name != name);
+            hosts.push(desired);
+            RuntimeConfig::resolve(&global, project.as_ref())?
+                .hosts
+                .into_iter()
+                .find(|host| host.name == name)
+                .ok_or_else(|| Error::Invalid("host preview was not resolved".into()))
+        })
     }
     pub fn project(&self, slug: &str) -> Result<ProjectConfig> {
         self.read(&project_store_path(&self.dir, slug)?)

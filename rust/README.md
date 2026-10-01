@@ -10,6 +10,8 @@ projects or registers the current folder. Hosts manages project targets and glob
 servers with forms, duplication, deletion, server links and mappings.
 SFTP, FTP and explicit FTPS browsing, preview, unified comparison and serial sync
 are implemented. FTPS certificate challenges offer session or permanent trust.
+Hosts can test saved targets or unsaved forms and reset endpoint-specific FTPS
+certificate exceptions without replacing the active browser connection.
 
 ## Standalone applications
 
@@ -189,12 +191,25 @@ keep-alive (empty means 60 seconds, zero disables probes). Passwords/passphrases
 are masked. Empty port/user fields keep the stored defaults instead of saving
 resolved values. Local/deploy mapping paths remain relative to their roots.
 
+**Test** in the host list or **Test connection** in a form resolves fresh defaults
+and server links, checks authentication, root access and directory listing, then
+closes its separate connection. Testing a form leaves it unsaved. FTPS uses the
+same session trust manager and certificate dialog as the browser, with the first
+approved retry pinned to the inspected certificate. Escape/Cancel returns to the
+form with its values and focus preserved and stops pending test I/O.
+
+For FTPS targets, **Reset certificate trust** shows the resolved endpoint and its
+session/persistent fingerprints. Confirmation removes both exceptions for that
+endpoint. Concurrent changes preserve the confirmation and report a conflict;
+**Reload trust** obtains a fresh snapshot. Existing connections keep their policy;
+future connections verify again. Reset neither reconnects nor repeats transfers.
+
 Save conflicts and validation errors leave the form open. Cancel it, reload the
 list and reopen the record to use a newer version. Delete asks for confirmation;
 deleting or renaming a server used by project links fails visibly. Closing Hosts
 restores browser focus. Management I/O runs on the bounded background pool;
 completed changes refresh the current project's resolved configuration without
-resetting its file list or preview. Connection testing and linking hosts from other
+resetting its file list or preview. Linking hosts from other
 projects via server promotion remain pending.
 
 Filesystem and Git work run outside rendering on a bounded Tokio/background pool.
@@ -240,7 +255,9 @@ comparison lifetime and file list; `diff.rs` owns immutable-data rendering,
 direction, folds, source anchors, line selection and scroll state. Shell comparison
 entry routing lives separately in `shell/comparison.rs`. Certificate presentation
 lives in `certificates.rs`; `shell/certificates.rs` coordinates background trust
-writes and identity-checked connection retries.
+writes and identity-checked connection retries. Host forms live in `hosts/form.rs`;
+`hosts/tools.rs` owns connection testing, its certificate prompt and trust-reset
+confirmation independently of the host list.
 
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
@@ -258,7 +275,14 @@ and signatures, exact exceptions, retry/data-channel pins, permanent trust reloa
 and conflicts. GUI tests exercise rejection, session/permanent trust, a data
 certificate change, retained sync outcomes/focus after approval and project
 switches while a prompt is open. Temporary Go build caches are released once each
-test daemon/probe has been built.
+test daemon/probe has been built. The Go parity probe explicitly loads the fixture
+CA through the pure Go verifier on Linux/macOS. Capacity-limited TLS tests wait
+for observed peer socket cleanup before opening another session.
+Host-tool tests cover all three transports, fresh defaults/links, wrong passwords,
+root errors, active listing cancellation, unchanged browser connections and
+unsaved records. GUI tests cover preserved form focus, certificate decisions,
+stale prompts and reset conflicts. Go/Rust process tests exercise trust deletion
+and the shared write lock in addition to save/roundtrip behavior.
 SSH/SFTP tests start a real Go daemon from `../testdata/sftp-server/` against
 isolated temporary trees and use real OpenSSH keys/agents. Go, `ssh-keygen`,
 `ssh-agent` and `ssh-add` are required for `cargo test`. Comparison parity tests run
@@ -294,7 +318,7 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 ## Remaining port work
 
 Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
-and dashboard/startup restoration, GUI preferences and certificate reset/host
+and dashboard/startup restoration, GUI preferences and further host
 management controls remain. SFTP transport/browser and comparison/unified diff are
 available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and

@@ -31,6 +31,7 @@ async fn connect(
     remote::connect(server.host(), options, CancellationToken::new()).await
 }
 async fn challenge(server: &Server, manager: &Manager) -> Challenge {
+    server.wait_idle().await;
     match connect(server, manager, None).await {
         Err(Error::Certificate { challenge, .. }) => *challenge,
         Err(error) => panic!("expected challenge: {error}"),
@@ -85,6 +86,7 @@ async fn ftps_native_ca_validation_and_retry_pinning_detect_changed_valid_certif
     let manager = manager(&server, true);
     let client = connect(&server, &manager, None).await.unwrap();
     client.shutdown().await;
+    server.wait_idle().await;
     let untrusted = self::manager(&server, false);
     let inspected = challenge(&server, &untrusted).await;
     let mut wrong_endpoint = inspected.clone();
@@ -103,6 +105,7 @@ async fn ftps_native_ca_validation_and_retry_pinning_detect_changed_valid_certif
     }
     let client = connect(&server, &manager, None).await.unwrap();
     client.shutdown().await;
+    server.wait_idle().await;
 }
 #[tokio::test]
 async fn ftps_exception_problem_sets_are_exact_and_invalid_chains_cannot_be_approved() {

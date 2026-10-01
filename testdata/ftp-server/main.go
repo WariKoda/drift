@@ -103,7 +103,13 @@ func (s *server) serve(conn net.Conn) {
 		s.record("REJECT", "")
 		return
 	}
-	defer func() { s.mu.Lock(); s.active--; s.mu.Unlock() }()
+	s.record("OPEN", "")
+	defer func() {
+		s.mu.Lock()
+		s.active--
+		s.mu.Unlock()
+		s.record("CLOSED", "")
+	}()
 	reader := bufio.NewReader(conn)
 	reply := func(code int, message string) error {
 		_, err := fmt.Fprintf(conn, "%d %s\r\n", code, message)

@@ -128,4 +128,15 @@ impl Server {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+    /// Observe actual server-side socket cleanup before a capacity-limited
+    /// fixture is reused. Client shutdown does not await the peer's scheduler.
+    pub async fn wait_idle(&self) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while self.commands("OPEN") != self.commands("CLOSED") {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("FTP server did not release closed sessions");
+    }
 }

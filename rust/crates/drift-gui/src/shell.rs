@@ -658,6 +658,8 @@ mod comparison;
 #[cfg(test)]
 mod comparison_tests;
 #[cfg(test)]
+mod ftp_tests;
+#[cfg(test)]
 mod sync_tests;
 #[cfg(test)]
 mod tests;

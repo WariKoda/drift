@@ -517,8 +517,13 @@ impl ComparisonService {
         let mut pending = jobs.into_iter();
         let mut workers = JoinSet::new();
         let mut entries = errors;
+        let limit = if matches!(request.host.protocol.as_str(), "ftp" | "ftps") {
+            4
+        } else {
+            8
+        };
         loop {
-            while workers.len() < 8 {
+            while workers.len() < limit {
                 let Some((local, remote)) = pending.next() else {
                     break;
                 };

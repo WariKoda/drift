@@ -59,13 +59,13 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Setup Go for real SSH/SFTP and persistence test daemons
+      - name: Setup Go for real SSH/SFTP, FTP and persistence test daemons
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Test (real SSH/SFTP and headless GPUI interactions)
+      - name: Test (real SSH/SFTP/FTP and headless GPUI interactions)
         run: cargo test --locked --workspace
 
       - name: Go and Rust shared-store parity

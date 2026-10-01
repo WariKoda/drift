@@ -2,7 +2,7 @@
 mod known_hosts;
 mod transfer;
 use crate::{
-    config::Host,
+    config::{Host, expand_env},
     error::{Error, Result},
     remote::{
         ConnectOptions, ConnectionState, RemoteClient, RemoteEntry, RemoteMetadata, RemoteRead,
@@ -321,39 +321,6 @@ async fn establish(host: Host, options: ConnectOptions) -> Result<SftpClient> {
         stop,
         state: receiver,
     })
-}
-fn expand_env(value: &str) -> String {
-    let mut result = String::new();
-    let mut chars = value.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '$' {
-            result.push(c);
-            continue;
-        }
-        let mut name = String::new();
-        if chars.peek() == Some(&'{') {
-            chars.next();
-            for c in chars.by_ref() {
-                if c == '}' {
-                    break;
-                }
-                name.push(c);
-            }
-        } else {
-            while chars
-                .peek()
-                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
-            {
-                name.push(chars.next().unwrap());
-            }
-        }
-        if name.is_empty() {
-            result.push('$');
-        } else {
-            result.push_str(&std::env::var(name).unwrap_or_default());
-        }
-    }
-    result
 }
 #[async_trait]
 impl RemoteRead for russh_sftp::client::fs::File {

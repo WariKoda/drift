@@ -8,5 +8,6 @@ pub mod project;
 pub mod staging;
 pub mod store;
 
+mod ftp;
 pub mod remote;
 mod sftp;

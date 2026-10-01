@@ -8,8 +8,8 @@ a local browser with directory navigation, filtering, a project-wide finder and 
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
 projects or registers the current folder. Hosts manages project targets and global
 servers with forms, duplication, deletion, server links and mappings.
-SFTP browsing, preview, comparison with a unified diff and serial sync are implemented.
-FTP/FTPS connections remain pending.
+SFTP and FTP browsing, preview, comparison with a unified diff and serial sync are implemented.
+Explicit FTPS and certificate trust challenges remain pending.
 
 ## Standalone applications
 
@@ -69,7 +69,7 @@ displayed folder. Closing Projects keeps the browser session and restores focus.
 Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
-Use **Remote** in the toolbar, then **Connect <host>**, to open an SFTP target
+Use **Remote** in the toolbar, then **Connect <host>**, to open an SFTP or FTP target
 beside the local browser. Each side keeps its own path, filter, selection, history,
 scroll and focus. Remote Back/Forward/Up and the browser keys navigate within the
 configured host root. Remote text preview opens in the left pane; **Local files**
@@ -98,7 +98,7 @@ lines. Each file retains its own fold/scroll state while browsing the results.
 all chosen actions in the comparison, including rows hidden by the text filter.
 Both first show the upload/download/delete counts for confirmation. Skip and error
 rows are never executed. The runner streams uploads and downloads and executes
-all operations serially. Existing regular targets retain their permissions;
+all operations serially. Existing regular local and SFTP targets retain their permissions;
 adjacent staging files prevent partial content from replacing the old target.
 Sources, transfer completion, flush and file close are checked before commit.
 The sync report retains confirmed completions, individual errors, cancellation
@@ -127,7 +127,7 @@ restores the existing browser session. Project/host changes and connection loss
 invalidate comparison handles and reject late results. Connection loss retains
 the current sync report while disabling further sync on the stale comparison.
 
-Comparisons use eight or fewer SFTP workers, a metadata fast path, a 2-MiB text
+Comparisons use eight or fewer SFTP workers or four FTP connections, a metadata fast path, a 2-MiB text
 limit and streaming SHA-256 for larger files. A 60-second idle deadline aborts
 stalled comparisons; byte reads and completed scan/compare work reset it.
 
@@ -145,8 +145,22 @@ while Hosts is open. Project changes, changed host configuration and window clos
 cancel/close remote resources. Explicitly cancelling active remote I/O closes that
 connection; reconnect is explicit. Replacing a preview lets its bounded read finish
 and close the file handle, discards the old result, then reads the latest selection.
-Only one preview reads at a time per session, with a 15-second deadline. FTP/FTPS targets currently show
+Only one preview reads at a time per session, with a 15-second deadline. FTPS targets currently show
 an unsupported-connection error.
+
+FTP uses native [SuppaFTP](https://docs.rs/suppaftp/12.1.0/suppaftp/) with Tokio.
+A session owns at most four control connections; refused extra logins reduce the
+pool without retrying transfers. Each connection is reserved until the complete
+data stream and final server reply have been checked. Binary transfers preserve
+bytes, including CRLF. EPSV falls back to PASV when unsupported; MLST falls back to
+SIZE/MDTM and directory listing on servers without MLST. A `550` becomes NotFound
+only if a successful ancestor listing proves the missing name; permission errors
+remain visible. Keep-alive skips occupied connections. Shutdown interrupts all
+owned control and data sockets, including busy transfers. Dropping unfinished
+operations invalidates the session rather than reusing an ambiguous control reply.
+FTP uploads stage next to the destination and rename only after source close and
+successful transfer completion. FTP remote replacement keeps the server's staging
+file permissions, matching the Go transport; local downloads preserve target modes.
 
 Hosts opens a separate management view and keeps the browser session. Project
 hosts and global servers have separate lists; links use an existing global server
@@ -214,6 +228,11 @@ headless test window, including nested navigation, project boundaries, input foc
 failed loads, registration, stale-result rejection and picker/session lifetime.
 Two panes in one headless window verify independent filter, selection, focus,
 history and cancellation; preview tests verify replacement and clipboard content.
+FTP tests start a filesystem-backed local daemon from `../testdata/ftp-server/`
+and cover login limits, EPSV/MLST fallback, ambiguous permission failures, busy
+keep-alive, completion errors after EOF, staged upload/download/delete, abort and
+Go comparison/sync parity. A headless GUI test connects, previews, syncs, refreshes
+and changes projects over real FTP.
 SSH/SFTP tests start a real Go daemon from `../testdata/sftp-server/` against
 isolated temporary trees and use real OpenSSH keys/agents. Go, `ssh-keygen`,
 `ssh-agent` and `ssh-add` are required for `cargo test`. Comparison parity tests run
@@ -251,7 +270,8 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
 and dashboard/startup restoration, GUI preferences and full certificate-store
 roundtrip coverage remain. SFTP transport/browser and comparison/unified diff are
-available, including serial upload/download/delete sync. FTP/FTPS, certificate
+available, including serial upload/download/delete sync. FTP now uses these same
+workflows. FTPS, certificate
 challenges, complete CLI and keyboard/selection parity, packaging and native
 release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion

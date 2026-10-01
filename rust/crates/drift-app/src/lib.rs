@@ -1,5 +1,6 @@
 //! Application state independent of GPUI and transport implementations.
 pub mod browser;
+pub mod hosts;
 pub mod navigation;
 
 /// Selection uses the displayed row's stable path, independent of filtering.

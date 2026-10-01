@@ -1,5 +1,6 @@
 //! Background-only local browsing. GPUI receives values and operation handles;
 //! capability roots and blocking work remain in this application layer.
+use crate::hosts::{HostCommand, HostResponse};
 use drift_core::{
     config::RuntimeConfig,
     error::{Error, Result},
@@ -73,6 +74,36 @@ pub struct Operation<T> {
     pub task: tokio::task::JoinHandle<Result<T>>,
 }
 impl BrowserService {
+    pub fn manage_hosts(
+        &self,
+        store: Store,
+        slug: Option<String>,
+        command: HostCommand,
+        id: OperationId,
+    ) -> Operation<HostResponse> {
+        let service = self.clone();
+        let cancel = CancellationToken::new();
+        let token = cancel.clone();
+        let task = self.runtime.spawn(async move {
+            service
+                .blocking(&token, move || match command {
+                    HostCommand::Load => store
+                        .host_catalog(slug.as_deref())
+                        .map(Box::new)
+                        .map(HostResponse::Loaded),
+                    HostCommand::Save { expected, desired } => {
+                        store.save_host(slug.as_deref(), expected.as_deref(), *desired)?;
+                        Ok(HostResponse::Saved)
+                    }
+                    HostCommand::Delete { expected } => {
+                        store.delete_host(slug.as_deref(), &expected)?;
+                        Ok(HostResponse::Deleted)
+                    }
+                })
+                .await
+        });
+        Operation { id, cancel, task }
+    }
     pub fn new() -> Result<Self> {
         Ok(Self {
             runtime: Arc::new(BackgroundRuntime(Some(
@@ -149,12 +180,18 @@ impl BrowserService {
             let entries = service
                 .list(&token, &location, show_hidden, show_ignored)
                 .await?;
-            let registry = service.blocking(&token, move || store.registry()).await?;
-            Ok(Directory {
-                location,
-                entries,
-                registry,
-            })
+            service
+                .blocking(&token, move || {
+                    let mut location = location;
+                    location.config = store.host_catalog(location.slug.as_deref())?.runtime;
+                    let registry = store.registry()?;
+                    Ok(Directory {
+                        location,
+                        entries,
+                        registry,
+                    })
+                })
+                .await
         });
         Operation { id, cancel, task }
     }

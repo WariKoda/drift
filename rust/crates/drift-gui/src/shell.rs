@@ -1,6 +1,8 @@
+use crate::hosts::{HostEvent, HostManager};
 use drift_app::{
     FileList,
     browser::{BrowserService, Directory, Location, OperationId},
+    hosts::{HostCommand, HostResponse},
     navigation::History,
 };
 use drift_core::{local::Entry, project::Registry, store::Store};
@@ -38,6 +40,7 @@ gpui_kit::actions!(
     ]
 );
 pub fn bind_keys(cx: &mut App) {
+    crate::hosts::bind_keys(cx);
     cx.bind_keys([
         KeyBinding::new("ctrl-f", FocusFilter, Some("Drift")),
         KeyBinding::new("cmd-f", FocusFilter, Some("Drift")),
@@ -68,6 +71,10 @@ enum Navigation {
     Keep,
 }
 pub struct Shell {
+    hosts: Option<Entity<HostManager>>,
+    host_subscription: Option<Subscription>,
+    configuration: u64,
+    config_cancel: Option<CancellationToken>,
     filter: Entity<InputState>,
     preview: Entity<EditorState>,
     name: Entity<InputState>,
@@ -101,6 +108,9 @@ pub struct Shell {
 }
 impl Drop for Shell {
     fn drop(&mut self) {
+        if let Some(cancel) = self.config_cancel.take() {
+            cancel.cancel();
+        }
         if let Some(cancel) = &self.listing_cancel {
             cancel.cancel();
         }
@@ -140,6 +150,10 @@ impl Shell {
         let browser_focus = cx.focus_handle().tab_stop(true);
         browser_focus.focus(window, cx);
         let mut shell = Self {
+            hosts: None,
+            host_subscription: None,
+            configuration: 0,
+            config_cancel: None,
             filter,
             preview,
             name,
@@ -184,6 +198,68 @@ impl Shell {
         self.preview
             .update(cx, |state, cx| state.set_value("", window, cx));
     }
+    fn open_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let slug = self.location.as_ref().and_then(|l| l.slug.clone());
+        let hosts = cx
+            .new(|cx| HostManager::new(self.store.clone(), self.service.clone(), slug, window, cx));
+        self.host_subscription =
+            Some(
+                cx.subscribe_in(&hosts, window, |this, _, event: &HostEvent, window, cx| {
+                    match event {
+                        HostEvent::Close => {
+                            this.hosts = None;
+                            this.host_subscription = None;
+                            this.browser_focus.focus(window, cx);
+                        }
+                        HostEvent::Changed => this.refresh_config(window, cx),
+                    }
+                    cx.notify();
+                }),
+            );
+        self.hosts = Some(hosts);
+        cx.notify();
+    }
+    fn refresh_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(location) = &self.location else {
+            return;
+        };
+        self.configuration += 1;
+        if let Some(cancel) = self.config_cancel.take() {
+            cancel.cancel();
+        }
+        let id = OperationId {
+            project: self.generation,
+            operation: self.configuration,
+        };
+        let operation = self.service.manage_hosts(
+            self.store.clone(),
+            location.slug.clone(),
+            HostCommand::Load,
+            id,
+        );
+        self.config_cancel = Some(operation.cancel);
+        cx.spawn_in(window, async move |this, cx| {
+            let result = operation.task.await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                if this.generation != id.project || this.configuration != id.operation {
+                    return;
+                }
+                this.config_cancel = None;
+                match result {
+                    Ok(Ok(HostResponse::Loaded(catalog))) => {
+                        if let Some(location) = &mut this.location {
+                            location.config = catalog.runtime;
+                        }
+                    }
+                    Ok(Ok(_)) => unreachable!("configuration load only returns a catalog"),
+                    Ok(Err(error)) => this.status = error.to_string(),
+                    Err(error) => this.status = format!("Configuration refresh failed: {error}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
     fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.request_open(path, Navigation::Reset, window, cx);
     }
@@ -194,6 +270,10 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.configuration += 1;
+        if let Some(cancel) = self.config_cancel.take() {
+            cancel.cancel();
+        }
         self.browser_focus.focus(window, cx);
         self.generation += 1;
         self.listing += 1;
@@ -581,6 +661,9 @@ impl Shell {
 }
 impl Render for Shell {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(hosts) = &self.hosts {
+            return div().size_full().child(hosts.clone()).into_any_element();
+        }
         let background = cx.theme().background;
         let foreground = cx.theme().foreground;
         let border = cx.theme().border;
@@ -647,6 +730,14 @@ impl Render for Shell {
                                 }
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Button::new("hosts")
+                            .label("Hosts")
+                            .disabled(self.location.is_none() || self.listing_cancel.is_some())
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_hosts(window, cx)),
+                            ),
                     )
                     .child(
                         Button::new("open-folder")
@@ -923,6 +1014,7 @@ impl Render for Shell {
                     .border_color(border)
                     .child(self.status.clone()),
             )
+            .into_any_element()
     }
 }
 
@@ -1029,6 +1121,15 @@ mod tests {
                 cx.read_from_clipboard().unwrap().text().as_deref(),
                 Some("first.txt")
             );
+            w.click("hosts", cx);
+            assert!(shell.read(cx).hosts.is_some());
+            w.press("escape", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, w, cx| {
+            assert!(shell.read(cx).hosts.is_none());
+            assert_eq!(shell.read(cx).files.selected(), Some("first.txt"));
+            assert!(shell.read(cx).browser_focus.is_focused(w));
         })
         .unwrap();
     }

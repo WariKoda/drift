@@ -1,5 +1,10 @@
+mod actions;
+mod browser;
 mod hosts;
+mod preview;
+mod projects;
 mod shell;
+mod toolbar;
 
 use gpui_kit::{AppContext, Bounds, QuitMode, WindowBounds, WindowOptions, px, size};
 use shell::Shell;
@@ -33,7 +38,7 @@ fn main() {
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx| {
             gpui_kit::init(cx);
-            shell::bind_keys(cx);
+            actions::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1100.), px(720.)), cx);
             if let Err(error) = gpui_kit::open_window(
                 WindowOptions {

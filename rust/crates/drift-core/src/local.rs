@@ -74,7 +74,11 @@ impl ProjectRoot {
             {
                 continue;
             }
-            let path = relative.join(name);
+            let path = relative
+                .join(name)
+                .components()
+                .filter(|c| !matches!(c, Component::CurDir))
+                .collect::<PathBuf>();
             let metadata = self.dir.symlink_metadata(&path)?;
             if !metadata.is_file() && !metadata.is_dir() && !metadata.file_type().is_symlink() {
                 continue;

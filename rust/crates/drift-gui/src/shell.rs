@@ -1,6 +1,7 @@
 use drift_app::{
     FileList,
     browser::{BrowserService, Directory, Location, OperationId},
+    navigation::History,
 };
 use drift_core::{local::Entry, project::Registry, store::Store};
 use gpui_kit::base::Disableable;
@@ -13,14 +14,29 @@ use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
 use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
-    App, AppContext, ClipboardItem, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    KeyBinding, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, px, uniform_list,
+    App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, KeyBinding, ParentElement, PathPromptOptions, Render, ScrollStrategy,
+    StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, Window, div, px,
+    uniform_list,
 };
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
-gpui_kit::actions!(drift, [FocusFilter, CopySelection, Refresh, Cancel]);
+gpui_kit::actions!(
+    drift,
+    [
+        FocusFilter,
+        CopySelection,
+        Refresh,
+        Cancel,
+        GoUp,
+        GoBack,
+        GoForward,
+        CursorUp,
+        CursorDown,
+        Activate
+    ]
+);
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("ctrl-f", FocusFilter, Some("Drift")),
@@ -29,12 +45,33 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-c", CopySelection, Some("Drift")),
         KeyBinding::new("f5", Refresh, Some("Drift")),
         KeyBinding::new("escape", Cancel, Some("Drift")),
+        KeyBinding::new("alt-left", GoBack, Some("DriftBrowser")),
+        KeyBinding::new("alt-right", GoForward, Some("DriftBrowser")),
+        KeyBinding::new("alt-up", GoUp, Some("DriftBrowser")),
+        KeyBinding::new("backspace", GoUp, Some("DriftBrowser")),
+        KeyBinding::new("left", GoUp, Some("DriftBrowser")),
+        KeyBinding::new("h", GoUp, Some("DriftBrowser")),
+        KeyBinding::new("up", CursorUp, Some("DriftBrowser")),
+        KeyBinding::new("k", CursorUp, Some("DriftBrowser")),
+        KeyBinding::new("down", CursorDown, Some("DriftBrowser")),
+        KeyBinding::new("j", CursorDown, Some("DriftBrowser")),
+        KeyBinding::new("enter", Activate, Some("DriftBrowser")),
+        KeyBinding::new("right", Activate, Some("DriftBrowser")),
+        KeyBinding::new("l", Activate, Some("DriftBrowser")),
     ]);
+}
+#[derive(Clone, Copy)]
+enum Navigation {
+    Reset,
+    Push,
+    Seek(usize),
+    Keep,
 }
 pub struct Shell {
     filter: Entity<InputState>,
     preview: Entity<EditorState>,
     name: Entity<InputState>,
+    project_query: Entity<InputState>,
     files: FileList,
     entries: Vec<Entry>,
     location: Option<Location>,
@@ -54,7 +91,13 @@ pub struct Shell {
     show_ignored: bool,
     finder: bool,
     projects: bool,
+    browser_focus: FocusHandle,
+    history: History,
+    navigation: Navigation,
+    scroll: UniformListScrollHandle,
+    folder_prompt: bool,
     _subscription: Subscription,
+    _project_subscription: Subscription,
 }
 impl Drop for Shell {
     fn drop(&mut self) {
@@ -81,6 +124,11 @@ impl Shell {
                 .soft_wrap(true)
         });
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
+        let project_query = cx.new(|cx| InputState::new(window, cx).placeholder("Find a project…"));
+        let project_subscription =
+            cx.subscribe_in(&project_query, window, |_, _, _: &InputEvent, _, cx| {
+                cx.notify()
+            });
         let subscription = cx.subscribe_in(&filter, window, |this, state, event, window, cx| {
             if matches!(event, InputEvent::Change) {
                 this.files.filter(&state.read(cx).value());
@@ -89,11 +137,13 @@ impl Shell {
                 cx.notify();
             }
         });
-        filter.focus_handle(cx).focus(window, cx);
+        let browser_focus = cx.focus_handle().tab_stop(true);
+        browser_focus.focus(window, cx);
         let mut shell = Self {
             filter,
             preview,
             name,
+            project_query,
             files: FileList::new(vec![]),
             entries: vec![],
             location: None,
@@ -113,7 +163,13 @@ impl Shell {
             show_ignored: false,
             finder: false,
             projects: false,
+            browser_focus,
+            history: History::default(),
+            navigation: Navigation::Reset,
+            scroll: UniformListScrollHandle::new(),
+            folder_prompt: false,
             _subscription: subscription,
+            _project_subscription: project_subscription,
         };
         shell.open(start, window, cx);
         shell
@@ -129,16 +185,23 @@ impl Shell {
             .update(cx, |state, cx| state.set_value("", window, cx));
     }
     fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.request_open(path, Navigation::Reset, window, cx);
+    }
+    fn request_open(
+        &mut self,
+        path: PathBuf,
+        navigation: Navigation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.browser_focus.focus(window, cx);
         self.generation += 1;
         self.listing += 1;
         self.clear_preview(window, cx);
         if let Some(cancel) = self.listing_cancel.take() {
             cancel.cancel();
         }
-        self.location = None;
-        self.files = FileList::new(vec![]);
-        self.entries.clear();
-        self.finder = false;
+        self.navigation = navigation;
         let id = OperationId {
             project: self.generation,
             operation: self.listing,
@@ -180,6 +243,17 @@ impl Shell {
         if id.project != self.generation || id.operation != self.listing {
             return;
         }
+        match self.navigation {
+            Navigation::Reset => self.history.reset(directory.location.directory.clone()),
+            Navigation::Push => self.history.push(directory.location.directory.clone()),
+            Navigation::Seek(index) => self.history.commit(index, &directory.location.directory),
+            Navigation::Keep => {}
+        }
+        self.finder = false;
+        if !matches!(self.navigation, Navigation::Keep) {
+            self.filter
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        }
         self.location = Some(directory.location);
         self.registry = directory.registry;
         self.set_entries(directory.entries, cx);
@@ -195,6 +269,7 @@ impl Shell {
                 .collect(),
         );
         self.files.filter(&self.filter.read(cx).value());
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.status = format!("{} entries", self.files.len());
     }
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -202,6 +277,16 @@ impl Shell {
             self.open(self.start.clone(), window, cx);
             return;
         };
+        self.read_location(location, Navigation::Keep, window, cx);
+    }
+    fn read_location(
+        &mut self,
+        location: Location,
+        navigation: Navigation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.navigation = navigation;
         self.listing += 1;
         self.clear_preview(window, cx);
         if let Some(cancel) = self.listing_cancel.take() {
@@ -219,7 +304,6 @@ impl Shell {
             self.show_ignored,
         );
         self.listing_cancel = Some(operation.cancel);
-        self.finder = false;
         self.status = "Loading directory…".into();
         cx.spawn_in(window, async move |this, cx| {
             let result = operation.task.await;
@@ -251,12 +335,12 @@ impl Shell {
             return;
         };
         if entry.directory {
-            let mut target = location;
-            target.directory = target.root.base().join(&path);
-            self.location = Some(target);
-            self.filter
-                .update(cx, |state, cx| state.set_value("", window, cx));
-            self.reload(window, cx);
+            self.navigate(
+                location.root.base().join(&path),
+                Navigation::Push,
+                window,
+                cx,
+            );
             return;
         }
         self.clear_preview(window, cx);
@@ -292,13 +376,96 @@ impl Shell {
         cx.notify();
     }
     fn up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(location) = self.location.as_mut()
-            && location.directory != location.root.base()
-            && let Some(parent) = location.directory.parent()
-        {
-            location.directory = parent.into();
-            self.reload(window, cx);
+        if let Some(parent) = self.location.as_ref().and_then(Location::parent_directory) {
+            self.navigate(parent, Navigation::Push, window, cx);
         }
+    }
+    fn navigate(
+        &mut self,
+        path: PathBuf,
+        navigation: Navigation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut location) = self.location.clone() else {
+            return;
+        };
+        self.browser_focus.focus(window, cx);
+        if path.starts_with(location.root.base()) {
+            location.directory = path;
+            self.read_location(location, navigation, window, cx);
+        } else if location.slug.is_none() {
+            // Explicit navigation outside an unregistered folder opens a new
+            // capability root. Registered project roots keep their boundary.
+            self.request_open(path, navigation, window, cx);
+        }
+    }
+    fn go_up(&mut self, _: &GoUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.up(window, cx);
+    }
+    fn go_back(&mut self, _: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((index, path)) = self.history.previous() {
+            self.navigate(path, Navigation::Seek(index), window, cx);
+        }
+    }
+    fn go_forward(&mut self, _: &GoForward, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((index, path)) = self.history.next() {
+            self.navigate(path, Navigation::Seek(index), window, cx);
+        }
+    }
+    fn cursor_up(&mut self, _: &CursorUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.files
+            .select(self.files.selected_row().unwrap_or(0).saturating_sub(1));
+        self.clear_preview(window, cx);
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn cursor_down(&mut self, _: &CursorDown, window: &mut Window, cx: &mut Context<Self>) {
+        let index = self
+            .files
+            .selected_row()
+            .map_or(0, |i| (i + 1).min(self.files.len().saturating_sub(1)));
+        self.files.select(index);
+        self.clear_preview(window, cx);
+        self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        cx.notify();
+    }
+    fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+        self.choose(self.files.selected_row().unwrap_or(0), window, cx);
+    }
+    fn open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Open folder".into()),
+        });
+        self.folder_prompt = true;
+        let generation = self.generation;
+        cx.spawn_in(window, async move |this, cx| {
+            let result = receiver.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.folder_prompt = false;
+                if this.generation == generation {
+                    match result {
+                        Ok(Ok(Some(paths))) => {
+                            if let Some(path) = paths.into_iter().next() {
+                                this.open(path, window, cx);
+                            }
+                        }
+                        Ok(Ok(None)) => {}
+                        Ok(Err(error)) => this.status = error.to_string(),
+                        Err(error) => this.status = format!("Folder picker failed: {error}"),
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
     fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(location) = self.location.clone() else {
@@ -357,9 +524,9 @@ impl Shell {
             project: self.generation,
             operation: self.listing,
         };
-        let operation =
-            self.service
-                .register(self.store.clone(), name, location.root.base().into(), id);
+        let operation = self
+            .service
+            .register(self.store.clone(), name, location.directory, id);
         self.listing_cancel = Some(operation.cancel);
         self.status = "Registering project…".into();
         cx.spawn_in(window, async move |this, cx| {
@@ -399,6 +566,7 @@ impl Shell {
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.projects {
             self.projects = false;
+            self.browser_focus.focus(window, cx);
             cx.notify();
             return;
         }
@@ -461,6 +629,7 @@ impl Render for Shell {
                 div()
                     .flex()
                     .items_center()
+                    .flex_wrap()
                     .gap_2()
                     .p_3()
                     .border_b_1()
@@ -469,10 +638,35 @@ impl Render for Shell {
                     .child(
                         Button::new("projects")
                             .label("Projects")
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.projects = !this.projects;
+                                if this.projects {
+                                    this.project_query.focus_handle(cx).focus(window, cx);
+                                } else {
+                                    this.browser_focus.focus(window, cx);
+                                }
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Button::new("open-folder")
+                            .label("Open folder")
+                            .disabled(self.folder_prompt)
+                            .on_click(cx.listener(|this, _, w, cx| this.open_folder(w, cx))),
+                    )
+                    .child(
+                        Button::new("back")
+                            .label("Back")
+                            .disabled(self.history.previous().is_none())
+                            .on_click(cx.listener(|this, _, w, cx| this.go_back(&GoBack, w, cx))),
+                    )
+                    .child(
+                        Button::new("forward")
+                            .label("Forward")
+                            .disabled(self.history.next().is_none())
+                            .on_click(
+                                cx.listener(|this, _, w, cx| this.go_forward(&GoForward, w, cx)),
+                            ),
                     )
                     .child(
                         Button::new("up")
@@ -480,7 +674,8 @@ impl Render for Shell {
                             .disabled(
                                 self.location
                                     .as_ref()
-                                    .is_none_or(|l| l.directory == l.root.base()),
+                                    .and_then(Location::parent_directory)
+                                    .is_none(),
                             )
                             .on_click(cx.listener(|this, _, w, cx| this.up(w, cx))),
                     )
@@ -537,6 +732,7 @@ impl Render for Shell {
                     .child(path),
             )
             .when(self.projects, |view| {
+                let query = self.project_query.read(cx).value().to_lowercase();
                 view.child(
                     div()
                         .flex()
@@ -545,16 +741,30 @@ impl Render for Shell {
                         .gap_2()
                         .border_b_1()
                         .border_color(border)
-                        .children(self.registry.active().into_iter().map(|p| {
-                            let path = p.path.clone();
-                            Button::new(p.slug.clone())
-                                .label(p.name.clone())
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.projects = false;
-                                    this.open(path.clone(), w, cx);
-                                }))
-                                .into_any_element()
-                        }))
+                        .child(
+                            Input::new(&self.project_query)
+                                .id("project-filter")
+                                .w(px(320.)),
+                        )
+                        .children(
+                            self.registry
+                                .active()
+                                .into_iter()
+                                .filter(|p| {
+                                    p.name.to_lowercase().contains(&query)
+                                        || p.slug.to_lowercase().contains(&query)
+                                })
+                                .map(|p| {
+                                    let path = p.path.clone();
+                                    Button::new(p.slug.clone())
+                                        .label(p.name.clone())
+                                        .on_click(cx.listener(move |this, _, w, cx| {
+                                            this.projects = false;
+                                            this.open(path.clone(), w, cx);
+                                        }))
+                                        .into_any_element()
+                                }),
+                        )
                         .child(
                             div()
                                 .flex()
@@ -580,6 +790,15 @@ impl Render for Shell {
                     .min_h_0()
                     .child(
                         div()
+                            .id("browser-pane")
+                            .key_context("DriftBrowser")
+                            .track_focus(&self.browser_focus)
+                            .on_action(cx.listener(Self::go_up))
+                            .on_action(cx.listener(Self::go_back))
+                            .on_action(cx.listener(Self::go_forward))
+                            .on_action(cx.listener(Self::cursor_up))
+                            .on_action(cx.listener(Self::cursor_down))
+                            .on_action(cx.listener(Self::activate))
                             .flex()
                             .flex_col()
                             .flex_1()
@@ -607,9 +826,17 @@ impl Render for Shell {
                                                     .iter()
                                                     .find(|e| e.path.to_string_lossy() == name)
                                                     .is_some_and(|e| e.directory);
+                                                let display_name = if this.finder {
+                                                    name.clone()
+                                                } else {
+                                                    std::path::Path::new(&name)
+                                                        .file_name()
+                                                        .map(|n| n.to_string_lossy().into_owned())
+                                                        .unwrap_or(name.clone())
+                                                };
                                                 let label = format!(
                                                     "{}{}",
-                                                    name,
+                                                    display_name,
                                                     if directory { "/" } else { "" }
                                                 );
                                                 let row = div()
@@ -622,6 +849,7 @@ impl Render for Shell {
                                                     .child(label)
                                                     .on_click(cx.listener(
                                                         move |this, _, w, cx| {
+                                                            this.browser_focus.focus(w, cx);
                                                             this.choose(index, w, cx)
                                                         },
                                                     ));
@@ -632,6 +860,7 @@ impl Render for Shell {
                                             .collect()
                                     })
                                 })
+                                .track_scroll(&self.scroll)
                                 .flex_1(),
                             ),
                     )
@@ -707,6 +936,7 @@ mod tests {
 
     #[gpui_kit::test]
     fn real_directory_filtering_and_project_picker_reject_stale_results(cx: &mut TestAppContext) {
+        cx.executor().allow_parking(); // BrowserService uses real Tokio threads and I/O.
         let dir = tempfile::tempdir().unwrap();
         let config = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("first.txt"), "first\nsecond").unwrap();
@@ -793,13 +1023,208 @@ mod tests {
             assert!(!shell.read(cx).projects);
             assert!(shell.read(cx).location.is_some()); // switching UI never detached the browser
             w.click(0usize, cx); // real file preview runs in the background
-            assert_eq!(shell.read(cx).files.selected(), Some("./first.txt"));
+            assert_eq!(shell.read(cx).files.selected(), Some("first.txt"));
             w.click("copy-selection", cx);
             assert_eq!(
                 cx.read_from_clipboard().unwrap().text().as_deref(),
-                Some("./first.txt")
+                Some("first.txt")
             );
         })
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+    use gpui_kit::test::{TestAppContextExt, TestWindowExt};
+    use gpui_kit::{Bounds, TestAppContext, WindowBounds, WindowOptions, point, size};
+    use std::{fs, time::Duration};
+
+    #[gpui_kit::test]
+    async fn real_nested_navigation_buttons_history_and_input_focus(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
+        for registered in [false, true] {
+            let parent = tempfile::tempdir().unwrap();
+            let root = parent.path().join("root");
+            let child = root.join("child");
+            let nested = child.join("nested");
+            fs::create_dir_all(&nested).unwrap();
+            let config = tempfile::tempdir().unwrap();
+            let store = Store::new(config.path().into());
+            if registered {
+                store.register("Project", root.clone()).unwrap();
+            }
+            let (handle, shell) = cx.update(|cx| {
+                gpui_kit::init(cx);
+                bind_keys(cx);
+                gpui_kit::open_window(
+                    WindowOptions {
+                        window_bounds: Some(WindowBounds::Windowed(Bounds {
+                            origin: point(px(0.), px(0.)),
+                            size: size(px(1100.), px(720.)),
+                        })),
+                        ..Default::default()
+                    },
+                    cx,
+                    |w, cx| {
+                        cx.new(|cx| {
+                            Shell::new(w, cx, store, BrowserService::new().unwrap(), root.clone())
+                        })
+                    },
+                )
+                .unwrap()
+            });
+            cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+                shell.read(cx).location.is_some()
+            })
+            .await;
+            for (control, expected) in [
+                ("row", child.clone()),
+                ("row", nested.clone()),
+                ("up", child.clone()),
+                ("back", nested.clone()),
+                ("alt-left", child.clone()),
+                ("alt-right", nested.clone()),
+                ("left", child.clone()),
+                ("backspace", root.clone()),
+            ] {
+                cx.update_window(handle, |_, w, cx| {
+                    w.render_frame(cx);
+                    match control {
+                        "row" => w.click(0usize, cx),
+                        "up" | "back" => w.click(control, cx),
+                        key => w.press(key, cx),
+                    }
+                })
+                .unwrap();
+                cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+                    let shell = shell.read(cx);
+                    shell.listing_cancel.is_none()
+                        && shell
+                            .location
+                            .as_ref()
+                            .is_some_and(|l| l.directory == expected)
+                })
+                .await;
+            }
+            cx.update_window(handle, |_, w, cx| {
+                w.click("filter", cx);
+                w.input("hjl", cx);
+                assert_eq!(shell.read(cx).filter.read(cx).value().as_str(), "hjl");
+                assert_eq!(shell.read(cx).location.as_ref().unwrap().directory, root);
+                w.click("up", cx);
+            })
+            .unwrap();
+            let expected = if registered {
+                root.clone()
+            } else {
+                parent.path().into()
+            };
+            cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+                let shell = shell.read(cx);
+                shell.listing_cancel.is_none()
+                    && shell
+                        .location
+                        .as_ref()
+                        .is_some_and(|l| l.directory == expected)
+            })
+            .await;
+            assert_eq!(
+                shell.read_with(cx, |s, _| s
+                    .location
+                    .as_ref()
+                    .unwrap()
+                    .root
+                    .base()
+                    .to_path_buf()),
+                expected
+            );
+            if !registered {
+                // Registration belongs to the displayed folder, even when a
+                // wider unregistered capability root was opened by Up.
+                cx.update_window(handle, |_, w, cx| {
+                    w.click("back", cx);
+                })
+                .unwrap();
+                cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+                    let s = shell.read(cx);
+                    s.listing_cancel.is_none()
+                        && s.location.as_ref().is_some_and(|l| l.directory == root)
+                })
+                .await;
+                cx.update_window(handle, |_, w, cx| {
+                    w.click(0usize, cx);
+                })
+                .unwrap();
+                cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+                    let s = shell.read(cx);
+                    s.listing_cancel.is_none()
+                        && s.location.as_ref().is_some_and(|l| l.directory == child)
+                })
+                .await;
+                cx.update_window(handle, |_, w, cx| {
+                    w.click("projects", cx);
+                    w.click("project-name", cx);
+                    w.input("Nested project", cx);
+                    w.click("register", cx);
+                })
+                .unwrap();
+                cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+                    shell
+                        .read(cx)
+                        .location
+                        .as_ref()
+                        .is_some_and(|l| l.slug.is_some())
+                })
+                .await;
+                let registry = Store::new(config.path().into()).registry().unwrap();
+                assert_eq!(registry.projects[0].path, child);
+            }
+        }
+    }
+
+    #[gpui_kit::test]
+    async fn vanished_directory_keeps_the_previous_location_and_history(cx: &mut TestAppContext) {
+        cx.executor().allow_parking();
+        let root = tempfile::tempdir().unwrap();
+        let vanished = root.path().join("vanished");
+        fs::create_dir(&vanished).unwrap();
+        let config = tempfile::tempdir().unwrap();
+        let (handle, shell) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            bind_keys(cx);
+            gpui_kit::open_window(WindowOptions::default(), cx, |w, cx| {
+                cx.new(|cx| {
+                    Shell::new(
+                        w,
+                        cx,
+                        Store::new(config.path().into()),
+                        BrowserService::new().unwrap(),
+                        root.path().into(),
+                    )
+                })
+            })
+            .unwrap()
+        });
+        cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+            shell.read(cx).location.is_some()
+        })
+        .await;
+        fs::remove_dir(vanished).unwrap();
+        cx.update_window(handle, |_, w, cx| {
+            w.render_frame(cx);
+            w.click(0usize, cx);
+        })
+        .unwrap();
+        cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+            shell.read(cx).listing_cancel.is_none()
+        })
+        .await;
+        shell.read_with(cx, |s, _| {
+            assert_eq!(s.location.as_ref().unwrap().directory, root.path());
+            assert!(s.history.previous().is_none());
+            assert!(!s.status.ends_with("entries"));
+        });
     }
 }

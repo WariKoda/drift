@@ -1,5 +1,8 @@
 # drift-gui
 
+See the [Rust/GPUI port plan](../docs/rust-port-plan.md) for milestones and the
+planned System/Dark/Light modes with Monokai Pro Dark and Monokai Pro Light Sun.
+
 The Rust desktop application develops alongside the Go TUI. It currently provides
 a local browser with directory navigation, filtering, a project-wide finder and a
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
@@ -44,17 +47,24 @@ make rust-install
 ```
 
 The GUI starts in the current directory. A registered containing project supplies
-its capability root and hosts; the longest registered path wins. Up cannot leave
-that project root. Click a directory to enter it or a file to preview it in the
-opposite pane. The finder searches the entire project; the filter narrows the
+its capability root and hosts; the longest registered path wins. Up stays within
+registered projects. For unregistered folders, Up opens the parent with a new
+capability root. Open folder uses the native folder chooser. Back and Forward
+follow successfully loaded directories; a failed load keeps the current folder.
+Click a directory to enter it or a file to preview it in the opposite pane.
+The finder searches the entire project; the filter narrows the
 returned paths. Hidden and ignored entries have separate visibility toggles.
 Fixed exclusions and interrupted transfer staging files remain excluded.
 
 Preview uses Kit's read-only text control with line numbers, wrapping and native
 text selection/copy. Copy text copies the complete preview; Copy path copies the
 selected project-relative path. Ctrl+F/Cmd+F focuses the file filter, F5 refreshes,
-and Cancel stops the active listing/finder/preview. Closing Projects keeps the
-browser session. Directory and preview responses carry separate generations;
+and Cancel stops the active listing/finder/preview. In the browser, arrows or
+J/K move the selection, Enter/Right/L opens it, and Backspace/Left/H goes up.
+Alt+Left/Right follows history and Alt+Up goes up. These browser shortcuts leave
+text inputs free for typing. Projects has a name/slug filter and registers the
+displayed folder. Closing Projects keeps the browser session and restores focus.
+Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
 Filesystem and Git work run outside rendering on a bounded Tokio/background pool.
@@ -92,7 +102,8 @@ independent.
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
 locks and failed completion operations. GPUI tests use real file listings in a
-headless test window, including stale-result rejection and picker/session lifetime.
+headless test window, including nested navigation, project boundaries, input focus,
+failed loads, registration, stale-result rejection and picker/session lifetime.
 
 Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
@@ -104,7 +115,8 @@ DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test ./i
 
 All test stores use temporary directories. Native Wayland, X11, macOS Intel and
 Apple Silicon rendering/OS clipboard checks remain manual: navigate a temporary
-project, filter and find files, preview/copy text into another app, toggle hidden
+project, use the native folder chooser, navigate back and forward, filter and find
+files, preview/copy text into another app, toggle hidden
 and ignored paths, change projects during loading, close the picker, and close the
 window. Headless tests cannot establish native rendering or OS clipboard behavior.
 

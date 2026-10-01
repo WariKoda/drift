@@ -1,0 +1,162 @@
+# Rust-/GPUI-Port von drift
+
+## Ziel und Produktgrenzen
+
+Die Rust-Anwendung wird neben der Go-TUI im bestehenden Repository entwickelt.
+Beide sind eigenständig ausführbar und haben eigene Build-, Installations- und
+Release-Wege: `drift` für die Go-TUI und zunächst `drift-gui` für die Rust-GUI.
+Rust benötigt kein Go-Binary zur Laufzeit. Gemeinsame TOML-Formate werden weiter
+koordiniert. Fachliche Referenz sind der aktuelle Go-Code und seine Tests;
+ältere Go-Pläne beschreiben teilweise bereits überholtes Verhalten.
+
+Die erste reguläre GUI-Veröffentlichung erreicht Parität für Projekte,
+Hostverwaltung, SFTP/FTP/FTPS, Browser, Vorschau, Finder, Vergleich, Sync,
+Zertifikatsvertrauen und die vorhandenen Verwaltungsbefehle. Zielplattformen
+sind Linux mit Wayland/X11 und macOS 15+ auf Intel und Apple Silicon. Mehrere
+Arbeitsbereiche, ein schreibender Datei-Editor, neue Protokolle und automatische
+Transferwiederholungen bleiben außerhalb der ersten Version.
+
+## Oberfläche und Themes
+
+Zwei unabhängig navigierbare Dateibäume, veränderbare Bereichsgrößen, Toolbar,
+Kontextmenüs und Dialoge bilden die Oberfläche. Zeilen werden virtualisiert.
+Mehrfachauswahl, rekursive Markierungen und bestehende Tastaturabläufe werden
+portiert; Buchstabenbefehle greifen ausschließlich im Browser-/Diff-Kontext,
+niemals während Texteingaben. Ordnernavigation bietet Up sowie Zurück/Vorwärts.
+Abgebrochene oder fehlgeschlagene Navigation erhält den bisherigen Ordner.
+Registrierte Projekt-Roots begrenzen den Sync; die freie Ordnerauswahl kann
+ausdrücklich einen neuen Projekt-Root öffnen.
+
+Die Standard-Themes sind verbindlich:
+
+| Einstellung | Verwendetes Theme |
+| --- | --- |
+| **System** (Voreinstellung) | Betriebssystem hell: **Monokai Pro Light Sun**; dunkel: **Monokai Pro Dark** |
+| **Light** | **Monokai Pro Light Sun** |
+| **Dark** | **Monokai Pro Dark** |
+
+Die Einstellung wird in `<config.Dir()>/gui.toml` gespeichert. System folgt auch
+Änderungen der OS-Darstellung während der laufenden Sitzung; Light und Dark
+bleiben ausdrücklich festgelegt. Ein Wechsel gilt für Fenster, Kit-Komponenten,
+Browser, Vorschau und Diff, ohne die Sitzung oder Auswahl zurückzusetzen.
+Farbzuordnung, Fokus, Auswahl, Fehler und Additions-/Deletionsmarkierungen werden
+in beiden Themes auf Lesbarkeit geprüft. Die Themes sind geplant; die bisherigen
+Kit-Standardfarben stellen noch keine Umsetzung dieser Vorgabe dar.
+
+Vorschau: höchstens 1 MiB, reguläre Textdateien, Zeilennummern, Umbruch,
+Textauswahl und native Zwischenablage. Finder/Vorschau laufen im Hintergrund;
+späte Ergebnisse ändern weder die falsche Datei noch den Fokus.
+
+Unified-Diff: Dateiliste mit Status/Aktion, zwei Zeilennummernspalten, Hunk-Header,
+drei Kontextzeilen, Faltung unveränderter Bereiche, Hunk-Navigation und stabile
+Quellanker. Upload zeigt Remote → Local, Download Local → Remote; Delete zeigt
+die Entfernung auf der betroffenen Seite. Vergleichsdaten bleiben unveränderlich;
+Faltung, Auswahl und Scrollzustand gehören zur View. Zeds Diff ist eine
+Architekturreferenz für eine eigene schreibgeschützte Darstellung.
+
+## Architektur
+
+| Crate | Verantwortung |
+| --- | --- |
+| `drift-core` | Rohkonfiguration, Registry, Mapping, lokale Roots, Ignore-Regeln, Transporte, Diff, Sync-Policies |
+| `drift-app` | Abläufe, Sessions, Hintergrundaufgaben, Fortschritt, Abbruch, Ressourcen |
+| `drift-gui` | CLI-Einstieg, GPUI/Kit-Views, Actions, Fokus, Dialoge, Themes |
+
+Nur `drift-gui` hängt von GPUI ab. GPUI Kit und seine zusammengehörigen Pakete
+sowie die Rust-Toolchain sind gepinnt. Tokio führt Netzwerkaufgaben aus;
+blockierende Dateiarbeit und große Diffs laufen in begrenzten Hintergrundaufgaben.
+SFTP verwendet `russh`/`russh-sftp`, FTP/FTPS `suppaftp` mit Tokio/Rustls.
+Lokale Zugriffe verwenden `cap-std`; Persistenz `serde`/`toml`, Textdiffs `similar`,
+gestreamte Inhaltsvergleiche SHA-256.
+
+Remote-Clients erhalten ausschließlich Remote-Pfade und Streams und besitzen
+Verbindungszustand und Shutdown. `ProjectRoot` kapselt lokale Zugriffe und atomare
+Downloads. Vergleichssessions besitzen Verbindung, Root, Ergebnisse und Scope
+und schließen ihre Ressourcen gemeinsam. Typisierte Ereignisse enthalten
+Projekt-, Verbindungs- und Operationsidentität. Veraltete Ergebnisse werden
+verworfen und Ressourcen geschlossen; Fortschritt darf zusammengefasst werden,
+Abschlüsse und Fehler dürfen nicht verloren gehen.
+
+## Persistenz und Sicherheit
+
+Bestehende Speicherorte, `$XDG_CONFIG_HOME`, TOML-Felder, Slugs, Zeitstempel,
+Defaults, Serverlinks, Mappings und Zertifikatsausnahmen bleiben kompatibel.
+Rohwerte bleiben von aufgelösten Laufzeitwerten getrennt. GUI-Präferenzen liegen
+separat in `gui.toml`, keine Verwaltungsdatei im Projektverzeichnis.
+
+Aktualisierte Go-TUI und Rust verwenden dieselbe permanente `write.lock` mit
+`flock`: Lesen, Validieren, Ändern und alle Dateien einer Verwaltungsoperation
+liegen unter der Sperre. Frische Daten werden geladen; Änderungen am selben
+Datensatz seit Formularöffnung erzeugen einen sichtbaren Konflikt und erhalten
+die Eingabe. Unabhängige Änderungen werden erhalten. Atomische Writes,
+restriktive Rechte und das vorhandene Rücksetzverhalten bleiben bestehen.
+
+Mapping-Priorität und Segmentgrenzen entsprechen Go; konfigurierte Mappings
+begrenzen den Sync-Bereich. Ignore-Klassifikation erfolgt gebündelt über echtes
+`git check-ignore`, mit vorherigem lokalem Mapping von Remote-Pfaden. Sichtbarkeit
+und Sync-Scope bleiben getrennt. Direkt ausgewählte ignorierte Dateien können
+Ausnahmen sein, harte Ausschlüsse und Transfer-Staging-Dateien niemals.
+
+Projektgebundene I/O wird über geöffnete Verzeichnis-Capabilities ausgeführt,
+nicht durch eine alleinige `canonicalize`-Prüfung autorisiert. Symlink-Escapes und
+Spezialdateien werden abgewehrt. Transfers verwenden benachbarte Staging-Dateien
+im bestehenden Namensformat; Download ersetzt erst nach vollständigem Lesen,
+Transferabschluss, Flush und geprüftem Schließen.
+
+Vergleich: Metadaten-Schnellpfad, 2-MiB-Textgrenze, gestreamter SHA-256-Vergleich
+großer Dateien. LocalOnly → Upload, RemoteOnly → Download; Inhaltsunterschiede
+mit deutlich neuerer Remote-mtime → Download, unklare Zeitstempel → Upload.
+Fehlerhafte Einträge erhalten keine ausführbare Aktion. Höchstens acht SFTP-
+Worker beziehungsweise vier FTP-Verbindungen; abgelehnte zusätzliche FTP-Logins
+reduzieren Parallelität. Sync bleibt seriell. FTP-550-Klassifikation prüft das
+Elternverzeichnis zusätzlich und erhält Zugriffsfehler.
+
+Keep-alive: 60 Sekunden als Default, `0` deaktiviert, Probe-Timeout 15 Sekunden.
+FTP-Probes überspringen belegte Verbindungen, SSH-Probes können Transfers
+begleiten. FTPS behält TLS 1.2 und endpoint-/fingerprintgebundene Ausnahmen;
+Handshake-Challenges öffnen erst nach Ende des Hintergrundaufrufs einen Dialog.
+Der erste Retry verlangt das gerade bestätigte Zertifikat.
+
+Abbruch stoppt weitere Arbeit und laufende Netzwerk-I/O. Bestätigte Transfers
+bleiben erhalten; Verbindungsverlust sperrt Sync bis zu einem neuen Vergleich.
+Keine automatischen Transfer-Retries. Fortschritt kann ohne Abbruch verborgen
+werden. Projektwechsel/Fensterende brechen Arbeit ab und schließen Ressourcen
+im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secrets.
+
+## Meilensteine und Stand
+
+| Meilenstein | Ergebnis / Abnahme | Stand |
+| --- | --- | --- |
+| 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation und filterbarer Projektwechsel vorhanden; Hostformulare und Themes offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Offen |
+| 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | Offen |
+| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
+| 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
+
+Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
+`main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.
+
+## Verifikation und Freigabe
+
+- Gemeinsame fachliche Fixtures: Mapping, Scope, Ignore-Ausnahmen, Auswahl,
+  Diff-Richtung/Faltung, Binärdateien, Limits, Aktionsvorschläge.
+- Go ↔ Rust ↔ Go und Rust ↔ Go ↔ Rust: Defaults, fehlend/Null, Serverlinks,
+  Zeitstempel, Trust und Konkurrenz zwischen realen Prozessen.
+- Echte temporäre Dateibäume: Symlink-Escapes, Root-/Pfadwechsel, FIFOs,
+  fehlgeschlagene Downloads, Rechte und Staging-Ausschlüsse.
+- Echte lokale SSH/SFTP-, FTP- und FTPS-Server, keine Mocks. Auth/Agent-Timeout,
+  Hostkey-/Zertifikatswechsel, Berechtigungen, Datenkanal-Abschlussfehler und
+  Verbindungsverlust. Protokolltests dürfen im Freigabelauf nicht übersprungen sein.
+- GUI: echte Ordnernavigation über Maus und Tastatur, Eingabefokus, Dialoge,
+  Projektwechsel während I/O, veraltete Ergebnisse und versteckter Fortschritt.
+  Theme-Modus/Persistenz, laufender OS-Wechsel in System, festgelegtes Light/Dark,
+  beide Monokai-Paletten und Kontrast werden geprüft.
+- Native Rendering-/OS-Clipboard-Prüfungen auf Wayland, X11 und beiden macOS-
+  Architekturen; Headless-Tests ersetzen diese Abnahme nicht.
+- Gleiche Bäume erzeugen dieselben Dateipaare, ausführbaren Entscheidungen und
+  Sync-Ergebnisse. Gültige Textdiff-Aufteilungen dürfen variieren; Inhalte,
+  Zeilenzuordnung und Richtung stimmen überein.
+- CI: Rustfmt, Clippy, Workspace-Tests, Release-Build; Go-Test/Vet/Build.
+  Freigabe erst nach nachgewiesenen Workflows, sichtbaren Fehlern, bedienbarer GUI
+  während I/O und keinen Verwaltungsdateien im Projekt. MIT bleibt bestehen.

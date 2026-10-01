@@ -6,8 +6,9 @@ planned System/Dark/Light modes with Monokai Pro Dark and Monokai Pro Light Sun.
 The Rust desktop application develops alongside the Go TUI. It currently provides
 a local browser with directory navigation, filtering, a project-wide finder and a
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
-projects or registers the current folder. Remote browsing and sync are not yet
-implemented.
+projects or registers the current folder. Hosts manages project targets and global
+servers with forms, duplication, deletion, server links and mappings. Remote
+browsing and sync are not yet implemented.
 
 ## Standalone applications
 
@@ -67,6 +68,22 @@ displayed folder. Closing Projects keeps the browser session and restores focus.
 Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
+Hosts opens a separate management view and keeps the browser session. Project
+hosts and global servers have separate lists; links use an existing global server
+and store only their name, server, root path and mappings. Connection forms support
+SFTP, FTP and explicit FTPS, password/key file/SSH-agent settings, and optional
+keep-alive (empty means 60 seconds, zero disables probes). Passwords/passphrases
+are masked. Empty port/user fields keep the stored defaults instead of saving
+resolved values. Local/deploy mapping paths remain relative to their roots.
+
+Save conflicts and validation errors leave the form open. Cancel it, reload the
+list and reopen the record to use a newer version. Delete asks for confirmation;
+deleting or renaming a server used by project links fails visibly. Closing Hosts
+restores browser focus. Management I/O runs on the bounded background pool;
+completed changes refresh the current project's resolved configuration without
+resetting its file list or preview. Connection testing and linking hosts from other
+projects via server promotion remain pending.
+
 Filesystem and Git work run outside rendering on a bounded Tokio/background pool.
 Git itself classifies ignored paths in batches, including tracked files and
 worktree/global ignore rules. Outside a repository it uses temporary bare metadata
@@ -104,6 +121,8 @@ Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transactio
 locks and failed completion operations. GPUI tests use real file listings in a
 headless test window, including nested navigation, project boundaries, input focus,
 failed loads, registration, stale-result rejection and picker/session lifetime.
+Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
+masked fields, concurrent-edit conflicts and deletion guards.
 
 Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
@@ -116,13 +135,14 @@ DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test ./i
 All test stores use temporary directories. Native Wayland, X11, macOS Intel and
 Apple Silicon rendering/OS clipboard checks remain manual: navigate a temporary
 project, use the native folder chooser, navigate back and forward, filter and find
-files, preview/copy text into another app, toggle hidden
+files, exercise host forms and return to the browser, preview/copy text into another
+app, toggle hidden
 and ignored paths, change projects during loading, close the picker, and close the
 window. Headless tests cannot establish native rendering or OS clipboard behavior.
 
 ## Remaining port work
 
-Milestone 2 is in progress: full host forms/server promotion, project edit/delete
+Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
 and dashboard/startup restoration, GUI preferences and full certificate-store
 roundtrip coverage remain. Later milestones add SFTP, FTP/FTPS, certificate
 challenges, keep-alive, comparisons/unified diff, serial sync, complete CLI and

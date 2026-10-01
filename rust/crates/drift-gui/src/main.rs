@@ -1,3 +1,4 @@
+mod hosts;
 mod shell;
 
 use gpui_kit::{AppContext, Bounds, QuitMode, WindowBounds, WindowOptions, px, size};

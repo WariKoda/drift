@@ -128,7 +128,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | Meilenstein | Ergebnis / Abnahme | Stand |
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
-| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation und filterbarer Projektwechsel vorhanden; Hostformulare und Themes offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | Offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |

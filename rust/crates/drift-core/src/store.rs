@@ -1,5 +1,5 @@
 use crate::{
-    config::{GlobalConfig, Host, ProjectConfig, RuntimeConfig, project_store_path},
+    config::{Defaults, GlobalConfig, Host, ProjectConfig, RuntimeConfig, project_store_path},
     error::{Error, Result},
     project::{Project, Registry, now},
 };
@@ -15,6 +15,13 @@ use std::{
 #[derive(Clone)]
 pub struct Store {
     dir: PathBuf,
+}
+/// One consistent, raw snapshot for a host management form.
+pub struct HostCatalog {
+    pub hosts: Vec<Host>,
+    pub servers: Vec<Host>,
+    pub defaults: Defaults,
+    pub runtime: RuntimeConfig,
 }
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
@@ -36,6 +43,23 @@ impl Store {
         let global = self.global()?;
         let project = slug.map(|slug| self.project(slug)).transpose()?;
         RuntimeConfig::resolve(&global, project.as_ref())
+    }
+    pub fn host_catalog(&self, slug: Option<&str>) -> Result<HostCatalog> {
+        self.with_lock(|| {
+            let global = self.global()?;
+            let project = slug.map(|slug| self.project(slug)).transpose()?;
+            let runtime = RuntimeConfig::resolve(&global, project.as_ref())?;
+            let (hosts, defaults) = match project {
+                Some(project) => (project.hosts, project.defaults),
+                None => (global.hosts.clone(), global.defaults),
+            };
+            Ok(HostCatalog {
+                hosts,
+                servers: global.hosts,
+                defaults,
+                runtime,
+            })
+        })
     }
     fn read<T: DeserializeOwned + Default>(&self, path: &Path) -> Result<T> {
         match fs::read_to_string(path) {
@@ -67,6 +91,21 @@ impl Store {
         })?;
         Ok(file)
     }
+    fn with_lock<T>(&self, action: impl FnOnce() -> Result<T>) -> Result<T> {
+        let lock = self.lock()?;
+        let result = action();
+        // A concurrently forked child can briefly inherit the descriptor before
+        // exec. Unlock the shared open-file description explicitly, rather than
+        // relying on the final descriptor close in that child.
+        let released = FileExt::unlock(&lock);
+        match (result, released) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(error)) => Err(error.into()),
+            (Err(error), Err(release)) => Err(Error::Invalid(format!(
+                "{error}; releasing configuration lock failed: {release}"
+            ))),
+        }
+    }
     fn write<T: Serialize>(&self, path: &Path, value: &T) -> Result<()> {
         let data = toml::to_string_pretty(value)?;
         let parent = path
@@ -91,36 +130,38 @@ impl Store {
         expected: Option<&Host>,
         desired: Host,
     ) -> Result<()> {
-        let _lock = self.lock()?;
-        let mut global = self.global()?;
-        if let Some(slug) = slug {
-            let mut project = self.project(slug)?;
-            replace_host(&mut project.hosts, expected, Some(desired))?;
-            RuntimeConfig::resolve(&global, Some(&project))?;
-            self.write(&project_store_path(&self.dir, slug)?, &project)
-        } else {
-            if expected.is_some_and(|before| before.name != desired.name) {
-                self.ensure_server_unused(&expected.unwrap().name)?;
+        self.with_lock(|| {
+            let mut global = self.global()?;
+            if let Some(slug) = slug {
+                let mut project = self.project(slug)?;
+                replace_host(&mut project.hosts, expected, Some(desired))?;
+                RuntimeConfig::resolve(&global, Some(&project))?;
+                self.write(&project_store_path(&self.dir, slug)?, &project)
+            } else {
+                if expected.is_some_and(|before| before.name != desired.name) {
+                    self.ensure_server_unused(&expected.unwrap().name)?;
+                }
+                replace_host(&mut global.hosts, expected, Some(desired))?;
+                RuntimeConfig::resolve(&global, None)?;
+                self.write(&self.dir.join("config.toml"), &global)
             }
-            replace_host(&mut global.hosts, expected, Some(desired))?;
-            RuntimeConfig::resolve(&global, None)?;
-            self.write(&self.dir.join("config.toml"), &global)
-        }
+        })
     }
     pub fn delete_host(&self, slug: Option<&str>, expected: &Host) -> Result<()> {
-        let _lock = self.lock()?;
-        let mut global = self.global()?;
-        if let Some(slug) = slug {
-            let mut project = self.project(slug)?;
-            replace_host(&mut project.hosts, Some(expected), None)?;
-            RuntimeConfig::resolve(&global, Some(&project))?;
-            self.write(&project_store_path(&self.dir, slug)?, &project)
-        } else {
-            self.ensure_server_unused(&expected.name)?;
-            replace_host(&mut global.hosts, Some(expected), None)?;
-            RuntimeConfig::resolve(&global, None)?;
-            self.write(&self.dir.join("config.toml"), &global)
-        }
+        self.with_lock(|| {
+            let mut global = self.global()?;
+            if let Some(slug) = slug {
+                let mut project = self.project(slug)?;
+                replace_host(&mut project.hosts, Some(expected), None)?;
+                RuntimeConfig::resolve(&global, Some(&project))?;
+                self.write(&project_store_path(&self.dir, slug)?, &project)
+            } else {
+                self.ensure_server_unused(&expected.name)?;
+                replace_host(&mut global.hosts, Some(expected), None)?;
+                RuntimeConfig::resolve(&global, None)?;
+                self.write(&self.dir.join("config.toml"), &global)
+            }
+        })
     }
     fn ensure_server_unused(&self, name: &str) -> Result<()> {
         let entries = match fs::read_dir(self.dir.join("projects")) {
@@ -149,63 +190,66 @@ impl Store {
         Ok(())
     }
     pub fn save_project(&self, expected: Option<&Project>, desired: Project) -> Result<()> {
-        let _lock = self.lock()?;
-        let mut registry = self.registry()?;
-        if let Some(expected) = expected {
-            let current = registry
-                .find(&expected.slug)
-                .ok_or_else(|| Error::Conflict(format!("project {}", expected.slug)))?;
-            if current != expected {
-                return Err(Error::Conflict(format!("project {}", expected.slug)));
+        self.with_lock(|| {
+            let mut registry = self.registry()?;
+            if let Some(expected) = expected {
+                let current = registry
+                    .find(&expected.slug)
+                    .ok_or_else(|| Error::Conflict(format!("project {}", expected.slug)))?;
+                if current != expected {
+                    return Err(Error::Conflict(format!("project {}", expected.slug)));
+                }
+                if desired.slug != expected.slug {
+                    return Err(Error::Invalid(
+                        "editing cannot change a project slug".into(),
+                    ));
+                }
+                let index = registry
+                    .projects
+                    .iter()
+                    .position(|p| p.slug == expected.slug)
+                    .unwrap();
+                registry.projects[index] = desired;
+            } else {
+                if registry.find(&desired.slug).is_some() {
+                    return Err(Error::Conflict(format!("project {}", desired.slug)));
+                }
+                registry.projects.push(desired);
             }
-            if desired.slug != expected.slug {
-                return Err(Error::Invalid(
-                    "editing cannot change a project slug".into(),
-                ));
-            }
-            let index = registry
-                .projects
-                .iter()
-                .position(|p| p.slug == expected.slug)
-                .unwrap();
-            registry.projects[index] = desired;
-        } else {
-            if registry.find(&desired.slug).is_some() {
-                return Err(Error::Conflict(format!("project {}", desired.slug)));
-            }
-            registry.projects.push(desired);
-        }
-        registry.validate()?;
-        self.write(&self.dir.join("projects.toml"), &registry)
+            registry.validate()?;
+            self.write(&self.dir.join("projects.toml"), &registry)
+        })
     }
     pub fn register(&self, name: &str, path: PathBuf) -> Result<Project> {
-        let _lock = self.lock()?;
-        let mut registry = self.registry()?;
-        let date = now();
-        let project = Project {
-            slug: registry.unique_slug(name),
-            name: name.into(),
-            path,
-            archived: false,
-            created_at: date,
-            updated_at: date,
-            opened_at: None,
-        };
-        registry.projects.push(project.clone());
-        registry.validate()?;
-        self.write(&self.dir.join("projects.toml"), &registry)?;
-        Ok(project)
+        self.with_lock(|| {
+            let mut registry = self.registry()?;
+            let date = now();
+            let project = Project {
+                slug: registry.unique_slug(name),
+                name: name.into(),
+                path,
+                archived: false,
+                created_at: date,
+                updated_at: date,
+                opened_at: None,
+            };
+            registry.projects.push(project.clone());
+            registry.validate()?;
+            self.write(&self.dir.join("projects.toml"), &registry)?;
+            Ok(project)
+        })
     }
     pub fn mark_opened(&self, slug: &str) -> Result<()> {
-        let _lock = self.lock()?;
-        let mut registry = self.registry()?;
-        let project = registry
-            .projects
-            .iter_mut()
-            .find(|p| p.slug == slug)
-            .ok_or_else(|| Error::Conflict(format!("project {slug}")))?;
-        project.opened_at = Some(now());
-        self.write(&self.dir.join("projects.toml"), &registry)
+        self.with_lock(|| {
+            let mut registry = self.registry()?;
+            let project = registry
+                .projects
+                .iter_mut()
+                .find(|p| p.slug == slug)
+                .ok_or_else(|| Error::Conflict(format!("project {slug}")))?;
+            project.opened_at = Some(now());
+            self.write(&self.dir.join("projects.toml"), &registry)
+        })
     }
 }
 fn replace_host(

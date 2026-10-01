@@ -69,6 +69,22 @@ SFTP verwendet `russh`/`russh-sftp`, FTP/FTPS `suppaftp` mit Tokio/Rustls.
 Lokale Zugriffe verwenden `cap-std`; Persistenz `serde`/`toml`, Textdiffs `similar`,
 gestreamte Inhaltsvergleiche SHA-256.
 
+Vor Meilenstein 3 werden die Views aufgeteilt. Diese Voraussetzung ist im
+aktuellen Stand umgesetzt: `shell.rs` koordiniert Sitzung, Projektwechsel,
+Registrierung und Hostverwaltung. `browser.rs` besitzt pro Pane Navigation,
+History, Auswahl, Filter, Finder, Scrollzustand und Listing-Abbruch;
+`preview.rs` besitzt Vorschau und deren eigene Operationsidentität.
+`projects.rs` verwaltet das Projekte-Panel, `hosts.rs` die Hostformulare,
+`toolbar.rs` die zustandslosen Toolbar-Controls und `actions.rs` die Actions.
+Die Komponenten kommunizieren über typisierte Ereignisse und prüfen veraltete
+Ergebnisse an ihren Zustandsgrenzen. Dateiarbeit bleibt in `drift-app`.
+
+Ein Headless-Test rendert zwei Browser-Panes im selben Fenster und prüft getrennte
+Filter, Auswahl, Fokus, History und Abbruch. Die Anwendung zeigt derzeit weiter
+einen lokalen Browser mit gegenüberliegender Vorschau. Remote-Baum, Dialoge und
+Diff erhalten im jeweiligen Meilenstein eigene Views; ihre Zustände werden nicht
+in `Shell` oder den lokalen Browser eingebaut.
+
 Remote-Clients erhalten ausschließlich Remote-Pfade und Streams und besitzen
 Verbindungszustand und Shutdown. `ProjectRoot` kapselt lokale Zugriffe und atomare
 Downloads. Vergleichssessions besitzen Verbindung, Root, Ergebnisse und Scope
@@ -128,7 +144,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | Meilenstein | Ergebnis / Abnahme | Stand |
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
-| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings vorhanden; Promotion, Projektverwaltung und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | Offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |

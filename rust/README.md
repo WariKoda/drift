@@ -116,11 +116,21 @@ independent.
 - `drift-gui`: Kit controls, view state, operation identities and clipboard actions.
   Views do not perform filesystem or network I/O.
 
+The window's `shell.rs` coordinates project changes, registration and host
+management through typed child-view events. Each `BrowserPane` in `browser.rs`
+owns its navigation/history, selection, filter, finder, focus, scroll and listing
+cancellation. `preview.rs` owns its editor and separate request lifetime;
+`projects.rs` owns project-panel inputs. `toolbar.rs` renders stateless controls
+and `actions.rs` defines key bindings. Remote browsing and unified diff will gain
+their own views as those features are implemented.
+
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
 locks and failed completion operations. GPUI tests use real file listings in a
 headless test window, including nested navigation, project boundaries, input focus,
 failed loads, registration, stale-result rejection and picker/session lifetime.
+Two panes in one headless window verify independent filter, selection, focus,
+history and cancellation; preview tests verify replacement and clipboard content.
 Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards.
 

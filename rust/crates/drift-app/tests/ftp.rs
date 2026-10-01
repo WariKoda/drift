@@ -139,7 +139,15 @@ fn go_probe(
             .arg(root)
             .arg(server.port.to_string())
             .arg(server.host().protocol)
-            .env("SSL_CERT_FILE", server.dir.path().join("root.pem"))
+            .env(
+                "DRIFT_TEST_CA",
+                if server.host().protocol == "ftps" {
+                    server.dir.path().join("root.pem")
+                } else {
+                    PathBuf::new()
+                },
+            )
+            .env("GODEBUG", "x509usefallbackroots=1")
             .env("XDG_CONFIG_HOME", home.path().join("config"))
             .env("HOME", home.path())
             .stdin(Stdio::piped())

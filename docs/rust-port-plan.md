@@ -146,7 +146,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | Meilenstein | Ergebnis / Abnahme | Stand |
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
-| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset vorhanden; automatische Endpunktvorschläge, Projektverwaltung und Themes offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
@@ -286,6 +286,31 @@ unveränderte Formulare und fehlende Writes in Projektverzeichnissen. Die gemein
 Go-Parität prüft dieselben Rohdatensätze nach Promotion und einen konkurrierenden
 Go-Edit nach Öffnen des Rust-Pickers. Automatische Angebote zum Verknüpfen eines
 neu gespeicherten Hosts mit demselben Endpunkt bleiben eine Paritätsaufgabe.
+
+Die Projektverwaltung bietet Anlegen, Bearbeiten mit unveränderlichem Slug,
+Archivieren/Wiederherstellen und bestätigtes Entfernen. Formulare erhalten Werte
+bei Validierungsfehlern oder einem konkurrierenden Edit, Open-Zeitstempel oder
+Delete. Frische Registry-Daten werden unter `write.lock` geändert; unabhängige
+Einträge bleiben erhalten. Entfernen versteckt zuerst den Quellstore, schreibt
+die Registry und löscht anschließend die versteckten Einstellungen. Scheitert der
+Registry-Write, wird der Store zurückgesetzt. Ein Cleanup-Fehler nach Commit wird
+als sichtbare Warnung mit bestätigtem Ergebnis gemeldet. Lokale Dateien bleiben
+unangetastet. Ein verschobenes/entferntes aktives Projekt schließt Verbindung und
+Operationen, verwirft den alten Root und lädt den Browser neu; Schließen des
+Dashboards oder Wahl desselben Projekts erhält die Sitzung.
+
+Der Start entscheidet im begrenzten Hintergrunddienst: registrierter Kontext oder
+unregistriertes Git-Repository → aktueller Ordner; sonst letztes geöffnetes,
+aktives Projekt mit benutzbarem Pfad → Wiederherstellung; andernfalls vorhandene
+Projekte → Dashboard. Ein explizites Ordnerargument bleibt maßgeblich, außer
+`--dashboard` erzwingt die Liste; `--no-dashboard` hat Vorrang. Das initiale
+Dashboard öffnet keinen Browser und schreibt keinen Open-Zeitstempel. Bei
+Registrierung schlägt der Dienst den Git-Root einschließlich Worktrees vor.
+`projects.rs`, `projects/form.rs`, `projects/management.rs` und
+`shell/projects.rs` trennen Liste/Formular, Ergebnisübernahme und Sitzung/Start.
+Echte Dateisystem-, App-, GPUI- und Go/Rust-Prozesstests decken Rücksetzen,
+Konflikte, Archivierung, Startregeln und aktive FTP-Sitzungen ab. Die vollständige
+Tastaturparität des Dashboards bleibt eine Aufgabe in Meilenstein 5.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

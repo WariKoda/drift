@@ -61,7 +61,7 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
                         store,
                         service.clone(),
                         RemoteService::with_options(service, server.options()),
-                        local.path().into(),
+                        local.path().to_path_buf(),
                     )
                 })
             },

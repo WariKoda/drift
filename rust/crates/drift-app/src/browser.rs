@@ -150,9 +150,12 @@ impl BrowserService {
             let prepare_store = store.clone();
             let mut result = service
                 .blocking(&token, move || {
+                    let directory = drift_core::project::clean_path(&directory);
                     let registry = prepare_store.registry()?;
                     let project = registry.find_by_path(&directory);
-                    let base = project.map_or(directory.clone(), |p| p.path.clone());
+                    let base = project.map_or(directory.clone(), |p| {
+                        drift_core::project::clean_path(&p.path)
+                    });
                     let slug = project.map(|p| p.slug.clone());
                     let config = prepare_store.runtime(slug.as_deref())?;
                     let root = Arc::new(ProjectRoot::open(&base)?);
@@ -174,7 +177,7 @@ impl BrowserService {
                 .await?;
             if let Some(slug) = result.location.slug.clone() {
                 result.registry = service
-                    .blocking(&token, move || {
+                    .blocking_mutation(&token, move || {
                         store.mark_opened(&slug)?;
                         store.registry()
                     })
@@ -237,7 +240,8 @@ impl BrowserService {
         let token = cancel.clone();
         let task = self.runtime.spawn(async move {
             service
-                .blocking(&token, move || {
+                .blocking_mutation(&token, move || {
+                    let path = drift_core::project::git_root(&path)?.unwrap_or(path);
                     store.register(&name, path.clone())?;
                     Ok(path)
                 })

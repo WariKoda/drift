@@ -40,7 +40,7 @@ async fn selected_sync_deletion_errors_and_cancel_are_visible_without_reusing_a_
                         store,
                         service.clone(),
                         RemoteService::with_options(service, server.options()),
-                        local.path().into(),
+                        local.path().to_path_buf(),
                     )
                 })
             },

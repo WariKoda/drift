@@ -17,10 +17,38 @@ use gpui_kit::{AppContext, Bounds, QuitMode, WindowBounds, WindowOptions, px, si
 use shell::Shell;
 
 fn main() {
-    let start = match std::env::args_os().nth(1) {
-        Some(path) => std::path::absolute(std::path::PathBuf::from(path)),
-        None => std::env::current_dir(),
-    };
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut dashboard = false;
+    let mut no_dashboard = false;
+    let mut directory = None;
+    let mut positional = false;
+    for argument in args {
+        if !positional && argument == "--" {
+            positional = true;
+            continue;
+        }
+        if !positional && argument == "--dashboard" {
+            dashboard = true;
+            continue;
+        }
+        if !positional && argument == "--no-dashboard" {
+            no_dashboard = true;
+            continue;
+        }
+        if !positional && (argument == "--help" || argument == "-h") {
+            println!(
+                "Usage: drift-gui [--dashboard | --no-dashboard] [directory]\n\nOutside projects, restore the last opened project or show the dashboard.\nAn explicit directory is opened directly. --no-dashboard takes precedence."
+            );
+            return;
+        }
+        if (!positional && argument.as_encoded_bytes().starts_with(b"-")) || directory.is_some() {
+            eprintln!("drift-gui: unexpected argument {:?}; use --help", argument);
+            std::process::exit(1);
+        }
+        directory = Some(std::path::PathBuf::from(argument));
+    }
+    let explicit_directory = directory.is_some();
+    let start = directory.map_or_else(std::env::current_dir, std::path::absolute);
     let (store, service, start) = match (
         drift_core::config::config_dir(),
         drift_app::browser::BrowserService::new(),
@@ -56,7 +84,19 @@ fn main() {
                 |window, cx| {
                     cx.new(|cx| {
                         let remote = drift_app::remote::RemoteService::new(service.clone());
-                        Shell::new(window, cx, store, service, remote, start)
+                        Shell::new(
+                            window,
+                            cx,
+                            store,
+                            service,
+                            remote,
+                            drift_app::projects::StartOptions {
+                                directory: start,
+                                dashboard,
+                                no_dashboard,
+                                explicit_directory,
+                            },
+                        )
                     })
                 },
             ) {

@@ -4,8 +4,10 @@ use crate::{
     project::{Project, Registry, now},
     tlstrust::{Endpoint, TrustedCertificate},
 };
+mod projects;
 mod servers;
 use fs2::FileExt;
+pub use projects::ProjectRemoval;
 use serde::{Serialize, de::DeserializeOwned};
 pub use servers::{LinkCatalog, LinkTarget, Promotion};
 use std::{
@@ -306,8 +308,11 @@ impl Store {
             let date = now();
             let project = Project {
                 slug: registry.unique_slug(name),
-                name: name.into(),
-                path,
+                name: name.trim().into(),
+                path: crate::project::expand_path(
+                    path.to_str()
+                        .ok_or_else(|| Error::Invalid("project path is not UTF-8".into()))?,
+                )?,
                 archived: false,
                 created_at: date,
                 updated_at: date,

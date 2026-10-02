@@ -6,7 +6,8 @@ planned System/Dark/Light modes with Monokai Pro Dark and Monokai Pro Light Sun.
 The Rust desktop application develops alongside the Go TUI. It currently provides
 a local browser with directory navigation, filtering, a project-wide finder and a
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
-projects or registers the current folder. Hosts manages project targets and global
+projects or registers the current repository/folder. Its dashboard creates, edits,
+archives/unarchives and removes projects after confirmation. Hosts manages project targets and global
 servers with forms, duplication, deletion, server links and mappings. A separate
 picker can promote a host from another project into a shared global server.
 SFTP, FTP and explicit FTPS browsing, preview, unified comparison and serial sync
@@ -51,7 +52,12 @@ cd rust && cargo run --locked -p drift-gui -- /path/to/project
 make rust-install
 ```
 
-The GUI starts in the current directory. A registered containing project supplies
+The GUI stays in the current directory inside registered projects and unregistered
+Git repositories. Outside them, it restores the last opened active project if its
+path is usable; otherwise it shows the dashboard when projects exist. A directory
+argument opens that directory directly. `--dashboard` forces the project list;
+`--no-dashboard` takes precedence and stays in the chosen/current directory.
+`--help` shows these options without opening a window. A registered containing project supplies
 its capability root and hosts; the longest registered path wins. Up stays within
 registered projects. For unregistered folders, Up opens the parent with a new
 capability root. Open folder uses the native folder chooser. Back and Forward
@@ -60,6 +66,24 @@ Click a directory to enter it or a file to preview it in the opposite pane.
 The finder searches the entire project; the filter narrows the
 returned paths. Hidden and ignored entries have separate visibility toggles.
 Fixed exclusions and interrupted transfer staging files remain excluded.
+
+**Projects** opens the dashboard without replacing the browser or remote session.
+Closing it or choosing the already active project preserves navigation, selection
+and connection. The list filters names, slugs and paths and can show archived
+projects. **New project** accepts a name and local path (including relative paths
+and `~/`); **Register current folder** suggests the containing Git root, including
+worktrees. Edits keep the slug, creation/open timestamps, hosts and mappings.
+Archive/unarchive changes visibility and the edit timestamp, retaining settings.
+A changed record produces a visible conflict and retains the form/confirmation;
+cancel and reload to use the current snapshot.
+
+Removal first hides the project's host store, commits registry removal under the
+shared lock, then deletes the hidden settings. A failed registry commit restores
+the settings; a cleanup failure after commit is reported explicitly. Local project
+files are preserved. Moving/removing the active project cancels its operations,
+closes its remote session and invalidates the old capability root. The browser
+reloads against the moved path or the remaining registry; reload failures stay
+visible. No management operation writes into the local project tree.
 
 Preview uses Kit's read-only text control with line numbers, wrapping and native
 text selection/copy. Copy text copies the complete preview; Copy path copies the
@@ -261,7 +285,9 @@ The window's `shell.rs` coordinates project changes, registration and host
 management through typed child-view events. Each `BrowserPane` in `browser.rs`
 owns its navigation/history, selection, filter, finder, focus, scroll and listing
 cancellation. `preview.rs` owns its editor and separate request lifetime;
-`projects.rs` owns project-panel inputs. `toolbar.rs` renders stateless controls
+`projects.rs` owns the dashboard, filtering and confirmation;
+`projects/form.rs` owns form inputs, `projects/management.rs` adopts typed service
+results, and `shell/projects.rs` routes startup and active-root changes. `toolbar.rs` renders stateless controls
 and `actions.rs` defines key bindings. `remote.rs` owns the remote pane and its
 connection/listing identities. `comparison.rs` and `comparison/view.rs` own the
 comparison lifetime and file list; `diff.rs` owns immutable-data rendering,
@@ -311,6 +337,10 @@ Sync tests compare confirmed actions and final tree contents/permissions against
 Go, interrupt active uploads/downloads, stop a real server mid-transfer, and drop
 the SSH socket at SFTP CLOSE after EOF. They also cover source/target changes to
 symlinks after comparison and servers restricted to one session channel.
+Project tests verify real deletion rollback, archive/settings preservation, startup
+overrides/restoration, Git-root suggestions, stale forms and active-root invalidation
+with a live FTP connection. Go/Rust process tests cover archive/removal, shared locks
+and competing Go edits before Rust save/delete.
 Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards.
 
@@ -332,9 +362,9 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 
 ## Remaining port work
 
-Milestone 2 is in progress: automatic offers for matching endpoints, project edit/delete
-and dashboard/startup restoration, GUI preferences and further host
-management controls remain. SFTP transport/browser and comparison/unified diff are
+Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
+and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
+restoration are available; full project keyboard parity remains. SFTP transport/browser and comparison/unified diff are
 available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native

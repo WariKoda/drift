@@ -1,4 +1,6 @@
 mod form;
+mod linking;
+mod links;
 mod tools;
 use drift_app::{
     browser::{BrowserService, OperationId},
@@ -23,6 +25,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, StatefulInteractiveElement,
     Styled, Subscription, Window, div, px,
 };
+use links::{LinkEvent, LinkPicker};
 use tokio_util::sync::CancellationToken;
 use tools::{HostTools, Mode};
 
@@ -67,6 +70,8 @@ pub struct HostManager {
     remote_service: RemoteService,
     tools: Option<Entity<HostTools>>,
     tools_subscription: Option<Subscription>,
+    links: Option<Entity<LinkPicker>>,
+    link_subscription: Option<Subscription>,
     project_slug: Option<String>,
     global: bool,
     catalog: Option<HostCatalog>,
@@ -79,6 +84,7 @@ pub struct HostManager {
     writing: bool,
     changed: bool,
     status: String,
+    pending_status: Option<String>,
     _subscription: Subscription,
 }
 impl Drop for HostManager {
@@ -108,6 +114,8 @@ impl HostManager {
             remote_service,
             tools: None,
             tools_subscription: None,
+            links: None,
+            link_subscription: None,
             global: project_slug.is_none(),
             project_slug,
             catalog: None,
@@ -120,6 +128,7 @@ impl HostManager {
             writing: false,
             changed: false,
             status: String::new(),
+            pending_status: None,
             _subscription: subscription,
         };
         manager.request(HostCommand::Load, window, cx);
@@ -163,7 +172,10 @@ impl HostManager {
                 this.writing = false;
                 match result {
                     Ok(Ok(HostResponse::Loaded(catalog))) => {
-                        this.status = format!("{} hosts", catalog.hosts.len());
+                        this.status = this
+                            .pending_status
+                            .take()
+                            .unwrap_or_else(|| format!("{} hosts", catalog.hosts.len()));
                         this.catalog = Some(*catalog);
                         if this.changed {
                             this.changed = false;
@@ -177,6 +189,7 @@ impl HostManager {
                         this.changed = true;
                         this.request(HostCommand::Load, window, cx);
                     }
+                    Ok(Ok(_)) => this.status = "Unexpected host management response".into(),
                     Ok(Err(error)) => this.status = error.to_string(),
                     Err(error) => this.status = format!("Background task failed: {error}"),
                 }
@@ -323,6 +336,9 @@ impl Render for HostManager {
         if let Some(tools) = &self.tools {
             return div().size_full().child(tools.clone()).into_any_element();
         }
+        if let Some(links) = &self.links {
+            return div().size_full().child(links.clone()).into_any_element();
+        }
         let query = self.query.read(cx).value().to_lowercase();
         let busy = self.cancel.is_some();
         let editing = self.form.is_some() || self.delete.is_some();
@@ -346,6 +362,8 @@ impl Render for HostManager {
                     .child(div().flex().gap_2()
                         .child(Button::new("host-new").label("New host").disabled(busy || editing || self.catalog.is_none())
                             .on_click(cx.listener(|this, _, w, cx| this.new_host(w, cx))))
+                        .when(!self.global, |view| view.child(Button::new("host-add-link").label("Link host").disabled(busy || editing || self.catalog.is_none())
+                            .on_click(cx.listener(|this, _, w, cx| this.open_links(w, cx)))))
                         .child(Button::new("hosts-reload").label("Reload").disabled(self.writing || editing)
                             .on_click(cx.listener(|this, _, w, cx| this.request(HostCommand::Load, w, cx)))))
                     .child(div().id("host-list").flex().flex_col().gap_3().flex_1().min_h_0().overflow_y_scroll()

@@ -7,7 +7,8 @@ The Rust desktop application develops alongside the Go TUI. It currently provide
 a local browser with directory navigation, filtering, a project-wide finder and a
 read-only UTF-8 text preview (up to 1 MiB). The Projects panel opens registered
 projects or registers the current folder. Hosts manages project targets and global
-servers with forms, duplication, deletion, server links and mappings.
+servers with forms, duplication, deletion, server links and mappings. A separate
+picker can promote a host from another project into a shared global server.
 SFTP, FTP and explicit FTPS browsing, preview, unified comparison and serial sync
 are implemented. FTPS certificate challenges offer session or permanent trust.
 Hosts can test saved targets or unsaved forms and reset endpoint-specific FTPS
@@ -209,8 +210,20 @@ list and reopen the record to use a newer version. Delete asks for confirmation;
 deleting or renaming a server used by project links fails visibly. Closing Hosts
 restores browser focus. Management I/O runs on the bounded background pool;
 completed changes refresh the current project's resolved configuration without
-resetting its file list or preview. Linking hosts from other
-projects via server promotion remain pending.
+resetting its file list or preview. **Link host** in the list or **Choose server /
+other project** in a form opens a separate picker. It filters names, projects and
+hostnames and shows which projects use a server. Selecting another project's host
+asks for promotion confirmation before writing anything. Promotion applies the
+source project's defaults to the new server, chooses an unused name, and keeps the
+source host's root/mappings in its new link. The destination form keeps its own
+name, root and mappings, and is saved only through **Save host**.
+
+Promotion writes the global server before updating the source. A changed source
+record or changed defaults leave the confirmation open with a conflict;
+**Reload targets** loads fresh records. If only the source write fails, the global
+copy remains valid and the form displays the partial-completion warning. This
+operation is never retried automatically. All reads/checks/writes use the shared
+configuration lock; management writes remain outside project directories.
 
 Filesystem and Git work run outside rendering on a bounded Tokio/background pool.
 Git itself classifies ignored paths in batches, including tracked files and
@@ -257,7 +270,9 @@ entry routing lives separately in `shell/comparison.rs`. Certificate presentatio
 lives in `certificates.rs`; `shell/certificates.rs` coordinates background trust
 writes and identity-checked connection retries. Host forms live in `hosts/form.rs`;
 `hosts/tools.rs` owns connection testing, its certificate prompt and trust-reset
-confirmation independently of the host list.
+confirmation independently of the host list. `hosts/links.rs` owns the cross-project
+picker and promotion confirmation; `hosts/linking.rs` adopts the chosen server
+without resetting the destination form.
 
 Shared fixtures in `../testdata/parity/` verify Go/Rust mapping and staging policy.
 Rust tests use real temporary trees, symlinks, a FIFO, Git processes, transaction
@@ -317,7 +332,7 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 
 ## Remaining port work
 
-Milestone 2 is in progress: server promotion/endpoint link offers, project edit/delete
+Milestone 2 is in progress: automatic offers for matching endpoints, project edit/delete
 and dashboard/startup restoration, GUI preferences and further host
 management controls remain. SFTP transport/browser and comparison/unified diff are
 available, including serial upload/download/delete sync. FTP now uses these same

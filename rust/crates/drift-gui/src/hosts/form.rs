@@ -152,6 +152,14 @@ impl HostManager {
                                     cx.notify();
                                 })),
                         )
+                        .child(
+                            Button::new("host-choose-link")
+                                .label("Choose server / other project")
+                                .disabled(self.writing)
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.open_links(window, cx)),
+                                ),
+                        )
                         .children(
                             self.catalog
                                 .as_ref()

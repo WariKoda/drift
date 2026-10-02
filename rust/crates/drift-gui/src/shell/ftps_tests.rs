@@ -55,7 +55,7 @@ async fn ftps_reject_conflict_and_project_switch_preserve_certificate_dialog_ide
                                     rustls::RootCertStore::empty(),
                                 )),
                             ),
-                            local.path().into(),
+                            local.path().to_path_buf(),
                         )
                     })
                 },

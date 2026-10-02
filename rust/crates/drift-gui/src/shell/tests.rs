@@ -194,7 +194,7 @@ async fn vanished_directory_keeps_the_previous_location_and_history(cx: &mut Tes
                     Store::new(config.path().into()),
                     BrowserService::new().unwrap(),
                     RemoteService::new(BrowserService::new().unwrap()),
-                    root.path().into(),
+                    root.path().to_path_buf(),
                 )
             })
         })
@@ -251,7 +251,7 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
                         Store::new(config.path().into()),
                         BrowserService::new().unwrap(),
                         RemoteService::new(BrowserService::new().unwrap()),
-                        dir.path().into(),
+                        dir.path().to_path_buf(),
                     )
                 })
             },
@@ -349,7 +349,14 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
                 cx.new(|cx| {
                     let service = BrowserService::new().unwrap();
                     let remote = RemoteService::with_options(service.clone(), server.options());
-                    Shell::new(window, cx, store, service, remote, local.path().into())
+                    Shell::new(
+                        window,
+                        cx,
+                        store,
+                        service,
+                        remote,
+                        local.path().to_path_buf(),
+                    )
                 })
             },
         )

@@ -488,6 +488,15 @@ impl BrowserPane {
         cx.emit(BrowserEvent::Changed(self.id()));
         cx.notify();
     }
+    /// A moved/removed active registry entry invalidates its old capability root.
+    pub fn invalidate_project(&mut self, cx: &mut Context<Self>) {
+        self.generation += 1;
+        self.location = None;
+        self.entries.clear();
+        self.files = FileList::new(vec![]);
+        self.history = History::default();
+        self.stop_listing(cx);
+    }
     fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.stop_listing(cx);
         self.status("Cancelled".into(), cx);

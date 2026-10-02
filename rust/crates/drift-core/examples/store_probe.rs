@@ -153,6 +153,38 @@ fn run() -> Result<()> {
             edited.updated_at = now();
             store.save_project(Some(p), edited)
         }
+        "archive-project" | "delete-project" | "edit-project-paused" | "delete-project-paused" => {
+            let registry = store.registry()?;
+            let project = registry
+                .find("shop")
+                .ok_or_else(|| Error::Invalid("missing shop".into()))?;
+            if args[1].ends_with("-paused") {
+                use std::io::{Read, Write};
+                std::io::stdout().write_all(b"selected\n")?;
+                std::io::stdout().flush()?;
+                std::io::stdin().read_exact(&mut [0u8; 1])?;
+            }
+            match args[1].as_str() {
+                "archive-project" => store.archive_project(project).map(|_| ()),
+                "edit-project-paused" => store
+                    .edit_project(
+                        project,
+                        "Rust edit",
+                        project
+                            .path
+                            .to_str()
+                            .ok_or_else(|| Error::Invalid("path is not UTF-8".into()))?,
+                    )
+                    .map(|_| ()),
+                _ => {
+                    let removed = store.remove_project(project)?;
+                    if let Some(warning) = removed.warning {
+                        return Err(Error::Invalid(warning));
+                    }
+                    Ok(())
+                }
+            }
+        }
         _ => Err(Error::Invalid("unknown operation".into())),
     }
 }

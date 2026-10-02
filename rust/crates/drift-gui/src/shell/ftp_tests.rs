@@ -48,7 +48,7 @@ async fn ftp_and_ftps_connect_preview_compare_sync_and_project_switch_use_existi
                                     rustls::RootCertStore::empty(),
                                 )),
                             ),
-                            local.path().into(),
+                            local.path().to_path_buf(),
                         )
                     })
                 },

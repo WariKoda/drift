@@ -13,11 +13,11 @@ use crate::{
 use drift_app::{
     browser::{BrowserService, OperationId},
     hosts::{HostCommand, HostResponse},
+    projects::{Launch, StartOptions},
     remote::RemoteService,
 };
 use drift_core::{store::Store, tlstrust::Manager};
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
     PathPromptOptions, Render, Styled, Subscription, Window, div,
@@ -45,12 +45,17 @@ pub struct Shell {
     config_cancel: Option<(OperationId, CancellationToken)>,
     registration: Option<(OperationId, CancellationToken)>,
     folder_prompt: bool,
+    startup: Option<CancellationToken>,
+    start_directory: PathBuf,
     status: String,
     host_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
 impl Drop for Shell {
     fn drop(&mut self) {
+        if let Some(cancel) = self.startup.take() {
+            cancel.cancel();
+        }
         if let Some(cancel) = self.certificate_cancel.take() {
             cancel.cancel();
         }
@@ -69,8 +74,13 @@ impl Shell {
         store: Store,
         service: BrowserService,
         remote_service: RemoteService,
-        start: PathBuf,
+        launch: impl Into<Launch>,
     ) -> Self {
+        let launch = launch.into();
+        let start = match &launch {
+            Launch::Directory(path) => path.clone(),
+            Launch::Automatic(options) => options.directory.clone(),
+        };
         let trust = remote_service
             .trust_manager()
             .unwrap_or_else(|| Arc::new(Manager::new(store.clone())));
@@ -78,7 +88,7 @@ impl Shell {
         let browser = cx
             .new(|cx| BrowserPane::new(store.clone(), service.clone(), start.clone(), window, cx));
         let preview = cx.new(|cx| PreviewPane::new(service.clone(), window, cx));
-        let projects = cx.new(|cx| ProjectsPanel::new(window, cx));
+        let projects = cx.new(|cx| ProjectsPanel::new(store.clone(), service.clone(), window, cx));
         let remote = cx.new(|cx| RemotePane::new(remote_service.clone(), window, cx));
         let comparison = cx.new(|cx| ComparisonPane::new(service.clone(), window, cx));
         let subscriptions = vec![
@@ -224,10 +234,12 @@ impl Shell {
                 |this, _, event, window, cx| match event {
                     ProjectEvent::Open(path) => this.open_project(path.clone(), window, cx),
                     ProjectEvent::Register(name) => this.register(name.clone(), window, cx),
+                    ProjectEvent::Changed(response) => this.project_changed(response, window, cx),
+                    ProjectEvent::Close => this.close_projects(window, cx),
                 },
             ),
         ];
-        let shell = Self {
+        let mut shell = Self {
             certificate: None,
             certificate_subscription: None,
             certificate_cancel: None,
@@ -246,13 +258,18 @@ impl Shell {
             config_cancel: None,
             registration: None,
             folder_prompt: false,
+            startup: None,
+            start_directory: start.clone(),
             status: "Opening project…".into(),
             host_subscription: None,
             _subscriptions: subscriptions,
         };
-        shell
-            .browser
-            .update(cx, |browser, cx| browser.open(start, window, cx));
+        match launch {
+            Launch::Directory(path) => shell
+                .browser
+                .update(cx, |browser, cx| browser.open(path, window, cx)),
+            Launch::Automatic(options) => shell.resolve_start(options, window, cx),
+        }
         shell
     }
     fn browser_event(&mut self, event: &BrowserEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -343,6 +360,17 @@ impl Shell {
     fn open_project(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_registration(cx);
         self.projects.update(cx, |projects, cx| projects.close(cx));
+        if self
+            .browser
+            .read(cx)
+            .location()
+            .is_some_and(|location| location.slug.is_some() && location.root.base() == path)
+        {
+            self.browser
+                .update(cx, |browser, cx| browser.focus(window, cx));
+            cx.notify();
+            return;
+        }
         self.browser
             .update(cx, |browser, cx| browser.open(path, window, cx));
         cx.notify();
@@ -538,9 +566,8 @@ impl Shell {
     }
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.projects.read(cx).visible() {
-            self.projects.update(cx, |projects, cx| projects.close(cx));
-            self.browser
-                .update(cx, |browser, cx| browser.focus(window, cx));
+            self.projects
+                .update(cx, |projects, cx| projects.cancel_view(&Cancel, window, cx));
         } else {
             self.cancel_registration(cx);
             if self.remote.read(cx).is_loading() || self.preview.read(cx).is_loading_remote() {
@@ -571,8 +598,7 @@ impl Shell {
                 self.projects
                     .update(cx, |projects, cx| projects.toggle(window, cx));
                 if !self.projects.read(cx).visible() {
-                    self.browser
-                        .update(cx, |browser, cx| browser.focus(window, cx));
+                    self.close_projects(window, cx);
                 }
             }
             ToolbarEvent::Hosts => self.open_hosts(window, cx),
@@ -597,6 +623,19 @@ impl Render for Shell {
         }
         if let Some(hosts) = &self.hosts {
             return div().size_full().child(hosts.clone()).into_any_element();
+        }
+        if self.startup.is_some() {
+            return div()
+                .size_full()
+                .p_3()
+                .child(self.status.clone())
+                .into_any_element();
+        }
+        if self.projects.read(cx).visible() {
+            return div()
+                .size_full()
+                .child(self.projects.clone())
+                .into_any_element();
         }
         if self.comparison.read(cx).visible() {
             return div()
@@ -667,9 +706,6 @@ impl Render for Shell {
             .on_action(cx.listener(Self::cancel))
             .child(toolbar)
             .child(header)
-            .when(self.projects.read(cx).visible(), |view| {
-                view.child(self.projects.clone())
-            })
             .child(
                 div()
                     .flex()
@@ -717,6 +753,9 @@ mod comparison_tests;
 mod ftp_tests;
 #[cfg(test)]
 mod ftps_tests;
+#[cfg(test)]
+mod project_tests;
+mod projects;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

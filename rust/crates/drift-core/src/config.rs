@@ -125,7 +125,7 @@ impl Host {
         }
         Ok(())
     }
-    fn with_defaults(&self, defaults: &Defaults) -> Self {
+    pub(crate) fn with_defaults(&self, defaults: &Defaults) -> Self {
         let mut host = self.clone();
         if host.port == 0 {
             host.port = if defaults.port != 0 {

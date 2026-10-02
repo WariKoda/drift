@@ -146,7 +146,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | Meilenstein | Ergebnis / Abnahme | Stand |
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
-| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit globalen Serverlinks/Mappings, Verbindungstest und Trust-Reset vorhanden; Promotion, Projektverwaltung und Themes offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset vorhanden; automatische Endpunktvorschläge, Projektverwaltung und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Offen |
@@ -268,6 +268,24 @@ ihre unveränderliche Policy, neue Handshakes verifizieren wieder. Reset verbind
 nicht neu und wiederholt keine Transfers. Echte Protokoll-/GUI- und Go/Rust-Prozesstests
 prüfen diese Abläufe. `hosts.rs`, `hosts/form.rs` und `hosts/tools.rs` trennen Liste,
 Formular und Netzwerk-/Trust-Dialoge. Native Rendering-/Server-Abnahme bleibt offen.
+
+`hosts/links.rs` bietet einen filterbaren Picker für globale Server und eigenständige
+Hosts anderer Projekte einschließlich Herkunft und verknüpfender Projekte. Eine
+Promotion verlangt ausdrückliche Bestätigung. `Store::select_link_target` prüft
+Rohhost und Defaults gegen die gewählte Momentaufnahme, berücksichtigt inzwischen
+belegte Servernamen und hält `write.lock` über alle Reads und Writes. Quelldefaults
+werden materialisiert; Root und Mappings bleiben im Quelllink. Erst der globale
+Server, danach der Quellstore wird geschrieben. Scheitert der zweite Write, bleiben
+gültige Kopien erhalten und eine typisierte Antwort trägt die sichtbare Warnung;
+es gibt keinen automatischen Retry. Das Zielformular behält Name, Root, Mappings
+und Fokus und wird erst beim Speichern persistiert.
+
+Echte Dateisystem-, GPUI- und Go/Rust-Prozesstests prüfen sortierte Linkziele,
+Quell-/Default-Konflikte, Namenskollisionen, Schreibsperren, Teilerfolge,
+unveränderte Formulare und fehlende Writes in Projektverzeichnissen. Die gemeinsame
+Go-Parität prüft dieselben Rohdatensätze nach Promotion und einen konkurrierenden
+Go-Edit nach Öffnen des Rust-Pickers. Automatische Angebote zum Verknüpfen eines
+neu gespeicherten Hosts mit demselben Endpunkt bleiben eine Paritätsaufgabe.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

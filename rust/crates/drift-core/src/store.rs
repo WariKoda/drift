@@ -4,8 +4,10 @@ use crate::{
     project::{Project, Registry, now},
     tlstrust::{Endpoint, TrustedCertificate},
 };
+mod servers;
 use fs2::FileExt;
 use serde::{Serialize, de::DeserializeOwned};
+pub use servers::{LinkCatalog, LinkTarget, Promotion};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
@@ -258,26 +260,10 @@ impl Store {
         })
     }
     fn ensure_server_unused(&self, name: &str) -> Result<()> {
-        let entries = match fs::read_dir(self.dir.join("projects")) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let filename = entry.file_name();
-            let filename = filename.to_string_lossy();
-            if filename.starts_with('.')
-                || !filename.ends_with(".toml")
-                || entry.file_type()?.is_dir()
-            {
-                continue;
-            }
-            let project: ProjectConfig = self.read(&entry.path())?;
+        for (slug, project) in self.project_stores()? {
             if project.hosts.iter().any(|h| h.server == name) {
                 return Err(Error::Invalid(format!(
-                    "server {name:?} is linked by {}",
-                    filename.trim_end_matches(".toml")
+                    "server {name:?} is linked by {slug}"
                 )));
             }
         }

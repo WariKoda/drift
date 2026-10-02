@@ -85,22 +85,41 @@ impl BrowserService {
         let cancel = CancellationToken::new();
         let token = cancel.clone();
         let task = self.runtime.spawn(async move {
-            service
-                .blocking(&token, move || match command {
-                    HostCommand::Load => store
-                        .host_catalog(slug.as_deref())
-                        .map(Box::new)
-                        .map(HostResponse::Loaded),
-                    HostCommand::Save { expected, desired } => {
-                        store.save_host(slug.as_deref(), expected.as_deref(), *desired)?;
-                        Ok(HostResponse::Saved)
-                    }
-                    HostCommand::Delete { expected } => {
-                        store.delete_host(slug.as_deref(), &expected)?;
-                        Ok(HostResponse::Deleted)
-                    }
-                })
-                .await
+            let mutating = !matches!(command, HostCommand::Load | HostCommand::LinkTargets);
+            let action = move || match command {
+                HostCommand::Load => store
+                    .host_catalog(slug.as_deref())
+                    .map(Box::new)
+                    .map(HostResponse::Loaded),
+                HostCommand::Save { expected, desired } => {
+                    store.save_host(slug.as_deref(), expected.as_deref(), *desired)?;
+                    Ok(HostResponse::Saved)
+                }
+                HostCommand::Delete { expected } => {
+                    store.delete_host(slug.as_deref(), &expected)?;
+                    Ok(HostResponse::Deleted)
+                }
+                HostCommand::LinkTargets => store
+                    .link_targets(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkTargets),
+                HostCommand::SelectLink { expected } => store
+                    .select_link_target(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                        &expected,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkSelected),
+            };
+            if mutating {
+                service.blocking_mutation(&token, action).await
+            } else {
+                service.blocking(&token, action).await
+            }
         });
         Operation { id, cancel, task }
     }

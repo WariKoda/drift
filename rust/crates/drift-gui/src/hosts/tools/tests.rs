@@ -64,7 +64,7 @@ async fn real_host_test_certificate_decisions_and_reset_conflicts(cx: &mut TestA
         assert_eq!(server.commands("PASS"), 0);
         match mode {
             "reject" => {
-                cx.update_window(handle, |_, w, cx| w.press("escape", cx))
+                cx.update_window(handle, |_, w, cx| w.press("enter", cx))
                     .unwrap();
                 assert!(tools.read_with(cx, |tools, _| tools.certificate.is_none()
                     && tools.status.contains("rejected")));
@@ -84,8 +84,12 @@ async fn real_host_test_certificate_decisions_and_reset_conflicts(cx: &mut TestA
                 store
                     .save_trusted_certificate(None, inspected.trust().unwrap())
                     .unwrap();
-                cx.update_window(handle, |_, w, cx| w.click("certificate-permanent", cx))
-                    .unwrap();
+                cx.update_window(handle, |_, w, cx| {
+                    w.press("tab", cx);
+                    w.press("tab", cx);
+                    w.press("enter", cx);
+                })
+                .unwrap();
                 idle(handle, &tools, cx).await;
                 tools.read_with(cx, |tools, cx| {
                     let prompt = tools.certificate.as_ref().unwrap().read(cx);
@@ -103,14 +107,12 @@ async fn real_host_test_certificate_decisions_and_reset_conflicts(cx: &mut TestA
             }
             _ => {
                 cx.update_window(handle, |_, w, cx| {
-                    w.click(
-                        if mode == "permanent" {
-                            "certificate-permanent"
-                        } else {
-                            "certificate-session"
-                        },
-                        cx,
-                    )
+                    w.press("right", cx);
+                    if mode == "permanent" {
+                        w.press("l", cx);
+                    }
+                    w.press("enter", cx);
+                    w.press("enter", cx); // Repeated approval while the write/connect is pending.
                 })
                 .unwrap();
                 idle(handle, &tools, cx).await;

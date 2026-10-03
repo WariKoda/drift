@@ -184,3 +184,114 @@ async fn selected_sync_deletion_errors_and_cancel_are_visible_without_reusing_a_
         .unwrap();
     assert!(!shell.read_with(cx, |s, cx| s.comparison.read(cx).visible()));
 }
+
+#[gpui_kit::test]
+async fn direct_transfer_keys_require_a_source_and_confirmation(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let server = support::Server::new(false);
+    let local = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let remote = server.dir.path().join("files");
+    fs::write(local.path().join("a-both"), "local").unwrap();
+    fs::write(remote.join("a-both"), "remote").unwrap();
+    fs::write(local.path().join("b-local"), "upload").unwrap();
+    fs::write(remote.join("c-remote"), "download").unwrap();
+    let store = Store::new(config.path().into());
+    store.save_host(None, None, server.host()).unwrap();
+    let (handle, shell) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1400.), px(900.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |w, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    Shell::new(
+                        w,
+                        cx,
+                        store,
+                        service.clone(),
+                        RemoteService::with_options(service, server.options()),
+                        local.path().to_path_buf(),
+                    )
+                })
+            },
+        )
+        .unwrap()
+    });
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        shell.read(cx).browser.read(cx).location().is_some()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        w.click("remote", cx);
+        w.click(("connect-host", 0usize), cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).remote.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| w.click("compare-project", cx))
+        .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).comparison.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("end", cx); // Remote only: upload has no source.
+        w.press("u", cx);
+        w.press("ctrl-enter", cx);
+        assert!(!shell.read(cx).comparison.read(cx).is_loading());
+        w.press("d", cx);
+        w.press("escape", cx);
+        assert!(shell.read(cx).comparison.read(cx).visible());
+        w.press("home", cx);
+        w.press("down", cx); // Local only: download has no source.
+        w.press("d", cx);
+        w.press("ctrl-enter", cx);
+        assert!(!shell.read(cx).comparison.read(cx).is_loading());
+        w.press("u", cx);
+    })
+    .unwrap();
+    assert!(!remote.join("b-local").exists());
+    assert!(!local.path().join("c-remote").exists());
+    cx.update_window(handle, |_, w, cx| w.press("ctrl-enter", cx))
+        .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).comparison.read(cx).is_loading()
+            && !shell.read(cx).browser.read(cx).is_loading()
+            && !shell.read(cx).remote.read(cx).is_loading()
+    })
+    .await;
+    assert_eq!(fs::read(remote.join("b-local")).unwrap(), b"upload");
+    cx.update_window(handle, |_, w, cx| {
+        shell.read(cx).comparison.focus_handle(cx).focus(w, cx);
+        w.press("end", cx);
+        w.press("tab", cx); // Direct download also works while viewing the diff.
+        w.press("d", cx);
+    })
+    .unwrap();
+    assert!(!local.path().join("c-remote").exists());
+    cx.update_window(handle, |_, w, cx| w.press("cmd-enter", cx))
+        .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).comparison.read(cx).is_loading()
+            && !shell.read(cx).browser.read(cx).is_loading()
+            && !shell.read(cx).remote.read(cx).is_loading()
+    })
+    .await;
+    assert_eq!(
+        fs::read(local.path().join("c-remote")).unwrap(),
+        b"download"
+    );
+    assert_eq!(fs::read(local.path().join("a-both")).unwrap(), b"local");
+    assert_eq!(fs::read(remote.join("a-both")).unwrap(), b"remote");
+}

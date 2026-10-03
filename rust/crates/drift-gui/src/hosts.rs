@@ -59,6 +59,7 @@ gpui_kit::actions!(drift_hosts, [Close, Search]);
 pub fn bind_keys(cx: &mut App) {
     keyboard::bind_keys(cx);
     tools::bind_keys(cx);
+    links::bind_keys(cx);
     cx.bind_keys([
         KeyBinding::new("escape", Close, Some("DriftHosts")),
         KeyBinding::new("ctrl-f", Search, Some("DriftHosts")),

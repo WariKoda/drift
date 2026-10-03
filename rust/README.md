@@ -153,15 +153,21 @@ between those two areas. The r key refreshes and i toggles ignored paths.
 Upload shows Remote → Local, Download Local → Remote and deletion shows
 the affected side being removed. Unified rows have two number columns, hunk headers and three
 context lines. Click an unchanged fold to expand it; **Fold context** collapses it.
-Alt+Up/Down and the hunk buttons navigate changes. Click a text row, Shift-click
-another to select a line range, then Ctrl/Cmd+C to copy; **Copy diff / selection**
+Alt+Up/Down, [/] and the hunk buttons navigate changes. In the diff, arrows/J/K
+scroll by line, PageUp/PageDown by page, Ctrl+U/D by half a page, and Home/g or
+End/G to the start/end. Enter/l expands the first visible folded gap, h collapses
+a visible expanded gap, and c toggles all foldable gaps. Space cycles the current
+action; A cycles every valid action, including files hidden by the filter.
+Click a text row, Shift-click another to select a line range, then Ctrl/Cmd+C to copy; **Copy diff / selection**
 copies that range or all displayed rows. Selection currently operates on whole
 lines. Each file retains its own fold/scroll state while browsing the results.
 
 **Sync selected** runs the active file's chosen action. **Sync all actions** runs
 all chosen actions in the comparison, including rows hidden by the text filter.
 The s/S keys prepare selected/all actions from the file list or diff.
-Both first show the upload/download/delete counts for confirmation; Ctrl/Cmd+Enter
+The u/d keys choose Upload/Download for the current file and open that same
+confirmation; a missing source or a file error leaves the action unchanged.
+The confirmation shows the upload/download/delete counts; Ctrl/Cmd+Enter
 confirms, and Escape dismisses the pending confirmation. Shortcuts never execute
 a transfer without that confirmation. Skip and error
 rows are never executed. The runner streams uploads and downloads and executes
@@ -232,7 +238,10 @@ Explicit FTPS uses Rustls with TLS 1.2 and native certificate roots. Certificate
 failures return an asynchronous challenge before any credentials are sent. The
 separate prompt shows the endpoint, SHA-256 fingerprint, subject, issuer, names,
 validity and verification problems; choose **Reject**, **Trust for this session**
-or **Trust permanently**. An exception applies only to that endpoint, fingerprint
+or **Trust permanently**. Reject is initially selected. Tab/Shift+Tab or
+Right/L and Left/H change the choice; Enter confirms and Escape rejects.
+Arrows/J/K, PageUp/PageDown and Home/End scroll certificate details while the
+decision buttons remain visible. Pending approval disables further trust decisions. An exception applies only to that endpoint, fingerprint
 and exact problem set. Signatures, key usage and chain constraints remain mandatory.
 Permanent entries use the Go-compatible `trusted-certificates.toml` with mode 600,
 atomic writes and the shared transaction lock. A changed record keeps the dialog
@@ -292,6 +301,13 @@ asks for promotion confirmation before writing anything. Promotion applies the
 source project's defaults to the new server, chooses an unused name, and keeps the
 source host's root/mappings in its new link. The destination form keeps its own
 name, root and mappings, and is saved only through **Save host**.
+
+In the picker, Down/Enter leaves the filter; arrows/J/K and Home/g or End/G move
+the visible cursor. Enter selects a global server or opens promotion review for
+a project host. Enter/y confirms promotion; Escape returns to the same target.
+The / key or Ctrl/Cmd+F searches, and r reloads targets after a conflict. Filter
+text remains editable. The cursor is identified by project and host name and
+survives reloads; failed global selection also restores usable dialog focus.
 
 Promotion writes the global server before updating the source. A changed source
 record or changed defaults leave the confirmation open with a conflict;
@@ -402,7 +418,11 @@ Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards. Management keyboard
 tests cover empty/filtered lists, scrolling, cursor retention, archive/unarchive,
 scope switching, form validation, saved-host connection tests and trust-reset
-conflicts. Shell tests open projects through keyboard events.
+conflicts. Shell tests open projects through keyboard events. Picker tests also
+exercise keyboard promotion, filtering, reloads and partial writes. Certificate
+tests use real FTPS challenges to check initial rejection, pending-approval guards
+and detail scrolling. Diff tests check page boundaries, folds, source selection,
+bulk action cycling and confirmed direct transfers over SFTP.
 
 Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
@@ -428,7 +448,7 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
 and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
 restoration and core project/host keyboard flows are available. Numeric project
-shortcuts and complete link/certificate picker keyboard parity remain.
+shortcuts and the remaining sync-error display shortcut remain.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native

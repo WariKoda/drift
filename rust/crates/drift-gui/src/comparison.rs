@@ -339,6 +339,54 @@ impl ComparisonPane {
             cx.notify();
         }
     }
+    fn direct_sync(&mut self, decision: Decision, cx: &mut Context<Self>) {
+        if !self.can_sync() {
+            return;
+        }
+        let Some(index) = self.selected else {
+            return;
+        };
+        let Some(entry) = self.session.as_ref().and_then(|s| s.entries.get(index)) else {
+            return;
+        };
+        if entry.error.is_some()
+            || entry.result.as_ref().is_none_or(|result| match decision {
+                Decision::Upload => result.local.is_none(),
+                Decision::Download => result.remote.is_none(),
+                _ => true,
+            })
+        {
+            return;
+        }
+        self.decisions[index] = decision;
+        self.diff
+            .update(cx, |diff, cx| diff.direction(decision, cx));
+        self.prepare_sync(false, cx);
+    }
+    fn cycle_all(&mut self, cx: &mut Context<Self>) {
+        if self.is_loading() || self.confirm_sync.is_some() {
+            return;
+        }
+        if let Some(session) = &self.session {
+            for (index, entry) in session.entries.iter().enumerate() {
+                self.decisions[index] = if entry.error.is_some() {
+                    Decision::Skip
+                } else {
+                    entry.result.as_ref().map_or(Decision::Skip, |result| {
+                        result.next_decision(self.decisions[index])
+                    })
+                };
+            }
+            for (index, state) in &mut self.states {
+                state.direction = self.decisions[*index];
+            }
+            if let Some(index) = self.selected {
+                self.diff
+                    .update(cx, |diff, cx| diff.direction(self.decisions[index], cx));
+            }
+            cx.notify();
+        }
+    }
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.load(window, cx);
     }

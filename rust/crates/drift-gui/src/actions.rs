@@ -38,6 +38,7 @@ gpui_kit::actions!(
         SyncSelected,
         SyncAll,
         ConfirmSync,
+        ToggleSyncErrors,
         Activate,
         Collapse,
         OpenDirectory,
@@ -67,6 +68,7 @@ pub fn bind_keys(cx: &mut App) {
     }
     for context in ["DriftComparisonFiles", "DriftDiff"] {
         cx.bind_keys([
+            KeyBinding::new("e", ToggleSyncErrors, Some(context)),
             KeyBinding::new("u", Upload, Some(context)),
             KeyBinding::new("d", Download, Some(context)),
             KeyBinding::new("shift-a", CycleAll, Some(context)),

@@ -336,3 +336,103 @@ async fn keyboard_projects_keep_cursor_filter_forms_and_confirmation_separate(
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+async fn numeric_project_shortcuts_follow_visible_rows_and_preserve_text_input(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let roots = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    for i in 0..12 {
+        let path = roots.path().join(format!("project-{i:02}"));
+        fs::create_dir(&path).unwrap();
+        store.register(&format!("Project {i:02}"), path).unwrap();
+    }
+    let (handle, panel) = open(&store, cx);
+    let opened = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let _subscription = cx.update(|cx| {
+        let opened = opened.clone();
+        cx.subscribe(&panel, move |_, event: &ProjectEvent, _| {
+            if let ProjectEvent::Open(path) = event {
+                opened.borrow_mut().push(path.clone());
+            }
+        })
+    });
+    idle(handle, &panel, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("end", cx); // Numeric choice is independent of the cursor.
+        for n in 1..=9 {
+            w.press(&n.to_string(), cx);
+        }
+        w.press("0", cx);
+        w.press("ctrl-f", cx);
+        w.input("Project 05", cx);
+    })
+    .unwrap();
+    assert_eq!(
+        *opened.borrow(),
+        (0..9)
+            .map(|i| roots.path().join(format!("project-{i:02}")))
+            .collect::<Vec<_>>()
+    );
+    opened.borrow_mut().clear();
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("9", cx); // Out-of-range must not open the last matching row.
+        w.press("1", cx);
+        w.press("a", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert_eq!(*opened.borrow(), vec![roots.path().join("project-05")]);
+    opened.borrow_mut().clear();
+    cx.update_window(handle, |_, w, cx| {
+        w.press("1", cx); // Empty filtered list after archiving.
+        w.press(".", cx);
+        w.press("1", cx); // Visible archived row.
+        w.press("d", cx);
+        w.press("1", cx); // A delete confirmation cannot open a project.
+        w.press("escape", cx);
+        w.press("e", cx);
+        w.input("123456789", cx); // Numbers remain input in the form.
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .read(cx)
+                .value()
+                .ends_with("123456789")
+        );
+        w.press("escape", cx);
+        w.press("ctrl-f", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        w.input("123456789", cx);
+    })
+    .unwrap();
+    assert_eq!(*opened.borrow(), vec![roots.path().join("project-05")]);
+    assert_eq!(
+        panel.read_with(cx, |p, cx| p.query.read(cx).value().to_string()),
+        "123456789"
+    );
+    assert!(
+        store
+            .registry()
+            .unwrap()
+            .find("project-05")
+            .unwrap()
+            .archived
+    );
+}

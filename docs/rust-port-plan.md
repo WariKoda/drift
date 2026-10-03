@@ -23,19 +23,19 @@ aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang
 Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
 Link-/Serverpicker, Zertifikatsentscheidungen und Diff-Scroll/Faltung sind ergänzt.
-Als Nächstes stehen numerische Dashboardwahl und Fehleranzeige-Tasten an.
+Numerische Dashboardwahl und einblendbare Sync-Fehlerdetails sind ergänzt.
+Als Nächstes stehen die vorhandenen CLI-Verwaltungsbefehle und Datei-Logging an.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-picker-diff-keyboard`, aufgebaut auf
-  `feature/rust-management-keyboard` (Commit `a60b550`).
-- [Draft-PR #79](https://github.com/WariKoda/drift/pull/79) enthält die
-  Verwaltungs-Tastaturarbeit und basiert auf [#78](https://github.com/WariKoda/drift/pull/78).
-  Die Picker-/Diff-Arbeit baut auf #79 auf. Das ist eine gestapelte PR-Kette;
-  vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
-- CI von #78 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
-  Bei #79 war Go erfolgreich; Rust Linux/macOS liefen bei der letzten Prüfung noch.
+- Aktueller Branch: `feature/rust-project-shortcuts-errors`, aufgebaut auf
+  `feature/rust-picker-diff-keyboard` (Commit `7d4b6c6`).
+- [Draft-PR #80](https://github.com/WariKoda/drift/pull/80) enthält Picker-/Diff-
+  Tastaturarbeit und basiert auf [#79](https://github.com/WariKoda/drift/pull/79).
+  Die Projektdirektwahl-/Fehleranzeige-Arbeit baut auf #80 auf. Das ist eine
+  gestapelte PR-Kette; vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
+- CI von #80 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
 
 ### Implementiert und lokal geprüft
 
@@ -74,7 +74,8 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   sowie FTPS-Trust-Reset. Konflikte/Teilerfolge bleiben sichtbar.
 - Verwaltungslisten mit sichtbarem Cursor nach Projekt-Slug und Host-Eintragsname,
   automatischem Scrollen, Down/Enter vom Filter zur Liste, Pfeilen/j/k und Home/g/End/G. Projekte:
-  Enter öffnen, n/e anlegen/bearbeiten, a archivieren/wiederherstellen, . Archivierte,
+  Enter öffnen, 1–9 die ersten neun sichtbaren Projekte direkt öffnen,
+  n/e anlegen/bearbeiten, a archivieren/wiederherstellen, . Archivierte,
   d/Delete entfernen, r neu laden. Hosts: n/e/c/d, t Verbindungstest, r FTPS-Trust-Reset,
   l Link-Picker, F5 Reload und Tab/Shift+Tab Scope-Wechsel. Ctrl/Cmd+S speichert
   Formulare; Enter/y bestätigt Löschen/Trust-Reset, Escape kehrt zur Liste zurück.
@@ -86,6 +87,13 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Zertifikate: Reject als Startwahl; Tab/Shift+Tab oder Links/Rechts/h/l wählen,
   Enter bestätigen, Escape ablehnen; Details scrollen bei sichtbaren Buttons.
   Weitere Trust-Entscheidungen sind während laufender Zustimmung gesperrt.
+- Sync-Berichte behalten die Zusammenfassung samt Fehlerzahl. `e` in Dateiliste
+  oder Diff und der Fehler-Button blenden Details zu Failed-/Unknown-Ergebnissen
+  ein; Escape schließt zuerst die Details. Textfilter behalten `e` als Eingabe.
+  Refresh und Verbindungsverlust erhalten den Bericht. Ein neuer Sync oder
+  Projekt-/Verbindungswechsel verwirft alte Details; Sync-Bestätigung schließt sie.
+  Echte SFTP-/FTPS-GUI-Tests prüfen Fehler nach Symlink-Wechsel, Zertifikatswechsel,
+  laufenden Sync-Abbruch und Unknown nach Serververlust ohne automatischen Retry.
 - Diff: Pfeile/j/k, PgUp/PgDown, Ctrl+U/D, Home/g/End/G scrollen; [/] springen
   zwischen Hunks, Enter/l öffnet sichtbaren Fold, h schließt ihn, c toggelt alle.
   Space wechselt die aktuelle Aktion, A alle gültigen Aktionen samt gefilterten
@@ -97,11 +105,13 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Gleiche Projektwahl/Schließen erhält die Sitzung; Verschieben/Entfernen des
   aktiven Projekts verwirft den alten Root und schließt die Remote-Verbindung.
   Fehlgeschlagener Registry-Write beim Entfernen stellt den Hoststore wieder her.
-- Letzter vollständiger lokaler Lauf: **103 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **105 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. 31 Headless-GPUI-Tests prüfen auch Tastaturfokus,
+  Linux-Release-Build bestanden. 33 Headless-GPUI-Tests prüfen auch Tastaturfokus,
   Filterrücksetzung sowie bestätigte/abgebrochene Tastatur-Syncs gegen echtes SFTP.
+  Numerische Direktwahl prüft alle neun Positionen, gefilterte/archivierte/leere
+  Listen, unveränderte Textfelder und tatsächliches Öffnen samt Open-Zeitstempel.
   Verwaltungsprüfungen decken Cursor/Scroll, leere Filter, Archivierung, CRUD,
   Formularfehler/Konflikte, SFTP-Verbindungstest und FTPS-Trust-Reset per Taste ab.
   Picker-/Diff-Prüfungen ergänzen Zielidentität nach Reload/Promotion/Konflikt,
@@ -114,30 +124,22 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   `TMPDIR=/var/tmp`, weil ein fremdes `/tmp/.git` die Starttests beeinflusst.
   Native Rendering-/OS-Clipboard-Abnahme ist damit noch nicht erbracht.
 
-### Nächster Arbeitsblock: Verbleibende Tastaturabläufe
+### Nächster Arbeitsblock: CLI und Datei-Logging
 
-1. Go-Referenz erneut lesen: Browser `keys.go`, Dashboard-/Host-/Diff-Updates.
-   Bereits vorhanden sind Markierungen, v/V, Invertieren, Enter/Right/L zum
-   Aufklappen, Left/H zum Zuklappen und Alt+Enter zur Ordnernavigation.
-   Listenanfang/-ende, Pane-Wechsel und die oben genannten Browser-/Vergleichstasten
-   sowie Cursor/CRUD-Tasten in Dashboard/Hostliste, Formular-Speichern und
-   Lösch-/Trust-Reset-Bestätigung, Link-Picker, Zertifikatsentscheidungen,
-   Diff-Scroll/Faltung, A sowie bestätigte Direktwahl u/d sind vorhanden.
-   Numerische Dashboardwahl und e für die Sync-Fehleranzeige sind noch offen.
-   Die Go-Referenz nutzt e für Fehleranzeige, keinen Filter der Vergleichsdateien.
-2. Buchstabenbefehle nur im jeweiligen View-Kontext auslösen. Kit-Textfelder
-   behalten normale Texteingabe; Fokus nach Dialogschließen wiederherstellen.
-3. Baumlogik: `drift-app/src/tree.rs` besitzt die geladene Topologie und merkt
-   Expansionen über Visibility-/Refresh-Läufe. Cursor und Markierungen bleiben
-   in `FileList`; Collapse löscht keine Markierungen. `browser/tree.rs` und
-   `remote/tree.rs` koordinieren die vorhandenen Listing-Dienste und lehnen
-   veraltete Ergebnisse ab. Die Remote-Verbindung bleibt beim bloßen Verwerfen
-   eines Kinder-Listings geöffnet; expliziter Abbruch schließt sie weiterhin.
-4. `shell/comparison.rs` übergibt vollständige lokale/entfernte Vektoren.
-   `s` kombiniert beide Panes; die Auswahl-Buttons behalten Cursor-/Ordnerfallback.
-   Tests prüfen auch markierte Kinder unter zugeklappten Ordnern nach Refresh/Sync.
-5. Native Wayland-/X11-/macOS-Abnahme ist weiterhin offen, insbesondere
-   Aufklappschaltflächen, große Bäume, Fokus und OS-Clipboard.
+1. Aktuelle Go-Befehle unter `cmd/` und Rust-Startargumente erneut lesen und den
+   ersten zusammenhängenden Verwaltungsablauf portieren. Die vorhandenen
+   Start-Flags allein bedeuten noch keine vollständige CLI-Parität.
+2. Fachliche Abläufe in `drift-app` und persistente Änderungen in `drift-core`
+   halten. Bestehende Store-Transaktionen und Konfliktprüfungen wiederverwenden;
+   keine Verwaltungsdateien ins Projekt schreiben.
+3. Optionales Logging an der Go-Referenz messen: standardmäßig aus, bei expliziter
+   Aktivierung in eine Datei, ohne Secrets. Connect-/Diff-/Sync-Fehler müssen
+   zusätzlich zur sichtbaren Meldung nachvollziehbar bleiben.
+4. Vorhandene Tastaturkontexte erhalten: Buchstaben/Zahlen nur in den jeweiligen
+   Listen/Diff-Views auslösen, Textfelder behalten Texteingabe. Sync-Berichte
+   dürfen durch Detailschließen/Refresh/Verbindungsverlust nicht verloren gehen.
+5. Native Wayland-/X11-/macOS-Abnahme bleibt offen, insbesondere Fokus, große
+   Bäume, scrollbare Fehlerdetails und OS-Clipboard.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
@@ -483,8 +485,8 @@ Registrierung schlägt der Dienst den Git-Root einschließlich Worktrees vor.
 `shell/projects.rs` trennen Liste/Formular, Ergebnisübernahme und Sitzung/Start.
 Echte Dateisystem-, App-, GPUI- und Go/Rust-Prozesstests decken Rücksetzen,
 Konflikte, Archivierung, Startregeln und aktive FTP-Sitzungen ab. Die wesentlichen
-Cursor-/CRUD-/Formulartasten des Dashboards sind umgesetzt; numerische Direktwahl
-und verbleibende Tastaturparität bleiben in Meilenstein 5.
+Cursor-/CRUD-/Formulartasten und numerische Direktwahl des Dashboards sind
+umgesetzt; verbleibende Tastaturparität bleibt in Meilenstein 5.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

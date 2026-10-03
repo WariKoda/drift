@@ -173,6 +173,37 @@ impl Shell {
                         }
                         this.status.clone_from(message);
                     }
+                    RemoteEvent::Compare {
+                        project,
+                        connection,
+                        path,
+                    } => {
+                        if *project != this.browser.read(cx).id().project
+                            || *project != this.remote.read(cx).project()
+                            || *connection != this.remote.read(cx).connection()
+                            || this.remote.read(cx).selected() != Some(path.as_str())
+                            || !this.show_remote
+                            || !this.browser_screen_active(cx)
+                        {
+                            return;
+                        }
+                        this.open_comparison(vec![], vec![path.clone()], window, cx);
+                    }
+                    RemoteEvent::Toolbar {
+                        project,
+                        connection,
+                        event,
+                    } => {
+                        if *project != this.browser.read(cx).id().project
+                            || *project != this.remote.read(cx).project()
+                            || *connection != this.remote.read(cx).connection()
+                            || !this.show_remote
+                            || !this.browser_screen_active(cx)
+                        {
+                            return;
+                        }
+                        this.toolbar_event(event, window, cx);
+                    }
                     RemoteEvent::ShowLocalPreview => {
                         this.show_remote = false;
                         this.remote_preview = false;
@@ -296,7 +327,9 @@ impl Shell {
             BrowserEvent::Changed(id)
             | BrowserEvent::Opened { id, .. }
             | BrowserEvent::Selected { id, .. }
-            | BrowserEvent::Status { id, .. } => *id,
+            | BrowserEvent::Status { id, .. }
+            | BrowserEvent::Compare { id, .. }
+            | BrowserEvent::Toolbar { id, .. } => *id,
         };
         if id != self.browser.read(cx).id() {
             return;
@@ -373,6 +406,30 @@ impl Shell {
                         preview.select(path.clone(), id.project, window, cx)
                     });
                 }
+            }
+            BrowserEvent::Compare {
+                path, connection, ..
+            } => {
+                if Some(*connection) != self.remote.read(cx).session_id()
+                    || self.remote_preview
+                    || self.browser.read(cx).selected().map(std::path::Path::new)
+                        != Some(path.as_path())
+                    || !self.browser_screen_active(cx)
+                {
+                    return;
+                }
+                self.open_comparison(vec![path.clone()], vec![], window, cx);
+            }
+            BrowserEvent::Toolbar {
+                event, connection, ..
+            } => {
+                if Some(*connection) != self.remote.read(cx).session_id()
+                    || self.remote_preview
+                    || !self.browser_screen_active(cx)
+                {
+                    return;
+                }
+                self.toolbar_event(event, window, cx);
             }
             BrowserEvent::Status { message, .. } => self.status.clone_from(message),
         }
@@ -667,7 +724,44 @@ impl Render for Shell {
     }
 }
 impl Shell {
-    fn render_content(&mut self, _: &mut Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    fn browser_screen_active(&self, cx: &gpui_kit::App) -> bool {
+        self.certificate.is_none()
+            && self.hosts.is_none()
+            && self.startup.is_none()
+            && !self.projects.read(cx).visible()
+            && !self.comparison.read(cx).visible()
+    }
+
+    fn render_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let browser_active = self.browser_screen_active(cx);
+        let can_compare = self.remote.read(cx).has_session()
+            && !self.remote.read(cx).is_loading()
+            && !self.browser.read(cx).is_loading();
+        let comparison_ready =
+            browser_active && can_compare && self.browser.read(cx).location().is_some();
+        let local_visible = browser_active && !self.remote_preview;
+        let remote_visible = browser_active && self.show_remote;
+        let comparison_connection = if comparison_ready && local_visible {
+            self.remote.read(cx).session_id()
+        } else {
+            None
+        };
+        self.browser.update(cx, |pane, cx| {
+            pane.set_comparison_context(comparison_connection, window, cx);
+            if !local_visible {
+                pane.dismiss_context_menu(window, cx);
+            }
+        });
+        self.remote.update(cx, |pane, cx| {
+            pane.set_comparison_ready(comparison_ready && remote_visible, window, cx);
+            if !remote_visible {
+                pane.dismiss_context_menu(window, cx);
+            }
+        });
         if let Some((_, _, prompt)) = &self.certificate {
             return div().size_full().child(prompt.clone()).into_any_element();
         }
@@ -702,9 +796,7 @@ impl Shell {
         let toolbar = Toolbar::new(
             ToolbarState {
                 remote_preview: self.remote_preview,
-                can_compare: self.remote.read(cx).has_session()
-                    && !self.remote.read(cx).is_loading()
-                    && !browser.is_loading(),
+                can_compare,
                 has_location: browser.location().is_some(),
                 listing: browser.is_loading(),
                 cancellable: browser.is_loading()
@@ -827,6 +919,8 @@ mod ftp_tests;
 mod ftps_tests;
 #[cfg(test)]
 mod logging_tests;
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod project_tests;
 mod projects;

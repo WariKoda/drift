@@ -1,6 +1,8 @@
 //! Remote browser and host selection. Network tasks belong to drift-app.
+mod menu;
 mod tree;
 use crate::actions::*;
+use crate::browser_menu::BrowserMenu;
 use drift_app::{
     FileList,
     browser::{Location, OperationId},
@@ -14,20 +16,21 @@ use drift_core::{
     remote::{ConnectionState, RemoteEntry},
     tlstrust::Challenge,
 };
-use gpui_kit::base::Disableable;
+use gpui_kit::TestSupportExt;
+use gpui_kit::base::{Disableable, ElementExt};
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
     input::{Input, InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
-#[cfg(test)]
-use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
-    Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
+    IntoElement, MouseButton, ParentElement, Pixels, Point, Render, ScrollStrategy,
+    StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, Window, div, point,
+    px, uniform_list,
 };
+use menu::Snapshot;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
@@ -50,6 +53,16 @@ pub enum RemoteEvent {
         project: u64,
         connection: u64,
         challenge: Box<Challenge>,
+    },
+    Compare {
+        project: u64,
+        connection: u64,
+        path: String,
+    },
+    Toolbar {
+        project: u64,
+        connection: u64,
+        event: crate::toolbar::ToolbarEvent,
     },
     ShowLocalPreview,
 }
@@ -86,6 +99,10 @@ pub struct RemotePane {
     history: History,
     navigation: Navigation,
     show_hidden: bool,
+    menu: Option<(Snapshot, BrowserMenu)>,
+    menu_anchor: Point<Pixels>,
+    menu_revision: u64,
+    comparison_ready: bool,
     _subscription: Subscription,
 }
 impl Focusable for RemotePane {
@@ -109,8 +126,10 @@ impl Drop for RemotePane {
 impl RemotePane {
     pub fn new(service: RemoteService, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter remote files…"));
-        let subscription = cx.subscribe_in(&filter, window, |this, filter, event, _, cx| {
+        let subscription = cx.subscribe_in(&filter, window, |this, filter, event, window, cx| {
             if matches!(event, InputEvent::Change) {
+                this.dismiss_context_menu(window, cx);
+                this.menu_revision += 1;
                 this.files.filter(&filter.read(cx).value());
                 this.selection_changed(cx);
                 cx.notify();
@@ -141,6 +160,10 @@ impl RemotePane {
             history: History::default(),
             navigation: Navigation::Reset,
             show_hidden: false,
+            menu: None,
+            menu_anchor: point(px(0.), px(0.)),
+            menu_revision: 0,
+            comparison_ready: false,
             _subscription: subscription,
         }
     }
@@ -394,6 +417,7 @@ impl RemotePane {
         cx.notify();
     }
     fn set_entries(&mut self, cx: &mut Context<Self>) {
+        self.menu_revision += 1;
         self.files.replace_entries(
             self.tree
                 .nodes()
@@ -728,8 +752,22 @@ impl RemotePane {
     }
 }
 impl Render for RemotePane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self
+            .menu
+            .as_ref()
+            .is_some_and(|(snapshot, _)| !self.menu_valid(snapshot, cx))
+        {
+            self.dismiss_context_menu(window, cx);
+        }
         let entity = cx.entity();
+        let anchor_entity = entity.clone();
+        let context_stamp = (
+            self.project,
+            self.connection,
+            self.operation,
+            self.menu_revision,
+        );
         let border = cx.theme().border;
         let background = cx.theme().background;
         let accent = cx.theme().accent;
@@ -846,8 +884,26 @@ impl Render for RemotePane {
             .child(
                 div()
                     .id("remote-files-pane")
+                    .test_support()
                     .key_context("DriftBrowser")
                     .track_focus(&self.focus)
+                    .on_prepaint(move |bounds, _, cx| {
+                        anchor_entity.update(cx, |this, _| {
+                            if this.files.selected_row().is_none() {
+                                this.menu_anchor = bounds.origin + point(px(8.), px(8.));
+                            }
+                        });
+                    })
+                    .on_action(cx.listener(Self::open_context_menu))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                            cx.stop_propagation();
+                            if (this.project, this.connection, this.operation, this.menu_revision) == context_stamp {
+                                this.open_menu(None, event.position, window, cx);
+                            }
+                        }),
+                    )
                     .flex()
                     .flex_col()
                     .on_action(cx.listener(Self::up))
@@ -897,6 +953,10 @@ impl Render for RemotePane {
                                             0
                                         };
                                         let toggle_path = path.clone();
+                                        let menu_path = path.clone();
+                                        let row_stamp = (this.project, this.connection, this.operation, this.menu_revision);
+                                        let anchor_path = path.clone();
+                                        let row_entity = cx.entity();
                                         let is_directory = entry.directory;
                                         let disclosure = div()
                                             .id(("remote-tree-toggle", index))
@@ -927,6 +987,29 @@ impl Render for RemotePane {
                                             .flex()
                                             .items_center()
                                             .bg(if chosen { accent } else { background })
+                                            .on_prepaint(move |bounds, _, cx| {
+                                                row_entity.update(cx, |this, _| {
+                                                    if this.files.selected()
+                                                        == Some(anchor_path.as_str())
+                                                    {
+                                                        this.menu_anchor = bounds.bottom_left();
+                                                    }
+                                                });
+                                            })
+                                            .on_mouse_down(
+                                                MouseButton::Right,
+                                                cx.listener(move |this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                                                    cx.stop_propagation();
+                                                    if (this.project, this.connection, this.operation, this.menu_revision) == row_stamp {
+                                                        this.open_menu(
+                                                            Some(menu_path.clone()),
+                                                            event.position,
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    }
+                                                }),
+                                            )
                                             .child(disclosure)
                                             .child(if descendants > 0 {
                                                 format!("· {descendants} marked ")
@@ -982,7 +1065,8 @@ impl Render for RemotePane {
                         })
                         .track_scroll(&self.scroll)
                         .flex_1(),
-                    ),
+                    )
+                    .children(self.menu.as_ref().map(|(_, menu)| menu.render())),
             )
             .when(self.hosts.is_empty(), |view| {
                 view.child(div().p_3().child("Configure a host in Hosts to connect"))
@@ -990,5 +1074,7 @@ impl Render for RemotePane {
     }
 }
 
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod tests;

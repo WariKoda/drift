@@ -2,6 +2,7 @@ use super::*;
 
 impl BrowserPane {
     pub(super) fn rebuild_tree(&mut self, cx: &mut Context<Self>) {
+        self.menu_revision += 1;
         self.files
             .replace_entries(self.tree.nodes().iter().map(|n| n.path.clone()).collect());
         self.files.filter(&self.filter.read(cx).value());

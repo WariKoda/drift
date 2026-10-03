@@ -20,10 +20,6 @@ impl Shell {
         let Some(location) = self.browser.read(cx).location().cloned() else {
             return;
         };
-        let Some((host, connection)) = self.remote.read(cx).comparison_target() else {
-            return;
-        };
-        let project = self.browser.read(cx).id().project;
         let (local, remote) = match event {
             ToolbarEvent::CompareLocal => {
                 let mut paths = self.browser.read(cx).marked();
@@ -64,8 +60,38 @@ impl Shell {
                 }
                 (local, remote)
             }
-            _ => (vec![], vec![]),
+            ToolbarEvent::CompareProject => (vec![], vec![]),
+            _ => return,
         };
+        self.open_comparison(local, remote, window, cx);
+    }
+
+    pub(super) fn open_comparison(
+        &mut self,
+        local: Vec<PathBuf>,
+        remote: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.browser_screen_active(cx)
+            || self.browser.read(cx).is_loading()
+            || self.remote.read(cx).is_loading()
+        {
+            return;
+        }
+        let Some(location) = self.browser.read(cx).location().cloned() else {
+            return;
+        };
+        let Some((host, connection)) = self.remote.read(cx).comparison_target() else {
+            return;
+        };
+        let project = self.browser.read(cx).id().project;
+        if self.remote.read(cx).project() != project
+            || connection.id.project != project
+            || connection.state() != drift_core::remote::ConnectionState::Connected
+        {
+            return;
+        }
         self.preview
             .update(cx, |pane, cx| pane.select(None, project, window, cx));
         self.comparison.update(cx, |pane, cx| {

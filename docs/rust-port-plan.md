@@ -18,29 +18,32 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **3. Oktober 2026**. Der Arbeitsblock Browser-Mehrfachmarkierungen und
-Bereichsauswahl ist implementiert. Als nächster Schritt stehen aufklappbare
-Dateibäume und die verbleibenden Tastaturabläufe an. Die optische Überarbeitung
+Stand: **3. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
+aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Als nächster
+Schritt stehen die verbleibenden Tastaturabläufe an. Die optische Überarbeitung
 bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-browser-selection`, aufgebaut auf
-  `feature/rust-project-management` (Übergabecommit `8ce978e`).
-- [Draft-PR #75](https://github.com/WariKoda/drift/pull/75) basiert auf
-  `feature/rust-server-promotion`, also [PR #74](https://github.com/WariKoda/drift/pull/74).
-  Die neue Auswahl-Arbeit baut auf #75 auf. Das ist eine gestapelte PR-Kette;
+- Aktueller Branch: `feature/rust-browser-trees`, aufgebaut auf
+  `feature/rust-browser-selection` (Commit `fdc4fd3`).
+- [Draft-PR #76](https://github.com/WariKoda/drift/pull/76) enthält die
+  Browser-Markierungen und basiert auf [#75](https://github.com/WariKoda/drift/pull/75).
+  Die neue Baum-Arbeit baut auf #76 auf. Das ist eine gestapelte PR-Kette;
   vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
-- CI von #75 wurde vor Beginn der Auswahl-Arbeit erneut geprüft: Go, Rust Linux
-  und Rust macOS bestanden. Dies belegt den Ausgangsstand, nicht die neue Arbeit.
+- CI von #76 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
+  Dies belegt den Ausgangsstand, nicht die neue Baum-Arbeit.
 
 ### Implementiert und lokal geprüft
 
 - Eigenständige Rust-App neben der Go-TUI; gemeinsame TOML-Dateien und permanente
   `write.lock`, mit getrennten Rohwerten und aufgelöster Konfiguration.
 - Lokale und entfernte Browser mit unabhängiger Ordnernavigation, Up/History,
-  Filtern, Finder und Vorschau; virtualisierte Dateizeilen. Die GUI navigiert
-  derzeit Verzeichnislisten, aufklappbare Baumknoten stehen noch aus.
+  Filtern, Finder und Vorschau; virtualisierte Dateizeilen. Aufklappbare Knoten
+  laden Kinder im Hintergrund. Zuklappen erhält Markierungen und zeigt deren
+  Anzahl unter dem geschlossenen Ordner. Refresh stellt offene Knoten und den
+  Cursor wieder her; Sichtbarkeitswechsel merken auch vorübergehend verborgene
+  Ordner. Die explizite Ordnernavigation mit History bleibt verfügbar.
 - Native SFTP-/FTP-/FTPS-Verbindungen, Authentifizierung, Keep-alive,
   Zertifikats-Challenges, Sitzungs-/Dateivertrauen und gepinnter erster Retry.
 - Vergleich, Unified-Diff mit Richtung/Faltung/Hunk-Navigation, serieller
@@ -63,38 +66,40 @@ bleibt ausdrücklich für später geplant.
   Gleiche Projektwahl/Schließen erhält die Sitzung; Verschieben/Entfernen des
   aktiven Projekts verwirft den alten Root und schließt die Remote-Verbindung.
   Fehlgeschlagener Registry-Write beim Entfernen stellt den Hoststore wieder her.
-- Letzter vollständiger lokaler Lauf: **94 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **96 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. Zusätzliche Auswahltests prüfen unabhängige Panes,
-  sichtbare Intervalle, Mapping-Grenzen, Vorschauerhalt, Projektwechsel und den
-  gemeinsamen lokalen/entfernten Scope nach Refresh/Sync. Der Gesamtlauf nutzt
+  Linux-Release-Build bestanden. Baumtests prüfen echtes lokales/SFTP-Laden,
+  verschachteltes Collapse, Visibility/Refresh, verschwundene Ordner und veraltete
+  Ergebnisse. FTP/FTPS prüfen Aufklappen/Markieren/Zuklappen; der gemeinsame
+  lokale/entfernte Scope bleibt auch mit markierten zugeklappten Kindern erhalten. Der Gesamtlauf nutzt
   `TMPDIR=/var/tmp`, weil ein fremdes `/tmp/.git` die Starttests beeinflusst.
   Native Rendering-/OS-Clipboard-Abnahme ist damit noch nicht erbracht.
 
-### Nächster Arbeitsblock: Dateibäume und verbleibende Tastaturabläufe
+### Nächster Arbeitsblock: Verbleibende Tastaturabläufe
 
-1. Go-Referenz erneut lesen: `internal/tui/browser/model.go`, `tree.go`,
-   `update.go`, `keys.go` sowie `collapsed_selection_test.go` und
-   `visibility_test.go`. Aufklappbare Baumknoten mit verzögertem Laden ergänzen;
-   Cursor, Vorschau und die neuen pfadbasierten Markierungen getrennt halten.
-2. `drift-app::FileList` besitzt dauerhafte Markierungen, sichtbare Intervalle
-   und Markiergrenzen. `replace_entries` erhält Markierungen aus anderen
-   Ordnern/Filtern und beendet laufende Bereiche; ein neuer Root setzt sie zurück.
-   Browser und Remote-Pane wenden diese Zustände unabhängig an.
-3. `shell/comparison.rs` übergibt vollständige lokale/entfernte Vektoren.
-   `s` verlangt Markierungen und kombiniert beide Panes; die Auswahl-Buttons
-   behalten ihren Cursor-/Ordnerfallback. Rekursion und Ignore-/Mapping-Policies
-   bleiben im App-/Core-Layer. Refresh/Sync erhalten den Request-Scope.
-4. Baum-Collapse/Expand mit echten Dateibäumen und Protokollservern prüfen:
-   verborgene markierte Kinder, unabhängige Panes, Mapping-Grenzen, Projektwechsel,
-   veraltete Ladeergebnisse und erhaltener Scope. Keine Mocks/Transport-I/O in Views.
-5. Anschließend Dashboard-/Host-/Diff-Tastaturabläufe vervollständigen. Eingaben
-   in Kit-Textfeldern dürfen keine Buchstabenbefehle im Browser auslösen.
+1. Go-Referenz erneut lesen: Browser `keys.go`, Dashboard-/Host-/Diff-Updates.
+   Bereits vorhanden sind Markierungen, v/V, Invertieren, Enter/Right/L zum
+   Aufklappen, Left/H zum Zuklappen und Alt+Enter zur Ordnernavigation.
+   Sprünge an Listenanfang/-ende, Pane-Wechsel sowie weitere Dashboard-/Host-/
+   Diff-Tasten müssen noch auf Vollständigkeit geprüft und ergänzt werden.
+2. Buchstabenbefehle nur im jeweiligen View-Kontext auslösen. Kit-Textfelder
+   behalten normale Texteingabe; Fokus nach Dialogschließen wiederherstellen.
+3. Baumlogik: `drift-app/src/tree.rs` besitzt die geladene Topologie und merkt
+   Expansionen über Visibility-/Refresh-Läufe. Cursor und Markierungen bleiben
+   in `FileList`; Collapse löscht keine Markierungen. `browser/tree.rs` und
+   `remote/tree.rs` koordinieren die vorhandenen Listing-Dienste und lehnen
+   veraltete Ergebnisse ab. Die Remote-Verbindung bleibt beim bloßen Verwerfen
+   eines Kinder-Listings geöffnet; expliziter Abbruch schließt sie weiterhin.
+4. `shell/comparison.rs` übergibt vollständige lokale/entfernte Vektoren.
+   `s` kombiniert beide Panes; die Auswahl-Buttons behalten Cursor-/Ordnerfallback.
+   Tests prüfen auch markierte Kinder unter zugeklappten Ordnern nach Refresh/Sync.
+5. Native Wayland-/X11-/macOS-Abnahme ist weiterhin offen, insbesondere
+   Aufklappschaltflächen, große Bäume, Fokus und OS-Clipboard.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
-- Aufklappbare Dateibäume, Kontextmenüs und veränderbare Bereichsgrößen;
+- Kontextmenüs und veränderbare Bereichsgrößen;
   vollständige Browser-/Dialog-/Diff-Tastaturparität.
 - Zeichengenaue Diff-Textauswahl über Zeilengrenzen; aktuell Auswahl ganzer Zeilen.
 - Automatische Serverlink-Angebote bei gleichen Endpunkten.
@@ -273,7 +278,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate, Baum-/Tastaturparität und zeichengenaue Textselektion offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate, vollständige Tastaturparität und zeichengenaue Textselektion offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: Scope-erhaltender Refresh/Sync und wesentliche GUI-Verwaltung vorhanden; vollständige CLI-/Tastaturparität und Logging offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |

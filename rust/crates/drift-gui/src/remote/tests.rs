@@ -115,3 +115,149 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
     .await;
     assert_eq!(session.state(), ConnectionState::Closed);
 }
+
+#[gpui_kit::test]
+async fn lazy_remote_tree_refresh_collapse_and_stale_results_preserve_session(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let server = support::Server::new(false);
+    let root = server.dir.path().join("files");
+    fs::create_dir_all(root.join("child/nested")).unwrap();
+    fs::write(root.join("child/nested/deep.txt"), "remote").unwrap();
+    fs::write(root.join("child/.hidden"), "hidden").unwrap();
+    fs::create_dir(root.join("child/node_modules")).unwrap();
+    fs::write(root.join("top.txt"), "top").unwrap();
+    let host = server.host();
+    let options = server.options();
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1000.), px(700.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                cx.new(|cx| {
+                    let pane = cx.new(|cx| {
+                        RemotePane::new(
+                            RemoteService::with_options(
+                                drift_app::browser::BrowserService::new().unwrap(),
+                                options,
+                            ),
+                            window,
+                            cx,
+                        )
+                    });
+                    pane.update(cx, |pane, cx| pane.set_context(1, vec![host], cx));
+                    RemoteWindow { pane }
+                })
+            },
+        )
+        .unwrap()
+    });
+    let pane = view.read_with(cx, |view, _| view.pane.clone());
+    cx.update_window(handle, |_, window, cx| {
+        window.click(("connect-host", 0usize), cx)
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+
+    let session = pane.read_with(cx, |pane, _| pane.session.clone().unwrap());
+    cx.update_window(handle, |_, window, cx| {
+        window.click(("remote-tree-toggle", 0usize), cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(pane.read(cx).path, root.to_string_lossy());
+        assert!(pane.read(cx).history.previous().is_none());
+        assert_eq!(pane.read(cx).files.len(), 3);
+        window.press("right", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.press("right", cx);
+        assert_eq!(
+            pane.read(cx).selected(),
+            root.join("child/nested/deep.txt").to_str()
+        );
+        window.press("space", cx);
+        window.press("f5", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(
+            pane.read(cx).selected(),
+            root.join("child/nested/deep.txt").to_str()
+        );
+        assert!(
+            pane.read(cx)
+                .tree
+                .node(root.join("child/nested").to_str().unwrap())
+                .unwrap()
+                .expanded
+        );
+        assert_eq!(pane.read(cx).marked().len(), 1);
+        assert_eq!(pane.read(cx).session_id(), Some(session.id));
+        window.press("left", cx);
+        window.press("left", cx);
+        assert_eq!(pane.read(cx).files.len(), 2);
+        assert_eq!(
+            pane.read(cx)
+                .files
+                .marked_descendants(root.join("child").to_str().unwrap()),
+            1
+        );
+        pane.update(cx, |pane, cx| {
+            let path = root.join("child").to_string_lossy().into_owned();
+            pane.expand(path.clone(), window, cx);
+            pane.toggle_tree(path, window, cx); // Discard the result, keep the connection.
+        });
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(pane.read(cx).files.len(), 2);
+        assert_eq!(session.state(), ConnectionState::Connected);
+        assert_eq!(pane.read(cx).marked().len(), 1);
+        pane.update(cx, |pane, cx| {
+            pane.expand(
+                root.join("child").to_string_lossy().into_owned(),
+                window,
+                cx,
+            );
+            pane.set_context(2, vec![], cx);
+        });
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, _| {
+        session.state() == ConnectionState::Closed
+    })
+    .await;
+    assert!(pane.read_with(cx, |pane, _| pane.tree.nodes().is_empty()));
+    assert!(pane.read_with(cx, |pane, _| pane.marked().is_empty()));
+}

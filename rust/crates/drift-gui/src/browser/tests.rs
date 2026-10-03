@@ -222,3 +222,209 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
     assert_eq!(right.read_with(cx, |pane, _| pane.marked()), ["right.txt"]);
     assert!(!right.read_with(cx, |pane, _| pane.files.range_active()));
 }
+
+#[gpui_kit::test]
+async fn lazy_local_trees_keep_marks_scope_visibility_and_cursor(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let left_root = tempfile::tempdir().unwrap();
+    let right_root = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    fs::create_dir_all(left_root.path().join("src/nested")).unwrap();
+    fs::write(left_root.path().join("src/nested/deep.txt"), "deep").unwrap();
+    fs::write(left_root.path().join("src/a.txt"), "a").unwrap();
+    fs::write(left_root.path().join("src/.hidden"), "hidden").unwrap();
+    fs::create_dir(left_root.path().join("src/.secret")).unwrap();
+    fs::write(left_root.path().join("src/.secret/inside.txt"), "secret").unwrap();
+    fs::write(left_root.path().join("src/ignored.txt"), "ignored").unwrap();
+    fs::write(left_root.path().join(".gitignore"), "ignored.txt\n").unwrap();
+    fs::write(left_root.path().join("top.txt"), "top").unwrap();
+    fs::create_dir_all(left_root.path().join("src/node_modules")).unwrap();
+    fs::write(right_root.path().join("other.txt"), "other").unwrap();
+    let (handle, panes) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1200.), px(800.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    let store = Store::new(config.path().into());
+                    let left = cx.new(|cx| {
+                        BrowserPane::new(
+                            store.clone(),
+                            service.clone(),
+                            left_root.path().into(),
+                            window,
+                            cx,
+                        )
+                    });
+                    let right = cx.new(|cx| {
+                        BrowserPane::new(
+                            store,
+                            service,
+                            right_root.path().to_path_buf(),
+                            window,
+                            cx,
+                        )
+                    });
+                    left.update(cx, |pane, cx| {
+                        pane.open(left_root.path().into(), window, cx)
+                    });
+                    right.update(cx, |pane, cx| {
+                        pane.open(right_root.path().to_path_buf(), window, cx)
+                    });
+                    TwoPanes { left, right }
+                })
+            },
+        )
+        .unwrap()
+    });
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        let panes = panes.read(cx);
+        panes.left.read(cx).location().is_some() && panes.right.read(cx).location().is_some()
+    })
+    .await;
+    let (left, right) = panes.read_with(cx, |panes, _| (panes.left.clone(), panes.right.clone()));
+
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(left.read(cx).len(), 2);
+        window
+            .within("left")
+            .click(("local-tree-toggle", 0usize), cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(
+            left.read(cx).location().unwrap().directory,
+            left_root.path()
+        );
+        assert!(!left.read(cx).can_back());
+        assert_eq!(left.read(cx).len(), 4);
+        assert_eq!(right.read(cx).len(), 1);
+        window.press("right", cx); // Expanded src selects its first child.
+        assert_eq!(left.read(cx).selected(), Some("src/nested"));
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.press("right", cx);
+        assert_eq!(left.read(cx).selected(), Some("src/nested/deep.txt"));
+        window.press("space", cx);
+        window.press("left", cx); // Collapse parent; retain hidden child mark.
+        assert_eq!(left.read(cx).selected(), Some("src/nested"));
+        assert_eq!(left.read(cx).files.marked_descendants("src"), 1);
+        assert_eq!(left.read(cx).len(), 4);
+        window.press("right", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.press("right", cx);
+        assert_eq!(left.read(cx).selected(), Some("src/nested/deep.txt"));
+        left.update(cx, |pane, cx| {
+            pane.command(BrowserCommand::Hidden, window, cx)
+        });
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert!(left.read(cx).tree.node("src/nested").unwrap().expanded);
+        assert_eq!(left.read(cx).selected(), Some("src/nested/deep.txt"));
+        assert!(left.read(cx).tree.node("src/.hidden").is_some());
+        assert!(left.read(cx).tree.node("src/ignored.txt").is_none());
+        assert!(left.read(cx).tree.node("src/node_modules").is_none());
+        left.update(cx, |pane, cx| pane.expand("src/.secret".into(), window, cx));
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    for _ in 0..2 {
+        cx.update_window(handle, |_, window, cx| {
+            left.update(cx, |pane, cx| {
+                pane.command(BrowserCommand::Hidden, window, cx)
+            });
+        })
+        .unwrap();
+        cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+            !left.read(cx).is_loading()
+        })
+        .await;
+    }
+    cx.update_window(handle, |_, window, cx| {
+        assert!(left.read(cx).tree.node("src/.secret").unwrap().expanded);
+        assert!(left.read(cx).tree.node("src/.secret/inside.txt").is_some());
+        left.update(cx, |pane, cx| {
+            pane.command(BrowserCommand::Ignored, window, cx)
+        });
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        assert!(left.read(cx).tree.node("src/ignored.txt").is_some());
+        assert_eq!(left.read(cx).marked(), ["src/nested/deep.txt"]);
+        assert!(right.read(cx).marked().is_empty());
+        // A collapse during a pending listing invalidates its eventual result.
+        left.update(cx, |pane, cx| {
+            pane.toggle_tree("src/nested".into(), window, cx);
+            pane.expand("src/nested".into(), window, cx);
+            let cancel = pane.listing_cancel.as_ref().unwrap().clone();
+            pane.toggle_tree("src/nested".into(), window, cx);
+            assert!(cancel.is_cancelled());
+        });
+    })
+    .unwrap();
+    cx.executor().run_until_parked();
+    assert!(!left.read_with(cx, |pane, _| pane.tree.node("src/nested").unwrap().expanded));
+    assert_eq!(
+        left.read_with(cx, |pane, _| pane.marked()),
+        ["src/nested/deep.txt"]
+    );
+    fs::rename(
+        left_root.path().join("src/nested"),
+        left_root.path().join("moved"),
+    )
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        left.update(cx, |pane, cx| pane.expand("src/nested".into(), window, cx));
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !left.read(cx).is_loading()
+    })
+    .await;
+    assert!(!left.read_with(cx, |pane, _| pane.tree.node("src/nested").unwrap().expanded));
+    assert_eq!(
+        left.read_with(cx, |pane, _| pane.marked()),
+        ["src/nested/deep.txt"]
+    );
+    assert_eq!(
+        left.read_with(cx, |pane, _| pane.location().unwrap().directory.clone()),
+        left_root.path()
+    );
+}

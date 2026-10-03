@@ -1,7 +1,9 @@
 mod form;
+mod keyboard;
 mod linking;
 mod links;
 mod tools;
+use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use drift_app::{
     browser::{BrowserService, OperationId},
     hosts::{HostCommand, HostDraft, HostResponse},
@@ -20,11 +22,14 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
+#[cfg(test)]
+use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, ScrollHandle,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
+use keyboard::*;
 use links::{LinkEvent, LinkPicker};
 use tokio_util::sync::CancellationToken;
 use tools::{HostTools, Mode};
@@ -52,6 +57,8 @@ const FIELDS: [(&str, &str); 9] = [
 
 gpui_kit::actions!(drift_hosts, [Close, Search]);
 pub fn bind_keys(cx: &mut App) {
+    keyboard::bind_keys(cx);
+    tools::bind_keys(cx);
     cx.bind_keys([
         KeyBinding::new("escape", Close, Some("DriftHosts")),
         KeyBinding::new("ctrl-f", Search, Some("DriftHosts")),
@@ -79,6 +86,9 @@ pub struct HostManager {
     delete: Option<Host>,
     query: Entity<InputState>,
     focus: FocusHandle,
+    list_focus: FocusHandle,
+    cursor: Option<String>,
+    scroll: ScrollHandle,
     operation: u64,
     cancel: Option<CancellationToken>,
     writing: bool,
@@ -104,8 +114,12 @@ impl HostManager {
         cx: &mut Context<Self>,
     ) -> Self {
         let query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter hosts…"));
-        let subscription =
-            cx.subscribe_in(&query, window, |_, _, _: &InputEvent, _, cx| cx.notify());
+        let subscription = cx.subscribe_in(&query, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.scroll.scroll_to_item(this.cursor_row(cx));
+            }
+            cx.notify();
+        });
         let focus = cx.focus_handle().tab_stop(true);
         query.focus_handle(cx).focus(window, cx);
         let mut manager = Self {
@@ -123,6 +137,9 @@ impl HostManager {
             delete: None,
             query,
             focus,
+            list_focus: cx.focus_handle().tab_stop(true),
+            cursor: None,
+            scroll: ScrollHandle::new(),
             operation: 0,
             cancel: None,
             writing: false,
@@ -177,15 +194,20 @@ impl HostManager {
                             .take()
                             .unwrap_or_else(|| format!("{} hosts", catalog.hosts.len()));
                         this.catalog = Some(*catalog);
+                        this.scroll.scroll_to_item(this.cursor_row(cx));
                         if this.changed {
                             this.changed = false;
                             cx.emit(HostEvent::Changed);
                         }
                     }
                     Ok(Ok(HostResponse::Saved | HostResponse::Deleted)) => {
+                        if let Some(form) = &this.form {
+                            this.cursor =
+                                Some(form.fields[NAME].read(cx).value().trim().to_owned());
+                        }
                         this.form = None;
                         this.delete = None;
-                        this.focus.focus(window, cx);
+                        this.list_focus.focus(window, cx);
                         this.changed = true;
                         this.request(HostCommand::Load, window, cx);
                     }
@@ -205,6 +227,8 @@ impl HostManager {
         }
         self.global = global;
         self.catalog = None;
+        self.cursor = None;
+        self.scroll.scroll_to_item(0);
         self.query
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.request(HostCommand::Load, window, cx);
@@ -213,6 +237,7 @@ impl HostManager {
         if self.cancel.is_some() {
             return;
         }
+        self.cursor = Some(host.name.clone());
         let expected = (!duplicate).then(|| host.clone());
         let mut host = host;
         if duplicate {
@@ -265,6 +290,9 @@ impl HostManager {
     fn open_tools(&mut self, host: Host, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
         if self.cancel.is_some() {
             return;
+        }
+        if self.form.is_none() {
+            self.cursor = Some(host.name.clone());
         }
         let slug = if self.global {
             None
@@ -320,14 +348,16 @@ impl HostManager {
             self.form = None;
             self.delete = None;
             self.status.clear();
-            self.focus.focus(window, cx);
+            self.list_focus.focus(window, cx);
             cx.notify();
         } else {
             cx.emit(HostEvent::Close);
         }
     }
     fn search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
-        self.query.focus_handle(cx).focus(window, cx);
+        if self.form.is_none() && self.delete.is_none() {
+            self.query.focus_handle(cx).focus(window, cx);
+        }
     }
 }
 
@@ -339,15 +369,18 @@ impl Render for HostManager {
         if let Some(links) = &self.links {
             return div().size_full().child(links.clone()).into_any_element();
         }
-        let query = self.query.read(cx).value().to_lowercase();
+        let selected = self.selected_host(cx).map(|h| h.name);
         let busy = self.cancel.is_some();
         let editing = self.form.is_some() || self.delete.is_some();
         let background = cx.theme().background;
         let foreground = cx.theme().foreground;
         let border = cx.theme().border;
-        div().key_context("DriftHosts").track_focus(&self.focus).flex().flex_col().size_full()
+        div().key_context(if self.form.is_some() { "DriftHosts DriftHostForm" } else if self.delete.is_some() { "DriftHosts DriftHostConfirm" } else { "DriftHosts" }).track_focus(&self.focus).flex().flex_col().size_full()
             .bg(background).text_color(foreground)
             .on_action(cx.listener(Self::close)).on_action(cx.listener(Self::search))
+            .on_action(cx.listener(|this, _: &FocusList, w, cx| this.select_row(this.cursor_row(cx), w, cx)))
+            .on_action(cx.listener(|this, _: &Save, w, cx| this.save(w, cx)))
+            .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
             .child(div().flex().flex_wrap().items_center().gap_2().p_3().border_b_1().border_color(border)
                 .child(div().flex_1().child(if self.global { "Global servers".to_string() } else { format!("Project hosts: {}", self.project_slug.as_deref().unwrap_or_default()) }))
                 .child(Button::new("scope-project").label("Project hosts").selected(!self.global)
@@ -358,7 +391,7 @@ impl Render for HostManager {
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Close)))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().flex().flex_col().w(px(350.)).min_h_0().p_3().gap_3().border_r_1().border_color(border)
-                    .child(Input::new(&self.query).id("hosts-filter"))
+                    .child(div().key_context("DriftHostFilter").child(Input::new(&self.query).id("hosts-filter").disabled(editing)))
                     .child(div().flex().gap_2()
                         .child(Button::new("host-new").label("New host").disabled(busy || editing || self.catalog.is_none())
                             .on_click(cx.listener(|this, _, w, cx| this.new_host(w, cx))))
@@ -366,11 +399,31 @@ impl Render for HostManager {
                             .on_click(cx.listener(|this, _, w, cx| this.open_links(w, cx)))))
                         .child(Button::new("hosts-reload").label("Reload").disabled(self.writing || editing)
                             .on_click(cx.listener(|this, _, w, cx| this.request(HostCommand::Load, w, cx)))))
-                    .child(div().id("host-list").flex().flex_col().gap_3().flex_1().min_h_0().overflow_y_scroll()
-                        .children(self.catalog.as_ref().into_iter().flat_map(|c| &c.hosts).filter(|h| h.name.to_lowercase().contains(&query) || h.hostname.to_lowercase().contains(&query)).enumerate().map(|(index, host)| {
+                    .child(div().id("host-list")
+                        .key_context(if editing { "DriftHostListInactive" } else { "DriftHostList" })
+                        .track_focus(&self.list_focus).track_scroll(&self.scroll)
+                        .on_action(cx.listener(|this, _: &CursorUp, w, cx| this.select_row(this.cursor_row(cx).saturating_sub(1), w, cx)))
+                        .on_action(cx.listener(|this, _: &CursorDown, w, cx| this.select_row(this.cursor_row(cx) + 1, w, cx)))
+                        .on_action(cx.listener(|this, _: &CursorFirst, w, cx| this.select_row(0, w, cx)))
+                        .on_action(cx.listener(|this, _: &CursorLast, w, cx| this.select_row(usize::MAX, w, cx)))
+                        .on_action(cx.listener(|this, _: &New, w, cx| this.new_host(w, cx)))
+                        .on_action(cx.listener(|this, _: &Edit, w, cx| { if let Some(host) = this.selected_host(cx) { this.edit(host, false, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Duplicate, w, cx| { if let Some(host) = this.selected_host(cx) { this.edit(host, true, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Remove, w, cx| { if this.cancel.is_none() && let Some(host) = this.selected_host(cx) { this.ask_delete(host, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Test, w, cx| { if let Some(host) = this.selected_host(cx) { this.open_tools(host, Mode::Test, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &ResetTrust, w, cx| this.reset_selected_trust(w, cx)))
+                        .on_action(cx.listener(|this, _: &Link, w, cx| this.open_links(w, cx)))
+                        .on_action(cx.listener(|this, _: &Reload, w, cx| this.request(HostCommand::Load, w, cx)))
+                        .on_action(cx.listener(|this, _: &Scope, w, cx| { if this.project_slug.is_some() { this.change_scope(!this.global, w, cx); } }))
+                        .flex().flex_col().gap_3().flex_1().min_h_0().overflow_y_scroll()
+                        .children(self.visible_hosts(cx).into_iter().enumerate().map(|(index, host)| {
                             let edit = host.clone(); let duplicate = host.clone(); let delete = host.clone(); let test = host.clone(); let reset = host.clone();
                             let ftps = self.catalog.as_ref().is_some_and(|catalog| catalog.runtime.hosts.iter().any(|resolved| resolved.name == host.name && resolved.protocol == "ftps"));
-                            div().flex().flex_col().gap_1().pb_3().border_b_1().border_color(border)
+                            div().id(("host-row", index))
+                                .when(selected.as_ref() == Some(&host.name), |view| view.bg(cx.theme().accent))
+                                .on_click(cx.listener(move |this, _, w, cx| this.select_row(index, w, cx)))
+                                .map(|view| { #[cfg(test)] { view.test_support() } #[cfg(not(test))] { view } })
+                                .flex().flex_col().gap_1().pb_3().border_b_1().border_color(border)
                                 .child(host.name.clone()).child(if host.server.is_empty() { host.hostname.clone() } else { format!("Server link: {}", host.server) })
                                 .child(div().flex().flex_wrap().gap_1()
                                     .child(Button::new(("host-edit", index)).label("Edit").disabled(busy || editing)
@@ -378,7 +431,7 @@ impl Render for HostManager {
                                     .child(Button::new(("host-duplicate", index)).label("Duplicate").disabled(busy || editing)
                                         .on_click(cx.listener(move |this, _, w, cx| this.edit(duplicate.clone(), true, w, cx))))
                                     .child(Button::new(("host-delete", index)).label("Delete").disabled(busy || editing)
-                                        .on_click(cx.listener(move |this, _, _, cx| { this.delete = Some(delete.clone()); cx.notify(); })))
+                                        .on_click(cx.listener(move |this, _, w, cx| this.ask_delete(delete.clone(), w, cx))))
                                     .child(Button::new(("host-test", index)).label("Test").disabled(busy || editing)
                                         .on_click(cx.listener(move |this, _, w, cx| this.open_tools(test.clone(), Mode::Test, w, cx))))
                                     .when(ftps, |view| view.child(Button::new(("host-trust-reset", index)).label("Reset certificate trust").disabled(busy || editing)
@@ -388,13 +441,12 @@ impl Render for HostManager {
                 .child(div().id("host-details").flex_1().min_w_0().p_4().overflow_y_scroll()
                     .when(self.form.is_some(), |view| view.child(self.render_form(cx)))
                     .when_some(self.delete.as_ref(), |view, host| {
-                        let expected = host.clone();
                         view.child(div().flex().flex_col().gap_3()
                             .child(format!("Delete host {:?}?", host.name))
                             .child("Files on the host and in the project remain unchanged.")
                             .child(div().flex().gap_2()
                                 .child(Button::new("host-confirm-delete").label("Delete host").disabled(busy)
-                                    .on_click(cx.listener(move |this, _, w, cx| this.request(HostCommand::Delete { expected: Box::new(expected.clone()) }, w, cx))))
+                                    .on_click(cx.listener(|this, _, w, cx| this.confirm_delete(w, cx))))
                                 .child(Button::new("host-cancel-delete").label("Cancel").disabled(self.writing)
                                     .on_click(cx.listener(|this, _, w, cx| this.close(&Close, w, cx))))))
                     })
@@ -402,7 +454,7 @@ impl Render for HostManager {
                         let defaults = self.catalog.as_ref().map(|c| format!("Defaults: port {}, user {}. Empty fields keep these defaults.",
                             if c.defaults.port == 0 { "by protocol".into() } else { c.defaults.port.to_string() },
                             if c.defaults.user.is_empty() { "unspecified" } else { &c.defaults.user })).unwrap_or_default();
-                        view.child(div().flex().flex_col().gap_3().child("Select Edit or add a host.").child(defaults))
+                        view.child(div().flex().flex_col().gap_3().child("↓ from filter · j/k navigate · n new · e edit · c duplicate · d delete · t test · r reset trust · Tab scope").child(defaults))
                     })))
             .child(div().p_3().border_t_1().border_color(border).child(self.status.clone())).into_any_element()
     }

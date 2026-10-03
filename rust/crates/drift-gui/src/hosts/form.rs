@@ -309,7 +309,7 @@ impl HostManager {
                     .gap_2()
                     .child(
                         Button::new("host-save")
-                            .label("Save host")
+                            .label("Save host (Ctrl/Cmd+S)")
                             .disabled(self.cancel.is_some())
                             .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
                     )

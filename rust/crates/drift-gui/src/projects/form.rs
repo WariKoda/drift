@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::ClickEvent;
 pub(super) struct ProjectForm {
     pub expected: Option<Project>,
     pub name: Entity<InputState>,
@@ -25,6 +24,9 @@ impl ProjectsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(project) = &expected {
+            self.cursor = Some(project.slug.clone());
+        }
         let name = cx.new(|cx| {
             let mut input = InputState::new(window, cx).placeholder("Project name");
             input.set_value(
@@ -59,12 +61,7 @@ impl ProjectsPanel {
         self.status.clear();
         cx.notify();
     }
-    pub(super) fn save_form(
-        &mut self,
-        _: &ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn save_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = &self.form else {
             return;
         };

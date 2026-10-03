@@ -124,7 +124,10 @@ async fn real_host_test_certificate_decisions_and_reset_conflicts(cx: &mut TestA
                     mode == "permanent"
                 );
                 cx.update_window(handle, |_, w, cx| {
-                    tools.update(cx, |tools, cx| tools.inspect(w, cx))
+                    tools.update(cx, |tools, cx| {
+                        tools.focus.focus(w, cx);
+                        tools.inspect(w, cx);
+                    })
                 })
                 .unwrap();
                 idle(handle, &tools, cx).await;
@@ -135,7 +138,7 @@ async fn real_host_test_certificate_decisions_and_reset_conflicts(cx: &mut TestA
                     store
                         .save_trusted_certificate(Some(&before), concurrent.clone())
                         .unwrap();
-                    cx.update_window(handle, |_, w, cx| w.click("host-trust-reset-confirm", cx))
+                    cx.update_window(handle, |_, w, cx| w.press("enter", cx))
                         .unwrap();
                     idle(handle, &tools, cx).await;
                     tools.read_with(cx, |tools, _| {
@@ -143,12 +146,12 @@ async fn real_host_test_certificate_decisions_and_reset_conflicts(cx: &mut TestA
                         assert!(tools.reset.is_some());
                     });
                     assert_eq!(store.trusted_certificates().unwrap(), vec![concurrent]);
-                    cx.update_window(handle, |_, w, cx| w.click("host-trust-reload", cx))
+                    cx.update_window(handle, |_, w, cx| w.press("r", cx))
                         .unwrap();
                     idle(handle, &tools, cx).await;
                 }
                 let before = server.commands("PASS");
-                cx.update_window(handle, |_, w, cx| w.click("host-trust-reset-confirm", cx))
+                cx.update_window(handle, |_, w, cx| w.press("enter", cx))
                     .unwrap();
                 idle(handle, &tools, cx).await;
                 assert_eq!(server.commands("PASS"), before, "reset must not reconnect");

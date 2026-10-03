@@ -17,9 +17,18 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{ActiveTheme, button::Button};
 use gpui_kit::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Styled, Subscription, Window, div,
+    IntoElement, KeyBinding, ParentElement, Render, Styled, Subscription, Window, div,
 };
 use tokio_util::sync::CancellationToken;
+
+gpui_kit::actions!(drift_trust_reset, [ConfirmReset, ReloadTrust]);
+pub(super) fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("enter", ConfirmReset, Some("DriftTrustReset")),
+        KeyBinding::new("y", ConfirmReset, Some("DriftTrustReset")),
+        KeyBinding::new("r", ReloadTrust, Some("DriftTrustReset")),
+    ]);
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum Mode {
@@ -245,6 +254,9 @@ impl HostTools {
         let Some(snapshot) = self.reset.clone() else {
             return;
         };
+        if snapshot.session.is_none() && snapshot.persistent.is_none() {
+            return;
+        }
         self.status = "Resetting certificate trust…".into();
         let id = self.id();
         let operation = self.service.reset_host_trust(snapshot, id);
@@ -285,7 +297,11 @@ impl Render for HostTools {
         let busy = self.cancel.is_some();
         let mut view = div()
             .id("host-tools")
-            .key_context("Drift")
+            .key_context(if self.reset.is_some() {
+                "Drift DriftTrustReset"
+            } else {
+                "Drift"
+            })
             .track_focus(&self.focus)
             .size_full()
             .flex()
@@ -295,6 +311,8 @@ impl Render for HostTools {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::close))
+            .on_action(cx.listener(|this, _: &ConfirmReset, w, cx| this.reset(w, cx)))
+            .on_action(cx.listener(|this, _: &ReloadTrust, w, cx| this.inspect(w, cx)))
             .child(format!("Host: {}", self.host.name))
             .child(self.status.clone());
         if let Some(snapshot) = &self.reset {
@@ -310,7 +328,7 @@ impl Render for HostTools {
                         .map_or("None", |entry| entry.fingerprint.as_str())
                 ));
             }
-            view = view.child("Reset removes both exceptions for this endpoint. Existing connections remain open.")
+            view = view.child("Reset removes both exceptions for this endpoint. Existing connections remain open. Enter/y confirms; r reloads; Escape returns.")
                 .child(div().flex().gap_2()
                     .child(Button::new("host-trust-reset-confirm").label("Reset certificate trust").disabled(busy || (snapshot.persistent.is_none() && snapshot.session.is_none()))
                         .on_click(cx.listener(|this, _, w, cx| this.reset(w, cx))))

@@ -13,7 +13,7 @@ async fn startup_dashboard_does_not_mark_opened_and_returns_to_original_director
     let root = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
     let store = Store::new(config.path().into());
-    let project = store.register("Shop", root.path().into()).unwrap();
+    store.register("Shop", root.path().into()).unwrap();
     let (handle, shell) = cx.update(|cx| {
         gpui_kit::init(cx);
         bind_keys(cx);
@@ -78,7 +78,8 @@ async fn startup_dashboard_does_not_mark_opened_and_returns_to_original_director
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        w.click(format!("project-open-{}", project.slug), cx)
+        w.press("down", cx);
+        w.press("enter", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(30), |_, cx| {

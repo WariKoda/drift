@@ -1,10 +1,12 @@
 //! Remote browser and host selection. Network tasks belong to drift-app.
+mod tree;
 use crate::actions::*;
 use drift_app::{
     FileList,
     browser::{Location, OperationId},
     navigation::History,
     remote::{RemoteDirectory, RemoteService, RemoteSession},
+    tree::FileTree,
 };
 use drift_core::{
     config::Host,
@@ -73,6 +75,10 @@ pub struct RemotePane {
     path: String,
     entries: Vec<RemoteEntry>,
     files: FileList,
+    tree: FileTree,
+    tree_pending: Option<String>,
+    tree_restore: std::collections::VecDeque<String>,
+    tree_cursor: Option<String>,
     selection_location: Option<Location>,
     filter: Entity<InputState>,
     focus: FocusHandle,
@@ -124,6 +130,10 @@ impl RemotePane {
             path: String::new(),
             entries: vec![],
             files: FileList::new(vec![]),
+            tree: FileTree::default(),
+            tree_pending: None,
+            tree_restore: Default::default(),
+            tree_cursor: None,
             selection_location: None,
             filter,
             focus: cx.focus_handle().tab_stop(true),
@@ -205,8 +215,11 @@ impl RemotePane {
         &self.path
     }
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
+        self.tree_restore.clear();
+        self.tree_cursor = None;
         self.connection += 1;
         self.operation += 1;
+        self.tree_pending = None;
         if let Some(cancel) = self.listing.take() {
             cancel.cancel();
         }
@@ -220,6 +233,7 @@ impl RemotePane {
         self.pending = None;
         self.path.clear();
         self.entries.clear();
+        self.tree = FileTree::default();
         self.files = FileList::new(vec![]);
         self.history = History::default();
         self.selection_changed(cx);
@@ -363,16 +377,35 @@ impl RemotePane {
         }
         self.path = directory.path;
         self.session = Some(directory.session);
+        let nodes = directory
+            .entries
+            .iter()
+            .map(|e| (e.path.clone(), e.directory));
+        if matches!(self.navigation, Navigation::Keep) {
+            self.tree.reload(nodes);
+        } else {
+            self.tree = FileTree::new(nodes);
+        }
         self.entries = directory.entries;
         self.set_entries(cx);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.status(format!("{} remote entries", self.files.len()), cx);
+        self.restore_tree(window, cx);
         cx.notify();
     }
     fn set_entries(&mut self, cx: &mut Context<Self>) {
         self.files.replace_entries(
-            self.entries
+            self.tree
+                .nodes()
                 .iter()
-                .filter(|e| self.show_hidden || !e.name.starts_with('.'))
+                .filter(|e| {
+                    self.show_hidden
+                        || !std::path::Path::new(&e.path)
+                            .strip_prefix(&self.path)
+                            .unwrap_or(std::path::Path::new(&e.path))
+                            .components()
+                            .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
+                })
                 .map(|e| e.path.clone())
                 .collect(),
         );
@@ -391,7 +424,6 @@ impl RemotePane {
             }
         }
         self.files.filter(&self.filter.read(cx).value());
-        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
     }
     fn navigate(
         &mut self,
@@ -406,8 +438,19 @@ impl RemotePane {
         if !session.contains(&path) || self.listing.is_some() {
             return;
         }
+        self.tree_restore = if matches!(navigation, Navigation::Keep) {
+            self.tree.expanded_paths().cloned().collect()
+        } else {
+            Default::default()
+        };
+        self.tree_cursor = if matches!(navigation, Navigation::Keep) {
+            self.files.selected().map(str::to_owned)
+        } else {
+            None
+        };
         self.focus.focus(window, cx);
         self.operation += 1;
+        self.tree_pending = None;
         self.selection_changed(cx);
         self.navigation = navigation;
         let id = OperationId {
@@ -631,8 +674,34 @@ impl RemotePane {
         );
         cx.notify();
     }
-    fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_directory(&mut self, _: &OpenDirectory, window: &mut Window, cx: &mut Context<Self>) {
         self.choose(self.files.selected_row().unwrap_or(0), window, cx);
+    }
+    fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+        let index = self.files.selected_row().unwrap_or(0);
+        self.files.select(index);
+        let Some(path) = self.files.selected().map(str::to_owned) else {
+            return;
+        };
+        if self.tree.node(&path).is_some_and(|n| n.directory) {
+            if self.tree.node(&path).is_some_and(|n| n.expanded) {
+                if let Some(child) = self.files.row(index + 1).map(str::to_owned)
+                    && self.tree.parent(&child) == Some(path.as_str())
+                {
+                    self.files.select(index + 1);
+                }
+                self.selection_changed(cx);
+                self.scroll.scroll_to_item(
+                    self.files.selected_row().unwrap_or(0),
+                    ScrollStrategy::Nearest,
+                );
+                cx.notify();
+            } else {
+                self.expand(path, window, cx);
+            }
+        } else {
+            self.choose(index, window, cx);
+        }
     }
     pub fn copy(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(path) = self.files.selected() {
@@ -769,6 +838,8 @@ impl Render for RemotePane {
                     .on_action(cx.listener(Self::cursor_up))
                     .on_action(cx.listener(Self::cursor_down))
                     .on_action(cx.listener(Self::activate))
+                    .on_action(cx.listener(Self::collapse))
+                    .on_action(cx.listener(Self::open_directory))
                     .on_action(cx.listener(Self::toggle_mark))
                     .on_action(cx.listener(Self::visual_range))
                     .on_action(cx.listener(Self::mark_all))
@@ -786,13 +857,53 @@ impl Render for RemotePane {
                                         let path = this.files.row(index)?.to_owned();
                                         let entry = this.entries.iter().find(|e| e.path == path)?;
                                         let chosen = this.files.selected() == Some(path.as_str());
+                                        let depth = this.tree.node(&path).map_or(0, |n| n.depth);
+                                        let expanded =
+                                            this.tree.node(&path).is_some_and(|n| n.expanded);
+                                        let pending =
+                                            this.tree_pending.as_deref() == Some(path.as_str());
+                                        let descendants = if entry.directory && !expanded {
+                                            this.files.marked_descendants(&path)
+                                        } else {
+                                            0
+                                        };
+                                        let toggle_path = path.clone();
+                                        let is_directory = entry.directory;
+                                        let disclosure = div()
+                                            .id(("remote-tree-toggle", index))
+                                            .w(px(22.))
+                                            .flex_shrink_0()
+                                            .child(if pending {
+                                                "…"
+                                            } else if expanded {
+                                                "▾"
+                                            } else if is_directory {
+                                                "▸"
+                                            } else {
+                                                " "
+                                            })
+                                            .on_click(cx.listener(move |this, _, w, cx| {
+                                                if is_directory {
+                                                    cx.stop_propagation();
+                                                    this.toggle_tree(toggle_path.clone(), w, cx);
+                                                }
+                                            }));
+                                        #[cfg(test)]
+                                        let disclosure = disclosure.test_support();
                                         let row = div()
                                             .id(index)
                                             .h(px(28.))
-                                            .px_3()
+                                            .pr_3()
+                                            .pl(px(12. + depth as f32 * 16.))
                                             .flex()
                                             .items_center()
                                             .bg(if chosen { accent } else { background })
+                                            .child(disclosure)
+                                            .child(if descendants > 0 {
+                                                format!("· {descendants} marked ")
+                                            } else {
+                                                String::new()
+                                            })
                                             .child(format!(
                                                 "{} {}{}{}",
                                                 if this.files.is_marked(&path) {

@@ -1,9 +1,11 @@
 //! One independently navigable pane. Finder uses the same virtualized rows.
+mod tree;
 use crate::actions::*;
 use drift_app::{
     FileList,
     browser::{BrowserService, Directory, Location, OperationId},
     navigation::History,
+    tree::FileTree,
 };
 use drift_core::{local::Entry, project::Registry, store::Store};
 use gpui_kit::component::ActiveTheme;
@@ -58,6 +60,10 @@ impl EventEmitter<BrowserEvent> for BrowserPane {}
 pub struct BrowserPane {
     filter: Entity<InputState>,
     files: FileList,
+    tree: FileTree,
+    tree_pending: Option<String>,
+    tree_restore: std::collections::VecDeque<String>,
+    tree_cursor: Option<String>,
     entries: Vec<Entry>,
     location: Option<Location>,
     store: Store,
@@ -107,6 +113,10 @@ impl BrowserPane {
         Self {
             filter,
             files: FileList::new(vec![]),
+            tree: FileTree::default(),
+            tree_pending: None,
+            tree_restore: Default::default(),
+            tree_cursor: None,
             entries: vec![],
             location: None,
             store,
@@ -217,8 +227,11 @@ impl BrowserPane {
         cx: &mut Context<Self>,
     ) {
         self.browser_focus.focus(window, cx);
+        self.tree_restore.clear();
+        self.tree_cursor = None;
         self.generation += 1;
         self.listing += 1;
+        self.tree_pending = None;
         self.selection_changed(false, cx);
         if let Some(cancel) = self.listing_cancel.take() {
             cancel.cancel();
@@ -287,19 +300,26 @@ impl BrowserPane {
             id,
             registry: directory.registry,
         });
-        self.set_entries(directory.entries, cx);
+        self.set_entries(
+            directory.entries,
+            matches!(self.navigation, Navigation::Keep),
+            cx,
+        );
+        self.restore_tree(window, cx);
         self.selection_changed(false, cx);
         cx.notify();
     }
-    fn set_entries(&mut self, entries: Vec<Entry>, cx: &mut Context<Self>) {
+    fn set_entries(&mut self, entries: Vec<Entry>, keep_expanded: bool, cx: &mut Context<Self>) {
+        let nodes = entries
+            .iter()
+            .map(|e| (e.path.to_string_lossy().into_owned(), e.directory));
+        if keep_expanded {
+            self.tree.reload(nodes);
+        } else {
+            self.tree = FileTree::new(nodes);
+        }
         self.entries = entries;
-        self.files.replace_entries(
-            self.entries
-                .iter()
-                .map(|e| e.path.to_string_lossy().into_owned())
-                .collect(),
-        );
-        self.files.filter(&self.filter.read(cx).value());
+        self.rebuild_tree(cx);
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.status(format!("{} entries", self.files.len()), cx);
     }
@@ -317,8 +337,19 @@ impl BrowserPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.tree_restore = if matches!(navigation, Navigation::Keep) {
+            self.tree.expanded_paths().cloned().collect()
+        } else {
+            Default::default()
+        };
+        self.tree_cursor = if matches!(navigation, Navigation::Keep) {
+            self.files.selected().map(str::to_owned)
+        } else {
+            None
+        };
         self.navigation = navigation;
         self.listing += 1;
+        self.tree_pending = None;
         cx.emit(BrowserEvent::Changed(self.id()));
         self.selection_changed(false, cx);
         if let Some(cancel) = self.listing_cancel.take() {
@@ -534,10 +565,38 @@ impl BrowserPane {
         );
         cx.notify();
     }
-    fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_directory(&mut self, _: &OpenDirectory, window: &mut Window, cx: &mut Context<Self>) {
         self.choose(self.files.selected_row().unwrap_or(0), window, cx);
     }
+    fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+        let index = self.files.selected_row().unwrap_or(0);
+        self.files.select(index);
+        let Some(path) = self.files.selected().map(str::to_owned) else {
+            return;
+        };
+        if self.tree.node(&path).is_some_and(|n| n.directory) {
+            if self.tree.node(&path).is_some_and(|n| n.expanded) {
+                if let Some(child) = self.files.row(index + 1).map(str::to_owned)
+                    && self.tree.parent(&child) == Some(path.as_str())
+                {
+                    self.files.select(index + 1);
+                }
+                self.selection_changed(false, cx);
+                self.scroll.scroll_to_item(
+                    self.files.selected_row().unwrap_or(0),
+                    ScrollStrategy::Nearest,
+                );
+                cx.notify();
+            } else {
+                self.expand(path, window, cx);
+            }
+        } else {
+            self.choose(index, window, cx);
+        }
+    }
     fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tree_restore.clear();
+        self.tree_cursor = None;
         let Some(location) = self.location.clone() else {
             return;
         };
@@ -561,7 +620,7 @@ impl BrowserPane {
                 match result {
                     Ok(Ok(entries)) => {
                         this.finder = true;
-                        this.set_entries(entries, cx);
+                        this.set_entries(entries, false, cx);
                     }
                     Ok(Err(error)) => this.status(error.to_string(), cx),
                     Err(error) => this.status(error.to_string(), cx),
@@ -587,6 +646,7 @@ impl BrowserPane {
     }
     pub fn stop_listing(&mut self, cx: &mut Context<Self>) {
         self.listing += 1;
+        self.tree_pending = None;
         if let Some(cancel) = self.listing_cancel.take() {
             cancel.cancel();
         }
@@ -596,14 +656,19 @@ impl BrowserPane {
     }
     /// A moved/removed active registry entry invalidates its old capability root.
     pub fn invalidate_project(&mut self, cx: &mut Context<Self>) {
+        self.tree_restore.clear();
+        self.tree_cursor = None;
         self.generation += 1;
         self.location = None;
         self.entries.clear();
+        self.tree = FileTree::default();
         self.files = FileList::new(vec![]);
         self.history = History::default();
         self.stop_listing(cx);
     }
     fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.tree_restore.clear();
+        self.tree_cursor = None;
         self.stop_listing(cx);
         self.status("Cancelled".into(), cx);
     }
@@ -658,6 +723,8 @@ impl Render for BrowserPane {
             .on_action(cx.listener(Self::cursor_up))
             .on_action(cx.listener(Self::cursor_down))
             .on_action(cx.listener(Self::activate))
+            .on_action(cx.listener(Self::collapse))
+            .on_action(cx.listener(Self::open_directory))
             .on_action(cx.listener(Self::toggle_mark))
             .on_action(cx.listener(Self::visual_range))
             .on_action(cx.listener(Self::mark_all))
@@ -716,14 +783,52 @@ impl Render for BrowserPane {
                                     display_name,
                                     if directory { "/" } else { "" }
                                 );
+                                let depth = this.tree.node(&name).map_or(0, |n| n.depth);
+                                let expanded = this.tree.node(&name).is_some_and(|n| n.expanded);
+                                let pending = this.tree_pending.as_deref() == Some(name.as_str());
+                                let descendants = if directory && !expanded {
+                                    this.files.marked_descendants(&name)
+                                } else {
+                                    0
+                                };
+                                let toggle_path = name.clone();
+                                let is_directory = directory;
+                                let disclosure = div()
+                                    .id(("local-tree-toggle", index))
+                                    .w(px(22.))
+                                    .flex_shrink_0()
+                                    .child(if pending {
+                                        "…"
+                                    } else if expanded {
+                                        "▾"
+                                    } else if is_directory {
+                                        "▸"
+                                    } else {
+                                        " "
+                                    })
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        if is_directory {
+                                            cx.stop_propagation();
+                                            this.toggle_tree(toggle_path.clone(), w, cx);
+                                        }
+                                    }));
+                                #[cfg(test)]
+                                let disclosure = disclosure.test_support();
                                 let row = div()
                                     .id(index)
                                     .h(px(28.))
-                                    .px_3()
+                                    .pr_3()
+                                    .pl(px(12. + depth as f32 * 16.))
                                     .flex()
                                     .items_center()
                                     .bg(if chosen { accent } else { background })
+                                    .child(disclosure)
                                     .child(label)
+                                    .child(if descendants > 0 {
+                                        format!(" · {descendants} marked")
+                                    } else {
+                                        String::new()
+                                    })
                                     .on_click(cx.listener(
                                         move |this, event: &gpui_kit::ClickEvent, w, cx| {
                                             this.browser_focus.focus(w, cx);

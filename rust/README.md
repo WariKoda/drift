@@ -62,7 +62,13 @@ its capability root and hosts; the longest registered path wins. Up stays within
 registered projects. For unregistered folders, Up opens the parent with a new
 capability root. Open folder uses the native folder chooser. Back and Forward
 follow successfully loaded directories; a failed load keeps the current folder.
-Click a directory to enter it or a file to preview it in the opposite pane.
+Each browser displays an expandable file tree. Click a directory's arrow to
+load its children in place; click it again to collapse them. A collapsed directory
+shows how many marked descendants it contains. Children load through the existing
+background services, and failed loads leave the directory collapsed. Refresh
+restores expanded paths and the cursor. Visibility changes retain expansion state,
+including directories that are temporarily hidden.
+Click a directory's name to enter it or a file to preview it in the opposite pane.
 Ctrl-click/Cmd-click toggles a mark without opening the entry; Shift-click adds a
 visible range. Marks have a checkmark separate from the cursor highlight and a
 count in each pane. They survive navigation, filters, visibility changes and
@@ -93,8 +99,11 @@ Preview uses Kit's read-only text control with line numbers, wrapping and native
 text selection/copy. Copy text copies the complete preview; Copy path copies the
 selected project-relative path. Ctrl+F/Cmd+F focuses the file filter, F5 refreshes,
 and Cancel stops the active listing/finder/preview. In the browser, arrows or
-J/K move the selection, Enter/Right/L opens it, and Backspace/Left/H goes up.
-Alt+Left/Right follows history and Alt+Up goes up. Space toggles the cursor's
+J/K move the cursor. Enter/Right/L expands a directory, or moves to its first
+visible child when already expanded; on files it opens the preview. Left/H collapses
+the directory or its parent, preserving descendant marks. Alt+Enter enters the
+selected directory as the new browser root. Backspace/Alt+Up goes up, and
+Alt+Left/Right follows history. Space toggles the cursor's
 mark; V marks visible siblings in its directory; * inverts visible marks.
 V in the finder uses the cursor's parent directory. Lowercase v starts/finishes
 an additive visible interval; Shift+Up/Down adds a range immediately. Escape
@@ -319,6 +328,10 @@ headless test window, including nested navigation, project boundaries, input foc
 failed loads, registration, stale-result rejection and picker/session lifetime.
 Two panes in one headless window verify independent filter, selection, focus,
 history and cancellation; preview tests verify replacement and clipboard content.
+Tree tests cover delayed local/SFTP loading, nested collapse, hidden and ignored
+visibility, remembered expansion, vanished directories, discarded completions,
+project switches and comparison/sync scope with marked collapsed children. The
+FTP/FTPS shell tests also expand, mark and collapse real remote directories.
 FTP tests start a filesystem-backed local daemon from `../testdata/ftp-server/`
 and cover login limits, EPSV/MLST fallback, ambiguous permission failures, busy
 keep-alive, completion errors after EOF, staged upload/download/delete, abort and
@@ -368,6 +381,7 @@ All test stores use temporary directories. Native Wayland, X11, macOS Intel and
 Apple Silicon rendering/OS clipboard checks remain manual: navigate a temporary
 project, use the native folder chooser, navigate back and forward, filter and find
 files, mark files/folders with Space, Ctrl/Cmd-click, Shift-click, v/V and *,
+expand/collapse nested directories, refresh and verify cursor/expansion restoration,
 change filters/visibility/folders and confirm both panes retain their own marks,
 compare with s and confirm refresh/sync keep only that scope, exercise host forms
 and return to the browser, preview/copy text into another app, toggle hidden

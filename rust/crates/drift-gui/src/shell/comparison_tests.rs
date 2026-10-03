@@ -346,11 +346,22 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
         shell.read(cx).browser.focus_handle(cx).focus(w, cx);
         w.press("down", cx);
         w.press("space", cx);
+        w.press("right", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).browser.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("right", cx);
+        w.press("space", cx);
+        w.press("left", cx); // The marked child remains in comparison scope while collapsed.
         w.press("down", cx);
         w.press("space", cx);
         assert_eq!(
             shell.read(cx).browser.read(cx).marked(),
-            ["folder", "ignored.txt"]
+            ["folder", "folder/child.txt", "ignored.txt"]
         );
         w.click("remote", cx);
         w.press("down", cx);
@@ -371,7 +382,11 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
         let session = comparison.session.as_ref().unwrap();
         assert_eq!(
             session.request.local,
-            [PathBuf::from("folder"), PathBuf::from("ignored.txt")]
+            [
+                PathBuf::from("folder"),
+                PathBuf::from("folder/child.txt"),
+                PathBuf::from("ignored.txt")
+            ]
         );
         assert_eq!(session.request.remote.len(), 1);
         let names: Vec<_> = session
@@ -414,9 +429,12 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
     shell.read_with(cx, |s, cx| {
         let session = s.comparison.read(cx).session.as_ref().unwrap();
         assert!(session.entries.is_empty());
-        assert_eq!(session.request.local.len(), 2);
+        assert_eq!(session.request.local.len(), 3);
         assert_eq!(session.request.remote.len(), 1);
-        assert_eq!(s.browser.read(cx).marked(), ["folder", "ignored.txt"]);
+        assert_eq!(
+            s.browser.read(cx).marked(),
+            ["folder", "folder/child.txt", "ignored.txt"]
+        );
         assert_eq!(s.remote.read(cx).marked().len(), 1);
     });
     assert_eq!(

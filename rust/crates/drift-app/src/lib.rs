@@ -6,6 +6,7 @@ pub mod navigation;
 pub mod projects;
 pub mod remote;
 pub mod sync;
+pub mod tree;
 
 use std::collections::BTreeSet;
 
@@ -159,6 +160,20 @@ impl FileList {
     }
     pub fn selected(&self) -> Option<&str> {
         self.selected.map(|i| self.entries[i].as_str())
+    }
+    pub fn select_path(&mut self, path: &str) {
+        self.selected = self
+            .visible
+            .iter()
+            .copied()
+            .find(|i| self.entries[*i] == path);
+    }
+    pub fn marked_descendants(&self, path: &str) -> usize {
+        let parent = std::path::Path::new(path);
+        self.marked
+            .iter()
+            .filter(|p| p.as_str() != path && std::path::Path::new(p).starts_with(parent))
+            .count()
     }
     pub fn selected_row(&self) -> Option<usize> {
         self.selected

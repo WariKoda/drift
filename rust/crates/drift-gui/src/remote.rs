@@ -533,6 +533,31 @@ impl RemotePane {
         }
         cx.notify();
     }
+    pub fn preview_selected(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() {
+            return;
+        }
+        let Some(path) = self.files.selected() else {
+            return;
+        };
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        if session.state() != ConnectionState::Connected || !session.contains(path) {
+            return;
+        }
+        if self
+            .entries
+            .iter()
+            .any(|entry| entry.path == path && entry.regular && !entry.directory)
+        {
+            cx.emit(RemoteEvent::Preview {
+                session: session.clone(),
+                path: path.to_owned(),
+                project: self.project,
+            });
+        }
+    }
     fn up(&mut self, _: &GoUp, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(parent) = PathBuf::from(&self.path).parent() {
             self.navigate(
@@ -861,7 +886,20 @@ impl Render for RemotePane {
                             })),
                     ),
             )
-            .child(Input::new(&self.filter).id("remote-filter"))
+            .child(
+                div()
+                    .key_context("DriftRemoteFilter")
+                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                        this.focus.focus(w, cx);
+                    }))
+                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                        this.focus.focus(w, cx);
+                    }))
+                    .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                        this.focus.focus(w, cx);
+                    }))
+                    .child(Input::new(&self.filter).id("remote-filter")),
+            )
             .child(
                 div()
                     .p_2()

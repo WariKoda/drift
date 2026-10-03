@@ -434,6 +434,19 @@ impl BrowserPane {
         self.selection_changed(true, cx);
         cx.notify();
     }
+    pub fn preview_selected(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() || self.location.is_none() {
+            return;
+        }
+        let Some(path) = self.files.selected() else {
+            return;
+        };
+        if self.entries.iter().any(|entry| {
+            entry.path == std::path::Path::new(path) && !entry.directory && !entry.symlink
+        }) {
+            self.selection_changed(true, cx);
+        }
+    }
     fn up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(parent) = self.location.as_ref().and_then(Location::parent_directory) {
             self.navigate(parent, Navigation::Push, window, cx);
@@ -652,6 +665,7 @@ impl BrowserPane {
             .service
             .find(location, id, self.show_hidden, self.show_ignored);
         self.listing_cancel = Some(operation.cancel);
+        self.focus_filter_input(window, cx);
         self.status("Finding project files…".into(), cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = operation.task.await;

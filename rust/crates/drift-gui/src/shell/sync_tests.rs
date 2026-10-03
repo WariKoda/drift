@@ -62,6 +62,67 @@ async fn open_comparison(
 }
 
 #[gpui_kit::test]
+async fn explicit_modified_sync_confirmation_works_from_button_and_filter_focus(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    for button in [true, false] {
+        let server = support::Server::new(false);
+        let local = tempfile::tempdir().unwrap();
+        fs::write(local.path().join("data.txt"), "local data").unwrap();
+        let remote_file = server.dir.path().join("files/data.txt");
+        fs::write(&remote_file, "remote data").unwrap();
+        let config = tempfile::tempdir().unwrap();
+        let store = Store::new(config.path().into());
+        store.save_host(None, None, server.host()).unwrap();
+        let (handle, shell) = open_comparison(&store, local.path(), &server, cx).await;
+        cx.update_window(handle, |_, w, cx| {
+            w.press("ctrl-f", cx);
+            w.press("ctrl-enter", cx);
+            assert!(!shell.read(cx).comparison.read(cx).is_loading());
+            w.press("enter", cx);
+            w.press("u", cx);
+            assert!(w.find("sync-confirm").visible());
+            assert_eq!(fs::read_to_string(&remote_file).unwrap(), "remote data");
+            w.press("f1", cx);
+            w.press("ctrl-enter", cx);
+            assert!(!shell.read(cx).comparison.read(cx).is_loading());
+            assert_eq!(fs::read_to_string(&remote_file).unwrap(), "remote data");
+            w.press("escape", cx);
+            w.press("ctrl-f", cx);
+            if button {
+                for _ in 0..32 {
+                    w.press("shift-tab", cx);
+                    if w.find("sync-confirm").focused() == Some(true) {
+                        break;
+                    }
+                }
+                assert_eq!(w.find("sync-confirm").focused(), Some(true));
+            }
+            w.press(if button { "ctrl-enter" } else { "cmd-enter" }, cx);
+        })
+        .unwrap();
+        cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+            !shell.read(cx).comparison.read(cx).is_loading()
+                && !shell.read(cx).browser.read(cx).is_loading()
+                && !shell.read(cx).remote.read(cx).is_loading()
+        })
+        .await;
+        assert_eq!(fs::read_to_string(remote_file).unwrap(), "local data");
+        shell.read_with(cx, |s, cx| {
+            assert_eq!(
+                s.comparison
+                    .read(cx)
+                    .sync_result_for_test()
+                    .unwrap()
+                    .outcomes[0],
+                ItemOutcome::Completed
+            )
+        });
+    }
+}
+
+#[gpui_kit::test]
 async fn selected_sync_deletion_errors_and_cancel_are_visible_without_reusing_a_stale_comparison(
     cx: &mut TestAppContext,
 ) {

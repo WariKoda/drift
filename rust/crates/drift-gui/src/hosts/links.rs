@@ -5,7 +5,7 @@ use crate::actions::Cancel;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use drift_core::store::{LinkCatalog, LinkTarget};
 pub(super) use keyboard::bind_keys;
-use keyboard::{Choose, Confirm, FocusList, Reload, Search};
+use keyboard::{Choose, Confirm, DefaultConfirm, FocusList, Reload, Search};
 
 pub(super) enum LinkEvent {
     Close,
@@ -148,7 +148,7 @@ impl LinkPicker {
         cx.notify();
     }
     fn choose(&mut self, target: LinkTarget, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if self.cancel.is_some() || self.selected.is_some() {
             return;
         }
         self.cursor = Some((target.project.clone(), target.host.name.clone()));
@@ -217,6 +217,13 @@ impl Render for LinkPicker {
                     }
                 }))
                 .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm(w, cx)))
+                .on_action(cx.listener(|this, _: &DefaultConfirm, w, cx| {
+                    if this.focus.is_focused(w) {
+                        this.confirm(w, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }))
                 .on_action(cx.listener(|this, _: &Reload, w, cx| {
                     this.request(HostCommand::LinkTargets, w, cx)
                 }))
@@ -259,7 +266,13 @@ impl Render for LinkPicker {
                         .on_action(cx.listener(|this, _: &CursorLast, w, cx| {
                             this.select_row(usize::MAX, w, cx)
                         }))
-                        .on_action(cx.listener(|this, _: &Choose, w, cx| this.choose_cursor(w, cx)))
+                        .on_action(cx.listener(|this, _: &Choose, w, cx| {
+                            if this.list_focus.is_focused(w) {
+                                this.choose_cursor(w, cx);
+                            } else {
+                                cx.propagate();
+                            }
+                        }))
                         .flex()
                         .flex_col()
                         .gap_3()

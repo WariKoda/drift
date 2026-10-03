@@ -38,6 +38,127 @@ fn open(store: &Store, cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Proj
     })
 }
 #[gpui_kit::test]
+async fn keyboard_safety_project_confirmation_tabs_activate_cancel_not_remove(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let project = store.register("Keep", root.path().into()).unwrap();
+    store
+        .save_host(
+            Some(&project.slug),
+            None,
+            drift_core::config::Host {
+                name: "prod".into(),
+                hostname: "example.test".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let host_store = fs::read(config.path().join("projects/keep.toml")).unwrap();
+    let (handle, panel) = open(&store, cx);
+    idle(handle, &panel, cx).await;
+    for key in ["enter", "space"] {
+        cx.update_window(handle, |_, w, cx| {
+            w.press("down", cx);
+            w.press("d", cx);
+            assert!(panel.read(cx).focus.is_focused(w));
+            // Traverse the real confirm button, then Cancel; never assign target focus.
+            w.press("tab", cx);
+            assert_eq!(w.find("project-delete-confirm").focused(), Some(true));
+            w.press("tab", cx);
+            assert_eq!(w.find("project-close").focused(), Some(true));
+            w.press(key, cx);
+            assert!(panel.read(cx).delete.is_none());
+            assert!(panel.read(cx).visible());
+            assert!(panel.read(cx).list_focus.is_focused(w));
+            assert!(panel.read(cx).cancel.is_none());
+        })
+        .unwrap();
+        assert!(store.registry().unwrap().find("keep").unwrap() == &project);
+        assert_eq!(
+            fs::read(config.path().join("projects/keep.toml")).unwrap(),
+            host_store
+        );
+    }
+    // Enter on a traversed affirmative button still confirms exactly that button.
+    cx.update_window(handle, |_, w, cx| {
+        w.press("d", cx);
+        w.press("tab", cx);
+        assert_eq!(w.find("project-delete-confirm").focused(), Some(true));
+        w.press("enter", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert!(store.registry().unwrap().find("keep").is_none());
+    assert!(root.path().exists());
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_project_edit_tab_navigation_keeps_input_and_cancel_native(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let project = store.register("Keep", root.path().into()).unwrap();
+    let (handle, panel) = open(&store, cx);
+    idle(handle, &panel, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("e", cx);
+        w.input("unsaved", cx);
+        w.press("tab", cx);
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .path
+                .focus_handle(cx)
+                .is_focused(w)
+        );
+        w.press("shift-tab", cx);
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .focus_handle(cx)
+                .is_focused(w)
+        );
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .read(cx)
+                .value()
+                .ends_with("unsaved")
+        );
+        w.press("tab", cx);
+        w.press("tab", cx);
+        assert_eq!(w.find("project-save").focused(), Some(true));
+        w.press("tab", cx);
+        assert_eq!(w.find("project-close").focused(), Some(true));
+        w.press("enter", cx);
+        assert!(panel.read(cx).form.is_none());
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        assert!(panel.read(cx).cancel.is_none());
+    })
+    .unwrap();
+    assert!(store.registry().unwrap().find("keep").unwrap() == &project);
+}
+
+#[gpui_kit::test]
 async fn create_edit_archive_and_confirmed_remove_keep_local_files(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let config = tempfile::tempdir().unwrap();

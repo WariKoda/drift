@@ -2,11 +2,38 @@ use super::*;
 use crate::sftp_test_support::ftp::Server;
 use drift_app::browser::BrowserService;
 use drift_core::tlstrust::Manager;
+use fs2::FileExt;
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};
 use gpui_kit::{
     AnyWindowHandle, Bounds, TestAppContext, WindowBounds, WindowOptions, point, px, size,
 };
-use std::{fs, sync::Arc, time::Duration};
+use std::{cell::Cell, fs, rc::Rc, sync::Arc, time::Duration};
+
+fn open_tools(
+    store: Store,
+    service: RemoteService,
+    host: Host,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<HostTools>) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1400.), px(900.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |w, cx| cx.new(|cx| HostTools::new(store, service, None, host, Mode::Test, w, cx)),
+        )
+        .unwrap()
+    })
+}
+
+mod keyboard;
 
 async fn idle(handle: AnyWindowHandle, tools: &Entity<HostTools>, cx: &mut TestAppContext) {
     cx.wait_for(handle, Duration::from_secs(30), |_, cx| {

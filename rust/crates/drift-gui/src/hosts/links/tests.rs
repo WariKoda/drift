@@ -48,6 +48,78 @@ fn open(store: &Store, cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Host
 }
 
 #[gpui_kit::test]
+async fn keyboard_safety_promotion_tabs_activate_back_and_reload_without_promoting(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let host = Host {
+        name: "stage".into(),
+        hostname: "example.test".into(),
+        root_path: "/srv".into(),
+        ..Default::default()
+    };
+    store.save_host(Some("source"), None, host.clone()).unwrap();
+    let source = fs::read(config.path().join("projects/source.toml")).unwrap();
+    let (handle, manager) = open(&store, cx);
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("l", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    let picker = manager.read_with(cx, |m, _| m.links.as_ref().unwrap().clone());
+    for key in ["enter", "space"] {
+        cx.update_window(handle, |_, w, cx| {
+            w.press("down", cx);
+            w.press("enter", cx);
+            assert!(picker.read(cx).focus.is_focused(w));
+            super::super::tests::tab_to(w, "host-link-close", cx);
+            w.press(key, cx);
+            assert!(picker.read(cx).selected.is_none());
+            assert!(picker.read(cx).list_focus.is_focused(w));
+            assert!(picker.read(cx).cancel.is_none());
+            assert!(manager.read(cx).links.is_some());
+            w.press("enter", cx);
+            super::super::tests::tab_to(w, "host-link-reload", cx);
+            let operation = picker.read(cx).operation;
+            w.press(key, cx);
+            assert_eq!(picker.read(cx).operation, operation + 1);
+            assert!(!picker.read(cx).writing);
+            assert!(picker.read(cx).cancel.is_some());
+        })
+        .unwrap();
+        idle(handle, &manager, cx).await;
+        cx.update_window(handle, |_, w, cx| {
+            assert!(picker.read(cx).selected.is_none());
+            assert!(picker.read(cx).list_focus.is_focused(w));
+            assert!(manager.read(cx).links.is_some());
+        })
+        .unwrap();
+        assert!(store.global().unwrap().hosts.is_empty());
+        assert_eq!(
+            fs::read(config.path().join("projects/source.toml")).unwrap(),
+            source
+        );
+        assert!(store.project("source").unwrap().hosts == vec![host.clone()]);
+        assert!(!config.path().join("projects/dest.toml").exists());
+    }
+    // Y remains an explicit confirmation even with Back focused.
+    cx.update_window(handle, |_, w, cx| {
+        w.press("enter", cx);
+        super::super::tests::tab_to(w, "host-link-close", cx);
+        w.press("y", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    assert!(manager.read_with(cx, |m, _| m.links.is_none() && m.form.is_some()));
+    assert_eq!(store.project("source").unwrap().hosts[0].server, "stage");
+    assert_eq!(store.global().unwrap().hosts.len(), 1);
+}
+
+#[gpui_kit::test]
 async fn promotion_filter_confirmation_and_save_preserve_form_scope(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let config = tempfile::tempdir().unwrap();

@@ -7,7 +7,7 @@ impl Render for ComparisonPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("comparison")
-            .key_context("Drift")
+            .key_context("Drift DriftComparison")
             .flex()
             .flex_col()
             .size_full()
@@ -22,6 +22,12 @@ impl Render for ComparisonPane {
             }))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(|this, _: &CancelWork, w, cx| {
+                if this.is_loading() {
+                    this.show_errors = false;
+                    this.cancel(&Cancel, w, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &ResizePaneLeft, w, cx| {
                 this.split.command(SplitCommand::Left, w, cx);
                 cx.notify();
@@ -198,7 +204,20 @@ impl Render for ComparisonPane {
                             .w_full()
                             .min_w_0()
                             .min_h_0()
-                            .child(Input::new(&self.filter).id("comparison-filter"))
+                            .child(
+                                div()
+                                    .key_context("DriftComparisonFilter")
+                                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                                        this.focus.focus(w, cx);
+                                    }))
+                                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                                        this.focus.focus(w, cx);
+                                    }))
+                                    .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                                        this.focus.focus(w, cx);
+                                    }))
+                                    .child(Input::new(&self.filter).id("comparison-filter")),
+                            )
                             .child(
                                 div()
                                     .id("comparison-file-list")

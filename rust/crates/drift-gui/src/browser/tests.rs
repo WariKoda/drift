@@ -22,7 +22,26 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.left.read(cx).header())
+                    .on_action(cx.listener(|this, _: &FindFiles, w, cx| {
+                        this.left
+                            .update(cx, |pane, cx| pane.command(BrowserCommand::Find, w, cx));
+                    }))
+                    .child(
+                        div()
+                            .key_context("DriftLocalFilter")
+                            .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                                this.left.update(cx, |pane, cx| pane.focus(w, cx));
+                            }))
+                            .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                                this.left.update(cx, |pane, cx| pane.focus(w, cx));
+                            }))
+                            .on_action(cx.listener(
+                                |this, _: &gpui_kit::component::input::Escape, w, cx| {
+                                    this.left.update(cx, |pane, cx| pane.focus(w, cx));
+                                },
+                            ))
+                            .child(self.left.read(cx).header()),
+                    )
                     .child(self.left.clone()),
             )
             .child(
@@ -212,6 +231,7 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
         Some("right.txt".into())
     );
     cx.update_window(handle, |_, window, cx| {
+        right.update(cx, |pane, cx| pane.focus_filter_input(window, cx));
         window.input("v * jk", cx);
     })
     .unwrap();
@@ -427,4 +447,121 @@ async fn lazy_local_trees_keep_marks_scope_visibility_and_cursor(cx: &mut TestAp
         left.read_with(cx, |pane, _| pane.location().unwrap().directory.clone()),
         left_root.path()
     );
+}
+
+#[gpui_kit::test]
+async fn finder_keyboard_focuses_query_and_bridges_to_results_without_preview(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let root = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("child")).unwrap();
+    fs::write(root.path().join("child/needle.txt"), "needle").unwrap();
+    fs::write(root.path().join("other.txt"), "other").unwrap();
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let service = BrowserService::new().unwrap();
+                let store = Store::new(config.path().into());
+                let left = cx.new(|cx| {
+                    BrowserPane::new(
+                        store.clone(),
+                        service.clone(),
+                        root.path().into(),
+                        window,
+                        cx,
+                    )
+                });
+                let right =
+                    cx.new(|cx| BrowserPane::new(store, service, root.path().into(), window, cx));
+                left.update(cx, |pane, cx| pane.open(root.path().into(), window, cx));
+                TwoPanes { left, right }
+            })
+        })
+        .unwrap()
+    });
+    let pane = view.read_with(cx, |view, _| view.left.clone());
+    let previews = std::rc::Rc::new(std::cell::Cell::new(0));
+    let _subscription = cx.update(|cx| {
+        let previews = previews.clone();
+        cx.subscribe(&pane, move |_, event: &BrowserEvent, _| {
+            if matches!(event, BrowserEvent::Selected { preview: true, .. }) {
+                previews.set(previews.get() + 1);
+            }
+        })
+    });
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        pane.update(cx, |pane, cx| pane.focus(w, cx));
+        w.press("home", cx);
+        pane.update(cx, |pane, cx| pane.preview_selected(w, cx));
+        assert!(!pane.read(cx).tree.node("child").unwrap().expanded);
+        w.press("f", cx);
+        assert!(pane.read(cx).filter.focus_handle(cx).is_focused(w));
+        pane.update(cx, |pane, cx| pane.preview_selected(w, cx));
+        w.input("needle", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        pane.read(cx).finder && !pane.read(cx).is_loading() && pane.read(cx).len() == 1
+    })
+    .await;
+    for key in ["enter", "down"] {
+        cx.update_window(handle, |_, w, cx| {
+            let selected = pane.read(cx).selected().map(str::to_owned);
+            let id = pane.read(cx).id();
+            let marks = pane.read(cx).marked();
+            let range = pane.read(cx).files.range_active();
+            let scroll = pane.read(cx).scroll.0.borrow().base_handle.offset();
+            w.press(key, cx);
+            assert!(pane.read(cx).browser_focus.is_focused(w));
+            assert_eq!(pane.read(cx).selected(), selected.as_deref());
+            assert_eq!(pane.read(cx).filter.read(cx).value().as_str(), "needle");
+            assert_eq!(pane.read(cx).id(), id);
+            assert_eq!(pane.read(cx).marked(), marks);
+            assert_eq!(pane.read(cx).files.range_active(), range);
+            assert_eq!(pane.read(cx).scroll.0.borrow().base_handle.offset(), scroll);
+            assert_eq!(previews.get(), 0);
+            w.press("home", cx);
+            assert_eq!(pane.read(cx).selected(), Some("child/needle.txt"));
+            if key == "enter" {
+                w.press("space", cx);
+                w.press("v", cx);
+                w.press("ctrl-f", cx);
+            }
+        })
+        .unwrap();
+    }
+    cx.update_window(handle, |_, w, cx| {
+        let selected = pane.read(cx).selected().map(str::to_owned);
+        pane.update(cx, |pane, cx| pane.preview_selected(w, cx));
+        assert_eq!(pane.read(cx).selected(), selected.as_deref());
+        assert_eq!(pane.read(cx).marked(), ["child/needle.txt"]);
+        assert!(pane.read(cx).files.range_active());
+        w.press("ctrl-f", cx);
+        w.press("ctrl-a", cx);
+        w.input("missing", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        pane.read(cx).len() == 0
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        for key in ["enter", "down", "escape"] {
+            w.press(key, cx);
+            assert!(pane.read(cx).browser_focus.is_focused(w));
+            assert!(pane.read(cx).selected().is_none());
+            assert_eq!(pane.read(cx).filter.read(cx).value().as_str(), "missing");
+            w.press("ctrl-f", cx);
+        }
+        assert_eq!(previews.get(), 1);
+    })
+    .unwrap();
 }

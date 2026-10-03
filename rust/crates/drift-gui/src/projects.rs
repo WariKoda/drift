@@ -196,6 +196,13 @@ impl Render for ProjectsPanel {
             )
             .on_action(cx.listener(|this, _: &Save, w, cx| this.save_form(w, cx)))
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
+            .on_action(cx.listener(|this, _: &DefaultConfirm, w, cx| {
+                if this.focus.is_focused(w) {
+                    this.confirm_delete(w, cx);
+                } else {
+                    cx.propagate();
+                }
+            }))
             .child(
                 "Projects · ↓ from filter · j/k navigate · n new · e edit · a archive · d remove",
             )
@@ -280,19 +287,23 @@ impl Render for ProjectsPanel {
                             this.select_row(usize::MAX, w, cx)
                         }))
                         .on_action(cx.listener(|this, _: &New, w, cx| {
-                            if !this.is_loading() {
+                            if this.list_active() {
                                 this.edit(None, w, cx);
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Edit, w, cx| {
-                            if !this.is_loading()
+                            if this.list_active()
                                 && let Some(project) = this.selected_project(cx)
                             {
                                 this.edit(Some(project), w, cx);
                             }
                         }))
-                        .on_action(cx.listener(|this, _: &Open, _, cx| {
-                            this.open_row(this.cursor_row(cx), cx);
+                        .on_action(cx.listener(|this, _: &Open, w, cx| {
+                            if this.list_focus.is_focused(w) {
+                                this.open_row(this.cursor_row(cx), cx);
+                            } else {
+                                cx.propagate();
+                            }
                         }))
                         .on_action(cx.listener(|this, _: &Open1, _, cx| this.open_row(0, cx)))
                         .on_action(cx.listener(|this, _: &Open2, _, cx| this.open_row(1, cx)))
@@ -304,7 +315,7 @@ impl Render for ProjectsPanel {
                         .on_action(cx.listener(|this, _: &Open8, _, cx| this.open_row(7, cx)))
                         .on_action(cx.listener(|this, _: &Open9, _, cx| this.open_row(8, cx)))
                         .on_action(cx.listener(|this, _: &Remove, w, cx| {
-                            if !this.is_loading()
+                            if this.list_active()
                                 && let Some(project) = this.selected_project(cx)
                             {
                                 this.cursor = Some(project.slug.clone());
@@ -314,7 +325,7 @@ impl Render for ProjectsPanel {
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Archive, w, cx| {
-                            if !this.is_loading()
+                            if this.list_active()
                                 && let Some(project) = this.selected_project(cx)
                             {
                                 this.request(
@@ -327,12 +338,12 @@ impl Render for ProjectsPanel {
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Archived, _, cx| {
-                            if !this.is_loading() {
+                            if this.list_active() {
                                 this.toggle_archived(cx);
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Reload, w, cx| {
-                            if !this.is_loading() {
+                            if this.list_active() {
                                 this.request(ProjectCommand::Load, w, cx);
                             }
                         }))

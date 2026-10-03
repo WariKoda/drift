@@ -23,6 +23,31 @@ use std::{
 use tokio::{io::AsyncReadExt, sync::watch, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
+/// Browser mark eligibility shares the comparison's mapping and exclusion policy.
+/// No remote I/O or local filesystem access is needed for this lexical check.
+pub fn remote_markable_paths(
+    location: &Location,
+    host: &Host,
+    remote_root: &str,
+    paths: Vec<String>,
+) -> Result<BTreeSet<String>> {
+    let base = location
+        .root
+        .base()
+        .to_str()
+        .ok_or_else(|| Error::Invalid("project path is not UTF-8".into()))?;
+    let mapper = Mapper::new(base, remote_root, &location.config.mappings, &host.mappings)?;
+    Ok(paths
+        .into_iter()
+        .filter(|path| {
+            mapper.remote_to_local(path).ok().is_some_and(|local| {
+                let relative = std::path::Path::new(&local).strip_prefix(location.root.base());
+                relative.is_ok_and(|relative| !hard_excluded(relative, false))
+            })
+        })
+        .collect())
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct ScopeOptions {
     pub include_ignored: bool,

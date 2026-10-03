@@ -14,12 +14,28 @@ gpui_kit::actions!(
         CursorDown,
         Activate,
         NextHunk,
+        CompareMarked,
+        ToggleMark,
+        VisualRange,
+        MarkAll,
+        InvertMarks,
+        ClearMarks,
+        RangeUp,
+        RangeDown,
         PreviousHunk
     ]
 );
 pub fn bind_keys(cx: &mut App) {
     crate::hosts::bind_keys(cx);
     cx.bind_keys([
+        KeyBinding::new("s", CompareMarked, Some("DriftBrowser")),
+        KeyBinding::new("space", ToggleMark, Some("DriftBrowser")),
+        KeyBinding::new("v", VisualRange, Some("DriftBrowser")),
+        KeyBinding::new("shift-v", MarkAll, Some("DriftBrowser")),
+        KeyBinding::new("*", InvertMarks, Some("DriftBrowser")),
+        KeyBinding::new("escape", ClearMarks, Some("DriftBrowser")),
+        KeyBinding::new("shift-up", RangeUp, Some("DriftBrowser")),
+        KeyBinding::new("shift-down", RangeDown, Some("DriftBrowser")),
         KeyBinding::new("up", CursorUp, Some("DriftComparisonFiles")),
         KeyBinding::new("k", CursorUp, Some("DriftComparisonFiles")),
         KeyBinding::new("down", CursorDown, Some("DriftComparisonFiles")),

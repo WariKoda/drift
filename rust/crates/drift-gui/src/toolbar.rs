@@ -15,6 +15,7 @@ pub enum ToolbarEvent {
     CompareProject,
     CompareLocal,
     CompareRemote,
+    CompareMarked,
     Browser(BrowserCommand),
 }
 pub struct ToolbarState {

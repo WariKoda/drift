@@ -324,8 +324,10 @@ impl Shell {
                     .location()
                     .map(|l| l.config.hosts.clone())
                     .unwrap_or_default();
-                self.remote
-                    .update(cx, |remote, cx| remote.set_context(id.project, hosts, cx));
+                self.remote.update(cx, |remote, cx| {
+                    remote.set_context(id.project, hosts, cx);
+                    remote.set_selection_location(self.browser.read(cx).location().cloned(), cx);
+                });
                 let can_register = self
                     .browser
                     .read(cx)
@@ -483,12 +485,17 @@ impl Shell {
                 this.config_cancel = None;
                 match result {
                     Ok(Ok(HostResponse::Loaded(catalog))) => {
-                        this.remote.update(cx, |remote, cx| {
-                            remote.set_context(id.project, catalog.runtime.hosts.clone(), cx)
-                        });
+                        let hosts = catalog.runtime.hosts.clone();
                         this.browser.update(cx, |browser, cx| {
                             browser.replace_config(catalog.runtime, cx)
-                        })
+                        });
+                        this.remote.update(cx, |remote, cx| {
+                            remote.set_context(id.project, hosts, cx);
+                            remote.set_selection_location(
+                                this.browser.read(cx).location().cloned(),
+                                cx,
+                            );
+                        });
                     }
                     Ok(Ok(_)) => unreachable!("configuration load only returns a catalog"),
                     Ok(Err(error)) => this.status = error.to_string(),
@@ -606,7 +613,8 @@ impl Shell {
             ToolbarEvent::Cancel => self.cancel(&Cancel, window, cx),
             ToolbarEvent::CompareProject
             | ToolbarEvent::CompareLocal
-            | ToolbarEvent::CompareRemote => self.compare(event, window, cx),
+            | ToolbarEvent::CompareRemote
+            | ToolbarEvent::CompareMarked => self.compare(event, window, cx),
             ToolbarEvent::Browser(command) => {
                 self.remote_preview = false;
                 self.browser
@@ -703,6 +711,7 @@ impl Render for Shell {
             .on_action(cx.listener(Self::focus_filter))
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::refresh))
+            .on_action(cx.listener(Self::compare_marked))
             .on_action(cx.listener(Self::cancel))
             .child(toolbar)
             .child(header)

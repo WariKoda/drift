@@ -140,6 +140,9 @@ impl BrowserPane {
     pub fn len(&self) -> usize {
         self.files.len()
     }
+    pub fn marked(&self) -> Vec<String> {
+        self.files.marked()
+    }
     pub fn selected(&self) -> Option<&str> {
         self.files.selected()
     }
@@ -274,6 +277,11 @@ impl BrowserPane {
             self.filter
                 .update(cx, |state, cx| state.set_value("", window, cx));
         }
+        if self.location.as_ref().is_none_or(|old| {
+            old.root.base() != directory.location.root.base() || old.slug != directory.location.slug
+        }) {
+            self.files = FileList::new(vec![]);
+        }
         self.location = Some(directory.location);
         cx.emit(BrowserEvent::Opened {
             id,
@@ -285,7 +293,7 @@ impl BrowserPane {
     }
     fn set_entries(&mut self, entries: Vec<Entry>, cx: &mut Context<Self>) {
         self.entries = entries;
-        self.files = FileList::new(
+        self.files.replace_entries(
             self.entries
                 .iter()
                 .map(|e| e.path.to_string_lossy().into_owned())
@@ -428,6 +436,104 @@ impl BrowserPane {
         self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
         cx.notify();
     }
+    fn toggle_mark(&mut self, _: &ToggleMark, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.toggle_mark();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn visual_range(&mut self, _: &VisualRange, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.visual_range();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn mark_all(&mut self, _: &MarkAll, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.mark_siblings();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn invert_marks(&mut self, _: &InvertMarks, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.invert_visible();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn clear_marks(&mut self, _: &ClearMarks, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        if self.files.range_active() {
+            self.files.clear_marks();
+        } else if !self.filter.read(cx).value().is_empty() {
+            self.filter
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        } else {
+            self.files.clear_marks();
+        }
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn range_up(&mut self, _: &RangeUp, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let index = self.files.selected_row().unwrap_or(0).saturating_sub(1);
+        self.files.select_range(index);
+        self.selection_changed(false, cx);
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn range_down(&mut self, _: &RangeDown, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let index = self
+            .files
+            .selected_row()
+            .map_or(0, |i| (i + 1).min(self.files.len().saturating_sub(1)));
+        self.files.select_range(index);
+        self.selection_changed(false, cx);
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
     fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
         self.choose(self.files.selected_row().unwrap_or(0), window, cx);
     }
@@ -552,6 +658,13 @@ impl Render for BrowserPane {
             .on_action(cx.listener(Self::cursor_up))
             .on_action(cx.listener(Self::cursor_down))
             .on_action(cx.listener(Self::activate))
+            .on_action(cx.listener(Self::toggle_mark))
+            .on_action(cx.listener(Self::visual_range))
+            .on_action(cx.listener(Self::mark_all))
+            .on_action(cx.listener(Self::invert_marks))
+            .on_action(cx.listener(Self::clear_marks))
+            .on_action(cx.listener(Self::range_up))
+            .on_action(cx.listener(Self::range_down))
             .flex()
             .flex_col()
             .flex_1()
@@ -559,17 +672,20 @@ impl Render for BrowserPane {
             .min_h_0()
             .border_r_1()
             .border_color(border)
-            .child(
-                div()
-                    .p_3()
-                    .border_b_1()
-                    .border_color(border)
-                    .child(if self.finder {
-                        "Project files"
-                    } else {
-                        "Local"
-                    }),
-            )
+            .child(div().p_3().border_b_1().border_color(border).child(format!(
+                "{} · {} marked{}",
+                if self.finder {
+                    "Project files"
+                } else {
+                    "Local"
+                },
+                self.files.marked().len(),
+                if self.files.range_active() {
+                    " · range: press v to finish"
+                } else {
+                    ""
+                }
+            )))
             .child(
                 uniform_list("local-files", count, move |range, _, cx| {
                     entity.update(cx, |this, cx| {
@@ -590,8 +706,16 @@ impl Render for BrowserPane {
                                         .map(|n| n.to_string_lossy().into_owned())
                                         .unwrap_or(name.clone())
                                 };
-                                let label =
-                                    format!("{}{}", display_name, if directory { "/" } else { "" });
+                                let label = format!(
+                                    "{} {}{}",
+                                    if this.files.is_marked(&name) {
+                                        "✓"
+                                    } else {
+                                        " "
+                                    },
+                                    display_name,
+                                    if directory { "/" } else { "" }
+                                );
                                 let row = div()
                                     .id(index)
                                     .h(px(28.))
@@ -600,10 +724,23 @@ impl Render for BrowserPane {
                                     .items_center()
                                     .bg(if chosen { accent } else { background })
                                     .child(label)
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.browser_focus.focus(w, cx);
-                                        this.choose(index, w, cx)
-                                    }));
+                                    .on_click(cx.listener(
+                                        move |this, event: &gpui_kit::ClickEvent, w, cx| {
+                                            this.browser_focus.focus(w, cx);
+                                            let modifiers = event.modifiers();
+                                            if modifiers.shift {
+                                                this.files.select_range(index);
+                                            } else if modifiers.control || modifiers.platform {
+                                                this.files.select(index);
+                                                this.files.toggle_mark();
+                                            } else {
+                                                this.choose(index, w, cx);
+                                                return;
+                                            }
+                                            this.selection_changed(false, cx);
+                                            cx.notify();
+                                        },
+                                    ));
                                 #[cfg(test)]
                                 let row = row.test_support();
                                 Some(row)

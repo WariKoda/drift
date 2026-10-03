@@ -160,6 +160,17 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("right.txt")
         );
+        window.press("space", cx);
+        assert_eq!(right.read(cx).marked(), ["right.txt"]);
+        assert!(left.read(cx).marked().is_empty());
+        window.press("v", cx);
+        window.press("escape", cx); // Cancel range, preserving the filter/mark.
+        assert_eq!(right.read(cx).marked(), ["right.txt"]);
+        assert_eq!(right.read(cx).filter.read(cx).value().as_str(), "right");
+        window.press("*", cx);
+        assert!(right.read(cx).marked().is_empty());
+        window.press("shift-v", cx);
+        assert_eq!(right.read(cx).marked(), ["right.txt"]);
         window.press("ctrl-f", cx);
         assert!(right.read(cx).filter.focus_handle(cx).is_focused(window));
         assert!(!left.read(cx).filter.focus_handle(cx).is_focused(window));
@@ -200,4 +211,14 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
         right.read_with(cx, |pane, _| pane.selected().map(str::to_owned)),
         Some("right.txt".into())
     );
+    cx.update_window(handle, |_, window, cx| {
+        window.input("v * jk", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        right.read(cx).len() == 0
+    })
+    .await;
+    assert_eq!(right.read_with(cx, |pane, _| pane.marked()), ["right.txt"]);
+    assert!(!right.read_with(cx, |pane, _| pane.files.range_active()));
 }

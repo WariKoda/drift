@@ -18,26 +18,21 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **2. Oktober 2026, 06:07 UTC**. Die Implementierung pausiert auf Wunsch
-des Nutzers; als nächster Arbeitsblock ist Browser-Auswahl/Tastaturparität
-vorgesehen. Die optische Überarbeitung bleibt ausdrücklich für später geplant.
+Stand: **3. Oktober 2026**. Der Arbeitsblock Browser-Mehrfachmarkierungen und
+Bereichsauswahl ist implementiert. Als nächster Schritt stehen aufklappbare
+Dateibäume und die verbleibenden Tastaturabläufe an. Die optische Überarbeitung
+bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-project-management`.
-- Letzter Implementierungscommit: `97f4371beacf66b6c3a40c29e3a648caabe2fc13`
-  (Projektverwaltung und Startwiederherstellung). Diese Übergabe wird als
-  nachfolgender Dokumentationscommit auf demselben Feature-Branch gespeichert.
+- Aktueller Branch: `feature/rust-browser-selection`, aufgebaut auf
+  `feature/rust-project-management` (Übergabecommit `8ce978e`).
 - [Draft-PR #75](https://github.com/WariKoda/drift/pull/75) basiert auf
   `feature/rust-server-promotion`, also [PR #74](https://github.com/WariKoda/drift/pull/74).
-  Das ist eine gestapelte PR-Kette; die Portierung liegt nicht bereits vollständig
-  auf `main`. Vor Branchwechsel oder Integration den tatsächlichen Git-/PR-Stand
-  erneut prüfen. Für den nächsten Implementierungsschritt einen neuen
-  kurzlebigen Feature-Branch vom aktuellen Portierungsstand anlegen.
-- CI von #74: Go, Rust Linux und Rust macOS grün. CI von #75 am oben genannten
-  Prüfzeitpunkt: Go grün, Rust Linux/macOS noch laufend. Das ist eine Momentaufnahme;
-  in der nächsten Session zuerst die aktuellen Ergebnisse prüfen und eventuelle
-  Fehler beheben. Ein Dokumentations-Push kann neue CI-Läufe auslösen.
+  Die neue Auswahl-Arbeit baut auf #75 auf. Das ist eine gestapelte PR-Kette;
+  vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
+- CI von #75 wurde vor Beginn der Auswahl-Arbeit erneut geprüft: Go, Rust Linux
+  und Rust macOS bestanden. Dies belegt den Ausgangsstand, nicht die neue Arbeit.
 
 ### Implementiert und lokal geprüft
 
@@ -51,6 +46,14 @@ vorgesehen. Die optische Überarbeitung bleibt ausdrücklich für später geplan
 - Vergleich, Unified-Diff mit Richtung/Faltung/Hunk-Navigation, serieller
   Upload/Download/Delete, Fortschritt, Abbruch und Verbindungsverlust. Refresh und
   regulär beendeter Sync bauen den Vergleich mit erhaltenem Scope neu auf.
+- Unabhängige Markierungen pro Browser, getrennt von Cursor/Vorschau: Space,
+  v/V, Invertieren, Shift-Pfeile und Ctrl/Cmd-/Shift-Klick. Filterwechsel,
+  Verzeichnisnavigation und Refresh erhalten Markierungen; Projekt-/Hostwechsel
+  setzen sie zurück. `s` vergleicht alle Markierungen beider Panes; die beiden
+  Auswahl-Buttons verwenden sämtliche Markierungen der jeweiligen Seite.
+  Remote-Markierungen respektieren effektive Mappings und lokal übersetzte
+  harte Ausschlüsse. Direkt ausgewählte ignorierte Dateien bleiben Ausnahmen;
+  rekursive Ordnerauswahl überspringt ignorierte Kinder weiterhin.
 - Host-CRUD, Duplizieren, Mappings, globale Serverlinks, projektübergreifender
   Picker und Server-Promotion, Verbindungstest auch ungespeicherter Formulare
   sowie FTPS-Trust-Reset. Konflikte/Teilerfolge bleiben sichtbar.
@@ -60,37 +63,34 @@ vorgesehen. Die optische Überarbeitung bleibt ausdrücklich für später geplan
   Gleiche Projektwahl/Schließen erhält die Sitzung; Verschieben/Entfernen des
   aktiven Projekts verwirft den alten Root und schließt die Remote-Verbindung.
   Fehlgeschlagener Registry-Write beim Entfernen stellt den Hoststore wieder her.
-- Letzter vollständiger lokaler Lauf: **90 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **94 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. Nach den abschließenden Pfad-/Button-ID-Fixes
-  wurden betroffene Core-/App-/Shell-Tests, Clippy und Release-Build erneut geprüft.
+  Linux-Release-Build bestanden. Zusätzliche Auswahltests prüfen unabhängige Panes,
+  sichtbare Intervalle, Mapping-Grenzen, Vorschauerhalt, Projektwechsel und den
+  gemeinsamen lokalen/entfernten Scope nach Refresh/Sync. Der Gesamtlauf nutzt
+  `TMPDIR=/var/tmp`, weil ein fremdes `/tmp/.git` die Starttests beeinflusst.
   Native Rendering-/OS-Clipboard-Abnahme ist damit noch nicht erbracht.
 
-### Nächster Arbeitsblock: Auswahl und Tastatur
+### Nächster Arbeitsblock: Dateibäume und verbleibende Tastaturabläufe
 
 1. Go-Referenz erneut lesen: `internal/tui/browser/model.go`, `tree.go`,
    `update.go`, `keys.go` sowie `collapsed_selection_test.go` und
-   `visibility_test.go`. Cursor/Vorschau von dauerhaft markierten Pfaden trennen.
-   Regeln für direkte Dateien, Verzeichnisse, ausgeblendete/ignorierte Pfade,
-   harte Ausschlüsse und Mapping-Grenzen übernehmen.
-2. Mehrfachmarkierung und Bereichsauswahl für beide Browser implementieren.
-   Einstieg: `rust/crates/drift-app/src/lib.rs` (`FileList` hat derzeit einen
-   ausgewählten Eintrag), `drift-gui/src/browser.rs`, `remote.rs` und `actions.rs`.
-   Markierungen je Pane und Projekt führen; Buchstabenbefehle dürfen beim Tippen
-   in Kit-Eingabefeldern nicht greifen. Baumdarstellung und verzögertes Laden
-   entweder im selben begrenzten Schritt oder auf einem folgenden Branch ergänzen.
-3. `drift-gui/src/shell/comparison.rs` übergibt derzeit höchstens einen lokalen
-   oder entfernten ausgewählten Pfad. Die GUI-Markierungen als vollständige
-   Auswahl an `drift-app::comparison::LoadRequest` übergeben; dessen `local` und
-   `remote` sind bereits Vektoren. Die Rekursion und Ignore-/Mapping-Policies
-   bleiben im App-/Core-Layer. Refresh und Sync müssen diesen Scope erhalten.
-4. Echte Dateibäume/Protokollserver und GPUI-Interaktionen prüfen: unabhängige
-   Panes, Filterwechsel, Markierungen von Ordnern, ignorierte direkte Dateien,
-   harte Ausschlüsse, Projektwechsel, veraltete Ergebnisse und erhaltenen Scope
-   nach Refresh/Sync. Keine Mocks und kein Transport-I/O in Views.
-5. Anschließend Dashboard-/Host-Tastaturabläufe vervollständigen. Vorhandene
-   Navigation/Host-/Sync-Abläufe dabei erhalten und den Schritt separat validieren.
+   `visibility_test.go`. Aufklappbare Baumknoten mit verzögertem Laden ergänzen;
+   Cursor, Vorschau und die neuen pfadbasierten Markierungen getrennt halten.
+2. `drift-app::FileList` besitzt dauerhafte Markierungen, sichtbare Intervalle
+   und Markiergrenzen. `replace_entries` erhält Markierungen aus anderen
+   Ordnern/Filtern und beendet laufende Bereiche; ein neuer Root setzt sie zurück.
+   Browser und Remote-Pane wenden diese Zustände unabhängig an.
+3. `shell/comparison.rs` übergibt vollständige lokale/entfernte Vektoren.
+   `s` verlangt Markierungen und kombiniert beide Panes; die Auswahl-Buttons
+   behalten ihren Cursor-/Ordnerfallback. Rekursion und Ignore-/Mapping-Policies
+   bleiben im App-/Core-Layer. Refresh/Sync erhalten den Request-Scope.
+4. Baum-Collapse/Expand mit echten Dateibäumen und Protokollservern prüfen:
+   verborgene markierte Kinder, unabhängige Panes, Mapping-Grenzen, Projektwechsel,
+   veraltete Ladeergebnisse und erhaltener Scope. Keine Mocks/Transport-I/O in Views.
+5. Anschließend Dashboard-/Host-/Diff-Tastaturabläufe vervollständigen. Eingaben
+   in Kit-Textfeldern dürfen keine Buchstabenbefehle im Browser auslösen.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
@@ -136,7 +136,7 @@ DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test -co
 Protokolltests benötigen Go und echte OpenSSH-Werkzeuge (`ssh-keygen`,
 `ssh-agent`, `ssh-add`) ausschließlich als Testabhängigkeiten. In der bisherigen
 lokalen Umgebung wurden `CARGO_HOME=/tmp/drift-cargo`, `CARGO_BUILD_JOBS=2`
-und für Go `TMPDIR=/var/tmp` verwendet; temporäre Caches vor Wiederverwendung
+und `TMPDIR=/var/tmp` für Go/Rust verwendet; temporäre Caches vor Wiederverwendung
 prüfen. Unterschiedliche Checkouts/Worktrees nicht auf dasselbe Cargo-Target
 zeigen lassen. Für manuelles Testen des automatischen Starts das Binary ohne
 Ordnerargument starten: `make rust-run` reicht ausdrücklich den Repository-Pfad
@@ -273,9 +273,9 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate und vollständige Auswahl-/Textselektionsparität offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate, Baum-/Tastaturparität und zeichengenaue Textselektion offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
-| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: Scope-erhaltender Refresh/Sync und wesentliche GUI-Verwaltung vorhanden; vollständige CLI-/Tastatur-/Auswahlparität und Logging offen |
+| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: Scope-erhaltender Refresh/Sync und wesentliche GUI-Verwaltung vorhanden; vollständige CLI-/Tastaturparität und Logging offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
 
 Der SFTP-Durchstich verwendet native `russh`-/`russh-sftp`-Clients und ein

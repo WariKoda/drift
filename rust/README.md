@@ -63,6 +63,10 @@ registered projects. For unregistered folders, Up opens the parent with a new
 capability root. Open folder uses the native folder chooser. Back and Forward
 follow successfully loaded directories; a failed load keeps the current folder.
 Click a directory to enter it or a file to preview it in the opposite pane.
+Ctrl-click/Cmd-click toggles a mark without opening the entry; Shift-click adds a
+visible range. Marks have a checkmark separate from the cursor highlight and a
+count in each pane. They survive navigation, filters, visibility changes and
+refresh, and clear when the project or remote connection changes.
 The finder searches the entire project; the filter narrows the
 returned paths. Hidden and ignored entries have separate visibility toggles.
 Fixed exclusions and interrupted transfer staging files remain excluded.
@@ -90,7 +94,12 @@ text selection/copy. Copy text copies the complete preview; Copy path copies the
 selected project-relative path. Ctrl+F/Cmd+F focuses the file filter, F5 refreshes,
 and Cancel stops the active listing/finder/preview. In the browser, arrows or
 J/K move the selection, Enter/Right/L opens it, and Backspace/Left/H goes up.
-Alt+Left/Right follows history and Alt+Up goes up. These browser shortcuts leave
+Alt+Left/Right follows history and Alt+Up goes up. Space toggles the cursor's
+mark; V marks visible siblings in its directory; * inverts visible marks.
+V in the finder uses the cursor's parent directory. Lowercase v starts/finishes
+an additive visible interval; Shift+Up/Down adds a range immediately. Escape
+cancels an interval first, then clears a filter, then clears the pane's marks.
+Marking preserves the loaded preview. These browser shortcuts leave
 text inputs free for typing. Projects has a name/slug filter and registers the
 displayed folder. Closing Projects keeps the browser session and restores focus.
 Directory and preview responses carry separate generations;
@@ -105,7 +114,10 @@ restores the local browser. Selecting a local file restores the right preview;
 
 After connecting, **Compare project** compares the project (or all effective mapping
 roots). **Compare local selection** and **Compare remote selection** compare the
-selected file, or the current folder when no row is selected. Directories expand
+pane's marked paths, falling back to the cursor's file or current folder when
+nothing is marked. Press s in either browser to compare marks from both panes
+without falling back to the whole project. Remote paths outside the effective
+mappings remain browsable but cannot be marked. Directories expand
 both counterparts recursively, including files that exist on only one side.
 Hidden visibility does not narrow comparison scope. **Include ignored** is a
 separate operation setting; directly selected ignored files remain exceptions,
@@ -355,8 +367,10 @@ DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test ./i
 All test stores use temporary directories. Native Wayland, X11, macOS Intel and
 Apple Silicon rendering/OS clipboard checks remain manual: navigate a temporary
 project, use the native folder chooser, navigate back and forward, filter and find
-files, exercise host forms and return to the browser, preview/copy text into another
-app, toggle hidden
+files, mark files/folders with Space, Ctrl/Cmd-click, Shift-click, v/V and *,
+change filters/visibility/folders and confirm both panes retain their own marks,
+compare with s and confirm refresh/sync keep only that scope, exercise host forms
+and return to the browser, preview/copy text into another app, toggle hidden
 and ignored paths, change projects during loading, close the picker, and close the
 window. Headless tests cannot establish native rendering or OS clipboard behavior.
 

@@ -292,12 +292,17 @@ impl Render for ProjectsPanel {
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Open, _, cx| {
-                            if !this.is_loading()
-                                && let Some(project) = this.selected_project(cx)
-                            {
-                                cx.emit(ProjectEvent::Open(project.path));
-                            }
+                            this.open_row(this.cursor_row(cx), cx);
                         }))
+                        .on_action(cx.listener(|this, _: &Open1, _, cx| this.open_row(0, cx)))
+                        .on_action(cx.listener(|this, _: &Open2, _, cx| this.open_row(1, cx)))
+                        .on_action(cx.listener(|this, _: &Open3, _, cx| this.open_row(2, cx)))
+                        .on_action(cx.listener(|this, _: &Open4, _, cx| this.open_row(3, cx)))
+                        .on_action(cx.listener(|this, _: &Open5, _, cx| this.open_row(4, cx)))
+                        .on_action(cx.listener(|this, _: &Open6, _, cx| this.open_row(5, cx)))
+                        .on_action(cx.listener(|this, _: &Open7, _, cx| this.open_row(6, cx)))
+                        .on_action(cx.listener(|this, _: &Open8, _, cx| this.open_row(7, cx)))
+                        .on_action(cx.listener(|this, _: &Open9, _, cx| this.open_row(8, cx)))
                         .on_action(cx.listener(|this, _: &Remove, w, cx| {
                             if !this.is_loading()
                                 && let Some(project) = this.selected_project(cx)
@@ -365,7 +370,12 @@ impl Render for ProjectsPanel {
                                     .flex_col()
                                     .gap_2()
                                     .child(format!(
-                                        "{}{} — {}",
+                                        "{}{}{} — {}",
+                                        if index < 9 {
+                                            format!("[{}] ", index + 1)
+                                        } else {
+                                            String::new()
+                                        },
                                         project.name,
                                         if project.archived { " (archived)" } else { "" },
                                         project.path.display()

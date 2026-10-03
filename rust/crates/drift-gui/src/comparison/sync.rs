@@ -31,6 +31,7 @@ impl ComparisonPane {
         if decisions.iter().all(|d| *d == Decision::Skip) {
             return;
         }
+        self.show_errors = false;
         self.confirm_sync = Some(decisions);
         cx.notify();
     }
@@ -56,6 +57,7 @@ impl ComparisonPane {
         };
         self.stale = true;
         self.sync_result = None;
+        self.show_errors = false;
         self.syncing = Some(operation.operation.cancel);
         self.progress = operation.progress.borrow().clone();
         let stop = CancellationToken::new();

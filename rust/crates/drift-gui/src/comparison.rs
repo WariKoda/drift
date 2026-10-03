@@ -47,6 +47,7 @@ pub struct ComparisonPane {
     syncing: Option<CancellationToken>,
     stale: bool,
     sync_result: Option<SyncResult>,
+    show_errors: bool,
     confirm_sync: Option<Vec<Decision>>,
     progress_stop: Option<CancellationToken>,
     progress: Progress,
@@ -126,6 +127,7 @@ impl ComparisonPane {
             syncing: None,
             stale: true,
             sync_result: None,
+            show_errors: false,
             confirm_sync: None,
             progress_stop: None,
             progress: Progress {
@@ -197,6 +199,7 @@ impl ComparisonPane {
         self.states.clear();
         self.stale = true;
         self.sync_result = None;
+        self.show_errors = false;
         self.confirm_sync = None;
         self.visible = false;
         self.diff.update(cx, |diff, cx| {
@@ -395,6 +398,11 @@ impl ComparisonPane {
             cx.notify();
             return;
         }
+        if self.show_errors {
+            self.show_errors = false;
+            cx.notify();
+            return;
+        }
         if let Some(token) = &self.syncing {
             token.cancel();
             self.status(
@@ -410,6 +418,26 @@ impl ComparisonPane {
         }
         cx.emit(ComparisonEvent::Closed);
         cx.notify();
+    }
+    pub(super) fn toggle_sync_errors(&mut self, cx: &mut Context<Self>) {
+        if self.confirm_sync.is_none()
+            && self.sync_result.as_ref().is_some_and(|report| {
+                report.outcomes.iter().any(|outcome| {
+                    matches!(
+                        outcome,
+                        drift_app::sync::ItemOutcome::Failed(_)
+                            | drift_app::sync::ItemOutcome::Unknown(_)
+                    )
+                })
+            })
+        {
+            self.show_errors = !self.show_errors;
+            cx.notify();
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn errors_visible_for_test(&self) -> bool {
+        self.show_errors
     }
     fn toggle_ignored(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.is_loading() || self.confirm_sync.is_some() {

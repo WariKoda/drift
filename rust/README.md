@@ -88,7 +88,9 @@ A changed record produces a visible conflict and retains the form/confirmation;
 cancel and reload to use the current snapshot.
 
 In Projects, Down/Enter leaves the filter and focuses the list. Arrows/J/K and
-Home/g or End/G navigate the visible projects. Enter opens, n creates, e edits,
+Home/g or End/G navigate the visible projects. Enter opens the selected project;
+1–9 directly open the corresponding visible row, with numbering updated by filters
+and archived visibility. Digits remain text in inputs. The n key creates, e edits,
 a archives/unarchives, d/Delete asks to remove, a dot shows/hides archived projects,
 and r reloads. The / key or Ctrl/Cmd+F returns to filtering. Ctrl/Cmd+S saves a form;
 Enter/y confirms removal and Escape cancels. The cursor follows the project slug
@@ -176,6 +178,10 @@ adjacent staging files prevent partial content from replacing the old target.
 Sources, transfer completion, flush and file close are checked before commit.
 The sync report retains confirmed completions, individual errors, cancellation
 and unknown remote outcomes, including errors after successful EOF.
+Press e in the comparison list or diff (or click **Show errors**) to toggle
+scrollable Failed/Unknown details. Escape closes details before leaving the
+comparison. The summary and error count remain visible; refresh and connection
+loss preserve the report, while a new sync clears it.
 
 Every normally ended sync rebuilds the comparison with its original selection,
 mappings and ignore scope, and refreshes both browsers after confirmed changes.
@@ -418,11 +424,15 @@ Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards. Management keyboard
 tests cover empty/filtered lists, scrolling, cursor retention, archive/unarchive,
 scope switching, form validation, saved-host connection tests and trust-reset
-conflicts. Shell tests open projects through keyboard events. Picker tests also
+conflicts. Numeric shortcut tests cover all nine rows, filtering, archive visibility
+and text input. Shell tests open projects through keyboard events. Picker tests also
 exercise keyboard promotion, filtering, reloads and partial writes. Certificate
 tests use real FTPS challenges to check initial rejection, pending-approval guards
 and detail scrolling. Diff tests check page boundaries, folds, source selection,
 bulk action cycling and confirmed direct transfers over SFTP.
+Error detail tests use real SFTP failures, active cancellation and server loss
+to check focus and prevent stale transfer retries, and real FTPS reconnects to
+check retained certificate-related failures.
 
 Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
@@ -447,8 +457,9 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 
 Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
 and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
-restoration and core project/host keyboard flows are available. Numeric project
-shortcuts and the remaining sync-error display shortcut remain.
+restoration and core project/host keyboard flows are available, including numeric
+project shortcuts and the sync-error display shortcut. CLI management and optional
+file logging are the next port increment.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native

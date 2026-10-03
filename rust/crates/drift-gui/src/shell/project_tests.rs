@@ -79,7 +79,7 @@ async fn startup_dashboard_does_not_mark_opened_and_returns_to_original_director
     .await;
     cx.update_window(handle, |_, w, cx| {
         w.press("down", cx);
-        w.press("enter", cx);
+        w.press("1", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(30), |_, cx| {

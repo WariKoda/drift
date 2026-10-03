@@ -13,6 +13,7 @@ impl Render for ComparisonPane {
             .size_full()
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(|this, _: &ToggleSyncErrors, _, cx| this.toggle_sync_errors(cx)))
             .on_action(cx.listener(|this, _: &Activate, w, cx| this.cycle(w, cx)))
             .on_action(cx.listener(|this, _: &Upload, _, cx| this.direct_sync(Decision::Upload, cx)))
             .on_action(cx.listener(|this, _: &Download, _, cx| this.direct_sync(Decision::Download, cx)))
@@ -43,7 +44,9 @@ impl Render for ComparisonPane {
                     .p_2()
                     .child(
                         Button::new("comparison-back")
-                            .label(if self.syncing.is_some() {
+                            .label(if self.show_errors {
+                                "Close error details"
+                            } else if self.syncing.is_some() {
                                 "Cancel sync"
                             } else if self.is_loading() {
                                 "Cancel comparison"
@@ -127,9 +130,20 @@ impl Render for ComparisonPane {
                     let (label, reason) = match outcome { ItemOutcome::Failed(e) => ("Failed",e), ItemOutcome::Unknown(e) => ("Outcome unknown",e), _ => return None };
                     Some(format!("{label}: {} {} — {reason}", item.decision.label(), item.local.display()))
                 }).collect();
-                view.child(div().id("sync-report").p_2().max_h(px(160.)).overflow_y_scroll()
-                    .child(format!("Sync: {completed} completed, {} errors{suffix}", errors.len()))
-                    .children(errors.into_iter().map(|error| div().text_color(cx.theme().danger).child(error))))
+                view.child(div().id("sync-report").p_2()
+                    .child(div().flex().gap_2()
+                        .child(format!("Sync: {completed} completed, {} errors{suffix}", errors.len()))
+                        .when(!errors.is_empty(), |view| view.child(Button::new("sync-errors-toggle")
+                            .label(if self.show_errors { "Hide errors (e)" } else { "Show errors (e)" })
+                            .disabled(self.confirm_sync.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_sync_errors(cx))))))
+                    .when(self.show_errors, |view| view.child(div().id("sync-error-details")
+                        .max_h(px(160.)).overflow_y_scroll()
+                        .map(|view| {
+                            #[cfg(test)] { view.test_support() }
+                            #[cfg(not(test))] { view }
+                        })
+                        .children(errors.into_iter().map(|error| div().text_color(cx.theme().danger).child(error))))))
             })
             .child(
                 div()

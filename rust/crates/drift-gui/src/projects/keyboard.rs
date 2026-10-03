@@ -5,7 +5,8 @@ use gpui_kit::{App, KeyBinding};
 gpui_kit::actions!(
     drift_projects,
     [
-        FocusList, Search, New, Edit, Open, Remove, Archive, Archived, Reload, Save, Confirm
+        FocusList, Search, New, Edit, Open, Remove, Archive, Archived, Reload, Save, Confirm,
+        Open1, Open2, Open3, Open4, Open5, Open6, Open7, Open8, Open9
     ]
 );
 pub fn bind_keys(cx: &mut App) {
@@ -26,6 +27,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("n", New, Some("DriftProjectList")),
         KeyBinding::new("e", Edit, Some("DriftProjectList")),
         KeyBinding::new("enter", Open, Some("DriftProjectList")),
+        KeyBinding::new("1", Open1, Some("DriftProjectList")),
+        KeyBinding::new("2", Open2, Some("DriftProjectList")),
+        KeyBinding::new("3", Open3, Some("DriftProjectList")),
+        KeyBinding::new("4", Open4, Some("DriftProjectList")),
+        KeyBinding::new("5", Open5, Some("DriftProjectList")),
+        KeyBinding::new("6", Open6, Some("DriftProjectList")),
+        KeyBinding::new("7", Open7, Some("DriftProjectList")),
+        KeyBinding::new("8", Open8, Some("DriftProjectList")),
+        KeyBinding::new("9", Open9, Some("DriftProjectList")),
         KeyBinding::new("d", Remove, Some("DriftProjectList")),
         KeyBinding::new("delete", Remove, Some("DriftProjectList")),
         KeyBinding::new("a", Archive, Some("DriftProjectList")),
@@ -73,6 +83,17 @@ impl ProjectsPanel {
         self.list_focus.focus(window, cx);
         self.scroll.scroll_to_item(row);
         cx.notify();
+    }
+    pub(super) fn open_row(&mut self, row: usize, cx: &mut Context<Self>) {
+        if self.is_loading() || self.form.is_some() || self.delete.is_some() {
+            return;
+        }
+        if let Some(project) = self.visible_projects(cx).get(row) {
+            self.cursor = Some(project.slug.clone());
+            self.scroll.scroll_to_item(row);
+            cx.notify();
+            cx.emit(ProjectEvent::Open(project.path.clone()));
+        }
     }
     pub(super) fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(expected) = self.delete.clone() {

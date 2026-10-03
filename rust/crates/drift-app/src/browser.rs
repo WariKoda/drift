@@ -10,6 +10,7 @@ use drift_core::{
     store::Store,
 };
 use std::{
+    future::Future,
     ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
@@ -18,7 +19,7 @@ use tokio::{
     runtime::{Builder, Runtime},
     sync::Semaphore,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OperationId {
@@ -29,17 +30,39 @@ pub struct OperationId {
 pub struct BrowserService {
     pub(crate) runtime: Arc<BackgroundRuntime>,
     permits: Arc<Semaphore>,
+    logger: crate::logging::Logger,
 }
-pub(crate) struct BackgroundRuntime(Option<Runtime>);
+pub(crate) struct BackgroundRuntime {
+    runtime: Option<Runtime>,
+    pub(crate) tasks: TaskTracker,
+}
 impl Deref for BackgroundRuntime {
     type Target = Runtime;
     fn deref(&self) -> &Runtime {
-        self.0.as_ref().expect("runtime exists until shutdown")
+        self.runtime
+            .as_ref()
+            .expect("runtime exists until shutdown")
+    }
+}
+impl BackgroundRuntime {
+    pub(crate) fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.tasks.spawn_on(future, self.handle())
+    }
+    pub(crate) fn spawn_blocking<F, T>(&self, action: F) -> tokio::task::JoinHandle<T>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        self.tasks.spawn_blocking_on(action, self.handle())
     }
 }
 impl Drop for BackgroundRuntime {
     fn drop(&mut self) {
-        if let Some(runtime) = self.0.take() {
+        if let Some(runtime) = self.runtime.take() {
             runtime.shutdown_background();
         }
     }
@@ -125,15 +148,32 @@ impl BrowserService {
     }
     pub fn new() -> Result<Self> {
         Ok(Self {
-            runtime: Arc::new(BackgroundRuntime(Some(
-                Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .max_blocking_threads(4)
-                    .enable_all()
-                    .build()?,
-            ))),
+            runtime: Arc::new(BackgroundRuntime {
+                runtime: Some(
+                    Builder::new_multi_thread()
+                        .worker_threads(2)
+                        .max_blocking_threads(4)
+                        .enable_all()
+                        .build()?,
+                ),
+                tasks: TaskTracker::new(),
+            }),
             permits: Arc::new(Semaphore::new(4)),
+            logger: crate::logging::Logger::default(),
         })
+    }
+    pub fn with_logger(mut self, logger: crate::logging::Logger) -> Self {
+        self.logger = logger;
+        self
+    }
+    pub fn logger(&self) -> &crate::logging::Logger {
+        &self.logger
+    }
+    /// Call after views have cancelled/dropped their operations and the GUI loop has ended.
+    /// Terminal outcomes and transport cleanup must precede closing the diagnostic writer.
+    pub fn wait_for_shutdown(&self) {
+        self.runtime.tasks.close();
+        self.runtime.block_on(self.runtime.tasks.wait());
     }
     pub fn open(
         &self,

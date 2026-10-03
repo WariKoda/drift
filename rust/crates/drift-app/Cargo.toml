@@ -13,6 +13,7 @@ tempfile.workspace = true
 sha2.workspace = true
 nix.workspace = true
 async-trait.workspace = true
+chrono.workspace = true
 
 
 [lints]

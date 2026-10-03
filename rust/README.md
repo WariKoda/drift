@@ -77,7 +77,39 @@ Use `--` before a directory named `projects`, `open`, `dash` or `version`, or on
 beginning with `-` (`drift-gui -- projects`); `./projects` also selects that folder.
 Project commands accept `--` before positional arguments with leading hyphens.
 Invalid syntax, validation failures and lock contention return exit code 1.
-Optional file logging and its CLI/environment controls remain the next increment.
+Optional file logging is available for both GUI starts and project commands.
+
+## Optional diagnostics
+
+Logging is off by default and opens no file unless enabled:
+
+```sh
+drift-gui --debug                         # <config dir>/drift.log, debug level
+drift-gui --log /tmp/drift-gui.log /path/to/project
+drift-gui projects list --log /tmp/drift-gui.log
+DRIFT_LOG=/tmp/drift-gui.log DRIFT_DEBUG=1 drift-gui open shop
+```
+
+A nonempty `--log` path overrides `DRIFT_LOG`; an empty flag falls back to the
+variable. `--debug` or a truthy `DRIFT_DEBUG` enables debug records; without a path,
+logging uses `<config.Dir()>/drift.log`. Go's boolean rules apply: empty, `0`, `f`,
+`F`, `false`, `FALSE` and `False` are off; other nonempty environment values are on.
+`--debug=false` does not veto a true environment value. Logging flags work before
+or after commands and arguments; `--` ends flag parsing. Help/version ignore
+logging configuration and create neither configuration directories nor log files.
+
+Records append to the selected file; new files have mode 600. A background writer
+keeps log I/O off the GUI thread. After the window loop ends, tracked background
+operations finish cancellation/transport cleanup before logs drain and close. Open failures
+warn and continue without logging. Write/close failures disable logging and remain
+visible in a persistent GUI banner and/or a CLI stderr warning; they do not change
+committed mutations, typed errors or sync reports. Connection, comparison and sync
+records include operation identities, host/endpoint, paths, stages and outcome
+counts. They omit authentication fields and file contents. Error categories and OS
+error codes are recorded instead of raw server replies or TOML decode messages,
+which could expose secrets. Diagnostics may contain hostnames and file paths.
+
+## Browser and management
 
 The GUI stays in the current directory inside registered projects and unregistered
 Git repositories. Outside them, it restores the last opened active project if its
@@ -454,7 +486,12 @@ scope switching, form validation, saved-host connection tests and trust-reset
 conflicts. Numeric shortcut tests cover all nine rows, filtering, archive visibility
 and text input. Shell tests open projects through keyboard events and the CLI start result.
 CLI tests execute the actual binary without display access to check help, version,
-project mutations, error exits and a lock held by another process. Picker tests also
+project mutations, error exits and a lock held by another process. Logging tests
+check flag/environment priority, disabled/help/version paths, private append files,
+concurrent drain, open/write failures, retained GUI warnings across dialogs and
+comparisons, redaction and real SFTP/FTP/FTPS connection/comparison/sync outcomes.
+Closing the last headless window during a real upload verifies terminal records
+survive cancellation and transport shutdown. Picker tests also
 exercise keyboard promotion, filtering, reloads and partial writes. Certificate
 tests use real FTPS challenges to check initial rejection, pending-approval guards
 and detail scrolling. Diff tests check page boundaries, folds, source selection,
@@ -488,7 +525,7 @@ Milestone 2 is in progress: automatic offers for matching endpoints, GUI prefere
 and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
 restoration and core project/host keyboard flows are available, including numeric
 project shortcuts and the sync-error display shortcut. CLI project management and open/dash/version are
-also available. Optional file logging is the next port increment.
+also available, along with opt-in file logging and visible logging failures.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native

@@ -180,7 +180,8 @@ Home/g or End/G navigate the visible projects. Enter opens the selected project;
 and archived visibility. Digits remain text in inputs. The n key creates, e edits,
 a archives/unarchives, d/Delete asks to remove, a dot shows/hides archived projects,
 and r reloads. The / key or Ctrl/Cmd+F returns to filtering. Ctrl/Cmd+S saves a form;
-Enter/y confirms removal and Escape cancels. The cursor follows the project slug
+Enter at the default confirmation target or y confirms removal; Escape cancels.
+Focused buttons keep native Enter/Space behavior, including Cancel. The cursor follows the project slug
 across edits and reloads, and scrolls into view. Filtered-out projects cannot be
 acted on through list commands.
 
@@ -193,13 +194,19 @@ reloads against the moved path or the remaining registry; reload failures stay
 visible. No management operation writes into the local project tree.
 
 Preview uses Kit's read-only text control with line numbers, wrapping and native
-text selection/copy. Copy text copies the complete preview; Copy path copies the
-selected project-relative path. Ctrl+F/Cmd+F focuses the file filter, F5 refreshes,
-and Cancel stops the active listing/finder/preview. In the browser, arrows or
+text selection/copy. Copy text copies the complete preview (including an empty
+loaded file); Copy path copies the selected project-relative path. In a browser,
+p toggles the selected file preview and c copies its loaded text. Ctrl/Cmd+Alt+P
+focuses the read-only editor for native selection, copy and scrolling; Escape
+closes that preview and restores its originating browser without disconnecting.
+Ctrl+F/Cmd+F focuses the file filter; Down/Enter/Escape returns to results without
+opening a file or clearing the query. F5 refreshes. Ctrl+Escape or Cancel stops
+active listing/finder/preview work, also while the filter has focus. In the browser, arrows or
 J/K move the cursor; Home/g and End/G select the first/last visible row.
 Tab/Shift+Tab switches between the local and remote browsers, opening the remote
 pane when necessary. P opens Projects, H opens Hosts, and @ opens Remote.
-The / key focuses the active filter; f opens the local project finder.
+The / key focuses the active filter; f opens the local project finder and focuses
+its query. Finder matching/return-state parity is still pending.
 A dot toggles hidden files in the active pane, I toggles ignored local files,
 and r refreshes the active browser. Enter/Right/L expands a directory, or moves to its first
 visible child when already expanded; on files it opens the preview. Left/H collapses
@@ -213,6 +220,9 @@ cancels an interval first, then clears a filter, then clears the pane's marks.
 Marking preserves the loaded preview. These browser shortcuts leave
 text inputs free for typing. Projects has a name/slug filter and registers the
 displayed folder. Closing Projects keeps the browser session and restores focus.
+F1 opens scrollable shortcut help from browsers, forms and dialogs; ? opens it
+from browser/diff lists. Escape closes help and restores its invoking focus.
+Underlying operations continue, but commands do not run behind help or menus.
 Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
@@ -257,7 +267,8 @@ The s/S keys prepare selected/all actions from the file list or diff.
 The u/d keys choose Upload/Download for the current file and open that same
 confirmation; a missing source or a file error leaves the action unchanged.
 The confirmation shows the upload/download/delete counts; Ctrl/Cmd+Enter
-confirms, and Escape dismisses the pending confirmation. Shortcuts never execute
+confirms from list, diff, filter or button focus; Escape in list/diff dismisses
+the pending confirmation. Escape in a filter only returns to results. Shortcuts never execute
 a transfer without that confirmation. Skip and error
 rows are never executed. The runner streams uploads and downloads and executes
 all operations serially. Existing regular local and SFTP targets retain their permissions;
@@ -363,8 +374,11 @@ and / or Ctrl/Cmd+F for searching. In the list, n creates, e/Enter edits,
 c duplicates, d/Delete asks to delete, t tests the connection, r opens FTPS trust
 reset, l opens the link picker, and F5 reloads. Tab/Shift+Tab switches between
 project hosts and global servers when a project is open. Ctrl/Cmd+S saves the
-current form; Enter/y confirms deletion, and Escape returns to the list with its
-cursor retained. Letters in filters and form fields remain ordinary text; search
+current form; Enter at the default confirmation target or y confirms deletion,
+and Escape returns to the list with its cursor retained. Enter/Space activates
+focused native buttons; Cancel/Back/Reload never turns into confirmation. Without
+a project, list Tab/Shift+Tab follows normal control traversal instead of doing
+nothing. The inactive list leaves Tab order while editing. Letters in filters and form fields remain ordinary text; search
 shortcuts do not move focus out of an active form. Validation/conflict errors keep
 the form or confirmation open.
 
@@ -378,8 +392,11 @@ form with its values and focus preserved and stops pending test I/O.
 For FTPS targets, **Reset certificate trust** shows the resolved endpoint and its
 session/persistent fingerprints. Confirmation removes both exceptions for that
 endpoint. Concurrent changes preserve the confirmation and report a conflict;
-**Reload trust** (r) obtains a fresh snapshot. Enter/y confirms the reset and Escape
-returns to Hosts. Existing connections keep their policy;
+**Reload trust** (r) obtains a fresh snapshot. Enter at the default target or y
+confirms the reset; focused Return/Reload/Test buttons retain native Enter/Space.
+Escape returns to Hosts. Reject remains usable while approval is being saved and
+prevents the test retry; cancelling does not undo already committed trust, and
+the status explicitly warns to reload/reset it before retrying. Existing connections keep their policy;
 future connections verify again. Reset neither reconnects nor repeats transfers.
 
 Save conflicts and validation errors leave the form open. Cancel it, reload the
@@ -397,7 +414,8 @@ name, root and mappings, and is saved only through **Save host**.
 
 In the picker, Down/Enter leaves the filter; arrows/J/K and Home/g or End/G move
 the visible cursor. Enter selects a global server or opens promotion review for
-a project host. Enter/y confirms promotion; Escape returns to the same target.
+a project host. Enter at the default confirmation target or y confirms promotion;
+Enter/Space on Back/Reload keeps its labelled action. Escape returns to the same target.
 The / key or Ctrl/Cmd+F searches, and r reloads targets after a conflict. Filter
 text remains editable. The cursor is identified by project and host name and
 survives reloads; failed global selection also restores usable dialog focus.
@@ -551,7 +569,8 @@ compare with s and confirm refresh/sync keep only that scope, exercise host form
 and return to the browser, preview/copy text into another app, toggle hidden
 and ignored paths, change projects during loading, drag and keyboard-resize both
 browser and comparison panes while loading/syncing, test Escape and menus during
-resizing, shrink/grow a client-decorated window, close the picker, and close the window. Headless tests cannot establish native rendering or OS clipboard behavior.
+resizing, shrink/grow a client-decorated window, use preview focus/copy and F1 help,
+activate Cancel/Back through native Tab/Enter, close the picker, and close the window. Headless tests cannot establish native rendering or OS clipboard behavior.
 
 ## Remaining port work
 
@@ -560,10 +579,12 @@ and the planned Monokai themes remain. Project CRUD/archive, dashboard and start
 restoration and core project/host keyboard flows are available, including numeric
 project shortcuts and the sync-error display shortcut. CLI project management and open/dash/version are
 also available, along with opt-in file logging and visible logging failures.
-Browser context menus and session-only resizable panes are available.
+Browser context menus, session-only resizable panes, preview/focus/copy shortcuts,
+scrollable help and guarded native confirmation controls are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
-workflows, including FTPS and certificate challenges. Complete CLI and
-keyboard/selection parity, packaging and native
-release acceptance remain. Blocking local filesystem calls already running cannot
+workflows, including FTPS and certificate challenges. Finder fuzzy matching and
+return-state restoration, remote ignored visibility, keyboard reveal of offscreen
+form controls, form IME/paste hardening and character-precise diff selection remain.
+Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

@@ -10,6 +10,204 @@ async fn idle(handle: AnyWindowHandle, manager: &Entity<HostManager>, cx: &mut T
     .await;
 }
 
+pub(super) fn tab_to(window: &mut Window, target: &'static str, cx: &mut App) {
+    for _ in 0..96 {
+        window.press("tab", cx);
+        if window.find(target).focused() == Some(true) {
+            return;
+        }
+    }
+    panic!("Tab traversal did not reach {target}");
+}
+
+fn keyboard_window(
+    store: &Store,
+    slug: Option<&str>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<HostManager>) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1400.), px(1200.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |w, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    HostManager::new(
+                        store.clone(),
+                        service.clone(),
+                        RemoteService::new(service),
+                        slug.map(str::to_owned),
+                        w,
+                        cx,
+                    )
+                })
+            },
+        )
+        .unwrap()
+    })
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_host_confirmation_tabs_activate_cancel_and_back(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let host = Host {
+        name: "keep".into(),
+        hostname: "example.test".into(),
+        ..Default::default()
+    };
+    store.save_host(None, None, host.clone()).unwrap();
+    let (handle, manager) = keyboard_window(&store, None, cx);
+    let closed = std::rc::Rc::new(std::cell::Cell::new(0));
+    let _subscription = cx.update(|cx| {
+        let closed = closed.clone();
+        cx.subscribe(&manager, move |_, event: &HostEvent, _| {
+            if matches!(event, HostEvent::Close) {
+                closed.set(closed.get() + 1);
+            }
+        })
+    });
+    idle(handle, &manager, cx).await;
+    for key in ["enter", "space"] {
+        cx.update_window(handle, |_, w, cx| {
+            w.press("down", cx);
+            w.press("d", cx);
+            assert!(manager.read(cx).focus.is_focused(w));
+            for _ in 0..32 {
+                w.press("tab", cx);
+                assert!(!manager.read(cx).focus.is_focused(w));
+            }
+            tab_to(w, "host-cancel-delete", cx);
+            w.press(key, cx);
+            assert!(manager.read(cx).delete.is_none());
+            assert!(manager.read(cx).list_focus.is_focused(w));
+            assert!(manager.read(cx).cancel.is_none());
+            w.press("d", cx);
+            tab_to(w, "hosts-close", cx);
+            w.press(key, cx);
+            assert!(manager.read(cx).delete.is_some());
+            assert!(manager.read(cx).cancel.is_none());
+            w.press("escape", cx);
+        })
+        .unwrap();
+        assert!(store.global().unwrap().hosts == vec![host.clone()]);
+    }
+    assert_eq!(closed.get(), 2);
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_global_empty_and_filtered_host_lists_allow_tab_traversal(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    for mode in ["empty", "global", "filtered"] {
+        let config = tempfile::tempdir().unwrap();
+        let store = Store::new(config.path().into());
+        if mode != "empty" {
+            store
+                .save_host(
+                    None,
+                    None,
+                    Host {
+                        name: "keep".into(),
+                        hostname: "example.test".into(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        let (handle, manager) = keyboard_window(&store, None, cx);
+        idle(handle, &manager, cx).await;
+        cx.update_window(handle, |_, w, cx| {
+            if mode == "filtered" {
+                w.input("no-match", cx);
+            }
+            w.press("down", cx);
+            assert!(manager.read(cx).list_focus.is_focused(w));
+            let operation = manager.read(cx).operation;
+            w.press("tab", cx);
+            assert!(
+                !manager.read(cx).list_focus.is_focused(w),
+                "{mode}: Tab trapped in list"
+            );
+            assert_eq!(manager.read(cx).operation, operation);
+            if mode == "global" {
+                assert_eq!(w.find(("host-edit", 0usize)).focused(), Some(true));
+                w.press("enter", cx);
+                assert!(manager.read(cx).form.is_some());
+                w.press("escape", cx);
+            }
+            w.press("ctrl-f", cx);
+            w.press("down", cx);
+            w.press("shift-tab", cx);
+            assert!(w.find("hosts-reload").focused() == Some(true));
+            assert_eq!(manager.read(cx).operation, operation);
+            assert!(manager.read(cx).global);
+            assert!(manager.read(cx).cancel.is_none());
+        })
+        .unwrap();
+    }
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_host_edit_tabs_skip_inactive_list_and_preserve_draft(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let host = Host {
+        name: "keep".into(),
+        hostname: "example.test".into(),
+        root_path: "/srv".into(),
+        ..Default::default()
+    };
+    store
+        .save_host(Some("project"), None, host.clone())
+        .unwrap();
+    let (handle, manager) = keyboard_window(&store, Some("project"), cx);
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("e", cx);
+        w.input("unsaved", cx);
+        let operation = manager.read(cx).operation;
+        for key in ["tab", "shift-tab"] {
+            for _ in 0..64 {
+                w.press(key, cx);
+                assert!(
+                    !manager.read(cx).list_focus.is_focused(w),
+                    "inactive list is a Tab stop"
+                );
+                assert!(manager.read(cx).form.is_some());
+                assert_eq!(manager.read(cx).operation, operation);
+                assert!(!manager.read(cx).global);
+            }
+        }
+        assert!(
+            manager.read(cx).form.as_ref().unwrap().fields[NAME]
+                .read(cx)
+                .value()
+                .ends_with("unsaved")
+        );
+        tab_to(w, "host-cancel", cx);
+        w.press("enter", cx);
+        assert!(manager.read(cx).form.is_none());
+        assert!(manager.read(cx).list_focus.is_focused(w));
+    })
+    .unwrap();
+    assert!(store.project("project").unwrap().hosts == vec![host]);
+}
+
 #[gpui_kit::test]
 async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppContext) {
     cx.executor().allow_parking();

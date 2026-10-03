@@ -4,6 +4,12 @@ gpui_kit::actions!(
     drift,
     [
         FocusFilter,
+        FocusResults,
+        TogglePreview,
+        FocusPreview,
+        CopyPreview,
+        ShowHelp,
+        CancelWork,
         CopySelection,
         Refresh,
         Cancel,
@@ -82,6 +88,44 @@ pub fn bind_keys(cx: &mut App) {
             KeyBinding::new("shift-g", CursorLast, Some(context)),
         ]);
     }
+    for context in [
+        "DriftLocalFilter",
+        "DriftRemoteFilter",
+        "DriftComparisonFilter",
+    ] {
+        cx.bind_keys([
+            KeyBinding::new("down", FocusResults, Some(context)),
+            KeyBinding::new("enter", FocusResults, Some(context)),
+        ]);
+    }
+    cx.bind_keys([
+        KeyBinding::new("p", TogglePreview, Some("DriftBrowser && !PopupMenu")),
+        KeyBinding::new("c", CopyPreview, Some("DriftBrowser && !PopupMenu")),
+        KeyBinding::new("ctrl-alt-p", FocusPreview, Some("Drift && !PopupMenu")),
+        KeyBinding::new("cmd-alt-p", FocusPreview, Some("Drift && !PopupMenu")),
+        KeyBinding::new("f1", ShowHelp, Some("!PopupMenu")),
+        KeyBinding::new("?", ShowHelp, Some("DriftBrowser && !PopupMenu")),
+        KeyBinding::new("?", ShowHelp, Some("DriftComparisonFiles")),
+        KeyBinding::new("?", ShowHelp, Some("DriftDiff")),
+        KeyBinding::new("escape", Cancel, Some("DriftHelp")),
+        KeyBinding::new("?", ShowHelp, Some("DriftHelp")),
+        KeyBinding::new(
+            "ctrl-enter",
+            ConfirmSync,
+            Some("DriftComparison && !PopupMenu"),
+        ),
+        KeyBinding::new(
+            "cmd-enter",
+            ConfirmSync,
+            Some("DriftComparison && !PopupMenu"),
+        ),
+        KeyBinding::new("up", ScrollUp, Some("DriftHelp")),
+        KeyBinding::new("down", ScrollDown, Some("DriftHelp")),
+        KeyBinding::new("pageup", PageUp, Some("DriftHelp")),
+        KeyBinding::new("pagedown", PageDown, Some("DriftHelp")),
+        KeyBinding::new("home", CursorFirst, Some("DriftHelp")),
+        KeyBinding::new("end", CursorLast, Some("DriftHelp")),
+    ]);
     for context in ["DriftComparisonFiles", "DriftDiff"] {
         cx.bind_keys([
             KeyBinding::new("e", ToggleSyncErrors, Some(context)),
@@ -94,8 +138,6 @@ pub fn bind_keys(cx: &mut App) {
             KeyBinding::new("i", ToggleIgnored, Some(context)),
             KeyBinding::new("s", SyncSelected, Some(context)),
             KeyBinding::new("shift-s", SyncAll, Some(context)),
-            KeyBinding::new("ctrl-enter", ConfirmSync, Some(context)),
-            KeyBinding::new("cmd-enter", ConfirmSync, Some(context)),
             KeyBinding::new("tab", SwitchPane, Some(context)),
             KeyBinding::new("shift-tab", SwitchPane, Some(context)),
         ]);
@@ -167,6 +209,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-c", CopySelection, Some("Drift && !PopupMenu")),
         KeyBinding::new("f5", Refresh, Some("Drift && !PopupMenu")),
         KeyBinding::new("escape", Cancel, Some("Drift && !PopupMenu")),
+        KeyBinding::new("ctrl-escape", CancelWork, Some("Drift && !PopupMenu")),
         KeyBinding::new("alt-left", GoBack, Some("DriftBrowser && !PopupMenu")),
         KeyBinding::new("alt-right", GoForward, Some("DriftBrowser && !PopupMenu")),
         KeyBinding::new("alt-up", GoUp, Some("DriftBrowser && !PopupMenu")),

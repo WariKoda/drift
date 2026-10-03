@@ -222,8 +222,11 @@ impl HostManager {
         .detach();
         cx.notify();
     }
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus.focus(window, cx);
+    }
     fn change_scope(&mut self, global: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.writing || self.form.is_some() || self.delete.is_some() {
+        if !self.list_active() || (!global && self.project_slug.is_none()) {
             return;
         }
         self.global = global;
@@ -235,7 +238,7 @@ impl HostManager {
         self.request(HostCommand::Load, window, cx);
     }
     fn edit(&mut self, host: Host, duplicate: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if !self.list_active() {
             return;
         }
         self.cursor = Some(host.name.clone());
@@ -250,7 +253,7 @@ impl HostManager {
         cx.notify();
     }
     fn new_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if !self.list_active() {
             return;
         }
         self.form = Some(HostForm::new(
@@ -376,18 +379,26 @@ impl Render for HostManager {
         let background = cx.theme().background;
         let foreground = cx.theme().foreground;
         let border = cx.theme().border;
-        div().key_context(if self.form.is_some() { "DriftHosts DriftHostForm" } else if self.delete.is_some() { "DriftHosts DriftHostConfirm" } else { "DriftHosts" }).track_focus(&self.focus).flex().flex_col().size_full()
+        div().key_context(if self.form.is_some() { "DriftHosts DriftHostForm" } else if self.delete.is_some() { "DriftHosts DriftHostConfirm" } else { "DriftHosts" }).track_focus(&self.focus.clone().tab_stop(self.delete.is_none())).flex().flex_col().size_full()
             .bg(background).text_color(foreground)
             .on_action(cx.listener(Self::close)).on_action(cx.listener(Self::search))
             .on_action(cx.listener(|this, _: &FocusList, w, cx| this.select_row(this.cursor_row(cx), w, cx)))
             .on_action(cx.listener(|this, _: &Save, w, cx| this.save(w, cx)))
             .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
+            .on_action(cx.listener(|this, _: &DefaultConfirm, w, cx| {
+                if this.focus.is_focused(w) {
+                    this.confirm_delete(w, cx);
+                } else {
+                    // Native buttons activate on key-up only after an unconsumed key-down.
+                    cx.propagate();
+                }
+            }))
             .child(div().flex().flex_wrap().items_center().gap_2().p_3().border_b_1().border_color(border)
                 .child(div().flex_1().child(if self.global { "Global servers".to_string() } else { format!("Project hosts: {}", self.project_slug.as_deref().unwrap_or_default()) }))
                 .child(Button::new("scope-project").label("Project hosts").selected(!self.global)
-                    .disabled(self.project_slug.is_none() || self.writing || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(false, w, cx))))
+                    .disabled(self.project_slug.is_none() || busy || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(false, w, cx))))
                 .child(Button::new("scope-global").label("Global servers").selected(self.global)
-                    .disabled(self.writing || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(true, w, cx))))
+                    .disabled(busy || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(true, w, cx))))
                 .child(Button::new("hosts-close").label("Back to browser").disabled(self.writing)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Close)))))
             .child(div().flex().flex_1().min_h_0()
@@ -402,20 +413,32 @@ impl Render for HostManager {
                             .on_click(cx.listener(|this, _, w, cx| this.request(HostCommand::Load, w, cx)))))
                     .child(div().id("host-list")
                         .key_context(if editing { "DriftHostListInactive" } else { "DriftHostList" })
-                        .track_focus(&self.list_focus).track_scroll(&self.scroll)
+                        .track_focus(&self.list_focus.clone().tab_stop(!editing)).track_scroll(&self.scroll)
                         .on_action(cx.listener(|this, _: &CursorUp, w, cx| this.select_row(this.cursor_row(cx).saturating_sub(1), w, cx)))
                         .on_action(cx.listener(|this, _: &CursorDown, w, cx| this.select_row(this.cursor_row(cx) + 1, w, cx)))
                         .on_action(cx.listener(|this, _: &CursorFirst, w, cx| this.select_row(0, w, cx)))
                         .on_action(cx.listener(|this, _: &CursorLast, w, cx| this.select_row(usize::MAX, w, cx)))
                         .on_action(cx.listener(|this, _: &New, w, cx| this.new_host(w, cx)))
-                        .on_action(cx.listener(|this, _: &Edit, w, cx| { if let Some(host) = this.selected_host(cx) { this.edit(host, false, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Edit, w, cx| {
+                            if !this.list_focus.is_focused(w) {
+                                cx.propagate();
+                            } else if let Some(host) = this.selected_host(cx) {
+                                this.edit(host, false, w, cx);
+                            }
+                        }))
                         .on_action(cx.listener(|this, _: &Duplicate, w, cx| { if let Some(host) = this.selected_host(cx) { this.edit(host, true, w, cx); } }))
                         .on_action(cx.listener(|this, _: &Remove, w, cx| { if this.cancel.is_none() && let Some(host) = this.selected_host(cx) { this.ask_delete(host, w, cx); } }))
-                        .on_action(cx.listener(|this, _: &Test, w, cx| { if let Some(host) = this.selected_host(cx) { this.open_tools(host, Mode::Test, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Test, w, cx| { if this.list_active() && let Some(host) = this.selected_host(cx) { this.open_tools(host, Mode::Test, w, cx); } }))
                         .on_action(cx.listener(|this, _: &ResetTrust, w, cx| this.reset_selected_trust(w, cx)))
-                        .on_action(cx.listener(|this, _: &Link, w, cx| this.open_links(w, cx)))
-                        .on_action(cx.listener(|this, _: &Reload, w, cx| this.request(HostCommand::Load, w, cx)))
-                        .on_action(cx.listener(|this, _: &Scope, w, cx| { if this.project_slug.is_some() { this.change_scope(!this.global, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Link, w, cx| { if this.list_active() { this.open_links(w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Reload, w, cx| { if this.list_active() { this.request(HostCommand::Load, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Scope, w, cx| {
+                            if this.project_slug.is_some() && this.list_active() && this.list_focus.is_focused(w) {
+                                this.change_scope(!this.global, w, cx);
+                            } else {
+                                cx.propagate();
+                            }
+                        }))
                         .flex().flex_col().gap_3().flex_1().min_h_0().overflow_y_scroll()
                         .children(self.visible_hosts(cx).into_iter().enumerate().map(|(index, host)| {
                             let edit = host.clone(); let duplicate = host.clone(); let delete = host.clone(); let test = host.clone(); let reset = host.clone();

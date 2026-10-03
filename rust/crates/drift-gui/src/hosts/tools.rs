@@ -24,7 +24,6 @@ use tokio_util::sync::CancellationToken;
 gpui_kit::actions!(drift_trust_reset, [ConfirmReset, ReloadTrust]);
 pub(super) fn bind_keys(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("enter", ConfirmReset, Some("DriftTrustReset")),
         KeyBinding::new("y", ConfirmReset, Some("DriftTrustReset")),
         KeyBinding::new("r", ReloadTrust, Some("DriftTrustReset")),
     ]);
@@ -170,20 +169,32 @@ impl HostTools {
         self.certificate = Some(prompt);
     }
     fn decide(&mut self, decision: Decision, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if self.certificate.is_none() {
             return;
         }
-        let Some(prompt) = &self.certificate else {
-            return;
-        };
         if matches!(decision, Decision::Reject) {
+            let approval_pending = self.writing;
+            if let Some(cancel) = self.cancel.take() {
+                cancel.cancel();
+            }
+            // A trust write may already have committed; discard its result, not its store entry.
+            self.operation += 1;
+            self.writing = false;
             self.certificate = None;
             self.subscription = None;
-            self.status = "FTPS certificate rejected".into();
+            self.status = if approval_pending {
+                "Certificate approval cancelled; already saved trust is not undone. Reload/reset trust before retrying."
+            } else {
+                "FTPS certificate rejected"
+            }.into();
             self.focus.focus(window, cx);
             cx.notify();
             return;
         }
+        if self.cancel.is_some() {
+            return;
+        }
+        let prompt = self.certificate.as_ref().unwrap();
         let challenge = prompt.read(cx).challenge.clone();
         prompt.update(cx, |prompt, cx| {
             prompt.busy = true;
@@ -311,6 +322,16 @@ impl Render for HostTools {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::close))
+            .on_key_down(cx.listener(|this, event: &gpui_kit::KeyDownEvent, w, cx| {
+                if this.reset.is_some()
+                    && this.focus.is_focused(w)
+                    && event.keystroke.key == "enter"
+                    && event.keystroke.modifiers == Default::default()
+                {
+                    this.reset(w, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .on_action(cx.listener(|this, _: &ConfirmReset, w, cx| this.reset(w, cx)))
             .on_action(cx.listener(|this, _: &ReloadTrust, w, cx| this.inspect(w, cx)))
             .child(format!("Host: {}", self.host.name))

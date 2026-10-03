@@ -5,8 +5,27 @@ use gpui_kit::{App, KeyBinding};
 gpui_kit::actions!(
     drift_projects,
     [
-        FocusList, Search, New, Edit, Open, Remove, Archive, Archived, Reload, Save, Confirm,
-        Open1, Open2, Open3, Open4, Open5, Open6, Open7, Open8, Open9
+        FocusList,
+        Search,
+        New,
+        Edit,
+        Open,
+        Remove,
+        Archive,
+        Archived,
+        Reload,
+        Save,
+        Confirm,
+        DefaultConfirm,
+        Open1,
+        Open2,
+        Open3,
+        Open4,
+        Open5,
+        Open6,
+        Open7,
+        Open8,
+        Open9
     ]
 );
 pub fn bind_keys(cx: &mut App) {
@@ -43,11 +62,14 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("r", Reload, Some("DriftProjectList")),
         KeyBinding::new("ctrl-s", Save, Some("DriftProjectForm")),
         KeyBinding::new("cmd-s", Save, Some("DriftProjectForm")),
-        KeyBinding::new("enter", Confirm, Some("DriftProjectConfirm")),
+        KeyBinding::new("enter", DefaultConfirm, Some("DriftProjectConfirm")),
         KeyBinding::new("y", Confirm, Some("DriftProjectConfirm")),
     ]);
 }
 impl ProjectsPanel {
+    pub(super) fn list_active(&self) -> bool {
+        !self.is_loading() && self.form.is_none() && self.delete.is_none()
+    }
     pub(super) fn visible_projects(&self, cx: &App) -> Vec<Project> {
         let query = self.query.read(cx).value().to_lowercase();
         (if self.show_archived {
@@ -74,7 +96,7 @@ impl ProjectsPanel {
         self.visible_projects(cx).get(self.cursor_row(cx)).cloned()
     }
     pub(super) fn select_row(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.is_loading() || self.form.is_some() || self.delete.is_some() {
+        if !self.list_active() {
             return;
         }
         let projects = self.visible_projects(cx);
@@ -85,7 +107,7 @@ impl ProjectsPanel {
         cx.notify();
     }
     pub(super) fn open_row(&mut self, row: usize, cx: &mut Context<Self>) {
-        if self.is_loading() || self.form.is_some() || self.delete.is_some() {
+        if !self.list_active() {
             return;
         }
         if let Some(project) = self.visible_projects(cx).get(row) {
@@ -96,6 +118,9 @@ impl ProjectsPanel {
         }
     }
     pub(super) fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() || self.form.is_some() {
+            return;
+        }
         if let Some(expected) = self.delete.clone() {
             self.request(
                 ProjectCommand::Remove {

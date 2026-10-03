@@ -1,7 +1,10 @@
 use super::*;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 
-gpui_kit::actions!(drift_links, [FocusList, Search, Choose, Confirm, Reload]);
+gpui_kit::actions!(
+    drift_links,
+    [FocusList, Search, Choose, Confirm, DefaultConfirm, Reload]
+);
 pub(crate) fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("down", FocusList, Some("DriftLinkFilter")),
@@ -20,7 +23,7 @@ pub(crate) fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", Choose, Some("DriftLinkList")),
         KeyBinding::new("r", Reload, Some("DriftLinkList")),
         KeyBinding::new("r", Reload, Some("DriftLinkConfirm")),
-        KeyBinding::new("enter", Confirm, Some("DriftLinkConfirm")),
+        KeyBinding::new("enter", DefaultConfirm, Some("DriftLinkConfirm")),
         KeyBinding::new("y", Confirm, Some("DriftLinkConfirm")),
     ]);
 }
@@ -78,11 +81,17 @@ impl LinkPicker {
         cx.notify();
     }
     pub(super) fn choose_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cancel.is_some() || self.selected.is_some() {
+            return;
+        }
         if let Some((_, target)) = self.visible_targets(cx).get(self.cursor_row(cx)) {
             self.choose(target.clone(), window, cx);
         }
     }
     pub(super) fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cancel.is_some() {
+            return;
+        }
         if let Some(target) = self.selected.clone() {
             self.request(
                 HostCommand::SelectLink {

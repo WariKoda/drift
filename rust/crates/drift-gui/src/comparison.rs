@@ -479,4 +479,6 @@ impl ComparisonPane {
     }
 }
 mod sync;
+#[cfg(test)]
+mod tests;
 mod view;

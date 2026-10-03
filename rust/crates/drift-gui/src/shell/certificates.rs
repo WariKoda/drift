@@ -15,6 +15,7 @@ impl Shell {
         {
             return;
         }
+        self.close_help(window, cx);
         self.close_certificate(window, cx);
         let prompt = cx.new(|cx| CertificatePrompt::new(challenge, window, cx));
         self.certificate_subscription =

@@ -284,6 +284,8 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
             shell.read(cx).browser.read(cx).selected(),
             Some("first.txt")
         );
+        window.press("space", cx); // Marking must preserve the loaded preview.
+        assert_eq!(shell.read(cx).browser.read(cx).marked(), ["first.txt"]);
         window.click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
@@ -386,6 +388,9 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     })
     .await;
     cx.update_window(handle, |_, window, cx| {
+        window.press("space", cx);
+        assert_eq!(shell.read(cx).remote.read(cx).marked().len(), 1);
+        assert!(shell.read(cx).remote_preview);
         window.click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
@@ -401,6 +406,8 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     })
     .await;
     cx.update_window(handle, |_, window, cx| {
+        window.press("space", cx);
+        assert_eq!(shell.read(cx).browser.read(cx).marked(), ["local.txt"]);
         window.click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
@@ -421,4 +428,6 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     })
     .await;
     assert!(!shell.read_with(cx, |shell, cx| shell.remote.read(cx).has_session()));
+    assert!(shell.read_with(cx, |shell, cx| shell.browser.read(cx).marked().is_empty()));
+    assert!(shell.read_with(cx, |shell, cx| shell.remote.read(cx).marked().is_empty()));
 }

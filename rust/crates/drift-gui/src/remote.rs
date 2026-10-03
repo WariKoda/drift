@@ -2,7 +2,7 @@
 use crate::actions::*;
 use drift_app::{
     FileList,
-    browser::OperationId,
+    browser::{Location, OperationId},
     navigation::History,
     remote::{RemoteDirectory, RemoteService, RemoteSession},
 };
@@ -73,6 +73,7 @@ pub struct RemotePane {
     path: String,
     entries: Vec<RemoteEntry>,
     files: FileList,
+    selection_location: Option<Location>,
     filter: Entity<InputState>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
@@ -123,6 +124,7 @@ impl RemotePane {
             path: String::new(),
             entries: vec![],
             files: FileList::new(vec![]),
+            selection_location: None,
             filter,
             focus: cx.focus_handle().tab_stop(true),
             scroll: UniformListScrollHandle::new(),
@@ -148,6 +150,20 @@ impl RemotePane {
         self.hosts = hosts;
         cx.notify();
     }
+    pub fn set_selection_location(&mut self, location: Option<Location>, cx: &mut Context<Self>) {
+        let unchanged = match (&self.selection_location, &location) {
+            (Some(old), Some(new)) => {
+                old.root.base() == new.root.base() && old.config.mappings == new.config.mappings
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        self.selection_location = location;
+        if !unchanged {
+            self.set_entries(cx);
+        }
+        cx.notify();
+    }
     fn status(&self, message: String, cx: &mut Context<Self>) {
         cx.emit(RemoteEvent::Status {
             project: self.project,
@@ -163,6 +179,9 @@ impl RemotePane {
             project: self.project,
             connection: self.connection,
         });
+    }
+    pub fn marked(&self) -> Vec<String> {
+        self.files.marked()
     }
     pub fn selected(&self) -> Option<&str> {
         self.files.selected()
@@ -350,13 +369,27 @@ impl RemotePane {
         cx.notify();
     }
     fn set_entries(&mut self, cx: &mut Context<Self>) {
-        self.files = FileList::new(
+        self.files.replace_entries(
             self.entries
                 .iter()
                 .filter(|e| self.show_hidden || !e.name.starts_with('.'))
                 .map(|e| e.path.clone())
                 .collect(),
         );
+        if let (Some(location), Some(host), Some(session)) =
+            (&self.selection_location, &self.target, &self.session)
+        {
+            let mut paths = self.files.marked();
+            paths.extend(self.entries.iter().map(|entry| entry.path.clone()));
+            match drift_app::comparison::remote_markable_paths(location, host, &session.root, paths)
+            {
+                Ok(allowed) => self.files.restrict_marks(allowed),
+                Err(error) => {
+                    self.files.restrict_marks(Default::default());
+                    self.status(error.to_string(), cx);
+                }
+            }
+        }
         self.files.filter(&self.filter.read(cx).value());
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
     }
@@ -492,6 +525,112 @@ impl RemotePane {
         self.selection_changed(cx);
         cx.notify();
     }
+    fn toggle_mark(&mut self, _: &ToggleMark, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        if self
+            .files
+            .selected()
+            .is_some_and(|path| !self.files.can_mark(path))
+        {
+            self.status("Path is outside the active mappings".into(), cx);
+            return;
+        }
+        self.files.toggle_mark();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn visual_range(&mut self, _: &VisualRange, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.visual_range();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn mark_all(&mut self, _: &MarkAll, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.mark_siblings();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn invert_marks(&mut self, _: &InvertMarks, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        self.files.invert_visible();
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn clear_marks(&mut self, _: &ClearMarks, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        if self.files.range_active() {
+            self.files.clear_marks();
+        } else if !self.filter.read(cx).value().is_empty() {
+            self.filter
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        } else {
+            self.files.clear_marks();
+        }
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn range_up(&mut self, _: &RangeUp, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let index = self.files.selected_row().unwrap_or(0).saturating_sub(1);
+        self.files.select_range(index);
+        self.selection_changed(cx);
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
+    fn range_down(&mut self, _: &RangeDown, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let index = self
+            .files
+            .selected_row()
+            .map_or(0, |i| (i + 1).min(self.files.len().saturating_sub(1)));
+        self.files.select_range(index);
+        self.selection_changed(cx);
+        self.scroll.scroll_to_item(
+            self.files.selected_row().unwrap_or(0),
+            ScrollStrategy::Nearest,
+        );
+        cx.notify();
+    }
     fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
         self.choose(self.files.selected_row().unwrap_or(0), window, cx);
     }
@@ -605,7 +744,16 @@ impl Render for RemotePane {
                     .child(if self.path.is_empty() {
                         "Select a host to connect".into()
                     } else {
-                        self.path.clone()
+                        format!(
+                            "{} · {} marked{}",
+                            self.path,
+                            self.files.marked().len(),
+                            if self.files.range_active() {
+                                " · range: press v to finish"
+                            } else {
+                                ""
+                            }
+                        )
                     }),
             )
             .child(
@@ -621,6 +769,13 @@ impl Render for RemotePane {
                     .on_action(cx.listener(Self::cursor_up))
                     .on_action(cx.listener(Self::cursor_down))
                     .on_action(cx.listener(Self::activate))
+                    .on_action(cx.listener(Self::toggle_mark))
+                    .on_action(cx.listener(Self::visual_range))
+                    .on_action(cx.listener(Self::mark_all))
+                    .on_action(cx.listener(Self::invert_marks))
+                    .on_action(cx.listener(Self::clear_marks))
+                    .on_action(cx.listener(Self::range_up))
+                    .on_action(cx.listener(Self::range_down))
                     .flex_1()
                     .min_h_0()
                     .child(
@@ -639,7 +794,12 @@ impl Render for RemotePane {
                                             .items_center()
                                             .bg(if chosen { accent } else { background })
                                             .child(format!(
-                                                "{}{}",
+                                                "{} {}{}{}",
+                                                if this.files.is_marked(&path) {
+                                                    "✓"
+                                                } else {
+                                                    " "
+                                                },
                                                 entry.name,
                                                 if entry.directory {
                                                     "/"
@@ -647,11 +807,32 @@ impl Render for RemotePane {
                                                     " →"
                                                 } else {
                                                     ""
+                                                },
+                                                if this.files.can_mark(&path) {
+                                                    ""
+                                                } else {
+                                                    " (outside mappings)"
                                                 }
                                             ))
-                                            .on_click(cx.listener(move |this, _, w, cx| {
-                                                this.choose(index, w, cx)
-                                            }));
+                                            .on_click(cx.listener(
+                                                move |this, event: &gpui_kit::ClickEvent, w, cx| {
+                                                    this.focus.focus(w, cx);
+                                                    let modifiers = event.modifiers();
+                                                    if modifiers.shift {
+                                                        this.files.select_range(index);
+                                                    } else if modifiers.control
+                                                        || modifiers.platform
+                                                    {
+                                                        this.files.select(index);
+                                                        this.files.toggle_mark();
+                                                    } else {
+                                                        this.choose(index, w, cx);
+                                                        return;
+                                                    }
+                                                    this.selection_changed(cx);
+                                                    cx.notify();
+                                                },
+                                            ));
                                         #[cfg(test)]
                                         let row = row.test_support();
                                         Some(row)

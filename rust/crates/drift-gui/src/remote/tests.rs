@@ -68,6 +68,10 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
     let session = pane.read_with(cx, |pane, _| pane.session.clone().unwrap());
     cx.update_window(handle, |_, window, cx| {
         assert_eq!(pane.read(cx).path, root.to_string_lossy());
+        window.press("down", cx);
+        window.press("space", cx);
+        window.press("shift-down", cx);
+        assert_eq!(pane.read(cx).marked().len(), 2);
         window.click(0usize, cx);
     })
     .unwrap();
@@ -77,6 +81,7 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
     .await;
     cx.update_window(handle, |_, window, cx| {
         assert_eq!(pane.read(cx).path, root.join("child").to_string_lossy());
+        assert_eq!(pane.read(cx).marked().len(), 2);
         window.press("alt-left", cx);
     })
     .unwrap();
@@ -101,6 +106,7 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
         pane.update(cx, |pane, cx| pane.set_context(2, vec![], cx));
         assert!(pane.read(cx).session.is_none());
         assert!(pane.read(cx).entries.is_empty());
+        assert!(pane.read(cx).marked().is_empty());
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, _| {

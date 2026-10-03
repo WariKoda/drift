@@ -545,7 +545,14 @@ async fn finder_keyboard_focuses_query_and_bridges_to_results_without_preview(
         assert_eq!(pane.read(cx).marked(), ["child/needle.txt"]);
         assert!(pane.read(cx).files.range_active());
         w.press("ctrl-f", cx);
-        w.press("ctrl-a", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
         w.input("missing", cx);
     })
     .unwrap();

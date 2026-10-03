@@ -114,8 +114,22 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
         assert_eq!(shell.read(cx).browser.read(cx).marked(), ["first.txt"]);
         w.press("ctrl-alt-p", cx);
         assert!(!shell.read(cx).browser.focus_handle(cx).is_focused(w));
-        w.press("ctrl-a", cx);
-        w.press("ctrl-c", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-c"
+            } else {
+                "ctrl-c"
+            },
+            cx,
+        );
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("first\nsecond\nthird")

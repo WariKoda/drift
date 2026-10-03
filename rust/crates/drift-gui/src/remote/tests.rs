@@ -144,7 +144,14 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
             root.join("top.txt").to_string_lossy()
         );
         window.press("ctrl-f", cx);
-        window.press("ctrl-a", cx);
+        window.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
         window.input("missing", cx);
     })
     .unwrap();

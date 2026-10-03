@@ -174,7 +174,14 @@ async fn comparison_filter_keyboard_bridges_preserve_decisions_confirmation_and_
         assert!(pane.read(cx).confirm_sync.is_some());
         pane.update(cx, |pane, _| pane.confirm_sync = None);
         w.press("ctrl-f", cx);
-        w.press("ctrl-a", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
         w.input("missing", cx);
     })
     .unwrap();

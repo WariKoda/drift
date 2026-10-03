@@ -14,6 +14,18 @@ gpui_kit::actions!(
         CursorDown,
         CursorFirst,
         CursorLast,
+        PageUp,
+        PageDown,
+        HalfPageUp,
+        HalfPageDown,
+        ScrollUp,
+        ScrollDown,
+        ExpandContext,
+        FoldContext,
+        ToggleFolds,
+        Upload,
+        Download,
+        CycleAll,
         SwitchPane,
         ShowProjects,
         ShowHosts,
@@ -44,6 +56,7 @@ gpui_kit::actions!(
 pub fn bind_keys(cx: &mut App) {
     crate::hosts::bind_keys(cx);
     crate::projects::bind_keys(cx);
+    crate::certificates::bind_keys(cx);
     for context in ["DriftBrowser", "DriftComparisonFiles"] {
         cx.bind_keys([
             KeyBinding::new("home", CursorFirst, Some(context)),
@@ -54,6 +67,9 @@ pub fn bind_keys(cx: &mut App) {
     }
     for context in ["DriftComparisonFiles", "DriftDiff"] {
         cx.bind_keys([
+            KeyBinding::new("u", Upload, Some(context)),
+            KeyBinding::new("d", Download, Some(context)),
+            KeyBinding::new("shift-a", CycleAll, Some(context)),
             KeyBinding::new("n", NextFile, Some(context)),
             KeyBinding::new("p", PreviousFile, Some(context)),
             KeyBinding::new("r", Refresh, Some(context)),
@@ -67,6 +83,25 @@ pub fn bind_keys(cx: &mut App) {
         ]);
     }
     cx.bind_keys([
+        KeyBinding::new("up", ScrollUp, Some("DriftDiff")),
+        KeyBinding::new("k", ScrollUp, Some("DriftDiff")),
+        KeyBinding::new("down", ScrollDown, Some("DriftDiff")),
+        KeyBinding::new("j", ScrollDown, Some("DriftDiff")),
+        KeyBinding::new("pageup", PageUp, Some("DriftDiff")),
+        KeyBinding::new("pagedown", PageDown, Some("DriftDiff")),
+        KeyBinding::new("ctrl-u", HalfPageUp, Some("DriftDiff")),
+        KeyBinding::new("ctrl-d", HalfPageDown, Some("DriftDiff")),
+        KeyBinding::new("home", CursorFirst, Some("DriftDiff")),
+        KeyBinding::new("g", CursorFirst, Some("DriftDiff")),
+        KeyBinding::new("end", CursorLast, Some("DriftDiff")),
+        KeyBinding::new("shift-g", CursorLast, Some("DriftDiff")),
+        KeyBinding::new("]", NextHunk, Some("DriftDiff")),
+        KeyBinding::new("[", PreviousHunk, Some("DriftDiff")),
+        KeyBinding::new("enter", ExpandContext, Some("DriftDiff")),
+        KeyBinding::new("l", ExpandContext, Some("DriftDiff")),
+        KeyBinding::new("h", FoldContext, Some("DriftDiff")),
+        KeyBinding::new("space", Activate, Some("DriftDiff")),
+        KeyBinding::new("c", ToggleFolds, Some("DriftDiff")),
         KeyBinding::new("tab", SwitchPane, Some("DriftBrowser")),
         KeyBinding::new("shift-tab", SwitchPane, Some("DriftBrowser")),
         KeyBinding::new("shift-p", ShowProjects, Some("DriftBrowser")),

@@ -100,6 +100,19 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         2
     );
     cx.update_window(handle, |_, w, cx| {
+        w.press("shift-a", cx); // Cycle every valid decision, including other files.
+        w.press("end", cx);
+        w.click("copy-diff", cx);
+        assert!(
+            cx.read_from_clipboard()
+                .unwrap()
+                .text()
+                .unwrap()
+                .contains("- local only")
+        );
+        w.press("shift-a", cx);
+        w.press("shift-a", cx); // Three steps restore both two-sided and local-only decisions.
+        w.press("home", cx);
         for key in ["end", "shift-g", "n"] {
             w.press(key, cx);
             w.click("copy-diff", cx);
@@ -155,7 +168,7 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
     fs::write(server.dir.path().join("files/new.txt"), "new remote").unwrap();
     cx.update_window(handle, |_, w, cx| {
         w.click("comparison-filter", cx);
-        w.input("jknprissgG", cx); // Navigation, refresh and sync leave text inputs alone.
+        w.input("jknprudissgGA", cx); // Navigation, refresh and sync leave text inputs alone.
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {

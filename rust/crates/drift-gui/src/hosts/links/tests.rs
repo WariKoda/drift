@@ -124,15 +124,21 @@ async fn promotion_filter_confirmation_and_save_preserve_form_scope(cx: &mut Tes
     cx.update_window(handle, |_, w, cx| {
         w.click("host-link-filter", cx);
         w.input("Source Shop", cx);
-        w.click(("host-link-target", 1usize), cx);
+        w.press("down", cx);
+        w.press("enter", cx);
     })
     .unwrap();
     assert_eq!(fs::read(config.path().join("config.toml")).unwrap(), before);
     assert!(store.project(&project.slug).unwrap().hosts[0] == host);
     cx.update_window(handle, |_, w, cx| {
         w.press("escape", cx);
-        w.click(("host-link-target", 1usize), cx);
-        w.click("host-promote-confirm", cx);
+        assert!(picker.read(cx).list_focus.is_focused(w));
+        assert_eq!(
+            picker.read(cx).cursor.as_ref().unwrap().0.as_deref(),
+            Some(project.slug.as_str())
+        );
+        w.press("enter", cx);
+        w.press("enter", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -244,7 +250,7 @@ async fn link_conflicts_and_partial_writes_are_visible_without_losing_confirmati
             if mode == "global" {
                 w.click(("host-link-target", 0usize), cx);
             } else {
-                w.click("host-promote-confirm", cx);
+                w.press("enter", cx);
             }
         })
         .unwrap();
@@ -273,13 +279,13 @@ async fn link_conflicts_and_partial_writes_are_visible_without_losing_confirmati
             if mode == "source" {
                 assert!(!config.path().join("config.toml").exists());
             }
-            cx.update_window(handle, |_, w, cx| w.click("host-link-reload", cx))
+            cx.update_window(handle, |_, w, cx| w.press("r", cx))
                 .unwrap();
             idle(handle, &manager, cx).await;
             cx.update_window(handle, |_, w, cx| {
                 w.click(("host-link-target", 0usize), cx);
                 if mode == "source" {
-                    w.click("host-promote-confirm", cx);
+                    w.press("enter", cx);
                 }
             })
             .unwrap();
@@ -287,4 +293,118 @@ async fn link_conflicts_and_partial_writes_are_visible_without_losing_confirmati
             assert!(manager.read_with(cx, |m, _| m.links.is_none() && m.form.is_some()));
         }
     }
+}
+
+#[gpui_kit::test]
+async fn keyboard_picker_cursor_filter_reload_and_promotion_preserve_identity(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let source = store.register("Source", root.path().into()).unwrap();
+    for name in ["shared", "zzz"] {
+        store
+            .save_host(
+                None,
+                None,
+                Host {
+                    name: name.into(),
+                    hostname: "global.example".into(),
+                    root_path: "/global".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    store
+        .save_host(
+            Some(&source.slug),
+            None,
+            Host {
+                name: "stage".into(),
+                hostname: "stage.example".into(),
+                root_path: "/stage".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let before = fs::read(config.path().join("config.toml")).unwrap();
+    let (handle, manager) = open(&store, cx);
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| w.click("host-add-link", cx))
+        .unwrap();
+    idle(handle, &manager, cx).await;
+    let picker = manager.read_with(cx, |m, _| m.links.as_ref().unwrap().clone());
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        for (key, name) in [
+            ("home", "shared"),
+            ("end", "stage"),
+            ("k", "zzz"),
+            ("j", "stage"),
+            ("g", "shared"),
+            ("shift-g", "stage"),
+        ] {
+            w.press(key, cx);
+            assert_eq!(picker.read(cx).cursor.as_ref().unwrap().1, name);
+        }
+        w.press("/", cx);
+        w.input("jkgery", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert_eq!(picker.read(cx).query.read(cx).value().as_str(), "jkgery");
+        assert!(picker.read(cx).selected.is_none());
+        w.press("enter", cx);
+        w.press("enter", cx);
+        assert!(picker.read(cx).selected.is_none());
+        assert!(picker.read(cx).cancel.is_none());
+        w.press("ctrl-f", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        w.input("Source", cx);
+        w.press("down", cx);
+        w.press("enter", cx);
+        assert_eq!(
+            picker
+                .read(cx)
+                .selected
+                .as_ref()
+                .unwrap()
+                .project
+                .as_deref(),
+            Some(source.slug.as_str())
+        );
+        w.press("escape", cx);
+        assert!(picker.read(cx).list_focus.is_focused(w));
+        w.press("r", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    assert_eq!(fs::read(config.path().join("config.toml")).unwrap(), before);
+    cx.update_window(handle, |_, w, cx| {
+        assert!(picker.read(cx).list_focus.is_focused(w));
+        assert_eq!(
+            picker.read(cx).cursor.as_ref().unwrap().0.as_deref(),
+            Some(source.slug.as_str())
+        );
+        w.press("enter", cx);
+        w.press("y", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    assert!(manager.read_with(cx, |m, _| m.links.is_none() && m.form.is_some()));
+    assert_eq!(
+        store.project(&source.slug).unwrap().hosts[0].server,
+        "stage"
+    );
+    assert!(!config.path().join("projects/dest.toml").exists());
 }

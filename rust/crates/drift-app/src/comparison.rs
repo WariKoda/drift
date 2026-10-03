@@ -117,18 +117,46 @@ impl ComparisonService {
         });
         let mut activity = receiver.clone();
         let task = self.browser.runtime.spawn(async move {
+            let project = id.project.to_string();
+            let operation = id.operation.to_string();
+            let port = request.host.port.to_string();
+            let local_path = request.location.root.base().to_string_lossy();
+            let fields = [
+                ("host", request.host.name.as_str()),
+                ("endpoint", request.host.hostname.as_str()),
+                ("port", port.as_str()),
+                ("protocol", request.host.protocol.as_str()),
+                ("local_path", local_path.as_ref()),
+                ("remote_path", request.connection.root.as_str()),
+                ("project", project.as_str()),
+                ("operation", operation.as_str()),
+            ];
+            service.browser.logger().info("comparison.start", &fields);
             let idle = async {
                 while let Ok(Ok(())) = tokio::time::timeout(Duration::from_secs(60), activity.changed()).await {}
             };
             let result = tokio::select! {
                 biased;
                 _ = token.cancelled() => Err(Error::Invalid("comparison cancelled; connection closed".into())),
-                result = service.compare(&request, &token, &progress) => result,
+                result = service.compare(&request, &token, &progress, id) => result,
                 _ = idle => Err(Error::Invalid("comparison made no progress for 60 seconds; connection closed".into())),
             };
             match result {
-                Ok((entries, scope)) => Ok(ComparisonSession { request, entries, scope }),
+                Ok((entries, scope)) => {
+                    let count = entries.len().to_string();
+                    let failed = entries.iter().filter(|entry| entry.error.is_some()).count().to_string();
+                    let pairs = scope.pairs.to_string();
+                    let mut completed_fields = fields.to_vec();
+                    completed_fields.extend([
+                        ("entries", count.as_str()),
+                        ("failed", failed.as_str()),
+                        ("pairs", pairs.as_str()),
+                    ]);
+                    service.browser.logger().info("comparison.completed", &completed_fields);
+                    Ok(ComparisonSession { request, entries, scope })
+                }
                 Err(error) => {
+                    service.browser.logger().failure("comparison.failed", &error, &fields);
                     token.cancel();
                     request.connection.shutdown().await;
                     Err(error)
@@ -145,6 +173,7 @@ impl ComparisonService {
         request: &LoadRequest,
         cancel: &CancellationToken,
         progress: &watch::Sender<Progress>,
+        id: OperationId,
     ) -> Result<(Vec<ComparisonEntry>, ScopeSummary)> {
         if request.connection.state() != ConnectionState::Connected {
             return Err(Error::Invalid(
@@ -211,12 +240,13 @@ impl ComparisonService {
             let remote_path = match translated {
                 Ok(p) => p,
                 Err(error) => {
-                    errors.push(ComparisonEntry {
-                        local: absolute,
-                        remote: String::new(),
-                        result: None,
-                        error: Some(error.to_string()),
-                    });
+                    errors.push(self.failed_entry(
+                        &request.connection,
+                        id,
+                        (absolute, String::new()),
+                        error.into(),
+                        "map_local",
+                    ));
                     continue;
                 }
             };
@@ -229,18 +259,20 @@ impl ComparisonService {
                     explicit.insert(absolute.clone());
                     pairs.insert(absolute, remote_path);
                 }
-                Ok(_) => errors.push(ComparisonEntry {
-                    local: absolute,
-                    remote: remote_path,
-                    result: None,
-                    error: Some("local selection is not a regular file or directory".into()),
-                }),
-                Err(error) => errors.push(ComparisonEntry {
-                    local: absolute,
-                    remote: remote_path,
-                    result: None,
-                    error: Some(error.to_string()),
-                }),
+                Ok(_) => errors.push(self.failed_entry(
+                    &request.connection,
+                    id,
+                    (absolute, remote_path),
+                    Error::Invalid("local selection is not a regular file or directory".into()),
+                    "stat_local",
+                )),
+                Err(error) => errors.push(self.failed_entry(
+                    &request.connection,
+                    id,
+                    (absolute, remote_path),
+                    error,
+                    "stat_local",
+                )),
             }
             progress.send_modify(|p| p.completed += 1);
         }
@@ -253,12 +285,13 @@ impl ComparisonService {
             let local_path = match mapper.remote_to_local(&path) {
                 Ok(p) => PathBuf::from(p),
                 Err(error) => {
-                    errors.push(ComparisonEntry {
-                        local: PathBuf::new(),
-                        remote: path,
-                        result: None,
-                        error: Some(error.to_string()),
-                    });
+                    errors.push(self.failed_entry(
+                        &request.connection,
+                        id,
+                        (PathBuf::new(), path),
+                        error.into(),
+                        "map_remote",
+                    ));
                     continue;
                 }
             };
@@ -271,18 +304,20 @@ impl ComparisonService {
                     explicit.insert(local_path.clone());
                     pairs.insert(local_path, path);
                 }
-                Ok(_) => errors.push(ComparisonEntry {
-                    local: local_path,
-                    remote: path,
-                    result: None,
-                    error: Some("remote selection is not a regular file or directory".into()),
-                }),
-                Err(error) => errors.push(ComparisonEntry {
-                    local: local_path,
-                    remote: path,
-                    result: None,
-                    error: Some(error.to_string()),
-                }),
+                Ok(_) => errors.push(self.failed_entry(
+                    &request.connection,
+                    id,
+                    (local_path, path),
+                    Error::Invalid("remote selection is not a regular file or directory".into()),
+                    "stat_remote",
+                )),
+                Err(error) => errors.push(self.failed_entry(
+                    &request.connection,
+                    id,
+                    (local_path, path),
+                    error,
+                    "stat_remote",
+                )),
             }
             progress.send_modify(|p| p.completed += 1);
         }
@@ -324,14 +359,20 @@ impl ComparisonService {
                 Ok(entries) => entries,
                 Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {
-                    errors.push(ComparisonEntry {
-                        local: path.clone(),
-                        remote: mapper
-                            .local_to_remote(&path.to_string_lossy())
-                            .unwrap_or_default(),
-                        result: None,
-                        error: Some(format!("walk local: {error}")),
-                    });
+                    errors.push(
+                        self.failed_entry(
+                            &request.connection,
+                            id,
+                            (
+                                path.clone(),
+                                mapper
+                                    .local_to_remote(&path.to_string_lossy())
+                                    .unwrap_or_default(),
+                            ),
+                            error,
+                            "walk_local",
+                        ),
+                    );
                     continue;
                 }
             };
@@ -351,12 +392,13 @@ impl ComparisonService {
                         Ok(remote) => {
                             pairs.insert(absolute, remote);
                         }
-                        Err(error) => errors.push(ComparisonEntry {
-                            local: absolute,
-                            remote: String::new(),
-                            result: None,
-                            error: Some(error.to_string()),
-                        }),
+                        Err(error) => errors.push(self.failed_entry(
+                            &request.connection,
+                            id,
+                            (absolute, String::new()),
+                            error.into(),
+                            "map_local",
+                        )),
                     }
                 }
             }
@@ -407,12 +449,16 @@ impl ComparisonService {
                 Ok(entries) => entries,
                 Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {
-                    errors.push(ComparisonEntry {
-                        local: PathBuf::from(mapper.remote_to_local(&path).unwrap_or_default()),
-                        remote: path,
-                        result: None,
-                        error: Some(format!("walk remote: {error}")),
-                    });
+                    errors.push(self.failed_entry(
+                        &request.connection,
+                        id,
+                        (
+                            PathBuf::from(mapper.remote_to_local(&path).unwrap_or_default()),
+                            path,
+                        ),
+                        error,
+                        "walk_remote",
+                    ));
                     continue;
                 }
             };
@@ -557,7 +603,7 @@ impl ComparisonService {
                 let connection = request.connection.clone();
                 let token = cancel.clone();
                 let progress = progress.clone();
-                workers.spawn(async move {
+                workers.spawn(self.browser.runtime.tasks.track_future(async move {
                     let result = service
                         .pair(root, &connection, &local, &remote, &token, &progress)
                         .await;
@@ -568,14 +614,11 @@ impl ComparisonService {
                             result: Some(Arc::new(result)),
                             error: None,
                         },
-                        Err(error) => ComparisonEntry {
-                            local,
-                            remote,
-                            result: None,
-                            error: Some(error.to_string()),
-                        },
+                        Err(error) => {
+                            service.failed_entry(&connection, id, (local, remote), error, "pair")
+                        }
                     }
-                });
+                }));
             }
             let Some(result) = workers.join_next().await else {
                 break;
@@ -594,6 +637,39 @@ impl ComparisonService {
         }
         entries.sort_by(|a, b| a.local.cmp(&b.local).then(a.remote.cmp(&b.remote)));
         Ok((entries, scope))
+    }
+    fn failed_entry(
+        &self,
+        connection: &RemoteSession,
+        id: OperationId,
+        paths: (PathBuf, String),
+        error: Error,
+        stage: &'static str,
+    ) -> ComparisonEntry {
+        let (local, remote) = paths;
+        self.browser.logger().failure(
+            "comparison.entry_failed",
+            &error,
+            &[
+                ("host", connection.host_name.as_str()),
+                ("local_path", &local.to_string_lossy()),
+                ("remote_path", remote.as_str()),
+                ("project", &id.project.to_string()),
+                ("operation", &id.operation.to_string()),
+                ("stage", stage),
+            ],
+        );
+        let message = match stage {
+            "walk_local" => format!("walk local: {error}"),
+            "walk_remote" => format!("walk remote: {error}"),
+            _ => error.to_string(),
+        };
+        ComparisonEntry {
+            local,
+            remote,
+            result: None,
+            error: Some(message),
+        }
     }
     async fn pair(
         &self,

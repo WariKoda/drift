@@ -3,6 +3,7 @@ pub mod browser;
 pub mod cli;
 pub mod comparison;
 pub mod hosts;
+pub mod logging;
 pub mod navigation;
 pub mod projects;
 pub mod remote;

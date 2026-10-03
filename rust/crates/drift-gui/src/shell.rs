@@ -20,7 +20,7 @@ use drift_core::{store::Store, tlstrust::Manager};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::{
     AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    PathPromptOptions, Render, Styled, Subscription, Window, div,
+    PathPromptOptions, Render, Styled, Subscription, TestSupportExt, Window, div,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,6 +48,7 @@ pub struct Shell {
     startup: Option<CancellationToken>,
     start_directory: PathBuf,
     status: String,
+    logging_warning: Option<String>,
     host_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
@@ -239,6 +240,23 @@ impl Shell {
                 },
             ),
         ];
+        let mut logging_failures = service.logger().failures();
+        let logging_warning = logging_failures.borrow_and_update().clone();
+        cx.spawn(async move |this, cx| {
+            while logging_failures.changed().await.is_ok() {
+                let warning = logging_failures.borrow_and_update().clone();
+                if this
+                    .update(cx, |this, cx| {
+                        this.logging_warning = warning;
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         let mut shell = Self {
             certificate: None,
             certificate_subscription: None,
@@ -261,6 +279,7 @@ impl Shell {
             startup: None,
             start_directory: start.clone(),
             status: "Opening project…".into(),
+            logging_warning,
             host_subscription: None,
             _subscriptions: subscriptions,
         };
@@ -625,7 +644,30 @@ impl Shell {
     }
 }
 impl Render for Shell {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = self.render_content(window, cx);
+        let mut view = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground);
+        if let Some(warning) = &self.logging_warning {
+            view = view.child(
+                div()
+                    .id("logging-warning")
+                    .test_support()
+                    .flex_shrink_0()
+                    .p_2()
+                    .text_color(cx.theme().danger)
+                    .child(warning.clone()),
+            );
+        }
+        view.child(div().flex().flex_col().flex_1().min_h_0().child(content))
+    }
+}
+impl Shell {
+    fn render_content(&mut self, _: &mut Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         if let Some((_, _, prompt)) = &self.certificate {
             return div().size_full().child(prompt.clone()).into_any_element();
         }
@@ -784,8 +826,12 @@ mod ftp_tests;
 #[cfg(test)]
 mod ftps_tests;
 #[cfg(test)]
+mod logging_tests;
+#[cfg(test)]
 mod project_tests;
 mod projects;
+#[cfg(test)]
+mod shutdown_logging_tests;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

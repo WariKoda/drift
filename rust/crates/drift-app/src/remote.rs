@@ -7,7 +7,13 @@ use drift_core::{
     store::Store,
     tlstrust::{Challenge, Endpoint, Manager, TrustSnapshot},
 };
-use std::{future::Future, sync::Arc};
+use std::{
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
@@ -17,6 +23,7 @@ pub struct RemoteSession {
     pub root: String,
     pub(crate) client: Arc<dyn RemoteClient>,
     preview_lock: Arc<tokio::sync::Mutex<()>>,
+    monitor_failure_logged: Arc<AtomicBool>,
 }
 impl RemoteSession {
     pub async fn shutdown(&self) {
@@ -66,10 +73,24 @@ impl RemoteService {
     ) -> Operation<String> {
         let service = self.clone();
         self.run(id, move |cancel| async move {
+            let host_name = draft.name.clone();
+            let project = id.project.to_string();
+            let operation_id = id.operation.to_string();
+            let fields = [
+                ("host", host_name.as_str()),
+                ("project", project.as_str()),
+                ("operation", operation_id.as_str()),
+            ];
             let host = service
                 .browser
                 .blocking(&cancel, move || store.preview_host(slug.as_deref(), draft))
-                .await?;
+                .await
+                .inspect_err(|error| {
+                    service
+                        .browser
+                        .logger()
+                        .failure("host_test.resolve_failed", error, &fields);
+                })?;
             let operation = service.connect_required(host, required, id);
             let mut task = operation.task;
             let result = tokio::select! {
@@ -80,15 +101,31 @@ impl RemoteService {
                 },
                 result = &mut task => result,
             }
-            .map_err(|error| Error::Connection(format!("host test failed: {error}")))?;
+            .map_err(|error| Error::Connection(format!("host test failed: {error}")))
+            .inspect_err(|error| {
+                service
+                    .browser
+                    .logger()
+                    .failure("host_test.failed", error, &fields);
+            })?;
             match result {
                 Ok(directory) => {
                     directory.session.shutdown().await;
                     if cancel.is_cancelled() {
-                        return Err(Error::Invalid("host test cancelled".into()));
+                        let error = Error::Invalid("host test cancelled".into());
+                        service
+                            .browser
+                            .logger()
+                            .failure("host_test.failed", &error, &fields);
+                        return Err(error);
                     }
+                    service
+                        .browser
+                        .logger()
+                        .info("host_test.completed", &fields);
                     Ok(directory.path)
                 }
+                // Connection failures are logged by connect_required.
                 Err(error) => Err(error),
             }
         })
@@ -194,23 +231,43 @@ impl RemoteService {
         let manager = self.trust.clone();
         let browser = self.browser.clone();
         self.run(id, move |cancel| async move {
-            if required.is_some() && host.protocol != "ftps" {
-                return Err(Error::Invalid("FTPS certificate retry requires an FTPS host".into()));
+            let project = id.project.to_string();
+            let operation = id.operation.to_string();
+            let port = host.port.to_string();
+            let fields = [
+                ("host", host.name.as_str()),
+                ("endpoint", host.hostname.as_str()),
+                ("port", port.as_str()),
+                ("protocol", host.protocol.as_str()),
+                ("remote_path", host.root_path.as_str()),
+                ("project", project.as_str()),
+                ("operation", operation.as_str()),
+            ];
+            browser.logger().info("connection.start", &fields);
+            let result = async {
+                if required.is_some() && host.protocol != "ftps" {
+                    return Err(Error::Invalid("FTPS certificate retry requires an FTPS host".into()));
+                }
+                let mut options = match options { Some(options) => options, None => ConnectOptions::from_environment()? };
+                if host.protocol=="ftps" {
+                    if let Some(manager)=manager { options.tls=Some(browser.blocking(&cancel, move || manager.policy()).await?); }
+                    if let Some(challenge)=required { options.tls=Some(options.tls.take().ok_or_else(||Error::Invalid("FTPS certificate policy unavailable".into()))?.require(challenge)); }
+                }
+                let client = remote::connect(host.clone(), options, cancel.clone()).await?;
+                let root = if host.root_path.is_empty() { "." } else { &host.root_path };
+                let path = tokio::select! { _ = cancel.cancelled() => Err(Error::Invalid("connection cancelled".into())), path = client.canonicalize(root) => path };
+                let path = match path { Ok(path) => path, Err(error) => { client.shutdown().await; return Err(error); } };
+                let session = RemoteSession { id, host_name: host.name.clone(), root: path.clone(), client, preview_lock: Arc::new(tokio::sync::Mutex::new(())), monitor_failure_logged: Arc::new(AtomicBool::new(false)) };
+                match Self::directory(session.clone(), path, cancel).await {
+                    Ok(directory) => Ok(directory),
+                    Err(error) => { session.shutdown().await; Err(error) },
+                }
+            }.await;
+            match &result {
+                Ok(_) => browser.logger().info("connection.connected", &fields),
+                Err(error) => browser.logger().failure("connection.failed", error, &fields),
             }
-            let mut options = match options { Some(options) => options, None => ConnectOptions::from_environment()? };
-            if host.protocol=="ftps" {
-                if let Some(manager)=manager { options.tls=Some(browser.blocking(&cancel, move || manager.policy()).await?); }
-                if let Some(challenge)=required { options.tls=Some(options.tls.take().ok_or_else(||Error::Invalid("FTPS certificate policy unavailable".into()))?.require(challenge)); }
-            }
-            let client = remote::connect(host.clone(), options, cancel.clone()).await?;
-            let root = if host.root_path.is_empty() { "." } else { &host.root_path };
-            let path = tokio::select! { _ = cancel.cancelled() => Err(Error::Invalid("connection cancelled".into())), path = client.canonicalize(root) => path };
-            let path = match path { Ok(path) => path, Err(error) => { client.shutdown().await; return Err(error); } };
-            let session = RemoteSession { id, host_name: host.name, root: path.clone(), client, preview_lock: Arc::new(tokio::sync::Mutex::new(())) };
-            match Self::directory(session.clone(), path, cancel).await {
-                Ok(directory) => Ok(directory),
-                Err(error) => { session.shutdown().await; Err(error) },
-            }
+            result
         })
     }
     async fn directory(
@@ -268,13 +325,32 @@ impl RemoteService {
         })
     }
     pub fn observe(&self, session: RemoteSession, id: OperationId) -> Operation<ConnectionState> {
+        let logger = self.browser.logger().clone();
         self.run(id, move |cancel| async move {
             let mut state = session.client.state();
-            loop {
+            let terminal = loop {
                 let current = state.borrow_and_update().clone();
-                if current != ConnectionState::Connected { return Ok(current); }
-                tokio::select! { _ = cancel.cancelled() => return Ok(ConnectionState::Closed), result = state.changed() => if result.is_err() { return Ok(ConnectionState::Failed("connection monitor stopped".into())); } }
+                if current != ConnectionState::Connected { break current; }
+                tokio::select! { _ = cancel.cancelled() => break ConnectionState::Closed, result = state.changed() => if result.is_err() { break ConnectionState::Failed("connection monitor stopped".into()); } }
+            };
+            let category = match &terminal {
+                ConnectionState::Failed(_) => Some("connection"),
+                ConnectionState::Certificate(_) => Some("certificate"),
+                ConnectionState::Connected | ConnectionState::Closed => None,
+            };
+            if let Some(category) = category
+                && !session.monitor_failure_logged.swap(true, Ordering::Relaxed)
+            {
+                logger.error("connection.monitor_failed", &[
+                    ("host", session.host_name.as_str()),
+                    ("remote_path", session.root.as_str()),
+                    ("project", &id.project.to_string()),
+                    ("operation", &id.operation.to_string()),
+                    ("connection_operation", &session.id.operation.to_string()),
+                    ("category", category),
+                ]);
             }
+            Ok(terminal)
         })
     }
     pub fn close(&self, session: RemoteSession) {

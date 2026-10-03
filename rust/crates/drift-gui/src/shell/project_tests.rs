@@ -252,3 +252,77 @@ async fn active_project_move_and_removal_close_real_remote_sessions(cx: &mut Tes
         "moved"
     );
 }
+
+#[gpui_kit::test]
+async fn cli_open_loads_the_matched_project_before_marking_it_opened(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let root = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("keep"), "project contents").unwrap();
+    let store = Store::new(config.path().into());
+    store
+        .register("Shop Production", root.path().into())
+        .unwrap();
+    let response = drift_app::cli::run(
+        &store,
+        drift_app::cli::ProjectCommand::Open("production".into()),
+    )
+    .unwrap();
+    assert!(
+        store
+            .registry()
+            .unwrap()
+            .find("shop-production")
+            .unwrap()
+            .opened_at
+            .is_none()
+    );
+    let (handle, shell) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1200.), px(900.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |w, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    Shell::new(
+                        w,
+                        cx,
+                        store.clone(),
+                        service.clone(),
+                        RemoteService::new(service),
+                        response.start.unwrap(),
+                    )
+                })
+            },
+        )
+        .unwrap()
+    });
+    cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
+        shell.read(cx).browser.read(cx).location().is_some()
+    })
+    .await;
+    shell.read_with(cx, |s, cx| {
+        let location = s.browser.read(cx).location().unwrap();
+        assert_eq!(location.slug.as_deref(), Some("shop-production"));
+        assert_eq!(location.directory, root.path());
+        assert!(!s.projects.read(cx).visible());
+    });
+    assert!(
+        store
+            .registry()
+            .unwrap()
+            .find("shop-production")
+            .unwrap()
+            .opened_at
+            .is_some()
+    );
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}

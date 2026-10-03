@@ -1907,6 +1907,7 @@ version = "0.1.0"
 dependencies = [
  "drift-app",
  "drift-core",
+ "fs2",
  "gpui-kit",
  "rustls",
  "tempfile",

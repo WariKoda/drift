@@ -24,18 +24,22 @@ Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostliste
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
 Link-/Serverpicker, Zertifikatsentscheidungen und Diff-Scroll/Faltung sind ergänzt.
 Numerische Dashboardwahl und einblendbare Sync-Fehlerdetails sind ergänzt.
-Als Nächstes stehen die vorhandenen CLI-Verwaltungsbefehle und Datei-Logging an.
+Die vorhandenen CLI-Projektbefehle sowie open/dash/version sind ergänzt.
+Als Nächstes steht optionales Datei-Logging samt Flags und Umgebungsvariablen an.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-project-shortcuts-errors`, aufgebaut auf
-  `feature/rust-picker-diff-keyboard` (Commit `7d4b6c6`).
-- [Draft-PR #80](https://github.com/WariKoda/drift/pull/80) enthält Picker-/Diff-
-  Tastaturarbeit und basiert auf [#79](https://github.com/WariKoda/drift/pull/79).
-  Die Projektdirektwahl-/Fehleranzeige-Arbeit baut auf #80 auf. Das ist eine
-  gestapelte PR-Kette; vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
-- CI von #80 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
+- Aktueller Branch: `feature/rust-project-cli`, aufgebaut auf
+  `feature/rust-project-shortcuts-errors` (Commit `87bca9b`).
+- [Draft-PR #81](https://github.com/WariKoda/drift/pull/81) enthält numerische
+  Projektdirektwahl und Sync-Fehlerdetails und basiert auf [#80](https://github.com/WariKoda/drift/pull/80).
+  Die CLI-Arbeit baut auf #81 auf. Das ist eine gestapelte PR-Kette;
+  vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
+- CI von #80 bestanden. Bei #81 bestanden Go und ein Rust-Linux-Lauf; weitere
+  Rust-Läufe liefen bei der letzten Prüfung noch. Ein macOS-Lauf scheiterte beim
+  Download der Go-Testabhängigkeiten an DNS-Timeouts zu `proxy.golang.org`, vor
+  Ausführung des betroffenen Tests; der Job wurde erneut gestartet.
 
 ### Implementiert und lokal geprüft
 
@@ -105,10 +109,18 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Gleiche Projektwahl/Schließen erhält die Sitzung; Verschieben/Entfernen des
   aktiven Projekts verwirft den alten Root und schließt die Remote-Verbindung.
   Fehlgeschlagener Registry-Write beim Entfernen stellt den Hoststore wieder her.
-- Letzter vollständiger lokaler Lauf: **105 Rust-Tests bestanden, 0 fehlgeschlagen,
+- CLI-Projektverwaltung ohne GUI-/Runtime-Start: `projects list/add/edit/archive/remove`.
+  `open` verwendet die vorhandene Slug-/Namens-/Prefix-/Substring-Suche und prüft
+  Pfad und Konfiguration vor dem Fensterstart. `dash` öffnet das Dashboard,
+  `version` zeigt die Rust-Paketversion. Hilfe/Version funktionieren ohne Display
+  und Config-Verzeichnis. `--` schützt Befehlsnamen und führende Bindestriche als
+  Ordnerargumente. Mutationen verwenden die bestehenden Store-Transaktionen;
+  Open-Zeitstempel schreibt erst das erfolgreich geladene GUI-Projekt.
+  Echte CLI-Prozesse prüfen Fehlercodes, Schreibsperren und unveränderte Projektdateien.
+- Letzter vollständiger lokaler Lauf: **116 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. 33 Headless-GPUI-Tests prüfen auch Tastaturfokus,
+  Linux-Release-Build bestanden. 34 Headless-GPUI-Tests prüfen auch Tastaturfokus,
   Filterrücksetzung sowie bestätigte/abgebrochene Tastatur-Syncs gegen echtes SFTP.
   Numerische Direktwahl prüft alle neun Positionen, gefilterte/archivierte/leere
   Listen, unveränderte Textfelder und tatsächliches Öffnen samt Open-Zeitstempel.
@@ -124,24 +136,27 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   `TMPDIR=/var/tmp`, weil ein fremdes `/tmp/.git` die Starttests beeinflusst.
   Native Rendering-/OS-Clipboard-Abnahme ist damit noch nicht erbracht.
 
-### Nächster Arbeitsblock: CLI und Datei-Logging
+### Nächster Arbeitsblock: Optionales Datei-Logging
 
-1. Aktuelle Go-Befehle unter `cmd/` und Rust-Startargumente erneut lesen und den
-   ersten zusammenhängenden Verwaltungsablauf portieren. Die vorhandenen
-   Start-Flags allein bedeuten noch keine vollständige CLI-Parität.
-2. Fachliche Abläufe in `drift-app` und persistente Änderungen in `drift-core`
-   halten. Bestehende Store-Transaktionen und Konfliktprüfungen wiederverwenden;
-   keine Verwaltungsdateien ins Projekt schreiben.
-3. Optionales Logging an der Go-Referenz messen: standardmäßig aus, bei expliziter
-   Aktivierung in eine Datei, ohne Secrets. Connect-/Diff-/Sync-Fehler müssen
-   zusätzlich zur sichtbaren Meldung nachvollziehbar bleiben.
-4. Vorhandene Tastaturkontexte erhalten: Buchstaben/Zahlen nur in den jeweiligen
-   Listen/Diff-Views auslösen, Textfelder behalten Texteingabe. Sync-Berichte
-   dürfen durch Detailschließen/Refresh/Verbindungsverlust nicht verloren gehen.
+1. `cmd/root.go` und `internal/log` erneut lesen. `--log`/`--debug` und
+   `$DRIFT_LOG`/`$DRIFT_DEBUG` mit derselben Priorität portieren; standardmäßig
+   keine Datei öffnen. Fehler beim Öffnen oder Schreiben sichtbar behandeln.
+2. Connect-/Diff-/Sync-Fehler im App-Layer samt geeignetem Kontext festhalten.
+   Logs bleiben dateibasiert, ohne Authentifizierungsdaten oder Dateiinhalte;
+   bestehende typisierte GUI-Ergebnisse und Sync-Berichte erhalten.
+3. CLI-Projektverwaltung ist verfügbar. Parser liegt in `drift-gui/src/cli.rs`,
+   synchrone Befehle vor GUI-Start in `drift-app/src/cli.rs`; Store-Mutationen
+   bleiben in `drift-core`. Hilfe und Version brauchen keine Konfiguration.
+4. Logging-Flags sowohl bei GUI-Start als auch bei Verwaltungsbefehlen prüfen;
+   eigene Prozesse verwenden, damit Tests keine echte Konfiguration ändern.
 5. Native Wayland-/X11-/macOS-Abnahme bleibt offen, insbesondere Fokus, große
    Bäume, scrollbare Fehlerdetails und OS-Clipboard.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
+
+**9 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung ist umgesetzt;
+Block 7 bleibt wegen des optionalen Loggings offen. Die Blöcke enthalten mehrere
+Teilaufgaben und sind keine gleich großen Zeiteinheiten.
 
 - Kontextmenüs und veränderbare Bereichsgrößen;
   vollständige Browser-/Dialog-/Diff-Tastaturparität.
@@ -153,8 +168,8 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 - `gui.toml` für Fenster/Pane/Theme sowie **Monokai Pro Dark** und
   **Monokai Pro Light Sun**, Modus **System/Dark/Light** einschließlich laufendem
   OS-Wechsel. Das ist verbindlich geplant und noch nicht implementiert.
-- Port der vorhandenen CLI-Verwaltungsbefehle und des optionalen Datei-Loggings.
-  Die aktuellen Start-Flags bedeuten noch keine vollständige CLI-Parität.
+- Optionales Datei-Logging mit CLI-Flags und Umgebungsvariablen; die vorhandenen
+  CLI-Projektbefehle sowie open/dash/version sind portiert.
 - Native Wayland-/X11-/macOS-Abnahme, einschließlich Intel/Apple Silicon,
   Fokus, Rendering, OS-Clipboard und laufender I/O.
 - Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte GUI-Release-Wege und
@@ -324,7 +339,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate, vollständige Tastaturparität und zeichengenaue Textselektion offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
-| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: Scope-erhaltender Refresh/Sync und wesentliche GUI-Verwaltung vorhanden; vollständige CLI-/Tastaturparität und Logging offen |
+| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: Scope-erhaltender Refresh/Sync und wesentliche GUI-Verwaltung vorhanden; CLI-Projektbefehle und open/dash/version vorhanden; verbleibende Tastaturparität und Logging offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
 
 Der SFTP-Durchstich verwendet native `russh`-/`russh-sftp`-Clients und ein

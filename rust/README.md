@@ -52,6 +52,33 @@ cd rust && cargo run --locked -p drift-gui -- /path/to/project
 make rust-install
 ```
 
+Project management commands run before GUI initialization and need no display:
+
+```sh
+drift-gui projects list
+drift-gui projects add "Shop" /path/to/shop
+drift-gui projects edit shop --name "New Shop" --path /new/path
+drift-gui projects archive shop   # toggles archived/active
+drift-gui projects remove shop    # removes registry/settings; keeps local files
+drift-gui open shop               # starts the GUI for a matched project
+drift-gui dash                    # starts on the dashboard
+drift-gui version
+```
+
+Add defaults to the current directory. Add/edit paths support `~` and `~/`.
+Open matches an exact slug, exact name, unique prefix or unique substring, including
+archived projects. Invalid or ambiguous matches fail before opening a window;
+the opening timestamp is written only after the GUI loads the project. Listing
+includes active, archived and missing paths. Mutations use the shared write lock
+and preserve project identity, timestamps and settings where applicable.
+`projects --help` documents options; help/version need no configuration directory.
+Version currently reports the Cargo package version; release packaging remains open.
+Use `--` before a directory named `projects`, `open`, `dash` or `version`, or one
+beginning with `-` (`drift-gui -- projects`); `./projects` also selects that folder.
+Project commands accept `--` before positional arguments with leading hyphens.
+Invalid syntax, validation failures and lock contention return exit code 1.
+Optional file logging and its CLI/environment controls remain the next increment.
+
 The GUI stays in the current directory inside registered projects and unregistered
 Git repositories. Outside them, it restores the last opened active project if its
 path is usable; otherwise it shows the dashboard when projects exist. A directory
@@ -425,7 +452,9 @@ masked fields, concurrent-edit conflicts and deletion guards. Management keyboar
 tests cover empty/filtered lists, scrolling, cursor retention, archive/unarchive,
 scope switching, form validation, saved-host connection tests and trust-reset
 conflicts. Numeric shortcut tests cover all nine rows, filtering, archive visibility
-and text input. Shell tests open projects through keyboard events. Picker tests also
+and text input. Shell tests open projects through keyboard events and the CLI start result.
+CLI tests execute the actual binary without display access to check help, version,
+project mutations, error exits and a lock held by another process. Picker tests also
 exercise keyboard promotion, filtering, reloads and partial writes. Certificate
 tests use real FTPS challenges to check initial rejection, pending-approval guards
 and detail scrolling. Diff tests check page boundaries, folds, source selection,
@@ -458,8 +487,8 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
 and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
 restoration and core project/host keyboard flows are available, including numeric
-project shortcuts and the sync-error display shortcut. CLI management and optional
-file logging are the next port increment.
+project shortcuts and the sync-error display shortcut. CLI project management and open/dash/version are
+also available. Optional file logging is the next port increment.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native

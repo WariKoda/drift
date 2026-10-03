@@ -87,6 +87,14 @@ Archive/unarchive changes visibility and the edit timestamp, retaining settings.
 A changed record produces a visible conflict and retains the form/confirmation;
 cancel and reload to use the current snapshot.
 
+In Projects, Down/Enter leaves the filter and focuses the list. Arrows/J/K and
+Home/g or End/G navigate the visible projects. Enter opens, n creates, e edits,
+a archives/unarchives, d/Delete asks to remove, a dot shows/hides archived projects,
+and r reloads. The / key or Ctrl/Cmd+F returns to filtering. Ctrl/Cmd+S saves a form;
+Enter/y confirms removal and Escape cancels. The cursor follows the project slug
+across edits and reloads, and scrolls into view. Filtered-out projects cannot be
+acted on through list commands.
+
 Removal first hides the project's host store, commits registry removal under the
 shared lock, then deletes the hidden settings. A failed registry commit restores
 the settings; a cleanup failure after commit is reported explicitly. Local project
@@ -248,6 +256,16 @@ keep-alive (empty means 60 seconds, zero disables probes). Passwords/passphrases
 are masked. Empty port/user fields keep the stored defaults instead of saving
 resolved values. Local/deploy mapping paths remain relative to their roots.
 
+Hosts also uses Down/Enter from the filter, arrows/J/K, Home/g and End/G,
+and / or Ctrl/Cmd+F for searching. In the list, n creates, e/Enter edits,
+c duplicates, d/Delete asks to delete, t tests the connection, r opens FTPS trust
+reset, l opens the link picker, and F5 reloads. Tab/Shift+Tab switches between
+project hosts and global servers when a project is open. Ctrl/Cmd+S saves the
+current form; Enter/y confirms deletion, and Escape returns to the list with its
+cursor retained. Letters in filters and form fields remain ordinary text; search
+shortcuts do not move focus out of an active form. Validation/conflict errors keep
+the form or confirmation open.
+
 **Test** in the host list or **Test connection** in a form resolves fresh defaults
 and server links, checks authentication, root access and directory listing, then
 closes its separate connection. Testing a form leaves it unsaved. FTPS uses the
@@ -258,7 +276,8 @@ form with its values and focus preserved and stops pending test I/O.
 For FTPS targets, **Reset certificate trust** shows the resolved endpoint and its
 session/persistent fingerprints. Confirmation removes both exceptions for that
 endpoint. Concurrent changes preserve the confirmation and report a conflict;
-**Reload trust** obtains a fresh snapshot. Existing connections keep their policy;
+**Reload trust** (r) obtains a fresh snapshot. Enter/y confirms the reset and Escape
+returns to Hosts. Existing connections keep their policy;
 future connections verify again. Reset neither reconnects nor repeats transfers.
 
 Save conflicts and validation errors leave the form open. Cancel it, reload the
@@ -380,7 +399,10 @@ overrides/restoration, Git-root suggestions, stale forms and active-root invalid
 with a live FTP connection. Go/Rust process tests cover archive/removal, shared locks
 and competing Go edits before Rust save/delete.
 Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
-masked fields, concurrent-edit conflicts and deletion guards.
+masked fields, concurrent-edit conflicts and deletion guards. Management keyboard
+tests cover empty/filtered lists, scrolling, cursor retention, archive/unarchive,
+scope switching, form validation, saved-host connection tests and trust-reset
+conflicts. Shell tests open projects through keyboard events.
 
 Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
@@ -405,8 +427,9 @@ window. Headless tests cannot establish native rendering or OS clipboard behavio
 
 Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
 and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
-restoration are available; full project keyboard parity remains. SFTP transport/browser and comparison/unified diff are
-available, including serial upload/download/delete sync. FTP now uses these same
+restoration and core project/host keyboard flows are available. Numeric project
+shortcuts and complete link/certificate picker keyboard parity remain.
+SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native
 release acceptance remain. Blocking local filesystem calls already running cannot

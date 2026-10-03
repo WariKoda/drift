@@ -43,6 +43,7 @@ gpui_kit::actions!(
 );
 pub fn bind_keys(cx: &mut App) {
     crate::hosts::bind_keys(cx);
+    crate::projects::bind_keys(cx);
     for context in ["DriftBrowser", "DriftComparisonFiles"] {
         cx.bind_keys([
             KeyBinding::new("home", CursorFirst, Some(context)),

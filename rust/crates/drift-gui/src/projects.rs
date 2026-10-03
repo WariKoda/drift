@@ -1,7 +1,9 @@
 //! Project dashboard/switcher. Store mutations run in the application service.
 mod form;
+mod keyboard;
 mod management;
 use crate::actions::Cancel;
+use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use drift_app::{
     browser::{BrowserService, OperationId},
     projects::{ProjectCommand, ProjectResponse},
@@ -17,11 +19,16 @@ use gpui_kit::component::{
     button::Button,
     input::{Input, InputEvent, InputState},
 };
+use gpui_kit::prelude::FluentBuilder;
+#[cfg(test)]
+use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
     AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, px,
+    IntoElement, ParentElement, Render, ScrollHandle, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, px,
 };
+pub use keyboard::bind_keys;
+use keyboard::*;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
@@ -48,6 +55,9 @@ pub struct ProjectsPanel {
     form: Option<ProjectForm>,
     delete: Option<Project>,
     focus: FocusHandle,
+    list_focus: FocusHandle,
+    cursor: Option<String>,
+    scroll: ScrollHandle,
     status: String,
     _subscription: Subscription,
 }
@@ -67,8 +77,12 @@ impl ProjectsPanel {
     ) -> Self {
         let query = cx.new(|cx| InputState::new(window, cx).placeholder("Find a project…"));
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("Project name"));
-        let subscription =
-            cx.subscribe_in(&query, window, |_, _, _: &InputEvent, _, cx| cx.notify());
+        let subscription = cx.subscribe_in(&query, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.scroll.scroll_to_item(this.cursor_row(cx));
+            }
+            cx.notify();
+        });
         Self {
             query,
             name,
@@ -85,6 +99,9 @@ impl ProjectsPanel {
             form: None,
             delete: None,
             focus: cx.focus_handle(),
+            list_focus: cx.focus_handle().tab_stop(true),
+            cursor: None,
+            scroll: ScrollHandle::new(),
             status: String::new(),
             _subscription: subscription,
         }
@@ -137,7 +154,7 @@ impl ProjectsPanel {
             return;
         }
         if self.form.take().is_some() || self.delete.take().is_some() {
-            self.query.focus_handle(cx).focus(window, cx);
+            self.list_focus.focus(window, cx);
             cx.notify();
         } else {
             self.close(cx);
@@ -147,11 +164,17 @@ impl ProjectsPanel {
 }
 impl Render for ProjectsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let query = self.query.read(cx).value().to_lowercase();
+        let selected = self.selected_project(cx).map(|p| p.slug);
         let busy = self.is_loading();
         let editing = self.form.is_some() || self.delete.is_some();
         let mut view = div()
-            .key_context("Drift")
+            .key_context(if self.form.is_some() {
+                "Drift DriftProjects DriftProjectForm"
+            } else if self.delete.is_some() {
+                "Drift DriftProjects DriftProjectConfirm"
+            } else {
+                "Drift DriftProjects"
+            })
             .track_focus(&self.focus)
             .size_full()
             .flex()
@@ -161,7 +184,21 @@ impl Render for ProjectsPanel {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::cancel_view))
-            .child("Projects")
+            .on_action(cx.listener(|this, _: &Search, w, cx| {
+                if this.form.is_none() && this.delete.is_none() {
+                    this.query.focus_handle(cx).focus(w, cx);
+                }
+            }))
+            .on_action(
+                cx.listener(|this, _: &FocusList, w, cx| {
+                    this.select_row(this.cursor_row(cx), w, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &Save, w, cx| this.save_form(w, cx)))
+            .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
+            .child(
+                "Projects · ↓ from filter · j/k navigate · n new · e edit · a archive · d remove",
+            )
             .child(self.status.clone());
         if let Some(form) = &self.form {
             view = view
@@ -177,18 +214,22 @@ impl Render for ProjectsPanel {
                 )
                 .child(
                     Button::new("project-save")
-                        .label("Save project")
+                        .label("Save project (Ctrl/Cmd+S)")
                         .disabled(busy)
-                        .on_click(cx.listener(Self::save_form)),
+                        .on_click(cx.listener(|this, _, w, cx| this.save_form(w, cx))),
                 );
         } else if let Some(project) = &self.delete {
             view = view.child(format!("Remove {:?} and its saved hosts/mappings? Local project files remain in place.", project.name))
                 .child(Button::new("project-delete-confirm").label("Remove project").disabled(busy).on_click(cx.listener(|this, _, w, cx| {
-                    if let Some(expected) = this.delete.clone() { this.request(ProjectCommand::Remove { expected: Box::new(expected) }, w, cx); }
+                    this.confirm_delete(w, cx);
                 })));
         } else {
             view = view
-                .child(Input::new(&self.query).id("project-filter").w(px(320.)))
+                .child(
+                    div()
+                        .key_context("DriftProjectFilter")
+                        .child(Input::new(&self.query).id("project-filter").w(px(320.))),
+                )
                 .child(
                     div()
                         .flex()
@@ -216,38 +257,110 @@ impl Render for ProjectsPanel {
                                 })
                                 .disabled(busy)
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.show_archived = !this.show_archived;
-                                    cx.notify();
+                                    this.toggle_archived(cx);
                                 })),
                         ),
                 )
                 .child(
                     div()
                         .id("project-list")
+                        .key_context("DriftProjectList")
+                        .track_focus(&self.list_focus)
+                        .track_scroll(&self.scroll)
+                        .on_action(cx.listener(|this, _: &CursorUp, w, cx| {
+                            this.select_row(this.cursor_row(cx).saturating_sub(1), w, cx)
+                        }))
+                        .on_action(cx.listener(|this, _: &CursorDown, w, cx| {
+                            this.select_row(this.cursor_row(cx) + 1, w, cx)
+                        }))
+                        .on_action(
+                            cx.listener(|this, _: &CursorFirst, w, cx| this.select_row(0, w, cx)),
+                        )
+                        .on_action(cx.listener(|this, _: &CursorLast, w, cx| {
+                            this.select_row(usize::MAX, w, cx)
+                        }))
+                        .on_action(cx.listener(|this, _: &New, w, cx| {
+                            if !this.is_loading() {
+                                this.edit(None, w, cx);
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Edit, w, cx| {
+                            if !this.is_loading()
+                                && let Some(project) = this.selected_project(cx)
+                            {
+                                this.edit(Some(project), w, cx);
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Open, _, cx| {
+                            if !this.is_loading()
+                                && let Some(project) = this.selected_project(cx)
+                            {
+                                cx.emit(ProjectEvent::Open(project.path));
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Remove, w, cx| {
+                            if !this.is_loading()
+                                && let Some(project) = this.selected_project(cx)
+                            {
+                                this.cursor = Some(project.slug.clone());
+                                this.delete = Some(project);
+                                this.focus.focus(w, cx);
+                                cx.notify();
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Archive, w, cx| {
+                            if !this.is_loading()
+                                && let Some(project) = this.selected_project(cx)
+                            {
+                                this.request(
+                                    ProjectCommand::Archive {
+                                        expected: Box::new(project),
+                                    },
+                                    w,
+                                    cx,
+                                );
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Archived, _, cx| {
+                            if !this.is_loading() {
+                                this.toggle_archived(cx);
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Reload, w, cx| {
+                            if !this.is_loading() {
+                                this.request(ProjectCommand::Load, w, cx);
+                            }
+                        }))
                         .flex()
                         .flex_col()
                         .gap_2()
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scroll()
-                        .children(
-                            (if self.show_archived {
-                                self.registry.all()
-                            } else {
-                                self.registry.active()
-                            })
-                            .into_iter()
-                            .filter(|p| {
-                                p.name.to_lowercase().contains(&query)
-                                    || p.slug.to_lowercase().contains(&query)
-                                    || p.path.to_string_lossy().to_lowercase().contains(&query)
-                            })
-                            .map(|project| {
+                        .children(self.visible_projects(cx).into_iter().enumerate().map(
+                            |(index, project)| {
                                 let path = project.path.clone();
                                 let edit = project.clone();
                                 let archive = project.clone();
                                 let delete = project.clone();
                                 div()
+                                    .id(format!("project-row-{}", project.slug))
+                                    .when(selected.as_ref() == Some(&project.slug), |view| {
+                                        view.bg(cx.theme().accent)
+                                    })
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.select_row(index, w, cx)
+                                    }))
+                                    .map(|view| {
+                                        #[cfg(test)]
+                                        {
+                                            view.test_support()
+                                        }
+                                        #[cfg(not(test))]
+                                        {
+                                            view
+                                        }
+                                    })
                                     .flex()
                                     .flex_col()
                                     .gap_2()
@@ -312,14 +425,15 @@ impl Render for ProjectsPanel {
                                                 .label("Remove")
                                                 .disabled(busy)
                                                 .on_click(cx.listener(move |this, _, w, cx| {
+                                                    this.cursor = Some(delete.slug.clone());
                                                     this.delete = Some(delete.clone());
                                                     this.focus.focus(w, cx);
                                                     cx.notify();
                                                 })),
                                             ),
                                     )
-                            }),
-                        ),
+                            },
+                        )),
                 )
                 .child(
                     div()

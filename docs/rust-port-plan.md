@@ -20,20 +20,20 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 Stand: **3. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
 aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
-Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Als nächster
-Schritt stehen die Tastaturabläufe in Projekt-/Hostverwaltung und Dialogen an. Die optische Überarbeitung
+Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
+Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
+Als Nächstes stehen verbliebene Picker-/Diff-Tasten an. Die optische Überarbeitung
 bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-keyboard-navigation`, aufgebaut auf
-  `feature/rust-browser-trees` (Commit `93a3c7b`).
-- [Draft-PR #77](https://github.com/WariKoda/drift/pull/77) enthält die
-  Dateibäume und basiert auf [#76](https://github.com/WariKoda/drift/pull/76).
-  Die Tastatur-Arbeit baut auf #77 auf. Das ist eine gestapelte PR-Kette;
+- Aktueller Branch: `feature/rust-management-keyboard`, aufgebaut auf
+  `feature/rust-keyboard-navigation` (Commit `aa6ab12`).
+- [Draft-PR #78](https://github.com/WariKoda/drift/pull/78) enthält die
+  Browser-/Vergleichstasten und basiert auf [#77](https://github.com/WariKoda/drift/pull/77).
+  Die Verwaltungs-Tastaturarbeit baut auf #78 auf. Das ist eine gestapelte PR-Kette;
   vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
-- CI von #76 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
-  Bei #77 war Go erfolgreich; Rust Linux/macOS liefen bei der letzten Prüfung noch.
+- CI von #78 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
 
 ### Implementiert und lokal geprüft
 
@@ -70,17 +70,26 @@ bleibt ausdrücklich für später geplant.
 - Host-CRUD, Duplizieren, Mappings, globale Serverlinks, projektübergreifender
   Picker und Server-Promotion, Verbindungstest auch ungespeicherter Formulare
   sowie FTPS-Trust-Reset. Konflikte/Teilerfolge bleiben sichtbar.
+- Verwaltungslisten mit sichtbarem Cursor nach Projekt-Slug und Host-Eintragsname,
+  automatischem Scrollen, Down/Enter vom Filter zur Liste, Pfeilen/j/k und Home/g/End/G. Projekte:
+  Enter öffnen, n/e anlegen/bearbeiten, a archivieren/wiederherstellen, . Archivierte,
+  d/Delete entfernen, r neu laden. Hosts: n/e/c/d, t Verbindungstest, r FTPS-Trust-Reset,
+  l Link-Picker, F5 Reload und Tab/Shift+Tab Scope-Wechsel. Ctrl/Cmd+S speichert
+  Formulare; Enter/y bestätigt Löschen/Trust-Reset, Escape kehrt zur Liste zurück.
+  Filter/Formulare behalten Texteingabe; Konflikte behalten Form/Bestätigung.
 - Projekt-Anlegen/Bearbeiten/Archivieren/Wiederherstellen/Entfernen, Dashboard,
   Startwiederherstellung, `--dashboard`, `--no-dashboard`, Ordnerargument und
   `--help`. Registrierung schlägt den Git-Root einschließlich Worktrees vor.
   Gleiche Projektwahl/Schließen erhält die Sitzung; Verschieben/Entfernen des
   aktiven Projekts verwirft den alten Root und schließt die Remote-Verbindung.
   Fehlgeschlagener Registry-Write beim Entfernen stellt den Hoststore wieder her.
-- Letzter vollständiger lokaler Lauf: **97 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **99 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. 25 Headless-GPUI-Tests prüfen auch Tastaturfokus,
+  Linux-Release-Build bestanden. 27 Headless-GPUI-Tests prüfen auch Tastaturfokus,
   Filterrücksetzung sowie bestätigte/abgebrochene Tastatur-Syncs gegen echtes SFTP.
+  Verwaltungsprüfungen decken Cursor/Scroll, leere Filter, Archivierung, CRUD,
+  Formularfehler/Konflikte, SFTP-Verbindungstest und FTPS-Trust-Reset per Taste ab.
   Baumtests prüfen echtes lokales/SFTP-Laden,
   verschachteltes Collapse, Visibility/Refresh, verschwundene Ordner und veraltete
   Ergebnisse. FTP/FTPS prüfen Aufklappen/Markieren/Zuklappen; der gemeinsame
@@ -94,8 +103,9 @@ bleibt ausdrücklich für später geplant.
    Bereits vorhanden sind Markierungen, v/V, Invertieren, Enter/Right/L zum
    Aufklappen, Left/H zum Zuklappen und Alt+Enter zur Ordnernavigation.
    Listenanfang/-ende, Pane-Wechsel und die oben genannten Browser-/Vergleichstasten
-   sind vorhanden. Als Nächstes Cursor/CRUD-Tasten in Dashboard und Hostliste,
-   Formular-Speichern, Dialogbestätigung und weitere Diff-Tasten ergänzen.
+   sowie Cursor/CRUD-Tasten in Dashboard/Hostliste, Formular-Speichern und
+   Lösch-/Trust-Reset-Bestätigung sind vorhanden. Als Nächstes Link-/Serverpicker
+   und Zertifikatsdialog sowie numerische Dashboardwahl und weitere Diff-Tasten prüfen.
    Direktwahl Upload/Download, Fehlerfilter und seitenweise Diff-Navigation sind offen.
 2. Buchstabenbefehle nur im jeweiligen View-Kontext auslösen. Kit-Textfelder
    behalten normale Texteingabe; Fokus nach Dialogschließen wiederherstellen.
@@ -454,8 +464,9 @@ Registrierung schlägt der Dienst den Git-Root einschließlich Worktrees vor.
 `projects.rs`, `projects/form.rs`, `projects/management.rs` und
 `shell/projects.rs` trennen Liste/Formular, Ergebnisübernahme und Sitzung/Start.
 Echte Dateisystem-, App-, GPUI- und Go/Rust-Prozesstests decken Rücksetzen,
-Konflikte, Archivierung, Startregeln und aktive FTP-Sitzungen ab. Die vollständige
-Tastaturparität des Dashboards bleibt eine Aufgabe in Meilenstein 5.
+Konflikte, Archivierung, Startregeln und aktive FTP-Sitzungen ab. Die wesentlichen
+Cursor-/CRUD-/Formulartasten des Dashboards sind umgesetzt; numerische Direktwahl
+und verbleibende Tastaturparität bleiben in Meilenstein 5.
 
 Jeder Schritt entsteht auf einem kurzlebigen Branch und in einem validierten PR;
 `main` bleibt releasable. Go-Ziele bleiben unabhängig von Rust verfügbar.

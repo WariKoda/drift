@@ -150,7 +150,19 @@ and returns focus to that pane. Outside clicks dismiss and still reach the click
 control. Browser/global shortcuts do not run behind an open menu. Loading disables
 file/comparison actions; Cancel loading and remote Disconnect remain available.
 Context menus and comparisons never start transfers: the existing sync
-confirmation is still required. Pane/window resizing and preferences remain open.
+confirmation is still required.
+
+Drag the divider to resize browser/preview/remote or comparison-list/diff panes.
+Ctrl+Alt+Left/Right moves it in 24-pixel steps; Ctrl+Alt+0 restores the default
+split (half-and-half in the browser, a 350-pixel comparison list where space
+allows). These shortcuts also work from filters and previews but not behind
+context menus. Dragging preserves keyboard focus; Escape stops the resize
+without clearing filters/marks or cancelling file work. Minimum widths adapt to
+small windows. Relative sizes survive screen/project switches and window resizing
+within the session; they do not start previews, comparisons or transfers. The
+existing child entities keep navigation, selection, folding and scroll state.
+Control rows wrap when a pane becomes narrow. Pane/window persistence and GUI
+preferences remain open and will use `gui.toml`, not shared Go configuration.
 
 **Projects** opens the dashboard without replacing the browser or remote session.
 Closing it or choosing the already active project preserves navigation, selection
@@ -514,7 +526,12 @@ and detail scrolling. Diff tests check page boundaries, folds, source selection,
 bulk action cycling and confirmed direct transfers over SFTP.
 Error detail tests use real SFTP failures, active cancellation and server loss
 to check focus and prevent stale transfer retries, and real FTPS reconnects to
-check retained certificate-related failures.
+check retained certificate-related failures. Resize tests retain browser navigation,
+marks/ranges, filters, preview IDs, diff decisions/folds/selection and scroll state;
+an actual SFTP upload completes without cancellation or an extra transfer. They
+exercise minimum sizes, inset/tiny containers, unclamped preferences on shrink/grow,
+menu dismissal, keyboard control and implicit Kit Button focus, real input composition,
+no-frame cancellation and stale gesture callbacks across screen/project changes.
 
 Cross-process Go/Rust store tests run in Linux and macOS CI. To run them locally:
 
@@ -532,8 +549,9 @@ expand/collapse nested directories, refresh and verify cursor/expansion restorat
 change filters/visibility/folders and confirm both panes retain their own marks,
 compare with s and confirm refresh/sync keep only that scope, exercise host forms
 and return to the browser, preview/copy text into another app, toggle hidden
-and ignored paths, change projects during loading, close the picker, and close the
-window. Headless tests cannot establish native rendering or OS clipboard behavior.
+and ignored paths, change projects during loading, drag and keyboard-resize both
+browser and comparison panes while loading/syncing, test Escape and menus during
+resizing, shrink/grow a client-decorated window, close the picker, and close the window. Headless tests cannot establish native rendering or OS clipboard behavior.
 
 ## Remaining port work
 
@@ -542,6 +560,7 @@ and the planned Monokai themes remain. Project CRUD/archive, dashboard and start
 restoration and core project/host keyboard flows are available, including numeric
 project shortcuts and the sync-error display shortcut. CLI project management and open/dash/version are
 also available, along with opt-in file logging and visible logging failures.
+Browser context menus and session-only resizable panes are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Complete CLI and
 keyboard/selection parity, packaging and native

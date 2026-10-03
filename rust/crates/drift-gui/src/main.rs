@@ -6,6 +6,7 @@ mod cli;
 mod comparison;
 mod diff;
 mod hosts;
+mod pane_split;
 mod preview;
 mod projects;
 mod remote;

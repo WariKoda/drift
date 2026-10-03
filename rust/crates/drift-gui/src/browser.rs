@@ -741,7 +741,8 @@ impl BrowserPane {
                 Input::new(&self.filter)
                     .id("filter")
                     .w(px(300.))
-                    .flex_shrink_0(),
+                    .min_w_0()
+                    .flex_shrink_1(),
             )
             .child(div().flex_1().min_w_0().truncate().child(path))
             .into_any_element()

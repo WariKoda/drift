@@ -204,6 +204,9 @@ impl RemotePane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if cx.has_active_drag() {
+            return;
+        }
         let snapshot = Snapshot {
             project: self.project,
             connection: self.connection,

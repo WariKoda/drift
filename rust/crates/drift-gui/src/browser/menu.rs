@@ -79,6 +79,9 @@ impl BrowserPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if cx.has_active_drag() {
+            return;
+        }
         if let Some(path) = &target {
             if !(0..self.files.len()).any(|row| self.files.row(row) == Some(path.as_str())) {
                 return;

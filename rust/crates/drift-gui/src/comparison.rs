@@ -3,6 +3,7 @@
 use crate::{
     actions::*,
     diff::{DiffPane, DiffState},
+    pane_split::{PaneSplit, SplitCommand},
 };
 use drift_app::{
     browser::{BrowserService, OperationId},
@@ -59,6 +60,7 @@ pub struct ComparisonPane {
     decisions: Vec<Decision>,
     states: BTreeMap<usize, DiffState>,
     diff: Entity<DiffPane>,
+    split: PaneSplit,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     _subscription: Subscription,
@@ -144,10 +146,14 @@ impl ComparisonPane {
             decisions: vec![],
             states: BTreeMap::new(),
             diff: cx.new(DiffPane::new),
+            split: PaneSplit::new(Some(px(350.)), cx),
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle().tab_stop(true),
             _subscription: subscription,
         }
+    }
+    pub fn deactivate_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.split.deactivate(window, cx);
     }
     pub fn visible(&self) -> bool {
         self.visible
@@ -214,6 +220,7 @@ impl ComparisonPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.split.deactivate(window, cx);
         self.invalidate(cx);
         self.id.project = project;
         self.visible = true;

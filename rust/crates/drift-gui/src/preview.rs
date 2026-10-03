@@ -180,6 +180,7 @@ impl Render for PreviewPane {
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .p_2()
                     .gap_2()
                     .child(

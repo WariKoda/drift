@@ -32,14 +32,33 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 - Aktueller Branch: `feature/rust-project-cli`, aufgebaut auf
   `feature/rust-project-shortcuts-errors` (Commit `87bca9b`).
-- [Draft-PR #81](https://github.com/WariKoda/drift/pull/81) enthält numerische
-  Projektdirektwahl und Sync-Fehlerdetails und basiert auf [#80](https://github.com/WariKoda/drift/pull/80).
-  Die CLI-Arbeit baut auf #81 auf. Das ist eine gestapelte PR-Kette;
-  vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
-- CI von #80 bestanden. Bei #81 bestanden Go und ein Rust-Linux-Lauf; weitere
-  Rust-Läufe liefen bei der letzten Prüfung noch. Ein macOS-Lauf scheiterte beim
-  Download der Go-Testabhängigkeiten an DNS-Timeouts zu `proxy.golang.org`, vor
-  Ausführung des betroffenen Tests; der Job wurde erneut gestartet.
+- Implementierungsstand: Commit `282641c`,
+  [Draft-PR #82](https://github.com/WariKoda/drift/pull/82) für CLI-Projektverwaltung
+  und open/dash/version. Er basiert auf [#81](https://github.com/WariKoda/drift/pull/81)
+  für numerische Projektdirektwahl und Sync-Fehlerdetails, dieser auf
+  [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
+  Die Änderungen sind auf den Feature-Branches vorhanden; #82 ist noch offen
+  und nicht in `main` integriert. Vor Integration die gestapelte PR-Kette prüfen.
+- CI-Momentaufnahme zum Implementierungscommit `282641c`: Bei #82 sind beide
+  Go-Läufe bestanden; Rust Linux/macOS laufen noch. Bei #81 sind Go und beide
+  Rust-Linux-Läufe bestanden; macOS läuft noch, einschließlich des erneut gestarteten Jobs nach einem DNS-Timeout zu
+  `proxy.golang.org` beim Download der Go-Testabhängigkeiten. CI von #80 bestanden.
+
+### Fortschritt auf einen Blick
+
+| Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
+| --- | --- | --- |
+| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest und Trust-Reset | Automatische Link-Angebote bei gleichen Endpunkten |
+| Browser | Lokale/entfernte Navigation, Filter/Finder/Vorschau, aufklappbare Bäume, unabhängige Mehrfachmarkierungen und Bereichsauswahl | Kontextmenüs, veränderbare Bereichsgrößen und restliche Tastaturparität |
+| Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
+| Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
+| CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe und Fehlercodes | Optionales Datei-Logging samt Flags/Umgebungsvariablen |
+| Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
+
+Letzte lokale Gesamtprüfung: **116 Rust-Tests, davon 34 Headless-GPUI-Tests;
+0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
+Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
+und ausstehende CI-Ergebnisse bleiben separate Freigabeschritte.
 
 ### Implementiert und lokal geprüft
 
@@ -154,26 +173,22 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
-**9 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung ist umgesetzt;
-Block 7 bleibt wegen des optionalen Loggings offen. Die Blöcke enthalten mehrere
-Teilaufgaben und sind keine gleich großen Zeiteinheiten.
+**9 größere Arbeitsblöcke bleiben offen.** Im Block CLI/Logging ist die
+CLI-Verwaltung bereits umgesetzt; Datei-Logging steht noch aus. Die Blöcke
+enthalten mehrere Teilaufgaben und sind keine gleich großen Zeiteinheiten.
+Bereits implementierte Kernabläufe stehen oben.
 
-- Kontextmenüs und veränderbare Bereichsgrößen;
-  vollständige Browser-/Dialog-/Diff-Tastaturparität.
-- Zeichengenaue Diff-Textauswahl über Zeilengrenzen; aktuell Auswahl ganzer Zeilen.
-- Automatische Serverlink-Angebote bei gleichen Endpunkten.
-- SSH-Hostzertifikate/CA-Einträge; derzeit ausdrücklich abgewiesen.
-- SFTP-Zielersatz auf Servern, die den zusätzlichen POSIX-Rename-Kanal ablehnen
-  und mit Standard-Rename kein vorhandenes Ziel ersetzen können.
-- `gui.toml` für Fenster/Pane/Theme sowie **Monokai Pro Dark** und
-  **Monokai Pro Light Sun**, Modus **System/Dark/Light** einschließlich laufendem
-  OS-Wechsel. Das ist verbindlich geplant und noch nicht implementiert.
-- Optionales Datei-Logging mit CLI-Flags und Umgebungsvariablen; die vorhandenen
-  CLI-Projektbefehle sowie open/dash/version sind portiert.
-- Native Wayland-/X11-/macOS-Abnahme, einschließlich Intel/Apple Silicon,
-  Fokus, Rendering, OS-Clipboard und laufender I/O.
-- Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte GUI-Release-Wege und
-  Installationsdokumentation. Ein lokales Release-Binary ist noch kein Release-Paket.
+| Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
+| --- | --- | --- |
+| 1 | Browser-Bedienung | Teilaufgaben offen: Kontextmenüs, veränderbare Bereichsgrößen und restliche Browser-/Dialog-/Diff-Tastaturparität; Mehrfachmarkierungen, Baum- und wesentliche Tastaturabläufe sind umgesetzt. |
+| 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
+| 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
+| 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
+| 5 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
+| 6 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
+| 7 | CLI und Datei-Logging | **Teilweise umgesetzt:** CLI-Projektbefehle und open/dash/version fertig; optionales Datei-Logging mit Flags und Umgebungsvariablen ist der nächste Arbeitsblock. |
+| 8 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, OS-Clipboard und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |
+| 9 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege und Installationsdokumentation. Lokaler Release-Build vorhanden. |
 
 ### Orientierung und Prüfbefehle
 
@@ -337,10 +352,10 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | In Arbeit: SFTP-Verbindung/Browser/Vorschau, Vergleich/Unified-Diff und serieller Upload/Download/Delete mit Abbruch und Verlust vorhanden; Hostzertifikate, vollständige Tastaturparität und zeichengenaue Textselektion offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe implementiert und lokal geprüft; Hostzertifikate/CA, SFTP-Zielersatz auf eingeschränkten Servern, restliche Tastaturparität und zeichengenaue Textselektion offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
-| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: Scope-erhaltender Refresh/Sync und wesentliche GUI-Verwaltung vorhanden; CLI-Projektbefehle und open/dash/version vorhanden; verbleibende Tastaturparität und Logging offen |
-| 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Offen |
+| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails und CLI-Projektbefehle samt open/dash/version implementiert und lokal geprüft; restliche Tastaturparität und Datei-Logging offen |
+| 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Lokaler Linux-Release-Build bestanden; Pakete/Bundles, GUI-Release-Wege, Installation und native Abnahme offen |
 
 Der SFTP-Durchstich verwendet native `russh`-/`russh-sftp`-Clients und ein
 Remote-Session-Handle in `drift-app`. Die GUI erreicht Transporte ausschließlich
@@ -372,9 +387,11 @@ Fortschritt kann ohne Abbruch verborgen werden. Ein Abbruch schließt die Verbin
 `comparison.rs`/`comparison/view.rs` besitzen Dateiliste und Operationen;
 `diff.rs` besitzt Unified-Zeilen, Richtung, Faltung, Quellanker und Scrollzustand
 je Datei. Textauswahl erfolgt derzeit zeilenweise mit Shift-Klick und nativer
-Zwischenablage; Auswahl einzelner Zeichen über Zeilengrenzen und Mehrfachmarkierung
-in den Browsern bleiben offen. Die Aktionswahl zeigt die Vorschau; Sync selected
-und Sync all actions führen die bestätigten Aktionen seriell aus. Die Bestätigung
+Zwischenablage; Auswahl einzelner Zeichen über Zeilengrenzen bleibt offen.
+Die Browser besitzen unabhängige Mehrfachmarkierungen und Bereichsauswahl;
+markierte Kinder bleiben beim Zuklappen und Refresh erhalten. Die Aktionswahl
+zeigt die Vorschau; Sync selected und Sync all actions führen die bestätigten
+Aktionen seriell aus. Die Bestätigung
 nennt Upload-/Download-/Delete-Zahlen; der Dateifilter reduziert Sync all nicht.
 
 `drift-app::sync` validiert Entscheidungen und Mapping-/Root-Grenzen gegen den

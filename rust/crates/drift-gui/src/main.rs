@@ -1,5 +1,6 @@
 mod actions;
 mod browser;
+mod browser_menu;
 mod certificates;
 mod cli;
 mod comparison;

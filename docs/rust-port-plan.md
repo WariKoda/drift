@@ -25,40 +25,42 @@ Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedien
 Link-/Serverpicker, Zertifikatsentscheidungen und Diff-Scroll/Faltung sind ergänzt.
 Numerische Dashboardwahl und einblendbare Sync-Fehlerdetails sind ergänzt.
 Die vorhandenen CLI-Projektbefehle sowie open/dash/version sind ergänzt.
-Optionales Datei-Logging samt Flags und Umgebungsvariablen ist jetzt umgesetzt.
-Als Nächstes stehen Browser-Kontextmenüs an; veränderbare Bereichsgrößen und
-restliche Tastaturparität folgen im selben Bedienungsblock.
+Optionales Datei-Logging samt Flags und Umgebungsvariablen ist umgesetzt.
+Lokale und entfernte Browser-Kontextmenüs sind jetzt ergänzt, einschließlich
+Tastaturöffnung, Fokus-/Abbruchverhalten und veralteter Callback-Abwehr.
+Als Nächstes stehen veränderbare Bereichsgrößen an; restliche Tastaturparität
+folgt im selben Bedienungsblock.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-file-logging`, aufgebaut auf
-  `feature/rust-project-cli` (Commit `38e4c9c`, einschließlich Planaktualisierung).
-- Implementierungsstand: Commit `10f82e0`,
-  [Draft-PR #83](https://github.com/WariKoda/drift/pull/83) für optionales Datei-Logging.
-  Er basiert auf [#82](https://github.com/WariKoda/drift/pull/82) für CLI-Projektverwaltung
-  und open/dash/version (Implementierung `282641c`), dieser auf
-  [#81](https://github.com/WariKoda/drift/pull/81) für numerische Projektdirektwahl und
-  Sync-Fehlerdetails und [#80](https://github.com/WariKoda/drift/pull/80) für
-  Picker-/Diff-Tastaturarbeit. Die Änderungen sind auf den Feature-Branches vorhanden;
-  #83 ist offen und nicht in `main` integriert. Vor Integration die gestapelte PR-Kette prüfen.
-- CI-Momentaufnahme für `10f82e0`: Go und Rust Linux/macOS von #83 laufen
-  beziehungsweise warten noch auf Runner. CI von #82, #81 und #80 ist inzwischen
-  vollständig bestanden, jeweils Go sowie Rust Linux/macOS. Die PRs sind weiterhin
-  offen und gestapelt; nicht automatisch als in `main` integriert behandeln.
+- Aktueller Branch: `feature/rust-browser-context-menus`, aufgebaut auf
+  `feature/rust-file-logging` (Commit `a8f4b4f`, einschließlich Planaktualisierung).
+- Implementierungsstand: Commit `cf7d9a2`,
+  [Draft-PR #84](https://github.com/WariKoda/drift/pull/84) für Browser-Kontextmenüs.
+  Er basiert auf [#83](https://github.com/WariKoda/drift/pull/83) für Datei-Logging,
+  dieser auf [#82](https://github.com/WariKoda/drift/pull/82) für CLI-Projektverwaltung
+  und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
+  numerische Projektdirektwahl/Sync-Fehlerdetails und
+  [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
+  Die PRs sind offen und nicht in `main` integriert. Vor Integration die
+  gestapelte Kette #84 → #83 → #82 → #81 → #80 prüfen.
+- CI-Momentaufnahme für `cf7d9a2`: Go und Rust Linux/macOS von #84 laufen
+  beziehungsweise warten auf Runner. CI von #83, #82, #81 und #80 ist vollständig
+  bestanden, jeweils Go sowie Rust Linux/macOS. Das ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
 | Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
 | --- | --- | --- |
 | Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest und Trust-Reset | Automatische Link-Angebote bei gleichen Endpunkten |
-| Browser | Lokale/entfernte Navigation, Filter/Finder/Vorschau, aufklappbare Bäume, unabhängige Mehrfachmarkierungen und Bereichsauswahl | Kontextmenüs, veränderbare Bereichsgrößen und restliche Tastaturparität |
+| Browser | Lokale/entfernte Navigation, Filter/Finder/Vorschau, aufklappbare Bäume, unabhängige Mehrfachmarkierungen/Bereichsauswahl und Kontextmenüs | Veränderbare Bereichsgrößen und restliche Tastaturparität |
 | Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **144 Rust-Tests, davon 37 Headless-GPUI-Tests;
+Letzte lokale Gesamtprüfung: **168 Rust-Tests, davon 61 Headless-GPUI-Tests;
 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
 Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
 und ausstehende CI-Ergebnisse bleiben separate Freigabeschritte.
@@ -86,6 +88,23 @@ und ausstehende CI-Ergebnisse bleiben separate Freigabeschritte.
   Remote-Markierungen respektieren effektive Mappings und lokal übersetzte
   harte Ausschlüsse. Direkt ausgewählte ignorierte Dateien bleiben Ausnahmen;
   rekursive Ordnerauswahl überspringt ignorierte Kinder weiterhin.
+- Pane-eigene Kontextmenüs überleben virtualisierte Zeilen. Rechtsklick verändert
+  nur den Cursor, nicht Markierungen, Bereichsanker, Filter oder Vorschau.
+  Leere Listenfläche bietet Pane-Aktionen ohne alten Cursorbezug. Vorschau,
+  Ordner-/Baumnavigation, Markierungen, Pfadkopie, Vergleich und Abbruch verwenden
+  bestehende Abläufe; Menüaktionen starten keine Transfers. Vergleich des
+  angeklickten Eintrags ignoriert Markierungen als Scope, erhält sie aber;
+  markierter Vergleich kombiniert beide Panes samt zugeklappten Kindern.
+  Shift+F10/Menu öffnet am Cursor, Pfeile und Tab/Shift+Tab navigieren,
+  Enter wählt und Escape kehrt ohne Filter-/Markierungsänderung zur Pane zurück.
+  Außenklicks schließen und erreichen weiterhin die angeklickte Kontrolle.
+  Browser-/globale Shortcuts greifen nicht hinter dem Menü. Verdeckte Panes,
+  Verwaltungsdialoge und Vergleich schließen ihre alten Menüs ohne Fokusdiebstahl.
+  Öffnungsidentität, Projekt-/Listing-/Verbindungsdaten und monotone View-Revisionen
+  verwerfen alte Menü- und Zeilen-Callbacks auch bei weiterhin gültigem Pfad oder
+  erneut gleicher Filter-/Mapping-Konfiguration. Vergleich prüft zusätzlich die
+  gegenüberliegende Sitzung. Kit-0.7-Callbacks prüfen deaktivierte Einträge selbst;
+  gecachte Fokus-Handles vermeiden rekursive Entity-Borrows während Item-Callbacks.
 - Home/g und End/G springen in beiden Browsern und der Vergleichsliste zu den
   sichtbaren Grenzen. Tab/Shift+Tab wechselt lokal/remote beziehungsweise
   Vergleichsliste/Diff. Browser: / Filter, f lokaler Finder, . Hidden, I lokale
@@ -161,10 +180,11 @@ und ausstehende CI-Ergebnisse bleiben separate Freigabeschritte.
   Priorität, Append/Rechte, nebenläufiges Drain, FIFO-/Öffnungs-/Schreibfehler und
   Redaction. Echte SFTP-/FTP-/FTPS-Tests prüfen erfolgreiche Abläufe, Auth-/Trust-Fehler,
   Symlink-Wechsel und Unknown nach Serververlust ohne Retry.
-- Letzter vollständiger lokaler Lauf: **144 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **168 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. 37 Headless-GPUI-Tests prüfen auch Tastaturfokus,
+  Linux-Release-Build und display-/Go-freier Release-CLI-Smoke bestanden.
+  61 Headless-GPUI-Tests prüfen auch Tastaturfokus,
   Filterrücksetzung sowie bestätigte/abgebrochene Tastatur-Syncs gegen echtes SFTP.
   Numerische Direktwahl prüft alle neun Positionen, gefilterte/archivierte/leere
   Listen, unveränderte Textfelder und tatsächliches Öffnen samt Open-Zeitstempel.
@@ -178,34 +198,41 @@ und ausstehende CI-Ergebnisse bleiben separate Freigabeschritte.
   Ergebnisse. FTP/FTPS prüfen Aufklappen/Markieren/Zuklappen; der gemeinsame
   lokale/entfernte Scope bleibt auch mit markierten zugeklappten Kindern erhalten. Der Gesamtlauf nutzt
   `TMPDIR=/var/tmp`, weil ein fremdes `/tmp/.git` die Starttests beeinflusst.
-  Native Rendering-/OS-Clipboard-Abnahme ist damit noch nicht erbracht.
+  24 neue Menütests prüfen echte lokale/SFTP-/FTP-Abläufe, reine Cursoränderung,
+  beide Fokus-Rückwege, Tab-Sperre, Escape und durchgereichte Außenklicks,
+  deaktiviertes erstes Item per Down/Enter, Filter-/Baum-/Mapping-Wechsel und
+  veraltete Callbacks vor dem nächsten Render. Ein kleineres Fenster prüft
+  Randposition und Menüscrolling; ein aus der Virtualisierung verschwundener
+  Auslöser behält sein Menü und seinen Pfad. Scope-Tests erhalten Markierungen
+  und verlangen weiterhin ausdrückliche Sync-Bestätigung. Native Rendering-/
+  OS-Clipboard-Abnahme ist damit noch nicht erbracht.
 
-### Nächster Arbeitsblock: Browser-Kontextmenüs
+### Nächster Arbeitsblock: Veränderbare Bereichsgrößen
 
-1. `drift-gui/src/browser.rs`, `remote.rs`, `shell.rs` und `toolbar.rs` erneut
-   lesen. Kontextmenüs an die vorhandenen typisierten Browser-/Toolbar-Ereignisse
-   anbinden; Dateiarbeit bleibt in `drift-app`.
-2. Aktionen auf Cursor, Markierungen, Ordnernavigation, Vorschau und Vergleich
-   abstimmen. Mappings und harte Ausschlüsse gelten unverändert; Transfers
-   behalten die vorhandene ausdrückliche Bestätigung.
-3. Rechtsklick, Menüfokus, Abbruch und Rückkehr in beide Panes headless prüfen,
-   einschließlich gefilterter/zugeklappter Bäume und laufender Remote-Arbeit.
-4. Veränderbare Bereichsgrößen und restliche Tastaturparität bleiben danach
-   offen. Persistenz von Pane-/Fensterwerten gehört weiterhin zum Block
-   `gui.toml`/Präferenzen, nicht in gemeinsame Go-Konfigurationsfelder.
+1. `drift-gui/src/shell.rs`, `browser.rs`, `remote.rs`, `preview.rs` und
+   `comparison.rs` sowie die gepinnten Kit-Resizable-APIs erneut lesen.
+2. Browser/Vorschau/Remote und Vergleichsliste/Diff veränderbare Größen geben.
+   Bestehende Entities, Navigation, Filter, Cursor, Markierungen und aktive
+   Operationen erhalten; Größenänderungen dürfen keine neue Dateiarbeit starten.
+3. Mindestgrößen, Drag-/Tastaturfokus, kleine Fenster, Scrollzustand, geöffnete
+   Menüs und Größenwechsel während laufender Remote-Arbeit headless prüfen.
+4. Restliche Browser-/Dialog-/Diff-Tastaturparität bleibt danach offen.
+   Persistenz von Pane-/Fensterwerten gehört zum späteren Block `gui.toml`/
+   Präferenzen, nicht in gemeinsame Go-Konfigurationsfelder.
 5. Native Wayland-/X11-/macOS-Abnahme bleibt offen, insbesondere Fokus, große
-   Bäume, scrollbare Fehlerdetails und OS-Clipboard.
+   Bäume, scrollbare Fehlerdetails und OS-Clipboard. Die optische Überarbeitung
+   bleibt weiterhin zurückgestellt.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
-**8 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung und Datei-Logging
-sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
+**8 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
+Browser-Kontextmenüs sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
 sind keine gleich großen Zeiteinheiten. Bereits implementierte Kernabläufe
 stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Browser-Bedienung | Teilaufgaben offen: Kontextmenüs, veränderbare Bereichsgrößen und restliche Browser-/Dialog-/Diff-Tastaturparität; Mehrfachmarkierungen, Baum- und wesentliche Tastaturabläufe sind umgesetzt. |
+| 1 | Browser-Bedienung | Teilaufgaben offen: veränderbare Bereichsgrößen und restliche Browser-/Dialog-/Diff-Tastaturparität; Kontextmenüs, Mehrfachmarkierungen, Baum- und wesentliche Tastaturabläufe sind umgesetzt. |
 | 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
 | 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
 | 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
@@ -220,7 +247,9 @@ Die zuständigen Module sind bereits aufgeteilt: `projects.rs` mit
 `projects/form.rs` und `projects/management.rs`; `shell/projects.rs` für Start
 und aktiven Root; `hosts/form.rs`, `hosts/tools.rs`, `hosts/links.rs` und
 `hosts/linking.rs`; `comparison.rs`, `comparison/view.rs`, `comparison/sync.rs`
-sowie `diff.rs`. Abläufe liegen in `drift-app`, Persistenz/Policies in `drift-core`.
+sowie `diff.rs`. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
+`browser_menu.rs`; `shell/comparison.rs` koordiniert ihren Vergleichsscope.
+Abläufe liegen in `drift-app`, Persistenz/Policies in `drift-core`.
 Referenz für Build und Bedienung: [rust/README.md](../rust/README.md).
 Rust **1.98.1**, GPUI Kit **0.7.0** und `Cargo.lock` beibehalten.
 
@@ -378,7 +407,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe implementiert und lokal geprüft; Hostzertifikate/CA, SFTP-Zielersatz auf eingeschränkten Servern, restliche Tastaturparität und zeichengenaue Textselektion offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
-| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version und optionales Datei-Logging implementiert und lokal geprüft; restliche Tastaturparität offen |
+| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version, optionales Datei-Logging und Browser-Kontextmenüs implementiert und lokal geprüft; restliche Tastaturparität offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Lokaler Linux-Release-Build bestanden; Pakete/Bundles, GUI-Release-Wege, Installation und native Abnahme offen |
 
 Der SFTP-Durchstich verwendet native `russh`-/`russh-sftp`-Clients und ein

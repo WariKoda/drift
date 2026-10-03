@@ -1,6 +1,8 @@
 //! One independently navigable pane. Finder uses the same virtualized rows.
+mod menu;
 mod tree;
 use crate::actions::*;
+use crate::browser_menu::BrowserMenu;
 use drift_app::{
     FileList,
     browser::{BrowserService, Directory, Location, OperationId},
@@ -8,16 +10,17 @@ use drift_app::{
     tree::FileTree,
 };
 use drift_core::{local::Entry, project::Registry, store::Store};
+use gpui_kit::TestSupportExt;
+use gpui_kit::base::ElementExt;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-#[cfg(test)]
-use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
     App, AppContext, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, ScrollStrategy,
-    StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, Window, div, px,
-    uniform_list,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
+    ScrollStrategy, StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle,
+    Window, div, point, px, uniform_list,
 };
+use menu::MenuSnapshot;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
@@ -54,6 +57,16 @@ pub enum BrowserEvent {
         id: OperationId,
         message: String,
     },
+    Compare {
+        id: OperationId,
+        connection: OperationId,
+        path: PathBuf,
+    },
+    Toolbar {
+        id: OperationId,
+        connection: OperationId,
+        event: crate::toolbar::ToolbarEvent,
+    },
 }
 impl EventEmitter<BrowserEvent> for BrowserPane {}
 
@@ -79,6 +92,11 @@ pub struct BrowserPane {
     history: History,
     navigation: Navigation,
     scroll: UniformListScrollHandle,
+    menu: Option<(MenuSnapshot, BrowserMenu)>,
+    menu_anchor: Point<Pixels>,
+    menu_serial: u64,
+    menu_revision: u64,
+    comparison_connection: Option<OperationId>,
     _subscription: Subscription,
 }
 impl Focusable for BrowserPane {
@@ -102,8 +120,10 @@ impl BrowserPane {
         cx: &mut Context<Self>,
     ) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files…"));
-        let subscription = cx.subscribe_in(&filter, window, |this, state, event, _, cx| {
+        let subscription = cx.subscribe_in(&filter, window, |this, state, event, window, cx| {
             if matches!(event, InputEvent::Change) {
+                this.dismiss_context_menu(window, cx);
+                this.menu_revision += 1;
                 this.files.filter(&state.read(cx).value());
                 this.selection_changed(false, cx);
                 this.status(format!("{} entries", this.files.len()), cx);
@@ -132,6 +152,11 @@ impl BrowserPane {
             history: History::default(),
             navigation: Navigation::Reset,
             scroll: UniformListScrollHandle::new(),
+            menu: None,
+            menu_anchor: point(px(0.), px(0.)),
+            menu_serial: 0,
+            menu_revision: 0,
+            comparison_connection: None,
             _subscription: subscription,
         }
     }
@@ -695,6 +720,7 @@ impl BrowserPane {
         config: drift_core::config::RuntimeConfig,
         cx: &mut Context<Self>,
     ) {
+        self.menu_revision += 1;
         if let Some(location) = &mut self.location {
             location.config = config;
         }
@@ -722,12 +748,14 @@ impl BrowserPane {
     }
 }
 impl Render for BrowserPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.validate_menu(window, cx);
         let background = cx.theme().background;
         let accent = cx.theme().accent;
         let border = cx.theme().border;
         let count = self.files.len();
         let entity = cx.entity();
+        let context_stamp = (self.id(), self.menu_revision);
         div()
             .id("browser-pane")
             .key_context("DriftBrowser")
@@ -758,6 +786,7 @@ impl Render for BrowserPane {
             .on_action(cx.listener(Self::clear_marks))
             .on_action(cx.listener(Self::range_up))
             .on_action(cx.listener(Self::range_down))
+            .on_action(cx.listener(Self::keyboard_menu))
             .flex()
             .flex_col()
             .flex_1()
@@ -780,7 +809,30 @@ impl Render for BrowserPane {
                 }
             )))
             .child(
-                uniform_list("local-files", count, move |range, _, cx| {
+                div()
+                .id("local-files-pane")
+                .test_support()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, event: &gpui_kit::MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    if (this.id(), this.menu_revision) == context_stamp {
+                        this.open_context_menu(None, event.position, window, cx);
+                    }
+                }))
+                .on_prepaint({
+                    let pane = cx.weak_entity();
+                    move |bounds, _, cx| {
+                        let _ = pane.update(cx, |this, _| {
+                            if this.files.selected().is_none() {
+                                this.menu_anchor = point(bounds.origin.x + px(12.), bounds.origin.y + px(12.));
+                            }
+                        });
+                    }
+                })
+                .child(uniform_list("local-files", count, move |range, _, cx| {
                     entity.update(cx, |this, cx| {
                         range
                             .filter_map(|index| {
@@ -840,6 +892,10 @@ impl Render for BrowserPane {
                                     }));
                                 #[cfg(test)]
                                 let disclosure = disclosure.test_support();
+                                let context_path = name.clone();
+                                let row_stamp = (this.id(), this.menu_revision);
+                                let anchor_path = name;
+                                let anchor_owner = cx.weak_entity();
                                 let row = div()
                                     .id(index)
                                     .h(px(28.))
@@ -854,6 +910,19 @@ impl Render for BrowserPane {
                                         format!(" · {descendants} marked")
                                     } else {
                                         String::new()
+                                    })
+                                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, event: &gpui_kit::MouseDownEvent, w, cx| {
+                                        cx.stop_propagation();
+                                        if (this.id(), this.menu_revision) == row_stamp {
+                                            this.open_context_menu(Some(context_path.clone()), event.position, w, cx);
+                                        }
+                                    }))
+                                    .on_prepaint(move |bounds, _, cx| {
+                                        let _ = anchor_owner.update(cx, |this, _| {
+                                            if this.files.selected() == Some(anchor_path.as_str()) {
+                                                this.menu_anchor = point(bounds.origin.x + px(22.), bounds.origin.y + bounds.size.height);
+                                            }
+                                        });
                                     })
                                     .on_click(cx.listener(
                                         move |this, event: &gpui_kit::ClickEvent, w, cx| {
@@ -880,10 +949,13 @@ impl Render for BrowserPane {
                     })
                 })
                 .track_scroll(&self.scroll)
-                .flex_1(),
+                .flex_1())
+                .children(self.menu.as_ref().map(|(_, menu)| menu.render())),
             )
     }
 }
 
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod tests;

@@ -136,6 +136,22 @@ The finder searches the entire project; the filter narrows the
 returned paths. Hidden and ignored entries have separate visibility toggles.
 Fixed exclusions and interrupted transfer staging files remain excluded.
 
+Right-click a file or folder to move only the cursor and open its context menu;
+marks, ranges, filters and the loaded preview stay unchanged. The menu offers
+preview/folder navigation, tree expansion, marking, copying paths, comparison and
+browser controls. Right-click empty list space for pane-wide controls without
+acting on the old cursor. **Compare this file/folder** compares only that entry,
+regardless of marks; **Compare marked files** combines marks from both panes,
+including collapsed descendants. Mapping and exclusion rules still apply.
+Shift+F10 or the Menu key opens the same menu for the focused browser's cursor.
+Arrow keys or Tab/Shift+Tab navigate items; Enter selects one. Escape dismisses
+without clearing marks or filters
+and returns focus to that pane. Outside clicks dismiss and still reach the clicked
+control. Browser/global shortcuts do not run behind an open menu. Loading disables
+file/comparison actions; Cancel loading and remote Disconnect remain available.
+Context menus and comparisons never start transfers: the existing sync
+confirmation is still required. Pane/window resizing and preferences remain open.
+
 **Projects** opens the dashboard without replacing the browser or remote session.
 Closing it or choosing the already active project preserves navigation, selection
 and connection. The list filters names, slugs and paths and can show archived

@@ -4,15 +4,36 @@ use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
 use gpui_kit::test::TestSupportExt;
 impl Render for ComparisonPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("comparison")
             .key_context("Drift")
             .flex()
             .flex_col()
             .size_full()
+            .capture_action(cx.listener(|this, _: &Cancel, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &gpui_kit::base::actions::Cancel, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(|this, _: &ResizePaneLeft, w, cx| {
+                this.split.command(SplitCommand::Left, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneRight, w, cx| {
+                this.split.command(SplitCommand::Right, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResetPaneSizes, w, cx| {
+                this.split.command(SplitCommand::Reset, w, cx);
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ToggleSyncErrors, _, cx| this.toggle_sync_errors(cx)))
             .on_action(cx.listener(|this, _: &Activate, w, cx| this.cycle(w, cx)))
             .on_action(cx.listener(|this, _: &Upload, _, cx| this.direct_sync(Decision::Upload, cx)))
@@ -166,15 +187,16 @@ impl Render for ComparisonPane {
             )
             .child(
                 div()
-                    .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(
+                    .min_w_0()
+                    .child(self.split.view("comparison-split",
                         div()
                             .id("comparison-files")
                             .flex()
                             .flex_col()
-                            .w(px(350.))
+                            .w_full()
+                            .min_w_0()
                             .min_h_0()
                             .child(Input::new(&self.filter).id("comparison-filter"))
                             .child(
@@ -282,9 +304,9 @@ impl Render for ComparisonPane {
                                         .flex_1()
                                         .min_h_0(),
                                     ),
-                            ),
-                    )
-                    .child(self.diff.clone()),
+                            ).into_any_element(),
+                        self.diff.clone().into_any_element(), window, cx),
+                    ),
             )
     }
 }

@@ -287,7 +287,7 @@ impl Render for DiffPane {
             .on_action(cx.listener(|this, _: &ToggleFolds, _, cx| this.toggle_folds(cx)))
             .on_action(cx.listener(|this, _: &NextHunk, _, cx| this.hunk(true,cx)))
             .on_action(cx.listener(|this, _: &PreviousHunk, _, cx| this.hunk(false,cx)))
-            .child(div().flex().gap_2().p_2()
+            .child(div().flex().flex_wrap().gap_2().p_2()
                 .child(Button::new("previous-hunk").label("Previous hunk").on_click(cx.listener(|this,_,_,cx| this.hunk(false,cx))))
                 .child(Button::new("next-hunk").label("Next hunk").on_click(cx.listener(|this,_,_,cx| this.hunk(true,cx))))
                 .child(Button::new("collapse-context").label("Fold context").on_click(cx.listener(|this,_,_,cx| { this.state.expanded.clear(); this.rebuild(cx); })))

@@ -5,6 +5,7 @@ use crate::{
     browser::{BrowserCommand, BrowserEvent, BrowserPane},
     comparison::{ComparisonEvent, ComparisonPane},
     hosts::{HostEvent, HostManager},
+    pane_split::{PaneSplit, SplitCommand},
     preview::{PreviewEvent, PreviewPane},
     projects::{ProjectEvent, ProjectsPanel},
     remote::{RemoteEvent, RemotePane},
@@ -37,6 +38,8 @@ pub struct Shell {
     remote: Entity<RemotePane>,
     show_remote: bool,
     remote_preview: bool,
+    split: PaneSplit,
+    split_context: Option<(u64, bool, bool)>,
     hosts: Option<Entity<HostManager>>,
     store: Store,
     service: BrowserService,
@@ -299,6 +302,8 @@ impl Shell {
             remote,
             show_remote: false,
             remote_preview: false,
+            split: PaneSplit::new(None, cx),
+            split_context: None,
             hosts: None,
             store,
             service,
@@ -738,6 +743,24 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let browser_active = self.browser_screen_active(cx);
+        let split_context = browser_active.then_some((
+            self.browser.read(cx).id().project,
+            self.show_remote,
+            self.remote_preview,
+        ));
+        if self.split_context != split_context {
+            self.split.deactivate(window, cx);
+            self.split_context = split_context;
+        }
+        let comparison_active = self.certificate.is_none()
+            && self.hosts.is_none()
+            && self.startup.is_none()
+            && !self.projects.read(cx).visible()
+            && self.comparison.read(cx).visible();
+        if !comparison_active {
+            self.comparison
+                .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
+        }
         let can_compare = self.remote.read(cx).has_session()
             && !self.remote.read(cx).is_loading()
             && !self.browser.read(cx).is_loading();
@@ -842,10 +865,52 @@ impl Shell {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            .capture_action(cx.listener(|this, _: &Cancel, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &ClearMarks, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::base::actions::Cancel, w, cx| {
+                    this.split.cancel_resize(w, cx);
+                }),
+            )
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                    this.split.cancel_resize(w, cx);
+                }),
+            )
+            .capture_action(cx.listener(|this, _: &OpenContextMenu, _, cx| {
+                if this.split.is_resizing() {
+                    cx.stop_propagation();
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .capture_any_mouse_down(
+                cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, cx| {
+                    if event.button == gpui_kit::MouseButton::Right && this.split.is_resizing() {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .on_action(cx.listener(Self::focus_filter))
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::compare_marked))
+            .on_action(cx.listener(|this, _: &ResizePaneLeft, w, cx| {
+                this.split.command(SplitCommand::Left, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneRight, w, cx| {
+                this.split.command(SplitCommand::Right, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResetPaneSizes, w, cx| {
+                this.split.command(SplitCommand::Reset, w, cx);
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &SwitchPane, w, cx| {
                 let event = if this.remote.focus_handle(cx).is_focused(w) {
                     ToolbarEvent::LocalBrowser
@@ -870,34 +935,33 @@ impl Shell {
             .on_action(cx.listener(Self::cancel))
             .child(toolbar)
             .child(header)
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(if self.remote_preview {
-                        self.preview.clone().into_any_element()
-                    } else {
-                        self.browser.clone().into_any_element()
-                    })
-                    .child(if self.show_remote {
-                        self.remote.clone().into_any_element()
-                    } else {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .min_h_0()
-                            .child(self.preview.clone())
-                            .child(div().p_2().child(if hosts.is_empty() {
-                                "No hosts configured".into()
-                            } else {
-                                format!("Hosts: {hosts}")
-                            }))
-                            .into_any_element()
-                    }),
-            )
+            .child(div().flex_1().min_h_0().min_w_0().child(self.split.view(
+                "browser-split",
+                if self.remote_preview {
+                    self.preview.clone().into_any_element()
+                } else {
+                    self.browser.clone().into_any_element()
+                },
+                if self.show_remote {
+                    self.remote.clone().into_any_element()
+                } else {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .min_h_0()
+                        .child(self.preview.clone())
+                        .child(div().p_2().child(if hosts.is_empty() {
+                            "No hosts configured".into()
+                        } else {
+                            format!("Hosts: {hosts}")
+                        }))
+                        .into_any_element()
+                },
+                window,
+                cx,
+            )))
             .child(
                 div()
                     .p_3()
@@ -924,6 +988,10 @@ mod menu_tests;
 #[cfg(test)]
 mod project_tests;
 mod projects;
+#[cfg(test)]
+mod resize_focus_tests;
+#[cfg(test)]
+mod resize_tests;
 #[cfg(test)]
 mod shutdown_logging_tests;
 #[cfg(test)]

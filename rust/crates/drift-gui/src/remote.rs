@@ -815,6 +815,7 @@ impl Render for RemotePane {
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .gap_2()
                     .p_2()
                     .child(

@@ -30,25 +30,30 @@ Lokale und entfernte Browser-Kontextmenüs sind jetzt ergänzt, einschließlich
 Tastaturöffnung, Fokus-/Abbruchverhalten und veralteter Callback-Abwehr.
 Veränderbare Browser-/Vorschau-/Remote- und Vergleichs-/Diff-Bereiche sind ergänzt,
 mit Drag, Tastatursteuerung und erhaltenem Sitzungszustand.
-Als Nächstes steht die restliche Browser-/Dialog-/Diff-Tastaturparität an.
+Vorschau-Toggle/-Fokus/-Kopie, Shortcut-Hilfe und Filter-Rückwege sind ergänzt.
+Native Dialogbuttons behalten Enter/Space; Escape/Reject beendet auch ausstehende
+Zertifikatsfreigaben ohne Retry und ohne Rücknahme bereits gespeicherten Vertrauens.
+Als Nächstes folgen die konkret erfassten Finder-/Browser-/Formularlücken.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-resizable-panes`, aufgebaut auf
-  `feature/rust-browser-context-menus` (Commit `b4aef10`, einschließlich Planaktualisierung).
-- Implementierungsstand: Commit `8ca54e3`,
-  [Draft-PR #85](https://github.com/WariKoda/drift/pull/85) für veränderbare Bereiche.
-  Er basiert auf [#84](https://github.com/WariKoda/drift/pull/84) für Kontextmenüs,
+- Aktueller Branch: `feature/rust-keyboard-parity`, aufgebaut auf
+  `feature/rust-resizable-panes` (Commit `0f28724`, einschließlich Planaktualisierung).
+- Implementierungsstand: Commit `7b73157`,
+  [Draft-PR #86](https://github.com/WariKoda/drift/pull/86) für Vorschau/Hilfe und
+  sichere Tastatur-/Dialog-Routen. Er basiert auf
+  [#85](https://github.com/WariKoda/drift/pull/85) für veränderbare Bereiche,
+  dieser auf [#84](https://github.com/WariKoda/drift/pull/84) für Kontextmenüs,
   dieser auf [#83](https://github.com/WariKoda/drift/pull/83) für Datei-Logging,
   dieser auf [#82](https://github.com/WariKoda/drift/pull/82) für CLI-Projektverwaltung
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
   Die PRs sind offen und nicht in `main` integriert. Vor Integration die
-  gestapelte Kette #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- CI von #84, #83, #82, #81 und #80 ist vollständig bestanden, jeweils Go
-  sowie Rust Linux/macOS. #85 ist neu eröffnet; seine CI-Ergebnisse sind separat
+  gestapelte Kette #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- CI von #85, #84, #83, #82, #81 und #80 ist vollständig bestanden, jeweils Go
+  sowie Rust Linux/macOS. #86 ist neu eröffnet; seine CI-Ergebnisse sind separat
   zu prüfen. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
@@ -56,16 +61,16 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
 | --- | --- | --- |
 | Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest und Trust-Reset | Automatische Link-Angebote bei gleichen Endpunkten |
-| Browser | Lokale/entfernte Navigation, Filter/Finder/Vorschau, aufklappbare Bäume, unabhängige Mehrfachmarkierungen/Bereichsauswahl, Kontextmenüs und veränderbare Bereiche | Restliche Tastaturparität |
+| Browser | Lokale/entfernte Navigation, Filter/Finder/Vorschau, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Finder-Fuzzy/Return-Snapshot, Remote-Ignored und Formular-Scroll/Input-Härtung |
 | Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **184 Rust-Tests, davon 77 Headless-GPUI-Tests;
+Letzte lokale Gesamtprüfung: **203 Rust-Tests, davon 96 Headless-GPUI-Tests;
 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
 Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
-und CI von #85 bleiben separate Freigabeschritte.
+und CI von #86 bleiben separate Freigabeschritte.
 
 ### Implementiert und lokal geprüft
 
@@ -107,6 +112,23 @@ und CI von #85 bleiben separate Freigabeschritte.
   erneut gleicher Filter-/Mapping-Konfiguration. Vergleich prüft zusätzlich die
   gegenüberliegende Sitzung. Kit-0.7-Callbacks prüfen deaktivierte Einträge selbst;
   gecachte Fokus-Handles vermeiden rekursive Entity-Borrows während Item-Callbacks.
+- Browser `p` schaltet die gewählte Dateivorschau ein/aus, `c` kopiert vollständig
+  geladenen Text (auch eine leere Datei). Ctrl/Cmd+Alt+P fokussiert den nativen
+  schreibgeschützten Editor; dessen Escape schließt nur die Vorschau und stellt
+  den Quellbrowser wieder her. Sitzung, Marks und übrige Dateioperationen bleiben.
+  F1 beziehungsweise ? im Browser/Diff öffnet scrollbare Shortcut-Hilfe ohne
+  Fachaktionen; Escape stellt den aufrufenden Fokus wieder her. Neue FTPS-Challenges
+  schließen Hilfe vor dem Prompt, damit kein verschwundener Hilfefokus gespeichert wird.
+  Filter-Down/Enter/Escape stellt Listenfokus her, ohne Dateiaktivierung, Query-Clear
+  oder Work-Abbruch. `f` fokussiert die Finder-Query; Ctrl+Escape bricht aktive
+  Browser-/Vergleichsarbeit auch aus dem Filter ab. Modified Sync-Bestätigung gilt
+  auch bei Filter-/Button-Fokus, benötigt weiterhin den angezeigten Plan.
+  Native Enter/Space auf Cancel/Back/Reload/Test bleibt die beschriftete Aktion;
+  Default-Enter bestätigt nur am Containerziel. Der Host-Löschcontainer ist kein
+  unsichtbarer Tab-Stopp. Global-only-Hostlisten lassen nicht verfügbaren Scope-Tab
+  zur normalen Traversierung durch; inaktive Listen verlassen die Tab-Reihenfolge.
+  Reject während Trust-Speichern invalidiert den Abschluss und verhindert Retry,
+  warnt aber ausdrücklich, dass bereits gespeichertes Vertrauen nicht rückgängig wird.
 - Browser/Vorschau/Remote und Vergleichsliste/Diff besitzen veränderbare Bereiche.
   Drag und Ctrl+Alt+Links/Rechts verschieben den Trenner; Ctrl+Alt+0 setzt auf
   50/50 beziehungsweise die 350-Pixel-Vergleichsliste zurück, soweit Platz besteht.
@@ -135,7 +157,7 @@ und CI von #85 bleiben separate Freigabeschritte.
   Vergleich: n/p Dateiwechsel auch aus dem Diff, r Refresh, i Include ignored,
   s/S Sync-Bestätigung und Ctrl/Cmd+Enter Ausführen; Escape verwirft die Bestätigung.
   Textfelder behalten ihre Buchstaben, Verwaltungsdialoge stellen Browserfokus wieder her.
-  Escape leert Browserfilter samt sichtbarer Liste; das programmatische Leeren des
+  Escape in der Dateiliste leert Browserfilter samt sichtbarer Liste; das programmatische Leeren des
   Kit-Inputs wird explizit in die Listenprojektion übernommen und erhält Markierungen.
 - Host-CRUD, Duplizieren, Mappings, globale Serverlinks, projektübergreifender
   Picker und Server-Promotion, Verbindungstest auch ungespeicherter Formulare
@@ -146,7 +168,8 @@ und CI von #85 bleiben separate Freigabeschritte.
   n/e anlegen/bearbeiten, a archivieren/wiederherstellen, . Archivierte,
   d/Delete entfernen, r neu laden. Hosts: n/e/c/d, t Verbindungstest, r FTPS-Trust-Reset,
   l Link-Picker, F5 Reload und Tab/Shift+Tab Scope-Wechsel. Ctrl/Cmd+S speichert
-  Formulare; Enter/y bestätigt Löschen/Trust-Reset, Escape kehrt zur Liste zurück.
+  Formulare; Default-Enter/y bestätigt Löschen/Trust-Reset, Escape kehrt zur Liste zurück.
+  Fokussierte native Buttons behalten Enter/Space statt pauschaler Bestätigung.
   Filter/Formulare behalten Texteingabe; Konflikte behalten Form/Bestätigung.
 - Link-Picker: sichtbarer Cursor nach Projekt/Host, Down/Enter vom Filter,
   Pfeile/j/k und Home/g/End/G, Enter wählen, Enter/y Promotion bestätigen,
@@ -203,11 +226,11 @@ und CI von #85 bleiben separate Freigabeschritte.
   Priorität, Append/Rechte, nebenläufiges Drain, FIFO-/Öffnungs-/Schreibfehler und
   Redaction. Echte SFTP-/FTP-/FTPS-Tests prüfen erfolgreiche Abläufe, Auth-/Trust-Fehler,
   Symlink-Wechsel und Unknown nach Serververlust ohne Retry.
-- Letzter vollständiger lokaler Lauf: **184 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **203 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
   Linux-Release-Build und display-/Go-freier Release-CLI-Smoke bestanden.
-  77 Headless-GPUI-Tests prüfen auch Tastaturfokus,
+  96 Headless-GPUI-Tests prüfen auch Tastaturfokus,
   Filterrücksetzung sowie bestätigte/abgebrochene Tastatur-Syncs gegen echtes SFTP.
   Numerische Direktwahl prüft alle neun Positionen, gefilterte/archivierte/leere
   Listen, unveränderte Textfelder und tatsächliches Öffnen samt Open-Zeitstempel.
@@ -236,33 +259,58 @@ und CI von #85 bleiben separate Freigabeschritte.
   Wechsel, alte Gesten-Callbacks und Menü-Außenklicks. Impliziter Kit-Button-Fokus
   überlebt Keyboard-/Fensteränderungen; echte Input-Komposition über den öffentlichen
   InputHandler und No-Frame-Abbruch verändern keine Texte/Fachaktionen.
+  19 zusätzliche Keyboard-Regressionen prüfen native Tab-/Enter-Routen ohne
+  manuelles Ziel-Fokussieren, sichere Cancel/Back/Reload/Test-Buttons, inaktive Listen,
+  globale/leere/gefilterte Zustände, Default-Enter/y, Vorschau-Quellfokus und Menü-/
+  Hilfesicherheit. Echte SFTP-Uploads bestätigen den Plan auch aus Filter-/Run-Button-Fokus.
+  Echte FTPS-Challenges/Store-Locks prüfen Reject vor queued Abschlüssen und bereits
+  gespeicherte Freigaben ohne Retry/Rollback; Hilfe übersteht realen SFTP-Abbau und
+  kommende Zertifikatsdialoge. Clipboard-Prüfungen unterscheiden geladenen/leeren,
+  fehlgeschlagenen und ersetzten Inhalt. Filter-Escape erhält Query/Work; Ctrl+Escape
+  bricht gezielt ab. Native OS-Abnahme bleibt offen.
 
-### Nächster Arbeitsblock: Restliche Tastaturparität
+### Nächster Arbeitsblock: Finder-/Browser-/Formularlücken
 
-1. Go-Browser-/Dialog-/Diff-Keymaps und aktuelle Rust-Handler vergleichen und
-   die noch fehlenden Abläufe konkret erfassen; bereits umgesetzte Shortcuts
-   und Textfeld-/Menükontexte nicht erneut umbauen.
-2. Verbleibende Browser-/Dialog-/Diff-Tastaturabläufe gezielt ergänzen, mit
-   erhaltenem Fokus, Auswahl/Scroll und expliziter Sync-Bestätigung. Keine
-   Buchstabenbefehle während Texteingaben und keine Aktionen hinter Popups.
-3. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen, einschließlich
-   leerer/gefilterter Listen, Busy-/Abbruchzuständen und veralteter Identitäten.
-4. Persistenz von Pane-/Fensterwerten bleibt im späteren Block `gui.toml`/
-   Präferenzen, nicht in gemeinsamen Go-Konfigurationsfeldern.
-5. Native Wayland-/X11-/macOS-Abnahme bleibt offen, insbesondere Client-Dekorationen,
-   Resize/Fokus/IME, große Bäume, scrollbare Fehlerdetails und OS-Clipboard.
-   Die optische Überarbeitung bleibt weiterhin zurückgestellt.
+Der Go-/Rust-Keymap-Abgleich ist erfolgt. Vergleichs-/Diff-Navigation, Faltung,
+Hunks und bestätigte Transfers sind bereits erreichbar. Browser-Tab bleibt
+Pane-Wechsel, Vergleichs-Tab List/Diff-Wechsel; die Vorschau verwendet native
+Editor-Tasten. Listen-Paging und ein `q`-Alias sind keine fehlenden Go-Abläufe.
+Native Buttons bedienen bereits Protokoll/Auth und Mapping-CRUD; fehlende
+Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
+
+1. **Finder vervollständigen:** finder-spezifisches Fuzzy-Matching in `drift-app`
+   statt des bisherigen Substring-Filters; normaler Browserfilter bleibt unverändert.
+   Vorherigen Baum, Cursor, Filter und Scrollzustand beim Finder-Einstieg behalten
+   und über einen expliziten Rückweg wiederherstellen, ohne Marks zu verlieren.
+   `f` fokussiert inzwischen die Query; Down/Enter/Escape kehrt zu Ergebnissen zurück.
+   Refresh verlässt bisher den Finder, stellt aber keinen vollständigen Snapshot wieder her.
+2. **Remote-Ignored-Sichtbarkeit:** entfernte Pfade vor der Klassifikation lokal
+   mappen; derzeit wirkt die Ignore-Sichtbarkeit nur lokal. Keine GUI-seitigen
+   Mapping-/Gitignore-Schleifen oder ungemappten Löschkandidaten hinzufügen.
+3. **Kurze Fenster und Formulare:** Tab-fokussierte, außen gescrollte Hostfelder/
+   Mapping-Zeilen tatsächlich ins Blickfeld bringen. Tools/Links/Projektformulare
+   brauchen begrenzte scrollbare Details und sichtbare/wrappende Aktionen.
+   Sichtbarkeit prüfen, nicht nur FocusHandles; keine optische Neugestaltung.
+4. **Textfeldgrenzen härten:** echte Paste-/InputHandler-Tests für Tab/NUL und
+   weitere Steuerzeichen; Formular-Escape darf nicht gleichzeitig IME-Komposition
+   und den ganzen Dialog beenden. Native Wayland-/X11-/macOS-IME-Abnahme bleibt separat.
+5. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
+   Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
+   Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
+6. Pane-/Fensterpersistenz bleibt im späteren `gui.toml`-Block, nicht in Go-Konfiguration.
+   Native Plattformabnahme und die optische Überarbeitung bleiben offen.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
 **8 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
-Browser-Kontextmenüs und veränderbare Bereiche sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
+Browser-Kontextmenüs, veränderbare Bereiche und der konkrete Keyboard-/Dialog-Sicherheitsschritt
+sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
 sind keine gleich großen Zeiteinheiten. Bereits implementierte Kernabläufe
 stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Browser-Bedienung | Teilaufgabe offen: restliche Browser-/Dialog-/Diff-Tastaturparität; veränderbare Bereiche, Kontextmenüs, Mehrfachmarkierungen, Baum- und wesentliche Tastaturabläufe sind umgesetzt. |
+| 1 | Browser-Bedienung | Finder-Fuzzy/Return-Snapshot, Remote-Ignored-Sichtbarkeit und Formular-Scroll/Input-Härtung offen; Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
 | 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
 | 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
 | 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
@@ -280,7 +328,9 @@ und aktiven Root; `hosts/form.rs`, `hosts/tools.rs`, `hosts/links.rs` und
 sowie `diff.rs`. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
 `browser_menu.rs`; `shell/comparison.rs` koordiniert ihren Vergleichsscope.
 `pane_split.rs` hält ausschließlich GUI-Layout-/Gestenzustand; Shell und
-ComparisonPane routen seine Keyboard-/Escape-Aktionen.
+ComparisonPane routen seine Keyboard-/Escape-Aktionen. `shell/keyboard.rs` hält
+Vorschau-Routing und Shortcut-Hilfe; `DefaultConfirm` in Verwaltungsdialogen schützt
+native Enter/Space-Aktionen. `Ctrl+Escape` ist die explizite Work-Abbruchroute aus Filtern.
 Abläufe liegen in `drift-app`, Persistenz/Policies in `drift-core`.
 Referenz für Build und Bedienung: [rust/README.md](../rust/README.md).
 Rust **1.98.1**, GPUI Kit **0.7.0** und `Cargo.lock` beibehalten.

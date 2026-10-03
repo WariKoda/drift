@@ -712,6 +712,27 @@ impl Render for Shell {
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::compare_marked))
+            .on_action(cx.listener(|this, _: &SwitchPane, w, cx| {
+                let event = if this.remote.focus_handle(cx).is_focused(w) {
+                    ToolbarEvent::LocalBrowser
+                } else {
+                    ToolbarEvent::Remote
+                };
+                this.toolbar_event(&event, w, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ShowRemote, w, cx| {
+                this.toolbar_event(&ToolbarEvent::Remote, w, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowProjects, w, cx| {
+                this.toolbar_event(&ToolbarEvent::Projects, w, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowHosts, w, cx| {
+                this.toolbar_event(&ToolbarEvent::Hosts, w, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FindFiles, w, cx| {
+                this.toolbar_event(&ToolbarEvent::LocalBrowser, w, cx);
+                this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::Find), w, cx);
+            }))
             .on_action(cx.listener(Self::cancel))
             .child(toolbar)
             .child(header)

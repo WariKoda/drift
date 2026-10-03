@@ -363,6 +363,24 @@ impl ComparisonPane {
         cx.emit(ComparisonEvent::Closed);
         cx.notify();
     }
+    fn toggle_ignored(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() || self.confirm_sync.is_some() {
+            return;
+        }
+        if let Some(request) = &mut self.request {
+            request.scope.include_ignored = !request.scope.include_ignored;
+        }
+        self.load(window, cx);
+    }
+    fn cursor_edge(&mut self, last: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let row = if last {
+            self.files.len().saturating_sub(1)
+        } else {
+            0
+        };
+        self.choose(self.files.get(row).copied(), window, cx);
+        self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
+    }
     fn cursor(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) {
         let current = self
             .selected

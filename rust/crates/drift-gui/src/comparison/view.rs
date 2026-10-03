@@ -13,6 +13,19 @@ impl Render for ComparisonPane {
             .size_full()
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(|this, _: &NextFile, w, cx| this.cursor(true, w, cx)))
+            .on_action(cx.listener(|this, _: &PreviousFile, w, cx| this.cursor(false, w, cx)))
+            .on_action(cx.listener(|this, _: &ToggleIgnored, w, cx| this.toggle_ignored(w, cx)))
+            .on_action(cx.listener(|this, _: &SyncSelected, _, cx| this.prepare_sync(false, cx)))
+            .on_action(cx.listener(|this, _: &SyncAll, _, cx| this.prepare_sync(true, cx)))
+            .on_action(cx.listener(|this, _: &ConfirmSync, w, cx| this.start_sync(w, cx)))
+            .on_action(cx.listener(|this, _: &SwitchPane, w, cx| {
+                if this.focus.is_focused(w) {
+                    this.diff.focus_handle(cx).focus(w, cx);
+                } else {
+                    this.focus.focus(w, cx);
+                }
+            }))
             .on_action(
                 cx.listener(|this, _: &FocusFilter, w, cx| {
                     this.filter.focus_handle(cx).focus(w, cx)
@@ -54,12 +67,9 @@ impl Render for ComparisonPane {
                                     "Include ignored"
                                 },
                             )
-                            .disabled(self.is_loading())
+                            .disabled(self.is_loading() || self.confirm_sync.is_some())
                             .on_click(cx.listener(|this, _, w, cx| {
-                                if let Some(r) = &mut this.request {
-                                    r.scope.include_ignored = !r.scope.include_ignored;
-                                }
-                                this.load(w, cx);
+                                this.toggle_ignored(w, cx);
                             })),
                     )
                     .child(
@@ -97,7 +107,7 @@ impl Render for ComparisonPane {
                 let downloads = decisions.iter().filter(|d| **d == Decision::Download).count();
                 let deletes = decisions.iter().filter(|d| matches!(d, Decision::DeleteLocal | Decision::DeleteRemote)).count();
                 view.child(div().p_2().flex().gap_2()
-                    .child(format!("Run {uploads} uploads, {downloads} downloads and {deletes} deletions in the comparison scope?"))
+                    .child(format!("Run {uploads} uploads, {downloads} downloads and {deletes} deletions in the comparison scope? Ctrl/Cmd+Enter to run, Escape to cancel."))
                     .child(Button::new("sync-confirm").label("Run sync").on_click(cx.listener(|this, _, w, cx| this.start_sync(w, cx))))
                     .child(Button::new("sync-dismiss").label("Cancel").on_click(cx.listener(|this, _, _, cx| { this.confirm_sync = None; cx.notify(); }))))
             })
@@ -158,6 +168,8 @@ impl Render for ComparisonPane {
                                     .flex_col()
                                     .flex_1()
                                     .min_h_0()
+                                    .on_action(cx.listener(|this, _: &CursorFirst, w, cx| this.cursor_edge(false, w, cx)))
+                                    .on_action(cx.listener(|this, _: &CursorLast, w, cx| this.cursor_edge(true, w, cx)))
                                     .on_action(cx.listener(|this, _: &CursorUp, w, cx| {
                                         this.cursor(false, w, cx)
                                     }))

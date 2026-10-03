@@ -447,6 +447,21 @@ impl BrowserPane {
             self.navigate(path, Navigation::Seek(index), window, cx);
         }
     }
+    fn cursor_edge(&mut self, last: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let row = if last {
+            self.files.len().saturating_sub(1)
+        } else {
+            0
+        };
+        self.files.select(row);
+        self.selection_changed(false, cx);
+        self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
+        cx.notify();
+    }
     fn cursor_up(&mut self, _: &CursorUp, _window: &mut Window, cx: &mut Context<Self>) {
         self.files
             .select(self.files.selected_row().unwrap_or(0).saturating_sub(1));
@@ -525,6 +540,9 @@ impl BrowserPane {
         } else if !self.filter.read(cx).value().is_empty() {
             self.filter
                 .update(cx, |state, cx| state.set_value("", window, cx));
+            // Programmatic input changes do not emit InputEvent::Change.
+            self.files.filter("");
+            self.selection_changed(false, cx);
         } else {
             self.files.clear_marks();
         }
@@ -722,6 +740,14 @@ impl Render for BrowserPane {
             .on_action(cx.listener(Self::go_forward))
             .on_action(cx.listener(Self::cursor_up))
             .on_action(cx.listener(Self::cursor_down))
+            .on_action(cx.listener(|this, _: &ToggleHidden, w, cx| {
+                this.command(BrowserCommand::Hidden, w, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ToggleIgnored, w, cx| {
+                this.command(BrowserCommand::Ignored, w, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CursorFirst, w, cx| this.cursor_edge(false, w, cx)))
+            .on_action(cx.listener(|this, _: &CursorLast, w, cx| this.cursor_edge(true, w, cx)))
             .on_action(cx.listener(Self::activate))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::open_directory))

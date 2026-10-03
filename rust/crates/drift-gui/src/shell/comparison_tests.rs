@@ -100,6 +100,23 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         2
     );
     cx.update_window(handle, |_, w, cx| {
+        for key in ["end", "shift-g", "n"] {
+            w.press(key, cx);
+            w.click("copy-diff", cx);
+            assert!(
+                cx.read_from_clipboard()
+                    .unwrap()
+                    .text()
+                    .unwrap()
+                    .contains("local only")
+            );
+        }
+        w.press("tab", cx); // List -> diff; file navigation bubbles to the comparison.
+        w.press("p", cx);
+        w.press("shift-tab", cx);
+        assert!(shell.read(cx).comparison.focus_handle(cx).is_focused(w));
+        w.press("home", cx);
+        w.press("g", cx);
         w.click("copy-diff", cx);
         let copy = cx.read_from_clipboard().unwrap().text().unwrap();
         assert!(copy.contains("- local") && copy.contains("+ remote"));
@@ -117,7 +134,7 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         w.press("ctrl-c", cx);
         let copy = cx.read_from_clipboard().unwrap().text().unwrap();
         assert!(copy.contains("before") && !copy.contains("@@") && !copy.contains("local"));
-        w.click("comparison-ignored", cx);
+        w.press("i", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -138,7 +155,7 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
     fs::write(server.dir.path().join("files/new.txt"), "new remote").unwrap();
     cx.update_window(handle, |_, w, cx| {
         w.click("comparison-filter", cx);
-        w.input("jk", cx); // Letter navigation must leave this text input alone.
+        w.input("jknprissgG", cx); // Navigation, refresh and sync leave text inputs alone.
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {
@@ -177,14 +194,18 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         4
     );
     cx.update_window(handle, |_, w, cx| {
-        w.click("sync-all", cx);
-        w.click("sync-dismiss", cx);
+        shell.read(cx).comparison.focus_handle(cx).focus(w, cx);
+        w.press("shift-s", cx);
+        w.press("escape", cx);
+        w.press("ctrl-enter", cx); // Cancelled confirmation must never start sync.
+        assert!(shell.read(cx).comparison.read(cx).visible());
+        assert!(!shell.read(cx).comparison.read(cx).is_loading());
     })
     .unwrap();
     assert!(!local.path().join("ignored.txt").exists());
     cx.update_window(handle, |_, w, cx| {
-        w.click("sync-all", cx);
-        w.click("sync-confirm", cx);
+        w.press("shift-s", cx);
+        w.press("ctrl-enter", cx);
         w.click("comparison-progress", cx); // Keep transfers running while hidden.
     })
     .unwrap();

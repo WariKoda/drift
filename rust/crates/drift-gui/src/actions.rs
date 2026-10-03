@@ -12,6 +12,20 @@ gpui_kit::actions!(
         GoForward,
         CursorUp,
         CursorDown,
+        CursorFirst,
+        CursorLast,
+        SwitchPane,
+        ShowProjects,
+        ShowHosts,
+        ShowRemote,
+        FindFiles,
+        ToggleHidden,
+        ToggleIgnored,
+        NextFile,
+        PreviousFile,
+        SyncSelected,
+        SyncAll,
+        ConfirmSync,
         Activate,
         Collapse,
         OpenDirectory,
@@ -29,7 +43,39 @@ gpui_kit::actions!(
 );
 pub fn bind_keys(cx: &mut App) {
     crate::hosts::bind_keys(cx);
+    for context in ["DriftBrowser", "DriftComparisonFiles"] {
+        cx.bind_keys([
+            KeyBinding::new("home", CursorFirst, Some(context)),
+            KeyBinding::new("g", CursorFirst, Some(context)),
+            KeyBinding::new("end", CursorLast, Some(context)),
+            KeyBinding::new("shift-g", CursorLast, Some(context)),
+        ]);
+    }
+    for context in ["DriftComparisonFiles", "DriftDiff"] {
+        cx.bind_keys([
+            KeyBinding::new("n", NextFile, Some(context)),
+            KeyBinding::new("p", PreviousFile, Some(context)),
+            KeyBinding::new("r", Refresh, Some(context)),
+            KeyBinding::new("i", ToggleIgnored, Some(context)),
+            KeyBinding::new("s", SyncSelected, Some(context)),
+            KeyBinding::new("shift-s", SyncAll, Some(context)),
+            KeyBinding::new("ctrl-enter", ConfirmSync, Some(context)),
+            KeyBinding::new("cmd-enter", ConfirmSync, Some(context)),
+            KeyBinding::new("tab", SwitchPane, Some(context)),
+            KeyBinding::new("shift-tab", SwitchPane, Some(context)),
+        ]);
+    }
     cx.bind_keys([
+        KeyBinding::new("tab", SwitchPane, Some("DriftBrowser")),
+        KeyBinding::new("shift-tab", SwitchPane, Some("DriftBrowser")),
+        KeyBinding::new("shift-p", ShowProjects, Some("DriftBrowser")),
+        KeyBinding::new("shift-h", ShowHosts, Some("DriftBrowser")),
+        KeyBinding::new("@", ShowRemote, Some("DriftBrowser")),
+        KeyBinding::new("/", FocusFilter, Some("DriftBrowser")),
+        KeyBinding::new("f", FindFiles, Some("DriftBrowser")),
+        KeyBinding::new(".", ToggleHidden, Some("DriftBrowser")),
+        KeyBinding::new("shift-i", ToggleIgnored, Some("DriftBrowser")),
+        KeyBinding::new("r", Refresh, Some("DriftBrowser")),
         KeyBinding::new("s", CompareMarked, Some("DriftBrowser")),
         KeyBinding::new("space", ToggleMark, Some("DriftBrowser")),
         KeyBinding::new("v", VisualRange, Some("DriftBrowser")),

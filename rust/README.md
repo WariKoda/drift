@@ -99,7 +99,12 @@ Preview uses Kit's read-only text control with line numbers, wrapping and native
 text selection/copy. Copy text copies the complete preview; Copy path copies the
 selected project-relative path. Ctrl+F/Cmd+F focuses the file filter, F5 refreshes,
 and Cancel stops the active listing/finder/preview. In the browser, arrows or
-J/K move the cursor. Enter/Right/L expands a directory, or moves to its first
+J/K move the cursor; Home/g and End/G select the first/last visible row.
+Tab/Shift+Tab switches between the local and remote browsers, opening the remote
+pane when necessary. P opens Projects, H opens Hosts, and @ opens Remote.
+The / key focuses the active filter; f opens the local project finder.
+A dot toggles hidden files in the active pane, I toggles ignored local files,
+and r refreshes the active browser. Enter/Right/L expands a directory, or moves to its first
 visible child when already expanded; on files it opens the preview. Left/H collapses
 the directory or its parent, preserving descendant marks. Alt+Enter enters the
 selected directory as the new browser root. Backspace/Alt+Up goes up, and
@@ -134,7 +139,10 @@ while fixed exclusions and transfer staging files never enter the comparison.
 
 The comparison shows differing files and per-file errors, with suggested actions.
 Click the action button or press Enter/Space in the file list to cycle valid
-previews. Upload shows Remote → Local, Download Local → Remote and deletion shows
+previews. Home/g and End/G jump to the first/last visible file; n/p select the
+next/previous file from either the list or the diff. Tab/Shift+Tab switches focus
+between those two areas. The r key refreshes and i toggles ignored paths.
+Upload shows Remote → Local, Download Local → Remote and deletion shows
 the affected side being removed. Unified rows have two number columns, hunk headers and three
 context lines. Click an unchanged fold to expand it; **Fold context** collapses it.
 Alt+Up/Down and the hunk buttons navigate changes. Click a text row, Shift-click
@@ -144,7 +152,10 @@ lines. Each file retains its own fold/scroll state while browsing the results.
 
 **Sync selected** runs the active file's chosen action. **Sync all actions** runs
 all chosen actions in the comparison, including rows hidden by the text filter.
-Both first show the upload/download/delete counts for confirmation. Skip and error
+The s/S keys prepare selected/all actions from the file list or diff.
+Both first show the upload/download/delete counts for confirmation; Ctrl/Cmd+Enter
+confirms, and Escape dismisses the pending confirmation. Shortcuts never execute
+a transfer without that confirmation. Skip and error
 rows are never executed. The runner streams uploads and downloads and executes
 all operations serially. Existing regular local and SFTP targets retain their permissions;
 adjacent staging files prevent partial content from replacing the old target.
@@ -328,6 +339,8 @@ headless test window, including nested navigation, project boundaries, input foc
 failed loads, registration, stale-result rejection and picker/session lifetime.
 Two panes in one headless window verify independent filter, selection, focus,
 history and cancellation; preview tests verify replacement and clipboard content.
+Keyboard tests cover list boundaries, pane switches, management entry/return,
+typing command letters into filters, and confirmed/cancelled sync over real SFTP.
 Tree tests cover delayed local/SFTP loading, nested collapse, hidden and ignored
 visibility, remembered expansion, vanished directories, discarded completions,
 project switches and comparison/sync scope with marked collapsed children. The

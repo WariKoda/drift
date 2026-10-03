@@ -68,7 +68,8 @@ async fn selected_sync_deletion_errors_and_cancel_are_visible_without_reusing_a_
     .await;
     cx.update_window(handle, |_, w, cx| {
         w.click("comparison-action", cx); // Download -> Delete remote.
-        w.click("sync-selected", cx);
+        shell.read(cx).comparison.focus_handle(cx).focus(w, cx);
+        w.press("s", cx);
         w.press("escape", cx); // Dismiss only the confirmation.
     })
     .unwrap();

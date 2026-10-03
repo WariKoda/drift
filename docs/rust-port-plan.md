@@ -19,20 +19,21 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 ## Übergabe für die nächste Session
 
 Stand: **3. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
-aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Als nächster
-Schritt stehen die verbleibenden Tastaturabläufe an. Die optische Überarbeitung
+aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
+Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Als nächster
+Schritt stehen die Tastaturabläufe in Projekt-/Hostverwaltung und Dialogen an. Die optische Überarbeitung
 bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-browser-trees`, aufgebaut auf
-  `feature/rust-browser-selection` (Commit `fdc4fd3`).
-- [Draft-PR #76](https://github.com/WariKoda/drift/pull/76) enthält die
-  Browser-Markierungen und basiert auf [#75](https://github.com/WariKoda/drift/pull/75).
-  Die neue Baum-Arbeit baut auf #76 auf. Das ist eine gestapelte PR-Kette;
+- Aktueller Branch: `feature/rust-keyboard-navigation`, aufgebaut auf
+  `feature/rust-browser-trees` (Commit `93a3c7b`).
+- [Draft-PR #77](https://github.com/WariKoda/drift/pull/77) enthält die
+  Dateibäume und basiert auf [#76](https://github.com/WariKoda/drift/pull/76).
+  Die Tastatur-Arbeit baut auf #77 auf. Das ist eine gestapelte PR-Kette;
   vor Integration den tatsächlichen Git-/PR-Stand erneut prüfen.
 - CI von #76 wurde geprüft: Go, Rust Linux und Rust macOS bestanden.
-  Dies belegt den Ausgangsstand, nicht die neue Baum-Arbeit.
+  Bei #77 war Go erfolgreich; Rust Linux/macOS liefen bei der letzten Prüfung noch.
 
 ### Implementiert und lokal geprüft
 
@@ -57,6 +58,15 @@ bleibt ausdrücklich für später geplant.
   Remote-Markierungen respektieren effektive Mappings und lokal übersetzte
   harte Ausschlüsse. Direkt ausgewählte ignorierte Dateien bleiben Ausnahmen;
   rekursive Ordnerauswahl überspringt ignorierte Kinder weiterhin.
+- Home/g und End/G springen in beiden Browsern und der Vergleichsliste zu den
+  sichtbaren Grenzen. Tab/Shift+Tab wechselt lokal/remote beziehungsweise
+  Vergleichsliste/Diff. Browser: / Filter, f lokaler Finder, . Hidden, I lokale
+  Ignore-Sichtbarkeit, r Refresh, P Projekte, H Hosts und @ Remote.
+  Vergleich: n/p Dateiwechsel auch aus dem Diff, r Refresh, i Include ignored,
+  s/S Sync-Bestätigung und Ctrl/Cmd+Enter Ausführen; Escape verwirft die Bestätigung.
+  Textfelder behalten ihre Buchstaben, Verwaltungsdialoge stellen Browserfokus wieder her.
+  Escape leert Browserfilter samt sichtbarer Liste; das programmatische Leeren des
+  Kit-Inputs wird explizit in die Listenprojektion übernommen und erhält Markierungen.
 - Host-CRUD, Duplizieren, Mappings, globale Serverlinks, projektübergreifender
   Picker und Server-Promotion, Verbindungstest auch ungespeicherter Formulare
   sowie FTPS-Trust-Reset. Konflikte/Teilerfolge bleiben sichtbar.
@@ -66,10 +76,12 @@ bleibt ausdrücklich für später geplant.
   Gleiche Projektwahl/Schließen erhält die Sitzung; Verschieben/Entfernen des
   aktiven Projekts verwirft den alten Root und schließt die Remote-Verbindung.
   Fehlgeschlagener Registry-Write beim Entfernen stellt den Hoststore wieder her.
-- Letzter vollständiger lokaler Lauf: **96 Rust-Tests bestanden, 0 fehlgeschlagen,
+- Letzter vollständiger lokaler Lauf: **97 Rust-Tests bestanden, 0 fehlgeschlagen,
   0 übersprungen**, einschließlich echter SFTP/FTP/FTPS-Server und Headless-GPUI.
   Go-Test/Vet/Build, Go/Rust-Prozessparität, Rustfmt, striktes Clippy und
-  Linux-Release-Build bestanden. Baumtests prüfen echtes lokales/SFTP-Laden,
+  Linux-Release-Build bestanden. 25 Headless-GPUI-Tests prüfen auch Tastaturfokus,
+  Filterrücksetzung sowie bestätigte/abgebrochene Tastatur-Syncs gegen echtes SFTP.
+  Baumtests prüfen echtes lokales/SFTP-Laden,
   verschachteltes Collapse, Visibility/Refresh, verschwundene Ordner und veraltete
   Ergebnisse. FTP/FTPS prüfen Aufklappen/Markieren/Zuklappen; der gemeinsame
   lokale/entfernte Scope bleibt auch mit markierten zugeklappten Kindern erhalten. Der Gesamtlauf nutzt
@@ -81,8 +93,10 @@ bleibt ausdrücklich für später geplant.
 1. Go-Referenz erneut lesen: Browser `keys.go`, Dashboard-/Host-/Diff-Updates.
    Bereits vorhanden sind Markierungen, v/V, Invertieren, Enter/Right/L zum
    Aufklappen, Left/H zum Zuklappen und Alt+Enter zur Ordnernavigation.
-   Sprünge an Listenanfang/-ende, Pane-Wechsel sowie weitere Dashboard-/Host-/
-   Diff-Tasten müssen noch auf Vollständigkeit geprüft und ergänzt werden.
+   Listenanfang/-ende, Pane-Wechsel und die oben genannten Browser-/Vergleichstasten
+   sind vorhanden. Als Nächstes Cursor/CRUD-Tasten in Dashboard und Hostliste,
+   Formular-Speichern, Dialogbestätigung und weitere Diff-Tasten ergänzen.
+   Direktwahl Upload/Download, Fehlerfilter und seitenweise Diff-Navigation sind offen.
 2. Buchstabenbefehle nur im jeweiligen View-Kontext auslösen. Kit-Textfelder
    behalten normale Texteingabe; Fokus nach Dialogschließen wiederherstellen.
 3. Baumlogik: `drift-app/src/tree.rs` besitzt die geladene Topologie und merkt

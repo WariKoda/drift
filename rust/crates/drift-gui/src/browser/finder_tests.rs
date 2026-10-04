@@ -1,4 +1,5 @@
 use super::*;
+use crate::finder_test_support::fail_git_scan;
 use crate::pane_split::{PaneSplit, SplitCommand};
 use gpui_kit::InputEvent as _;
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};
@@ -917,10 +918,8 @@ async fn finder_busy_browser_rejects_entry_and_return_routes_preserve_escape_res
     assert!(f.events.borrow().is_empty());
 }
 
-#[cfg(unix)]
 #[gpui_kit::test]
-async fn finder_walk_failure_restores_snapshot_before_reporting_error(cx: &mut TestAppContext) {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+async fn finder_scan_failure_restores_snapshot_before_reporting_error(cx: &mut TestAppContext) {
     let f = Fixture::new(cx).await;
     f.query("bravo", 1, cx).await;
     let saved = cx
@@ -931,16 +930,7 @@ async fn finder_walk_failure_restores_snapshot_before_reporting_error(cx: &mut T
             SavedView::capture(f.left.read(cx), cx)
         })
         .unwrap();
-    // An actual unreadable listing, independent of root privileges and chmod.
-    // It is nested so the already-loaded ordinary view remains valid.
-    fs::write(
-        f.root
-            .path()
-            .join("closed")
-            .join(OsString::from_vec(vec![0xff])),
-        "bad name",
-    )
-    .unwrap();
+    fail_git_scan(f.root.path());
     f.statuses.borrow_mut().clear();
     cx.update_window(f.handle, |_, w, cx| {
         f.left
@@ -960,7 +950,11 @@ async fn finder_walk_failure_restores_snapshot_before_reporting_error(cx: &mut T
     })
     .unwrap();
     assert!(
-        f.statuses.borrow().last().unwrap().contains("UTF-8"),
+        f.statuses
+            .borrow()
+            .last()
+            .unwrap()
+            .contains("Git ignore classification"),
         "restoration must not overwrite the failure status: {:?}",
         f.statuses.borrow()
     );

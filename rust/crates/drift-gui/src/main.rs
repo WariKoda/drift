@@ -5,6 +5,8 @@ mod certificates;
 mod cli;
 mod comparison;
 mod diff;
+#[cfg(test)]
+mod finder_test_support;
 mod hosts;
 mod pane_split;
 mod preview;

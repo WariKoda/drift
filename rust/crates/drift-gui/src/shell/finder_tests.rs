@@ -1,5 +1,6 @@
 use super::*;
 use crate::actions::bind_keys;
+use crate::finder_test_support::fail_git_scan;
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};
 use gpui_kit::{TestAppContext, WindowOptions};
 use std::{fs, time::Duration};
@@ -95,10 +96,8 @@ async fn finder_return_from_shell_filter_respects_popups_help_and_live_marks(
     .unwrap();
 }
 
-#[cfg(unix)]
 #[gpui_kit::test]
 async fn finder_failure_under_hosts_does_not_focus_a_hidden_browser(cx: &mut TestAppContext) {
-    use std::os::unix::ffi::OsStringExt;
     cx.executor().allow_parking();
     let root = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
@@ -125,11 +124,7 @@ async fn finder_failure_under_hosts_does_not_focus_a_hidden_browser(cx: &mut Tes
             && !shell.read(cx).browser.read(cx).is_loading()
     })
     .await;
-    fs::write(
-        root.path().join(std::ffi::OsString::from_vec(vec![0xff])),
-        "undisplayable",
-    )
-    .unwrap();
+    fail_git_scan(root.path());
     cx.update_window(handle, |_, w, cx| {
         shell.update(cx, |shell, cx| {
             shell
@@ -151,7 +146,7 @@ async fn finder_failure_under_hosts_does_not_focus_a_hidden_browser(cx: &mut Tes
     cx.update_window(handle, |_, w, cx| {
         assert!(!shell.read(cx).browser.read(cx).finder_active());
         assert!(!shell.read(cx).browser.focus_handle(cx).is_focused(w));
-        assert!(shell.read(cx).status.contains("not UTF-8"));
+        assert!(shell.read(cx).status.contains("Git ignore classification"));
         assert!(shell.read(cx).help.is_some());
         w.press("escape", cx);
         assert_eq!(w.find("hosts-filter").focused(), Some(true));
@@ -169,12 +164,10 @@ async fn finder_failure_under_hosts_does_not_focus_a_hidden_browser(cx: &mut Tes
     .unwrap();
 }
 
-#[cfg(unix)]
 #[gpui_kit::test]
 async fn finder_failure_under_help_does_not_restore_a_disappeared_return_button(
     cx: &mut TestAppContext,
 ) {
-    use std::os::unix::ffi::OsStringExt;
     cx.executor().allow_parking();
     let root = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
@@ -201,11 +194,7 @@ async fn finder_failure_under_help_does_not_restore_a_disappeared_return_button(
             && !shell.read(cx).browser.read(cx).is_loading()
     })
     .await;
-    fs::write(
-        root.path().join(std::ffi::OsString::from_vec(vec![0xff])),
-        "undisplayable",
-    )
-    .unwrap();
+    fail_git_scan(root.path());
     cx.update_window(handle, |_, w, cx| {
         shell.update(cx, |shell, cx| {
             shell

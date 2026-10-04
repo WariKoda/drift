@@ -40,6 +40,7 @@ gpui_kit::actions!(
         ShowHosts,
         ShowRemote,
         FindFiles,
+        ReturnFromFinder,
         ToggleHidden,
         ToggleIgnored,
         NextFile,
@@ -101,6 +102,8 @@ pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("p", TogglePreview, Some("DriftBrowser && !PopupMenu")),
         KeyBinding::new("c", CopyPreview, Some("DriftBrowser && !PopupMenu")),
+        KeyBinding::new("ctrl-alt-f", ReturnFromFinder, Some("Drift && !PopupMenu")),
+        KeyBinding::new("cmd-alt-f", ReturnFromFinder, Some("Drift && !PopupMenu")),
         KeyBinding::new("ctrl-alt-p", FocusPreview, Some("Drift && !PopupMenu")),
         KeyBinding::new("cmd-alt-p", FocusPreview, Some("Drift && !PopupMenu")),
         KeyBinding::new("f1", ShowHelp, Some("!PopupMenu")),

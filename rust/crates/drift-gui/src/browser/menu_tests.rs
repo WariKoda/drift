@@ -342,10 +342,10 @@ async fn row_menu_changes_only_cursor_and_escape_restores_clicked_pane(cx: &mut 
         "right click/Escape emitted a browser event"
     );
     cx.update_window(fixture.handle, |_, window, cx| {
-        // The token is captured and Escape dispatched before the real Find
-        // completion can enter the UI executor.
+        // Escape must close the menu without cancelling the pending directory
+        // refresh, whose completion has not entered the UI executor yet.
         fixture.left.update(cx, |pane, cx| {
-            pane.command(BrowserCommand::Find, window, cx)
+            pane.command(BrowserCommand::Refresh, window, cx)
         });
         let cancel = fixture
             .left
@@ -951,7 +951,7 @@ async fn busy_row_menu_only_cancels_real_listing_without_marks_compare_or_previe
     fixture.events.borrow_mut().clear();
     cx.update_window(fixture.handle, |_, window, cx| {
         fixture.left.update(cx, |pane, cx| {
-            pane.command(BrowserCommand::Find, window, cx);
+            pane.command(BrowserCommand::Refresh, window, cx);
             let cancel = pane.listing_cancel.as_ref().unwrap().clone();
             pane.open_context_menu(
                 Some("alpha.txt".into()),

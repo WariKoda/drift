@@ -2,6 +2,7 @@
 use crate::{
     actions::Cancel,
     certificates::{CertificatePrompt, Decision},
+    focus_reveal::FocusReveal,
 };
 use drift_app::{
     browser::{Operation, OperationId},
@@ -15,9 +16,12 @@ use drift_core::{
 };
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{ActiveTheme, button::Button};
+#[cfg(test)]
+use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement, Render, Styled, Subscription, Window, div,
+    IntoElement, KeyBinding, ParentElement, Render, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, prelude::FluentBuilder,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -46,8 +50,11 @@ pub(super) struct HostTools {
     pub(super) status: String,
     reset: Option<TrustSnapshot>,
     certificate: Option<Entity<CertificatePrompt>>,
+    restore_focus: Option<(u64, FocusHandle)>,
+    temporary_focus: bool,
     subscription: Option<Subscription>,
     focus: FocusHandle,
+    reveal: FocusReveal,
     pub(super) previous_focus: Option<FocusHandle>,
 }
 impl EventEmitter<Closed> for HostTools {}
@@ -87,8 +94,11 @@ impl HostTools {
             status: String::new(),
             reset: None,
             certificate: None,
+            restore_focus: None,
+            temporary_focus: false,
             subscription: None,
             focus,
+            reveal: FocusReveal::default(),
             previous_focus,
         };
         match mode {
@@ -113,6 +123,23 @@ impl HostTools {
         apply: impl FnOnce(&mut Self, Result<T>, &mut Window, &mut Context<Self>) + 'static,
     ) {
         let id = operation.id;
+        let temporary_owner = self.temporary_focus && self.focus.is_focused(window);
+        let previous_control = window
+            .focused(cx)
+            .filter(|focus| *focus != self.focus && self.focus.contains(focus, window))
+            .or_else(|| {
+                if self.temporary_focus && self.focus.is_focused(window) {
+                    self.restore_focus.as_ref().map(|(_, focus)| focus.clone())
+                } else {
+                    None
+                }
+            });
+        self.restore_focus = None;
+        self.temporary_focus = previous_control.is_some() || temporary_owner;
+        if previous_control.is_some() {
+            // Disabled native buttons leave the dispatch tree while work is pending.
+            self.focus.focus(window, cx);
+        }
         self.cancel = Some(operation.cancel);
         self.writing = writing;
         cx.spawn_in(window, async move |this, cx| {
@@ -126,6 +153,17 @@ impl HostTools {
                 this.cancel = None;
                 this.writing = false;
                 apply(this, result, window, cx);
+                if !writing
+                    && this.operation == id.operation
+                    && this.cancel.is_none()
+                    && this.certificate.is_none()
+                    && let Some(focus) = &previous_control
+                {
+                    this.restore_focus = Some((id.operation, focus.clone()));
+                } else {
+                    this.temporary_focus =
+                        !writing && temporary_owner && this.certificate.is_none();
+                }
                 cx.notify();
             });
         })
@@ -236,7 +274,6 @@ impl HostTools {
             return;
         }
         self.status = "Loading certificate trust…".into();
-        self.reset = None;
         let id = self.id();
         let operation = self.service.inspect_host_trust(
             self.store.clone(),
@@ -254,7 +291,10 @@ impl HostTools {
                     this.status = "Review certificate trust before resetting".into();
                     this.reset = Some(snapshot);
                 }
-                Err(error) => this.status = error.to_string(),
+                Err(error) => {
+                    this.reset = None;
+                    this.status = error.to_string();
+                }
             },
         );
     }
@@ -297,6 +337,8 @@ impl HostTools {
         self.operation += 1;
         self.certificate = None;
         self.subscription = None;
+        self.restore_focus = None;
+        self.temporary_focus = false;
         cx.emit(Closed);
     }
 }
@@ -306,8 +348,34 @@ impl Render for HostTools {
             return div().size_full().child(prompt.clone()).into_any_element();
         }
         let busy = self.cancel.is_some();
-        let mut view = div()
+        let detail = |id: &'static str, text: String| {
+            div()
+                .id(id)
+                .w_full()
+                .min_w_0()
+                .flex_shrink_0()
+                .whitespace_normal()
+                .map(|view| {
+                    #[cfg(test)]
+                    {
+                        view.test_support()
+                    }
+                    #[cfg(not(test))]
+                    {
+                        view
+                    }
+                })
+                .child(text)
+        };
+        let action = |id: &'static str, button: Button| {
+            div()
+                .min_w_0()
+                .max_w_full()
+                .child(self.reveal.wrap(id, button.min_w_0().max_w_full()))
+        };
+        let mut root = div()
             .id("host-tools")
+            .relative()
             .key_context(if self.reset.is_some() {
                 "Drift DriftTrustReset"
             } else {
@@ -315,15 +383,18 @@ impl Render for HostTools {
             })
             .track_focus(&self.focus)
             .size_full()
+            .min_h_0()
+            .min_w_0()
             .flex()
             .flex_col()
-            .gap_3()
+            .overflow_hidden()
             .p_6()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::close))
             .on_key_down(cx.listener(|this, event: &gpui_kit::KeyDownEvent, w, cx| {
                 if this.reset.is_some()
+                    && !this.temporary_focus
                     && this.focus.is_focused(w)
                     && event.keystroke.key == "enter"
                     && event.keystroke.modifiers == Default::default()
@@ -333,39 +404,132 @@ impl Render for HostTools {
                 }
             }))
             .on_action(cx.listener(|this, _: &ConfirmReset, w, cx| this.reset(w, cx)))
-            .on_action(cx.listener(|this, _: &ReloadTrust, w, cx| this.inspect(w, cx)))
-            .child(format!("Host: {}", self.host.name))
-            .child(self.status.clone());
+            .on_action(cx.listener(|this, _: &ReloadTrust, w, cx| this.inspect(w, cx)));
+        if let Some((operation, focus)) = self.restore_focus.clone() {
+            let entity = cx.weak_entity();
+            root = root.child(
+                gpui_kit::canvas(
+                    |_, _, _| (),
+                    move |_, _, window, cx| {
+                        // Only the completed, enabled control tree can validate the old target.
+                        window.defer(cx, move |window, cx| {
+                            let _ = entity.update(cx, |this, cx| {
+                                if this.operation != operation
+                                    || this.restore_focus.as_ref()
+                                        != Some(&(operation, focus.clone()))
+                                {
+                                    return;
+                                }
+                                this.restore_focus = None;
+                                let restore = this.cancel.is_none()
+                                    && this.certificate.is_none()
+                                    && this.focus.is_focused(window)
+                                    && this.focus.contains(&focus, window);
+                                // A fallback owner is not an intentional confirmation target.
+                                this.temporary_focus = !restore;
+                                if restore {
+                                    focus.focus(window, cx);
+                                }
+                            });
+                        });
+                    },
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            );
+        }
+        let mut content = div()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .min_w_0()
+            .w_full()
+            .gap_3()
+            .child(detail(
+                "host-tools-host",
+                format!("Host: {}", self.host.name),
+            ))
+            .child(detail("host-tools-status", self.status.clone()));
         if let Some(snapshot) = &self.reset {
-            view = view.child(format!("Endpoint: {}", snapshot.endpoint.address()));
-            for (label, record) in [
-                ("Persistent exception", &snapshot.persistent),
-                ("Session exception", &snapshot.session),
+            content = content.child(detail(
+                "host-tools-endpoint",
+                format!("Endpoint: {}", snapshot.endpoint.address()),
+            ));
+            for (id, label, record) in [
+                (
+                    "host-tools-persistent",
+                    "Persistent exception",
+                    &snapshot.persistent,
+                ),
+                ("host-tools-session", "Session exception", &snapshot.session),
             ] {
-                view = view.child(format!(
-                    "{label}: {}",
-                    record
-                        .as_ref()
-                        .map_or("None", |entry| entry.fingerprint.as_str())
+                content = content.child(detail(
+                    id,
+                    format!(
+                        "{label}: {}",
+                        record
+                            .as_ref()
+                            .map_or("None", |entry| entry.fingerprint.as_str())
+                    ),
                 ));
             }
-            view = view.child("Reset removes both exceptions for this endpoint. Existing connections remain open. Enter/y confirms; r reloads; Escape returns.")
-                .child(div().flex().gap_2()
-                    .child(Button::new("host-trust-reset-confirm").label("Reset certificate trust").disabled(busy || (snapshot.persistent.is_none() && snapshot.session.is_none()))
-                        .on_click(cx.listener(|this, _, w, cx| this.reset(w, cx))))
-                    .child(Button::new("host-trust-reload").label("Reload trust").disabled(busy).on_click(cx.listener(|this, _, w, cx| this.inspect(w, cx)))));
+            content = content
+                .child(detail(
+                    "host-tools-guidance",
+                    "Reset removes both exceptions for this endpoint. Existing connections remain open. Enter/y confirms; r reloads; Escape returns.".into(),
+                ))
+                .child(
+                    div()
+                        .id("host-tools-reset-actions")
+                        .flex()
+                        .flex_wrap()
+                        .flex_shrink_0()
+                        .min_w_0()
+                        .gap_2()
+                        .map(|view| {
+                            #[cfg(test)]
+                            {
+                                view.test_support()
+                            }
+                            #[cfg(not(test))]
+                            {
+                                view
+                            }
+                        })
+                        .child(action(
+                            "reveal-host-trust-reset-confirm",
+                            Button::new("host-trust-reset-confirm")
+                                .label("Reset certificate trust")
+                                .disabled(busy || (snapshot.persistent.is_none() && snapshot.session.is_none()))
+                                .on_click(cx.listener(|this, _, w, cx| this.reset(w, cx))),
+                        ))
+                        .child(action(
+                            "reveal-host-trust-reload",
+                            Button::new("host-trust-reload")
+                                .label("Reload trust")
+                                .disabled(busy)
+                                .on_click(cx.listener(|this, _, w, cx| this.inspect(w, cx))),
+                        )),
+                );
         }
-        view.child(
+        content = content.child(
             div()
                 .flex()
+                .flex_wrap()
+                .flex_shrink_0()
+                .min_w_0()
                 .gap_2()
-                .child(
+                .child(action(
+                    "reveal-host-test-again",
                     Button::new("host-test-again")
                         .label("Test connection")
                         .disabled(busy)
                         .on_click(cx.listener(|this, _, w, cx| this.test(None, w, cx))),
-                )
-                .child(
+                ))
+                .child(action(
+                    "reveal-host-tools-close",
                     Button::new("host-tools-close")
                         .label(if busy {
                             "Cancel and return"
@@ -374,11 +538,33 @@ impl Render for HostTools {
                         })
                         .disabled(self.writing)
                         .on_click(cx.listener(|this, _, w, cx| this.close(&Cancel, w, cx))),
-                ),
+                )),
+        );
+        root.child(
+            div()
+                .id("host-tools-scroll")
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .overflow_y_scroll()
+                .track_scroll(self.reveal.scroll_handle())
+                .map(|view| {
+                    #[cfg(test)]
+                    {
+                        view.test_support()
+                    }
+                    #[cfg(not(test))]
+                    {
+                        view
+                    }
+                })
+                .child(content),
         )
         .into_any_element()
     }
 }
 
+#[cfg(test)]
+mod scroll_tests;
 #[cfg(test)]
 mod tests;

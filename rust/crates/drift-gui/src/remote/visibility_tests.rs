@@ -529,7 +529,8 @@ async fn mapping_precedence_revisions_roots_projects_and_connections_reject_old_
     cx: &mut TestAppContext,
 ) {
     cx.executor().allow_parking();
-    let server = support::ftp::Server::new(4);
+    // Four sessions may overlap asynchronous shutdown; each owns up to four sockets.
+    let server = support::ftp::Server::new(16);
     fs::write(server.dir.path().join("files/cache.log"), "remote").unwrap();
     fs::write(server.dir.path().join("files/unmapped.txt"), "unmapped").unwrap();
     let local = git_root("/src/cache.log\n");
@@ -683,8 +684,29 @@ async fn mapping_precedence_revisions_roots_projects_and_connections_reject_old_
     cx.update_window(fixture.handle, |_, _, cx| {
         let state = pane.read(cx);
         assert_eq!(state.project, 8);
+        assert!(
+            state.has_session(),
+            "reconnect failed: {:?}",
+            fixture.view.read(cx).statuses
+        );
         assert_ne!(state.session_id(), Some(previous_session.id));
-        assert!(visible(state, "/cache.log"));
+        assert!(
+            visible(state, "/cache.log"),
+            "reconnect: session={:?} root={} visibility={:?} query={:?} entries={:?} statuses={:?}",
+            state.session_id(),
+            state.directory(),
+            state
+                .visibility
+                .as_ref()
+                .map(|visibility| (&visibility.ignored, &visibility.excluded)),
+            state.filter.read(cx).value(),
+            state
+                .entries
+                .iter()
+                .map(|entry| &entry.path)
+                .collect::<Vec<_>>(),
+            fixture.view.read(cx).statuses
+        );
         assert!(state.visibility.as_ref().unwrap().ignored.is_empty());
         assert_eq!(
             state.session.as_ref().unwrap().state(),

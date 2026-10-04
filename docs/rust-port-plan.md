@@ -40,11 +40,13 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 ### Ausgangspunkt und Git
 
 - Aktueller Branch: `feature/rust-remote-ignored`, aufgebaut auf
-  `feature/rust-finder-parity` (Commit `932917c`, einschließlich portabler Fehler-Fixtures).
+  `feature/rust-finder-parity` (Commit `9d12622`, einschließlich portabler Fehler-Fixtures
+  und stabiler Git-Fehlerdiagnose).
 - Implementierungsstand: Commit `68e6934`,
   [Draft-PR #88](https://github.com/WariKoda/drift/pull/88) für gemappte Remote-Ignored-
   Sichtbarkeit. Er basiert auf [#87](https://github.com/WariKoda/drift/pull/87) für
-  Finder-Fuzzy-Suche und gespeicherten Browser-Rückweg (`2f99818`, Fixture-Fix `932917c`),
+  Finder-Fuzzy-Suche und gespeicherten Browser-Rückweg (`2f99818`, Fixture-Fix `932917c`,
+  Git-Pipe-Fix `9d12622`),
   dieser auf
   [#86](https://github.com/WariKoda/drift/pull/86) für Vorschau/Hilfe und sichere
   Tastatur-/Dialog-Routen, dieser auf
@@ -60,8 +62,9 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 - CI von #86, #85, #84, #83, #82, #81 und #80 ist vollständig bestanden, jeweils Go
   sowie Rust Linux/macOS. #87 bestand Linux/Go; macOS verweigerte die ungültigen
   UTF-8-Testdateinamen (APFS/EILSEQ). `932917c` ersetzt alle drei Fixtures durch echte
-  Git-Index-Fehler, ohne Tests zu überspringen. Frische Rust-CI von #87 sowie CI von
-  #88 sind separat zu prüfen. CI ist keine native Plattformabnahme.
+  Git-Index-Fehler, ohne Tests zu überspringen. Eine weitere Linux-Prüfung fand
+  deren sekundären EPIPE-Race: `9d12622` meldet den eigentlichen Git-Prozessfehler
+  vor dem Schreibfehler. Frische Rust-CI von #87 sowie CI von #88 sind separat zu prüfen. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
@@ -74,7 +77,7 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **235 Rust-Tests, davon 116 Headless-GPUI-Tests;
+Letzte lokale Gesamtprüfung: **236 Rust-Tests, davon 116 Headless-GPUI-Tests;
 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
 Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
 und CI von #87/#88 bleiben separate Freigabeschritte.
@@ -319,6 +322,9 @@ und CI von #87/#88 bleiben separate Freigabeschritte.
   native Buttons/Menüs/Tastatur, Filter-/Hilfe-/Popup-Sperren, stale Identitäten,
   Abbruch und Git-Fehler/Refresh. Reale SFTP-/FTP-Verbindungen, Off-tree-Metadaten,
   Hard-Exclusions bei Restore und äußere Rootnamen prüfen Policy und Session-Erhalt.
+  Eine weitere App-Regression sendet mehr als einen Pipe-Puffer echter Pfadanfragen
+  an Git: früher Prozessabbruch meldet den Indexfehler, nicht nur den sekundären EPIPE;
+  erfolgreiche Prozesse müssen weiterhin vollständige Eingaben erhalten.
 
 ### Nächster Arbeitsblock: Formularlücken
 

@@ -4,6 +4,7 @@ mod linking;
 mod links;
 mod tools;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
+use crate::focus_reveal::FocusReveal;
 use drift_app::{
     browser::{BrowserService, OperationId},
     hosts::{HostCommand, HostDraft, HostResponse},
@@ -462,7 +463,9 @@ impl Render for HostManager {
                                         .on_click(cx.listener(move |this, _, w, cx| this.open_tools(reset.clone(), Mode::Reset, w, cx))))))
                         }))
                         .when(self.catalog.as_ref().is_some_and(|c| c.hosts.is_empty()), |view| view.child("No hosts yet. Add a host to configure a sync target."))))
-                .child(div().id("host-details").flex_1().min_w_0().p_4().overflow_y_scroll()
+                .child(div().id("host-details").flex_1().min_w_0().min_h_0().p_4().overflow_y_scroll()
+                    .map(|view| { #[cfg(test)] { view.test_support() } #[cfg(not(test))] { view } })
+                    .when_some(self.form.as_ref(), |view, form| view.track_scroll(form.reveal.scroll_handle()))
                     .when(self.form.is_some(), |view| view.child(self.render_form(cx)))
                     .when_some(self.delete.as_ref(), |view, host| {
                         view.child(div().flex().flex_col().gap_3()
@@ -484,5 +487,7 @@ impl Render for HostManager {
     }
 }
 
+#[cfg(test)]
+mod scroll_tests;
 #[cfg(test)]
 mod tests;

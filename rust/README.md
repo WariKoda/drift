@@ -206,7 +206,15 @@ J/K move the cursor; Home/g and End/G select the first/last visible row.
 Tab/Shift+Tab switches between the local and remote browsers, opening the remote
 pane when necessary. P opens Projects, H opens Hosts, and @ opens Remote.
 The / key focuses the active filter; f opens the local project finder and focuses
-its query. Finder matching/return-state parity is still pending.
+its initially empty query. Finder uses case-insensitive Unicode-lowercased subsequence
+matching across project-relative paths, preferring adjacent and word/path-boundary
+matches; the ordinary browser filter remains a substring filter. This is not full
+Unicode normalization/case folding or byte-for-byte Go ranking. Repeated f only
+focuses the existing Finder query. Return to browser or Ctrl/Cmd+Alt+F restores the
+saved tree, cursor, filter, range and file-list scroll while keeping marks changed
+in Finder, including files in collapsed folders. Alt+Left also returns from Finder;
+refresh/navigation first restores the saved browser before performing its normal
+operation. Finder entry is ignored while an ordinary directory listing is busy.
 A dot toggles hidden files in the active pane, I toggles ignored local files,
 and r refreshes the active browser. Enter/Right/L expands a directory, or moves to its first
 visible child when already expanded; on files it opens the preview. Left/H collapses
@@ -583,8 +591,9 @@ Browser context menus, session-only resizable panes, preview/focus/copy shortcut
 scrollable help and guarded native confirmation controls are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Finder fuzzy matching and
-return-state restoration, remote ignored visibility, keyboard reveal of offscreen
-form controls, form IME/paste hardening and character-precise diff selection remain.
+explicit return-state restoration are available. Remote ignored visibility, keyboard
+reveal of offscreen form controls, form IME/paste hardening and character-precise
+diff selection remain.
 Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

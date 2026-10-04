@@ -7,6 +7,7 @@ use gpui_kit::{
 #[derive(PartialEq, Eq)]
 struct HelpOwner {
     project: u64,
+    finder: bool,
     hosts: Option<EntityId>,
     certificate: Option<(u64, u64)>,
     projects: bool,
@@ -44,7 +45,11 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "f · r / F5 · Alt+← / → / ↑",
-                "Find project files · Refresh · Back / forward / parent",
+                "Fuzzy-find project files · Refresh · Back / forward / parent",
+            ),
+            (
+                "Ctrl/Cmd+Alt+F · Finder Return button",
+                "Restore the previous local browser view; keep changed marks",
             ),
             (
                 "Space · v · Shift+↑ / ↓ · Shift+V · *",
@@ -168,6 +173,11 @@ impl Shell {
     fn help_owner(&self, cx: &gpui_kit::App) -> HelpOwner {
         HelpOwner {
             project: self.browser.read(cx).id().project,
+            finder: self.browser.read(cx).finder_active()
+                && self.hosts.is_none()
+                && self.certificate.is_none()
+                && !self.projects.read(cx).visible()
+                && !self.comparison.read(cx).visible(),
             hosts: self.hosts.as_ref().map(Entity::entity_id),
             certificate: self.certificate.as_ref().map(|(p, c, _)| (*p, *c)),
             projects: self.projects.read(cx).visible(),

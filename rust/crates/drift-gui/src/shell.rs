@@ -963,6 +963,11 @@ impl Shell {
             .on_action(cx.listener(|this, _: &ShowHosts, w, cx| {
                 this.toolbar_event(&ToolbarEvent::Hosts, w, cx)
             }))
+            .on_action(cx.listener(|this, _: &ReturnFromFinder, w, cx| {
+                if this.browser.read(cx).finder_active() {
+                    this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::ReturnFinder), w, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &FindFiles, w, cx| {
                 this.toolbar_event(&ToolbarEvent::LocalBrowser, w, cx);
                 this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::Find), w, cx);
@@ -1027,6 +1032,8 @@ mod certificates;
 mod comparison;
 #[cfg(test)]
 mod comparison_tests;
+#[cfg(test)]
+mod finder_tests;
 #[cfg(test)]
 mod ftp_tests;
 #[cfg(test)]

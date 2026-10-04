@@ -195,7 +195,7 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
         assert!(!left.read(cx).filter.focus_handle(cx).is_focused(window));
         let right_id = right.read(cx).id();
         left.update(cx, |pane, cx| {
-            pane.command(BrowserCommand::Find, window, cx);
+            pane.command(BrowserCommand::Refresh, window, cx);
             let cancel = pane.listing_cancel.as_ref().unwrap().clone();
             let stale_id = pane.id();
             let location = pane.location().unwrap().clone();

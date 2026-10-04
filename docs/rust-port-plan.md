@@ -35,16 +35,21 @@ Native Dialogbuttons behalten Enter/Space; Escape/Reject beendet auch ausstehend
 Zertifikatsfreigaben ohne Retry und ohne Rücknahme bereits gespeicherten Vertrauens.
 Finder-Fuzzy-Suche und explizite Rückkehr zum gespeicherten Browserzustand sind ergänzt.
 Gemappte Remote-Ignored-Sichtbarkeit und Fokus-Reveal für gescrollte Host-/Mapping-
-Kontrollen sind ergänzt. Tools/Links/Projektformulare und Eingabegrenzen folgen.
+Kontrollen sind ergänzt. Tools/Links/Projektformulare haben begrenzte Details und
+Aktionen samt Fokus-Reveal und abgesichertem asynchronem Buttonfokus.
+Paste-/IME-Eingabegrenzen folgen.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-form-scroll-reveal`, aufgebaut auf
-  `feature/rust-remote-ignored` (Commit `70e3ab4`, einschließlich FTP-Fixture-Korrektur).
-- Implementierungsstand: Commit `2687a15`,
-  [Draft-PR #89](https://github.com/WariKoda/drift/pull/89) für Fokus-Reveal gescrollter
-  Host-/Mapping-Kontrollen. Er basiert auf [#88](https://github.com/WariKoda/drift/pull/88)
+- Aktueller Branch: `feature/rust-aux-form-scroll`, aufgebaut auf
+  `feature/rust-form-scroll-reveal` (Commit `2a40c22`, einschließlich weiterer
+  FTP-Fixture-Korrektur).
+- Implementierungsstand: Commit `86ae26c`,
+  [Draft-PR #90](https://github.com/WariKoda/drift/pull/90) für begrenzte Tools-/Links-/
+  Projektform-Details und sicheren asynchronen nativen Fokus. Er basiert auf
+  [#89](https://github.com/WariKoda/drift/pull/89) für Fokus-Reveal gescrollter
+  Host-/Mapping-Kontrollen (`2687a15`), dieser auf [#88](https://github.com/WariKoda/drift/pull/88)
   für gemappte Remote-Ignored-Sichtbarkeit (`68e6934`), dieser auf
   [#87](https://github.com/WariKoda/drift/pull/87) für
   Finder-Fuzzy-Suche und gespeicherten Browser-Rückweg (`2f99818`, Fixture-Fix `932917c`,
@@ -60,30 +65,33 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
   Die PRs sind offen und nicht in `main` integriert. Vor Integration die
-  gestapelte Kette #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- CI von #88 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
-  #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt APFS-unzulässiger
-  UTF-8-Testdateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
+  gestapelte Kette #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- CI von #89 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+  #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
+  nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
   #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
   überlappten mit asynchronem Shutdown. `70e3ab4` gibt allen vier überlappenden Pools
   Platz, ohne Produktions-Retries; 32 Scheduler-Seeds und Gesamtprüfung bestanden.
-  Frische CI von #89 bleibt separat zu prüfen. CI ist keine native Plattformabnahme.
+  Die App-Visibility-Fixture in #89 hatte dieselbe Peer-Cleanup-Grenze beim Wechsel vom
+  Rohclient zur Dienst-Sitzung: `2a40c22` erlaubt beide Vier-Socket-Pools (8), ohne
+  Sleep/Retry oder Produktionsänderung. Die korrigierte CI ist vollständig grün.
+  Frische CI von #90 bleibt separat zu prüfen. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
 | Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
 | --- | --- | --- |
-| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest, Trust-Reset und Fokus-Reveal im Host-/Mappingformular | Automatische Link-Angebote bei gleichen Endpunkten; Tools/Links/Projektform-Scroll/Input-Härtung |
-| Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Formular-Scroll/Input-Härtung |
+| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest, Trust-Reset und Fokus-Reveal sowie begrenzte Tools-/Links-/Projektform-Details/Aktionen | Automatische Link-Angebote bei gleichen Endpunkten; Paste-/IME-Härtung |
+| Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Paste-/IME-Härtung |
 | Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **242 Rust-Tests, davon 122 Headless-GPUI-Tests;
+Letzte lokale Gesamtprüfung: **257 Rust-Tests, davon 137 Headless-GPUI-Tests;
 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
 Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
-und CI von #89 bleiben separate Freigabeschritte.
+und CI von #90 bleiben separate Freigabeschritte.
 
 ### Implementiert und lokal geprüft
 
@@ -101,6 +109,21 @@ und CI von #89 bleiben separate Freigabeschritte.
   verbleibende lokale Eingabe, nach der letzten Löschung das Rootfeld; keine
   Tastaturfalle durch einen entfernten nativen Button. Entwürfe/Maskierung bleiben
   erhalten; Kontrollen/Mappings/Aktionen wrappen. Keine Präferenz-/Config-Änderung.
+- Tools-, Links- und Projektformular-Details/Aktionen haben begrenzte scrollbare
+  Bereiche und wrappende Inhalte/Kontrollen. Link-/Projektlisten behalten den
+  ursprünglichen ScrollHandle samt direkten Zeilenindizes; native Zeilenbuttons
+  revealen im selben Handle. Eingabe-Entities, Query, Cursor, Drafts und Stores
+  bleiben erhalten. Neue Lösch-/Promotion-Bestätigungen starten bei ihren
+  identifizierenden Details oben, ohne Listenscroll zurückzusetzen.
+  Deaktivierte native Tools-Buttons können aus dem Dispatchbaum fallen:
+  vor Arbeit übernimmt ein lebender temporärer Owner den Fokus. Erst ein
+  vollständig gerenderter neuer Baum darf den konkreten noch aktiven Control-
+  Handle wiederherstellen, mit Operation-/Fokus-/Abbruch-/Zertifikatsprüfung.
+  Enter auf diesem temporären Fallback-Owner bestätigt kein Zertifikatsreset,
+  auch nicht zwischen Backendabschluss und deferred Restore oder nach einem
+  entfernten/deaktivierten Ziel. Native affirmative Buttons und explizites `y`
+  bleiben erreichbar. Trust-Reload hält seine Details deaktiviert gemountet;
+  Fehler verwerfen den Snapshot. Zertifikatsroute und Retry-Regeln sind unverändert.
 - Remote-Ignored-Klassifikation in `drift-app` nach Mapping mit kanonischem
   Session-Root; Host-Mappings gehen Projekt-Fallbacks vor. Die vorhandene
   gebatchte Git-Policy berücksichtigt Remote-only-/negierte/getrackte Pfade und
@@ -345,6 +368,14 @@ und CI von #89 bleiben separate Freigabeschritte.
   Auth-/Protokoll-/Linkwechsel, Mausrad ohne Snap-back, verborgene Load-Abschlüsse,
   Shrink/Grow und alte Frame-Geometrie. Echte Stores bleiben unverändert;
   Eingabe-Entities, Maskierung, Entwürfe und letzter Löschfokus werden geprüft.
+  Weitere 15 Regressionen (7 echte FTPS-Tools-, 4 Link- und 4 Projekt-Tests) prüfen
+  kurze/schmale/inset Kontrollbounds, lange Details/Aktionen, Resize/Mausrad,
+  native Tab/Shift-Tab/Enter/Space, Busy-/Zertifikatsabbruch, unveränderte
+  Stores/Entities/Snapshots, Bestätigungs-Reopen und nativen Zeileneinstieg.
+  Entferntes Reload nach Maus-Test, deaktiviertes Reset nach leerem Reload und
+  mehrfaches Reload-Enter sind abgesichert. Ein echter Backendabschluss bei
+  ungemounteter Szene erzwingt Enter auf dem frischen Baum vor deferred Restore;
+  temporärer Owner und anschließendes `r` dürfen nicht zu Trust-Reset werden.
 
 ### Nächster Arbeitsblock: Formularlücken
 
@@ -355,10 +386,10 @@ Editor-Tasten. Listen-Paging und ein `q`-Alias sind keine fehlenden Go-Abläufe.
 Native Buttons bedienen bereits Protokoll/Auth und Mapping-CRUD; fehlende
 Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
-1. **Kurze Fenster und weitere Formulare:** Host-/Mapping-Fokus-Reveal ist umgesetzt.
-   Tools/Links/Projektformulare brauchen noch begrenzte scrollbare Details und
-   sichtbare/wrappende Aktionen samt Fokus-Reveal.
-   Sichtbarkeit prüfen, nicht nur FocusHandles; keine optische Neugestaltung.
+1. **Native Formularabnahme:** Host-/Mapping-Reveal und begrenzte Tools/Links/
+   Projektform-Details/Aktionen sind headless umgesetzt. Reale Wayland/X11/macOS-
+   Fenster, lange Inhalte und kleine Viewports bleiben praktisch abzunehmen;
+   Sichtbarkeit statt nur FocusHandles prüfen. Keine optische Neugestaltung.
 2. **Textfeldgrenzen härten:** echte Paste-/InputHandler-Tests für Tab/NUL und
    weitere Steuerzeichen; Formular-Escape darf nicht gleichzeitig IME-Komposition
    und den ganzen Dialog beenden. Native Wayland-/X11-/macOS-IME-Abnahme bleibt separat.
@@ -378,7 +409,7 @@ stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Browser-Bedienung | Tools/Links/Projektform-Scroll und Input-Härtung offen; Host-/Mapping-Fokus-Reveal, gemappte Remote-Ignored-Sichtbarkeit, Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
+| 1 | Browser-Bedienung | Paste-/IME-Härtung offen; Formular-Scroll/Fokus-Reveal, gemappte Remote-Ignored-Sichtbarkeit, Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
 | 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
 | 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
 | 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |

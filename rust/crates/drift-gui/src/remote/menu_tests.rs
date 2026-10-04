@@ -58,7 +58,7 @@ fn open(
                     });
                     pane.update(cx, |pane, cx| {
                         pane.set_context(7, vec![host], cx);
-                        pane.set_selection_location(location, cx);
+                        pane.set_selection_location(location, window, cx);
                         pane.set_comparison_ready(true, window, cx);
                     });
                     let subscription = cx.subscribe(&pane, |this, _, event, _| {
@@ -625,7 +625,7 @@ async fn mapping_revisions_reject_callbacks_even_when_the_target_remains_eligibl
         pane.update(cx, |pane, cx| {
             let mut changed = location.clone();
             changed.config.mappings[0].local = "next".into();
-            pane.set_selection_location(Some(changed), cx);
+            pane.set_selection_location(Some(changed), window, cx);
         });
         window.dispatch_event(
             gpui_kit::MouseDownEvent {
@@ -651,7 +651,7 @@ async fn mapping_revisions_reject_callbacks_even_when_the_target_remains_eligibl
             cx,
         );
         pane.update(cx, |pane, cx| {
-            pane.set_selection_location(Some(location.clone()), cx)
+            pane.set_selection_location(Some(location.clone()), window, cx)
         });
         window.right_click(0usize, cx);
         pane.update(cx, |pane, cx| {
@@ -662,9 +662,9 @@ async fn mapping_revisions_reject_callbacks_even_when_the_target_remains_eligibl
             assert!(pane.files.can_mark(&target));
             let mut changed = location.clone();
             changed.config.mappings[0].local = "next".into();
-            pane.set_selection_location(Some(changed), cx);
+            pane.set_selection_location(Some(changed), window, cx);
             assert!(pane.files.can_mark(&target));
-            pane.set_selection_location(Some(location.clone()), cx);
+            pane.set_selection_location(Some(location.clone()), window, cx);
             assert!(pane.files.can_mark(&target));
             assert!(!pane.menu_valid(&snapshot, cx));
             pane.menu_action(
@@ -679,6 +679,15 @@ async fn mapping_revisions_reject_callbacks_even_when_the_target_remains_eligibl
     })
     .unwrap();
     assert!(view.read_with(cx, |view, _| view.events.is_empty()));
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !pane.read(cx).is_loading()
+    })
+    .await;
+    assert!(view.read_with(cx, |view, _| {
+        view.events
+            .iter()
+            .all(|event| !event.starts_with("compare:") && !event.starts_with("preview:"))
+    }));
     cx.update_window(handle, |_, window, cx| {
         window.right_click(0usize, cx);
         click_menu(window, "Compare this folder", cx);

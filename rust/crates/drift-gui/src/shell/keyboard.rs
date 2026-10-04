@@ -57,7 +57,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "Esc · . · Shift+I",
-                "Cancel range, clear filter or marks · Hidden · Ignored local paths",
+                "Cancel range, clear filter or marks · Hidden · Ignored local/mapped remote paths",
             ),
             (
                 "Ctrl+Esc",

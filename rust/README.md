@@ -399,7 +399,15 @@ viewport on Tab/Shift+Tab or viewport resize. Ordinary typing/redraws and wheel
 scrolling do not snap the view back. Mappings and actions wrap; removing a mapping
 focuses the related remaining local input, or Root path after the last removal.
 Draft/input entities and masked secrets remain unchanged. Letters in filters and
-form fields remain ordinary text; search shortcuts do not move focus out of an active form. Validation/conflict errors keep
+form fields remain ordinary text; search shortcuts do not move focus out of an active form. Tools, link-picker auxiliary
+controls/confirmations and project edit/delete details have bounded scroll viewports
+and wrapping controls. The link/project list keeps its own scroll/cursor identity;
+native row buttons reveal within that list. New deletion/promotion confirmations
+start at the identifying details without resetting list scroll. Native Tools focus
+falls back temporarily during async work and is restored only to a still mounted,
+enabled control in the completed new frame. Enter on that temporary owner is not
+implicit trust approval; explicit `y` and affirmative controls remain available.
+Validation/conflict errors keep
 the form or confirmation open.
 
 **Test** in the host list or **Test connection** in a form resolves fresh defaults
@@ -560,6 +568,11 @@ conflicts. Host-form scroll tests assert actual visible control bounds in short,
 narrow and inset windows, forward/reverse native Tab, additions/removals and
 protocol/auth/link changes. They preserve draft entities/masking, test resize and
 stale frames, hidden async completion and wheel scrolling without snap-back.
+Fifteen additional Tools/Links/Projects regressions use real stores/FTPS to check
+bounded details/actions, native labelled controls, preserved list/input identities,
+confirmation reopening, resize/wheel behavior and cancellation/certificate guards.
+Focus tests reject removed/disabled targets and prevent temporary container Enter
+from resetting trust before deferred restoration; native Reload Enter remains Reload.
 Numeric shortcut tests cover all nine rows, filtering, archive visibility
 and text input. Shell tests open projects through keyboard events and the CLI start result.
 CLI tests execute the actual binary without display access to check help, version,
@@ -615,9 +628,9 @@ scrollable help and guarded native confirmation controls are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Finder fuzzy matching and
 explicit return-state restoration and mapped remote ignored visibility are available.
-Host/mapping controls have external-scroll focus reveal. Bounded Tools/Links/
-project-form details/actions, form IME/paste hardening and character-precise diff
-selection remain.
+Host/mapping controls have external-scroll focus reveal; Tools/Links/project-form
+details/actions are bounded and wrapping. Form IME/paste hardening and character-
+precise diff selection remain.
 Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

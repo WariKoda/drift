@@ -37,15 +37,19 @@ Finder-Fuzzy-Suche und explizite Rückkehr zum gespeicherten Browserzustand sind
 Gemappte Remote-Ignored-Sichtbarkeit und Fokus-Reveal für gescrollte Host-/Mapping-
 Kontrollen sind ergänzt. Tools/Links/Projektformulare haben begrenzte Details und
 Aktionen samt Fokus-Reveal und abgesichertem asynchronem Buttonfokus.
-Paste-/IME-Eingabegrenzen folgen.
+Einzeilige Eingabegrenzen für Paste, native Text-/IME-Callbacks und Accessibility
+sind ergänzt; gespeicherte problematische Formularwerte werden vor nativer
+Normalisierung abgewiesen.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-aux-form-scroll`, aufgebaut auf
-  `feature/rust-form-scroll-reveal` (Commit `2a40c22`, einschließlich weiterer
-  FTP-Fixture-Korrektur).
-- Implementierungsstand: Commit `86ae26c`,
+- Aktueller Branch: `fix/rust-form-input-boundaries`, aufgebaut auf
+  `feature/rust-aux-form-scroll` (Commit `d1b4e30`).
+- Implementierungsstand: Commit `4fe98de`,
+  [Draft-PR #91](https://github.com/WariKoda/drift/pull/91) für Raw-Paste-/InputHandler-/
+  Accessibility-Grenzen, IME-/Bestätigungsisolation und blockierte problematische
+  gespeicherte Formularwerte. Er basiert auf Commit `86ae26c`,
   [Draft-PR #90](https://github.com/WariKoda/drift/pull/90) für begrenzte Tools-/Links-/
   Projektform-Details und sicheren asynchronen nativen Fokus. Er basiert auf
   [#89](https://github.com/WariKoda/drift/pull/89) für Fokus-Reveal gescrollter
@@ -65,8 +69,8 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
   Die PRs sind offen und nicht in `main` integriert. Vor Integration die
-  gestapelte Kette #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- CI von #89 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+  gestapelte Kette #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- CI von #90 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
   #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
@@ -75,28 +79,65 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Die App-Visibility-Fixture in #89 hatte dieselbe Peer-Cleanup-Grenze beim Wechsel vom
   Rohclient zur Dienst-Sitzung: `2a40c22` erlaubt beide Vier-Socket-Pools (8), ohne
   Sleep/Retry oder Produktionsänderung. Die korrigierte CI ist vollständig grün.
-  Frische CI von #90 bleibt separat zu prüfen. CI ist keine native Plattformabnahme.
+  Auch die frischen Go-/Linux-/macOS-Läufe von #90 sind bestanden
+  (`37205728099`, `37205731151`). Frische CI von #91 bleibt separat zu prüfen.
+  CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
 | Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
 | --- | --- | --- |
-| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest, Trust-Reset und Fokus-Reveal sowie begrenzte Tools-/Links-/Projektform-Details/Aktionen | Automatische Link-Angebote bei gleichen Endpunkten; Paste-/IME-Härtung |
-| Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Paste-/IME-Härtung |
+| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest, Trust-Reset und Fokus-Reveal, begrenzte Details/Aktionen und einzeilige Eingabe-/IME-Grenzen | Automatische Link-Angebote bei gleichen Endpunkten; native Eingabeabnahme |
+| Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe, Filter-Rückwege und Eingabegrenzen | Native Eingabeabnahme |
 | Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **257 Rust-Tests, davon 137 Headless-GPUI-Tests;
-0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
-Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
-und CI von #90 bleiben separate Freigabeschritte.
+Letzte lokale Gesamtprüfung: **295 Rust-Tests, davon 175 Headless-GPUI-Tests
+(GUI-Binärsuite 185); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
+Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
+Prüfartefakte: `/var/tmp/drift-input-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
+fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. Native Plattformabnahme
+und frische CI von #91 bleiben separate Freigabeschritte.
 
 ### Implementiert und lokal geprüft
 
 - Eigenständige Rust-App neben der Go-TUI; gemeinsame TOML-Dateien und permanente
   `write.lock`, mit getrennten Rohwerten und aufgelöster Konfiguration.
+- `form_input.rs` schützt alle nativen einzeiligen Formularfelder und Filter, ohne
+  ihre `InputState`-Entities, Editoren oder Historie zu ersetzen. Ganze Einfügungen
+  mit `char::is_control()` (C0/C1/DEL, darunter Tab/NUL/CR/LF) oder U+2028/U+2029
+  werden vor nativer Normalisierung abgewiesen. Unicode, kombinierende Zeichen,
+  Emoji und Leerzeichen bleiben exakt; vorhandene fachliche Feldprüfung gilt weiter.
+  Ablehnung verändert weder Wert, Auswahl, Komposition, Fokus, Scroll noch Undo.
+  Statische Warnungen geben keine Zwischenablageinhalte oder Secrets wieder.
+- Native UTF-16-Abfragen, Konfiguration und Geometrie werden delegiert. Paste liest
+  den echten unveränderlichen Clipboard-Item; die asynchrone SDK-Fallback-Abfrage
+  verlangt weiterhin Dokument/Auswahl/Markierung/Fokus/Editierbarkeit plus Revision
+  und Request-Serial. Edit+Undo sowie Blur+Rückkehr machen alte Ergebnisse ungültig.
+  Die Zwischenablage wird nicht umgeschrieben. Native OS-/Permission-Abnahme bleibt offen.
+- Native Accessibility-`SetValue` umgeht im SDK den InputHandler und normalisiert
+  selbst. Deshalb ersetzt ein geschützter zugänglicher TextInput-Knoten den
+  exponierten nativen Knoten, mit tatsächlichen Kontrollgrenzen, Maskierungsprivacy
+  und ohne weitere Tab-Stopps. Unexponierte SDK-Callback-IDs existieren weiterhin;
+  Headless-Metadatentests ersetzen keine reale Accessibility-Abnahme.
+- Escape/Enter bei fokussierter nativer Komposition beendet nur deren Markierung
+  und behält das Preedit samt nativer Historie; es ist kein Rollback. Erst die
+  folgende Taste folgt der Bildschirmroute. Resize/Popup/Hilfe bleiben vorrangig.
+  Save/Test/Registrierung prüfen auch unsichtbare oder unscharfe komponierende Felder.
+  Modifizierte Sync-Bestätigung darf einen komponierenden fokussierten Filter nicht
+  übergehen; absichtlich fokussierte native Bestätigung bleibt eine explizite Aktion.
+- Eine boundary-eigene, über Repaint erhaltene Einmal-Grenze weist passende leere
+  IME-Folgecallbacks über der unveränderten Markierung ab, ob explizite/implizite
+  Löschung, leeres Preedit oder Unmark. Gültige Bearbeitung/Auswahl, Paste, Blur und
+  echte native Change-Ereignisse lösen sie. Öffentliche SDK-Callbacks haben keine
+  Transaktions-ID: eine ununterscheidbare sofortige Löschung/Abbruch wird ebenfalls
+  einmal unterdrückt; Escape oder die nächste native Aktion bleibt möglich.
+- Gespeicherte Host-/Projekt-/Link-Werte mit verbotenen Zeichen verhindern das
+  Formularöffnen bereits vor nativer Initialisierung. Reparatur geschieht außerhalb
+  dieses GUI-Formulars, ohne automatische Konfigurations-/Secret-Umschreibung.
 - Host-/Mapping-Kontrollen werden beim Tab-/Shift-Tab-Fokus im tatsächlich
   gemessenen äußeren Scrollbereich sichtbar. `focus_reveal.rs` arbeitet mit
   formular-eigenem ScrollHandle und nicht tabbbaren Kontroll-Scopes; native
@@ -376,8 +417,16 @@ und CI von #90 bleiben separate Freigabeschritte.
   mehrfaches Reload-Enter sind abgesichert. Ein echter Backendabschluss bei
   ungemounteter Szene erzwingt Enter auf dem frischen Baum vor deferred Restore;
   temporärer Owner und anschließendes `r` dürfen nicht zu Trust-Reset werden.
+  38 zusätzliche Eingabe-Regressionen (26 produktive Adapter-/Accessibility-Tests,
+  10 echte Store-/Formular-Tests und 2 Shell-/SFTP-Tests) prüfen Raw-Control-Ablehnung
+  vor Normalisierung, exaktes Unicode/UTF-16/Undo, Auswahl/Komposition/Fokus/Scroll,
+  Readonly und stale Kontext/Clipboard-Ziele. Sie prüfen nativen Paste/Tab/Shift-Tab,
+  Escape/Enter, leere IME-Folgecallbacks über Repaint, blockiertes Save/Test/Registrieren,
+  problematische gespeicherte Werte ohne Umschreibung, Resize-Escape-Priorität und
+  Sync-Bestätigung erst nach Kompositionsende oder explizitem nativen Buttonfokus.
+  Diese Tests sind keine OS-IME-/Accessibility-/Permission-Clipboard-Abnahme.
 
-### Nächster Arbeitsblock: Formularlücken
+### Native Abnahme und nächster Codeblock
 
 Der Go-/Rust-Keymap-Abgleich ist erfolgt. Vergleichs-/Diff-Navigation, Faltung,
 Hunks und bestätigte Transfers sind bereits erreichbar. Browser-Tab bleibt
@@ -390,33 +439,36 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    Projektform-Details/Aktionen sind headless umgesetzt. Reale Wayland/X11/macOS-
    Fenster, lange Inhalte und kleine Viewports bleiben praktisch abzunehmen;
    Sichtbarkeit statt nur FocusHandles prüfen. Keine optische Neugestaltung.
-2. **Textfeldgrenzen härten:** echte Paste-/InputHandler-Tests für Tab/NUL und
-   weitere Steuerzeichen; Formular-Escape darf nicht gleichzeitig IME-Komposition
-   und den ganzen Dialog beenden. Native Wayland-/X11-/macOS-IME-Abnahme bleibt separat.
-3. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
+2. **Native Eingabeabnahme:** Whole-insertion-Ablehnung und IME-Escape/Enter sind
+   headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
+   Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
+   Einfügungen bleiben praktisch zu prüfen. Keine Secret-/Pfadbereinigung.
+3. **Nächster begrenzter Codeblock:** zeichengenaue Diff-Textauswahl über
+   Zeilengrenzen, ohne Verlust von Folds, Scroll und Auswahl bei Resize/Refresh.
+4. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
    Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
-4. Pane-/Fensterpersistenz bleibt im späteren `gui.toml`-Block, nicht in Go-Konfiguration.
+5. Pane-/Fensterpersistenz bleibt im späteren `gui.toml`-Block, nicht in Go-Konfiguration.
    Native Plattformabnahme und die optische Überarbeitung bleiben offen.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
-**8 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
-Browser-Kontextmenüs, veränderbare Bereiche, der konkrete Keyboard-/Dialog-Sicherheitsschritt
-und Finder-Fuzzy/Rückweg sowie Remote-Ignored-Sichtbarkeit sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
+**7 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
+Browser-Kontextmenüs, veränderbare Bereiche, Keyboard-/Dialog-Sicherheit,
+Finder-Fuzzy/Rückweg, Remote-Ignored-Sichtbarkeit sowie Formular-Scroll und
+Eingabegrenzen sind headless umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
 sind keine gleich großen Zeiteinheiten. Bereits implementierte Kernabläufe
 stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Browser-Bedienung | Paste-/IME-Härtung offen; Formular-Scroll/Fokus-Reveal, gemappte Remote-Ignored-Sichtbarkeit, Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
-| 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
-| 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
-| 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
-| 5 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
-| 6 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
-| 7 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, OS-Clipboard und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |
-| 8 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
+| 1 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
+| 2 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
+| 3 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
+| 4 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
+| 5 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
+| 6 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |
+| 7 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
 
 ### Orientierung und Prüfbefehle
 
@@ -424,7 +476,9 @@ Die zuständigen Module sind bereits aufgeteilt: `projects.rs` mit
 `projects/form.rs` und `projects/management.rs`; `shell/projects.rs` für Start
 und aktiven Root; `hosts/form.rs`, `hosts/tools.rs`, `hosts/links.rs` und
 `hosts/linking.rs`; `comparison.rs`, `comparison/view.rs`, `comparison/sync.rs`
-sowie `diff.rs`. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
+sowie `diff.rs`. `form_input.rs` samt `form_input/handler.rs`,
+`form_input/accessibility.rs` und `form_input/ime_rejection.rs` hält die
+Eingabegrenze bei unveränderten nativen Entities. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
 `browser_menu.rs`; `shell/comparison.rs` koordiniert ihren Vergleichsscope.
 `pane_split.rs` hält ausschließlich GUI-Layout-/Gestenzustand; Shell und
 ComparisonPane routen seine Keyboard-/Escape-Aktionen. `shell/keyboard.rs` hält

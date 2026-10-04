@@ -215,8 +215,15 @@ saved tree, cursor, filter, range and file-list scroll while keeping marks chang
 in Finder, including files in collapsed folders. Alt+Left also returns from Finder;
 refresh/navigation first restores the saved browser before performing its normal
 operation. Finder entry is ignored while an ordinary directory listing is busy.
-A dot toggles hidden files in the active pane, I toggles ignored local files,
-and r refreshes the active browser. Enter/Right/L expands a directory, or moves to its first
+A dot toggles hidden files in the active pane, I toggles ignored files there,
+and r refreshes the active browser. Remote Show ignored uses the current project's
+Git policy after host/project path mapping, including remote-only paths. It is a
+cached visibility toggle, not a transfer or comparison-scope option. Hidden ignored
+marks survive; unmapped paths remain browsable but unmarkable. Raw and mapped hard
+exclusions remain excluded even when Show ignored is on. Classification runs in
+background work; loading disables marking/comparison and remote visibility toggles.
+Git/mapping errors remain visible without closing the connection; Refresh reclassifies.
+Cancelling a replaced local classification does not disconnect or retry remote work. Enter/Right/L expands a directory, or moves to its first
 visible child when already expanded; on files it opens the preview. Left/H collapses
 the directory or its parent, preserving descendant marks. Alt+Enter enters the
 selected directory as the new browser root. Backspace/Alt+Up goes up, and
@@ -499,6 +506,13 @@ Tree tests cover delayed local/SFTP loading, nested collapse, hidden and ignored
 visibility, remembered expansion, vanished directories, discarded completions,
 project switches and comparison/sync scope with marked collapsed children. The
 FTP/FTPS shell tests also expand, mark and collapse real remote directories.
+Mapped remote visibility tests cover remote-only/negated/tracked ignored paths,
+host-over-project mappings, off-tree directory marks, hard-excluded restoration,
+external root prefixes, stale classifier results, cancellation and real Git errors.
+Cached native button/menu/keyboard toggles preserve the session and issue no FTP
+commands; input/help/popup guards prevent letter commands and implicit transfers.
+Finder failure fixtures corrupt a real Git index after opening the browser, so
+failure restoration and focus guards also run on macOS filesystems.
 FTP tests start a filesystem-backed local daemon from `../testdata/ftp-server/`
 and cover login limits, EPSV/MLST fallback, ambiguous permission failures, busy
 keep-alive, completion errors after EOF, staged upload/download/delete, abort and
@@ -591,9 +605,9 @@ Browser context menus, session-only resizable panes, preview/focus/copy shortcut
 scrollable help and guarded native confirmation controls are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Finder fuzzy matching and
-explicit return-state restoration are available. Remote ignored visibility, keyboard
-reveal of offscreen form controls, form IME/paste hardening and character-precise
-diff selection remain.
+explicit return-state restoration and mapped remote ignored visibility are available.
+Keyboard reveal of offscreen form controls, form IME/paste hardening and
+character-precise diff selection remain.
 Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

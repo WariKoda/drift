@@ -18,7 +18,7 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **3. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
+Stand: **4. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
 aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
 Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
@@ -34,16 +34,18 @@ Vorschau-Toggle/-Fokus/-Kopie, Shortcut-Hilfe und Filter-Rückwege sind ergänzt
 Native Dialogbuttons behalten Enter/Space; Escape/Reject beendet auch ausstehende
 Zertifikatsfreigaben ohne Retry und ohne Rücknahme bereits gespeicherten Vertrauens.
 Finder-Fuzzy-Suche und explizite Rückkehr zum gespeicherten Browserzustand sind ergänzt.
-Als Nächstes folgen Remote-Ignored-Sichtbarkeit und die erfassten Formularlücken.
+Gemappte Remote-Ignored-Sichtbarkeit ist ergänzt; die erfassten Formularlücken folgen.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-finder-parity`, aufgebaut auf
-  `feature/rust-keyboard-parity` (Commit `aa88f57`, einschließlich nativer Testtasten).
-- Implementierungsstand: Commit `2f99818`,
-  [Draft-PR #87](https://github.com/WariKoda/drift/pull/87) für Finder-Fuzzy-Suche und
-  gespeicherten Browser-Rückweg. Er basiert auf
+- Aktueller Branch: `feature/rust-remote-ignored`, aufgebaut auf
+  `feature/rust-finder-parity` (Commit `932917c`, einschließlich portabler Fehler-Fixtures).
+- Implementierungsstand: Commit `68e6934`,
+  [Draft-PR #88](https://github.com/WariKoda/drift/pull/88) für gemappte Remote-Ignored-
+  Sichtbarkeit. Er basiert auf [#87](https://github.com/WariKoda/drift/pull/87) für
+  Finder-Fuzzy-Suche und gespeicherten Browser-Rückweg (`2f99818`, Fixture-Fix `932917c`),
+  dieser auf
   [#86](https://github.com/WariKoda/drift/pull/86) für Vorschau/Hilfe und sichere
   Tastatur-/Dialog-Routen, dieser auf
   [#85](https://github.com/WariKoda/drift/pull/85) für veränderbare Bereiche,
@@ -54,31 +56,48 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
   Die PRs sind offen und nicht in `main` integriert. Vor Integration die
-  gestapelte Kette #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+  gestapelte Kette #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
 - CI von #86, #85, #84, #83, #82, #81 und #80 ist vollständig bestanden, jeweils Go
-  sowie Rust Linux/macOS. #87 ist neu eröffnet; seine CI-Ergebnisse sind separat
-  zu prüfen. CI ist keine native Plattformabnahme.
+  sowie Rust Linux/macOS. #87 bestand Linux/Go; macOS verweigerte die ungültigen
+  UTF-8-Testdateinamen (APFS/EILSEQ). `932917c` ersetzt alle drei Fixtures durch echte
+  Git-Index-Fehler, ohne Tests zu überspringen. Frische Rust-CI von #87 sowie CI von
+  #88 sind separat zu prüfen. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
 | Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
 | --- | --- | --- |
 | Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest und Trust-Reset | Automatische Link-Angebote bei gleichen Endpunkten |
-| Browser | Lokale/entfernte Navigation, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Remote-Ignored und Formular-Scroll/Input-Härtung |
+| Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Formular-Scroll/Input-Härtung |
 | Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **222 Rust-Tests, davon 107 Headless-GPUI-Tests;
+Letzte lokale Gesamtprüfung: **235 Rust-Tests, davon 116 Headless-GPUI-Tests;
 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
 Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
-und CI von #87 bleiben separate Freigabeschritte.
+und CI von #87/#88 bleiben separate Freigabeschritte.
 
 ### Implementiert und lokal geprüft
 
 - Eigenständige Rust-App neben der Go-TUI; gemeinsame TOML-Dateien und permanente
   `write.lock`, mit getrennten Rohwerten und aufgelöster Konfiguration.
+- Remote-Ignored-Klassifikation in `drift-app` nach Mapping mit kanonischem
+  Session-Root; Host-Mappings gehen Projekt-Fallbacks vor. Die vorhandene
+  gebatchte Git-Policy berücksichtigt Remote-only-/negierte/getrackte Pfade und
+  Verzeichnismetadaten, ohne GUI-seitige Mapping-/Gitignore-Schleifen.
+  Show-ignored-Button, Shift-I und angehaktes Kontextmenü ändern nur den gecachten
+  Browser, nicht Vergleichsscope oder Transferbestätigung. Filter, History,
+  Verbindung und verborgene Marks bleiben erhalten; ungemappte Pfade bleiben
+  browsbar, aber nicht markierbar. Rohe/gemappte Hard-Exclusions bleiben ausgeschlossen,
+  auch bei Off-tree-Verzeichnismarks und Baumwiederherstellung; äußere Komponenten
+  des Host-Roots erzeugen keine falschen Exclusions. Revisions-/Projekt-/Operations-/
+  Verbindungsprüfungen verwerfen alte Abschlüsse. Klassifikation sperrt veraltete
+  Zeilenaktionen/Markierungen/Sichtbarkeitstoggles; Fehler bleiben sichtbar,
+  ohne Session-Abbau. Lokaler Klassifikationsabbruch schließt keine Session.
+  Unveränderte Auswahl erzeugt keine zusätzlichen Selection-Events, sodass
+  bestätigte FTPS-Sync-Berichte nach Reconnect erhalten bleiben.
 - Finder-spezifisches, deterministisches Unicode-Lowercase-Subsequenz-Matching in
   `drift-app`; zusammenhängende Treffer, Wort-/Pfad-/Camel-Grenzen und frühe/kurze
   Treffer werden bevorzugt, gleichwertige Treffer behalten ihre Reihenfolge.
@@ -292,10 +311,16 @@ und CI von #87 bleiben separate Freigabeschritte.
   Cursor/History/Root/Range und exakten Scrollzustand, live hinzugefügte/entfernte
   Marks, Busy/Abbruch, queued Index-Abschlüsse, Refresh/Rootwechsel/Invalidierung,
   native Tab-/Enter-/Space-Aktionen, schmale Bereiche und Resize-/Menü-/Hilfesicherheit.
-  Echte nicht darstellbare Dateinamen prüfen Fehler vor sichtbaren Hosts/Hilfe ohne
-  versteckten Browserfokus oder Rückkehr zu entfernten Buttons. Kein impliziter Transfer.
+  Echte beschädigte Git-Indizes prüfen Fehler vor sichtbaren Hosts/Hilfe ohne
+  versteckten Browserfokus oder Rückkehr zu entfernten Buttons, auch unter macOS.
+  Kein impliziter Transfer.
+  13 Remote-Ignored-Regressionen (4 App, 9 Headless-GPUI) prüfen Mapping-Priorität,
+  Remote-only-/negierte/getrackte Pfade, gecachte FTP-Toggles ohne Netzwerk-I/O,
+  native Buttons/Menüs/Tastatur, Filter-/Hilfe-/Popup-Sperren, stale Identitäten,
+  Abbruch und Git-Fehler/Refresh. Reale SFTP-/FTP-Verbindungen, Off-tree-Metadaten,
+  Hard-Exclusions bei Restore und äußere Rootnamen prüfen Policy und Session-Erhalt.
 
-### Nächster Arbeitsblock: Remote-Ignored-/Formularlücken
+### Nächster Arbeitsblock: Formularlücken
 
 Der Go-/Rust-Keymap-Abgleich ist erfolgt. Vergleichs-/Diff-Navigation, Faltung,
 Hunks und bestätigte Transfers sind bereits erreichbar. Browser-Tab bleibt
@@ -304,33 +329,30 @@ Editor-Tasten. Listen-Paging und ein `q`-Alias sind keine fehlenden Go-Abläufe.
 Native Buttons bedienen bereits Protokoll/Auth und Mapping-CRUD; fehlende
 Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
-1. **Remote-Ignored-Sichtbarkeit:** entfernte Pfade vor der Klassifikation lokal
-   mappen; derzeit wirkt die Ignore-Sichtbarkeit nur lokal. Keine GUI-seitigen
-   Mapping-/Gitignore-Schleifen oder ungemappten Löschkandidaten hinzufügen.
-2. **Kurze Fenster und Formulare:** Tab-fokussierte, außen gescrollte Hostfelder/
+1. **Kurze Fenster und Formulare:** Tab-fokussierte, außen gescrollte Hostfelder/
    Mapping-Zeilen tatsächlich ins Blickfeld bringen. Tools/Links/Projektformulare
    brauchen begrenzte scrollbare Details und sichtbare/wrappende Aktionen.
    Sichtbarkeit prüfen, nicht nur FocusHandles; keine optische Neugestaltung.
-3. **Textfeldgrenzen härten:** echte Paste-/InputHandler-Tests für Tab/NUL und
+2. **Textfeldgrenzen härten:** echte Paste-/InputHandler-Tests für Tab/NUL und
    weitere Steuerzeichen; Formular-Escape darf nicht gleichzeitig IME-Komposition
    und den ganzen Dialog beenden. Native Wayland-/X11-/macOS-IME-Abnahme bleibt separat.
-4. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
+3. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
    Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
-5. Pane-/Fensterpersistenz bleibt im späteren `gui.toml`-Block, nicht in Go-Konfiguration.
+4. Pane-/Fensterpersistenz bleibt im späteren `gui.toml`-Block, nicht in Go-Konfiguration.
    Native Plattformabnahme und die optische Überarbeitung bleiben offen.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
 **8 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
 Browser-Kontextmenüs, veränderbare Bereiche, der konkrete Keyboard-/Dialog-Sicherheitsschritt
-und Finder-Fuzzy/Rückweg sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
+und Finder-Fuzzy/Rückweg sowie Remote-Ignored-Sichtbarkeit sind umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
 sind keine gleich großen Zeiteinheiten. Bereits implementierte Kernabläufe
 stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Browser-Bedienung | Remote-Ignored-Sichtbarkeit und Formular-Scroll/Input-Härtung offen; Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
+| 1 | Browser-Bedienung | Formular-Scroll/Input-Härtung offen; gemappte Remote-Ignored-Sichtbarkeit, Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
 | 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
 | 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
 | 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
@@ -349,7 +371,9 @@ sowie `diff.rs`. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
 `browser_menu.rs`; `shell/comparison.rs` koordiniert ihren Vergleichsscope.
 `pane_split.rs` hält ausschließlich GUI-Layout-/Gestenzustand; Shell und
 ComparisonPane routen seine Keyboard-/Escape-Aktionen. `shell/keyboard.rs` hält
-Vorschau-Routing und Shortcut-Hilfe; `browser/finder.rs` hält den gespeicherten
+Vorschau-Routing und Shortcut-Hilfe. `remote/visibility.rs` hält Klassifikations-
+Identitäten und gecachte Sichtbarkeit, `drift-app/src/remote.rs::classify_entries`
+die Mapping-/Git-Policy. `browser/finder.rs` hält den gespeicherten
 Browser-Rückweg, `drift-app/src/finder.rs` das reine Ranking. `DefaultConfirm` in Verwaltungsdialogen schützt
 native Enter/Space-Aktionen. `Ctrl+Escape` ist die explizite Work-Abbruchroute aus Filtern.
 Abläufe liegen in `drift-app`, Persistenz/Policies in `drift-core`.

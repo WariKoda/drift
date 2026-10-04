@@ -1,4 +1,5 @@
 use super::*;
+mod input;
 use crate::{actions::bind_keys, sftp_test_support as support};
 use gpui_kit::base::test_support::snapshots;
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};

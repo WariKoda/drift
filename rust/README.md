@@ -573,6 +573,13 @@ bounded details/actions, native labelled controls, preserved list/input identiti
 confirmation reopening, resize/wheel behavior and cancellation/certificate guards.
 Focus tests reject removed/disabled targets and prevent temporary container Enter
 from resetting trust before deferred restoration; native Reload Enter remains Reload.
+Input-boundary tests exercise actual clipboard actions and the production native
+InputHandler adapter, including raw controls before normalization, UTF-16 ranges,
+Unicode, selection/composition/undo, readonly/stale inputs, accessibility metadata,
+native Tab/Shift-Tab and rejected IME cleanup across adapter repaint. Real stores
+verify blocked save/test/registration and rejected stored values without rewriting
+secrets or paths. These tests do not establish OS IME/accessibility integration or
+permission-gated clipboard completion on native platforms.
 Numeric shortcut tests cover all nine rows, filtering, archive visibility
 and text input. Shell tests open projects through keyboard events and the CLI start result.
 CLI tests execute the actual binary without display access to check help, version,
@@ -616,6 +623,28 @@ browser and comparison panes while loading/syncing, test Escape and menus during
 resizing, shrink/grow a client-decorated window, use preview focus/copy and F1 help,
 activate Cancel/Back through native Tab/Enter, close the picker, and close the window. Headless tests cannot establish native rendering or OS clipboard behavior.
 
+## Single-line input boundaries
+
+Form fields and filters reject the **entire insertion** if it contains C0/C1
+controls (including Tab, NUL, CR/LF and DEL) or U+2028/U+2029 line separators.
+Clipboard, native text/IME and exposed accessibility entry are checked before
+native single-line normalization. Existing text, selection, composition and undo
+remain unchanged on rejection; warnings never echo the rejected contents.
+Unicode and spaces pass through unchanged; ordinary field-specific validation
+still applies. Passwords and paths are not silently cleaned.
+
+With native composition marked, Escape or Enter ends only that composition,
+keeping its current preedit text as the native SDK does. Subsequent keys follow
+the normal screen route. Resize, popup and help ownership still takes priority.
+Saving, registration and draft connection tests refuse unfinished composition,
+including blurred mapping fields. A focused comparison filter cannot confirm
+sync while composing; confirm again after ending composition or deliberately
+focus its native confirmation button. Native labelled buttons keep their actions.
+
+Stored host/project values containing these characters block opening the form
+before native normalization. Repair them outside this GUI form; drift does not
+rewrite the configuration or secrets automatically.
+
 ## Remaining port work
 
 Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
@@ -629,8 +658,9 @@ SFTP transport/browser and comparison/unified diff are available, including seri
 workflows, including FTPS and certificate challenges. Finder fuzzy matching and
 explicit return-state restoration and mapped remote ignored visibility are available.
 Host/mapping controls have external-scroll focus reveal; Tools/Links/project-form
-details/actions are bounded and wrapping. Form IME/paste hardening and character-
-precise diff selection remain.
+details/actions are bounded and wrapping. Single-line input boundaries reject
+whole unsafe insertions and isolate IME Escape/Enter; native platform acceptance
+and character-precise diff selection remain.
 Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

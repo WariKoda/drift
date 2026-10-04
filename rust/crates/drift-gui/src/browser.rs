@@ -16,7 +16,7 @@ use gpui_kit::TestSupportExt;
 use gpui_kit::base::ElementExt;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::button::Button;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
     App, AppContext, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
@@ -757,11 +757,13 @@ impl BrowserPane {
             .gap_3()
             .p_3()
             .child(
-                Input::new(&self.filter)
-                    .id("filter")
+                div()
                     .w(px(300.))
                     .min_w_0()
-                    .flex_shrink_1(),
+                    .flex_shrink_1()
+                    .child(crate::form_input::guard(&self.filter, |input| {
+                        input.id("filter").w_full().min_w_0().flex_shrink_1()
+                    })),
             )
             .child(div().flex_1().min_w_0().truncate().child(path))
             .into_any_element()

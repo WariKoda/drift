@@ -31,6 +31,20 @@ impl HostManager {
                         } => {
                             this.links = None;
                             this.link_subscription = None;
+                            if let Err(error) = form_input::validate_values([
+                                server.as_str(),
+                                name.as_str(),
+                                root.as_str(),
+                            ]) {
+                                this.pending_status = Some(error.into());
+                                this.changed = true;
+                                this.request(HostCommand::Load, window, cx);
+                                if let Some(focus) = focus {
+                                    focus.focus(window, cx);
+                                }
+                                cx.notify();
+                                return;
+                            }
                             if let Some(form) = &mut this.form {
                                 form.server = server.clone();
                                 if let Some(focus) = focus {
@@ -47,7 +61,7 @@ impl HostManager {
                                     candidate = format!("{name}-{suffix}");
                                     suffix += 1;
                                 }
-                                this.form = Some(HostForm::new(
+                                match HostForm::new(
                                     Host {
                                         name: candidate,
                                         server: server.clone(),
@@ -57,7 +71,19 @@ impl HostManager {
                                     None,
                                     window,
                                     cx,
-                                ));
+                                ) {
+                                    Ok(form) => this.form = Some(form),
+                                    Err(error) => {
+                                        this.pending_status = Some(error.into());
+                                        this.changed = true;
+                                        this.request(HostCommand::Load, window, cx);
+                                        if let Some(focus) = focus {
+                                            focus.focus(window, cx);
+                                        }
+                                        cx.notify();
+                                        return;
+                                    }
+                                }
                             }
                             this.pending_status = Some(warning.clone().unwrap_or_else(|| {
                                 format!("Server {server:?} selected. Save host to store the link.")

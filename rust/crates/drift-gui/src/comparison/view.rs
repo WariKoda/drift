@@ -216,7 +216,7 @@ impl Render for ComparisonPane {
                                     .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
                                         this.focus.focus(w, cx);
                                     }))
-                                    .child(Input::new(&self.filter).id("comparison-filter")),
+                                    .child(crate::form_input::guard(&self.filter, |input| input.id("comparison-filter"))),
                             )
                             .child(
                                 div()

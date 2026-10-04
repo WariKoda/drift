@@ -5,6 +5,7 @@ mod management;
 use crate::actions::Cancel;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use crate::focus_reveal::FocusReveal;
+use crate::form_input;
 use drift_app::{
     browser::{BrowserService, OperationId},
     projects::{ProjectCommand, ProjectResponse},
@@ -15,10 +16,12 @@ use drift_core::{
 };
 use form::ProjectForm;
 use gpui_kit::base::Disableable;
+#[cfg(test)]
+use gpui_kit::component::input::Input;
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
@@ -245,22 +248,18 @@ impl Render for ProjectsPanel {
                         .flex_col()
                         .gap_2()
                         .min_w_0()
-                        .child(
+                        .child(form_input::guard(&form.name, |input| {
                             self.details_reveal.wrap(
                                 ("reveal-project-name", form.name.entity_id()),
-                                Input::new(&form.name)
-                                    .id("project-edit-name")
-                                    .disabled(busy),
-                            ),
-                        )
-                        .child(
+                                input.id("project-edit-name").disabled(busy),
+                            )
+                        }))
+                        .child(form_input::guard(&form.path, |input| {
                             self.details_reveal.wrap(
                                 ("reveal-project-path", form.path.entity_id()),
-                                Input::new(&form.path)
-                                    .id("project-edit-path")
-                                    .disabled(busy),
-                            ),
-                        )
+                                input.id("project-edit-path").disabled(busy),
+                            )
+                        }))
                         .child(
                             div().flex().flex_wrap().gap_2().min_w_0().child(
                                 self.details_reveal.wrap(
@@ -301,12 +300,11 @@ impl Render for ProjectsPanel {
                 .child(self.status.clone());
             view = view
                 .child(
-                    div().key_context("DriftProjectFilter").child(
-                        Input::new(&self.query)
-                            .id("project-filter")
-                            .w(px(320.))
-                            .max_w_full(),
-                    ),
+                    div()
+                        .key_context("DriftProjectFilter")
+                        .child(form_input::guard(&self.query, |input| {
+                            input.id("project-filter").w(px(320.)).max_w_full()
+                        })),
                 )
                 .child(
                     div()
@@ -573,17 +571,21 @@ impl Render for ProjectsPanel {
                         .flex_wrap()
                         .min_w_0()
                         .gap_2()
-                        .child(
-                            Input::new(&self.name)
-                                .id("project-name")
-                                .w(px(280.))
-                                .max_w_full(),
-                        )
+                        .child(form_input::guard(&self.name, |input| {
+                            input.id("project-name").w(px(280.)).max_w_full()
+                        }))
                         .child(
                             Button::new("register")
                                 .label("Register current folder")
                                 .disabled(!self.can_register || self.busy || self.writing)
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .on_click(cx.listener(|this, _, w, cx| {
+                                    if let Err(error) =
+                                        form_input::validate_inputs([&this.name], w, cx)
+                                    {
+                                        this.status = error.into();
+                                        cx.notify();
+                                        return;
+                                    }
                                     cx.emit(ProjectEvent::Register(
                                         this.name.read(cx).value().to_string(),
                                     ))
@@ -599,6 +601,8 @@ impl Render for ProjectsPanel {
         )
     }
 }
+#[cfg(test)]
+mod input_tests;
 #[cfg(test)]
 mod scroll_tests;
 #[cfg(test)]

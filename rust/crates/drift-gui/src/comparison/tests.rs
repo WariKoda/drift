@@ -112,7 +112,7 @@ async fn comparison_filter_keyboard_bridges_preserve_decisions_confirmation_and_
             assert_eq!(pane.read(cx).filter.read(cx).value().as_str(), "alpha");
             w.press("ctrl-f", cx);
         }
-        // Native Escape must finish composition before the bubbling focus bridge.
+        // Ending composition must not also take the bubbling filter focus route.
         let filter = pane.read(cx).filter.clone();
         filter.update(cx, |input, cx| {
             input.replace_and_mark_text_in_range(Some(0..5), "alpha", Some(0..5), w, cx);
@@ -158,11 +158,13 @@ async fn comparison_filter_keyboard_bridges_preserve_decisions_confirmation_and_
             cx,
         );
         w.press("escape", cx);
-        assert!(pane.read(cx).focus.is_focused(w));
+        assert!(filter.focus_handle(cx).is_focused(w));
         filter.update(cx, |input, cx| {
             assert_eq!(input.marked_text_range(w, cx), None)
         });
         assert_eq!(filter.read(cx).value().as_str(), "alpha");
+        w.press("escape", cx);
+        assert!(pane.read(cx).focus.is_focused(w));
         pane.update(cx, |pane, cx| pane.prepare_sync(true, cx));
         assert!(pane.read(cx).confirm_sync.is_some());
         w.press("ctrl-f", cx);

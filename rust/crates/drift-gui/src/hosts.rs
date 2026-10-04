@@ -5,6 +5,7 @@ mod links;
 mod tools;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use crate::focus_reveal::FocusReveal;
+use crate::form_input;
 use drift_app::{
     browser::{BrowserService, OperationId},
     hosts::{HostCommand, HostDraft, HostResponse},
@@ -17,10 +18,12 @@ use drift_core::{
 };
 use form::HostForm;
 use gpui_kit::base::{Disableable, Selectable};
+#[cfg(test)]
+use gpui_kit::component::input::Input;
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
@@ -248,16 +251,21 @@ impl HostManager {
         if duplicate {
             host.name = format!("{} copy", host.name);
         }
-        self.form = Some(HostForm::new(host, expected, window, cx));
-        self.delete = None;
-        self.status.clear();
+        match HostForm::new(host, expected, window, cx) {
+            Ok(form) => {
+                self.form = Some(form);
+                self.delete = None;
+                self.status.clear();
+            }
+            Err(error) => self.status = error.into(),
+        }
         cx.notify();
     }
     fn new_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.list_active() {
             return;
         }
-        self.form = Some(HostForm::new(
+        match HostForm::new(
             Host {
                 protocol: "sftp".into(),
                 ..Host::default()
@@ -265,15 +273,33 @@ impl HostManager {
             None,
             window,
             cx,
-        ));
-        self.delete = None;
-        self.status.clear();
+        ) {
+            Ok(form) => {
+                self.form = Some(form);
+                self.delete = None;
+                self.status.clear();
+            }
+            Err(error) => self.status = error.into(),
+        }
         cx.notify();
     }
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(form) = &self.form else {
             return;
         };
+        if let Err(error) = form_input::validate_inputs(
+            form.fields.iter().chain(
+                form.mappings
+                    .iter()
+                    .flat_map(|(local, remote)| [local, remote]),
+            ),
+            window,
+            cx,
+        ) {
+            self.status = error.into();
+            cx.notify();
+            return;
+        }
         match form.draft(cx).build(self.global) {
             Ok(desired) => {
                 let expected = form.expected.clone().map(Box::new);
@@ -337,6 +363,19 @@ impl HostManager {
         let Some(form) = &self.form else {
             return;
         };
+        if let Err(error) = form_input::validate_inputs(
+            form.fields.iter().chain(
+                form.mappings
+                    .iter()
+                    .flat_map(|(local, remote)| [local, remote]),
+            ),
+            window,
+            cx,
+        ) {
+            self.status = error.into();
+            cx.notify();
+            return;
+        }
         match form.draft(cx).build(self.global) {
             Ok(host) => self.open_tools(host, Mode::Test, window, cx),
             Err(error) => {
@@ -404,7 +443,7 @@ impl Render for HostManager {
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Close)))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().flex().flex_col().w(px(350.)).min_h_0().p_3().gap_3().border_r_1().border_color(border)
-                    .child(div().key_context("DriftHostFilter").child(Input::new(&self.query).id("hosts-filter").disabled(editing)))
+                    .child(div().key_context("DriftHostFilter").child(form_input::guard(&self.query, |input| input.id("hosts-filter").disabled(editing))))
                     .child(div().flex().gap_2()
                         .child(Button::new("host-new").label("New host").disabled(busy || editing || self.catalog.is_none())
                             .on_click(cx.listener(|this, _, w, cx| this.new_host(w, cx))))
@@ -487,6 +526,8 @@ impl Render for HostManager {
     }
 }
 
+#[cfg(test)]
+mod input_tests;
 #[cfg(test)]
 mod scroll_tests;
 #[cfg(test)]

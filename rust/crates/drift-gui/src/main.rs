@@ -8,6 +8,7 @@ mod diff;
 #[cfg(test)]
 mod finder_test_support;
 mod focus_reveal;
+mod form_input;
 mod hosts;
 mod pane_split;
 mod preview;

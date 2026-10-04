@@ -15,7 +15,7 @@ impl HostForm {
         expected: Option<Host>,
         window: &mut Window,
         cx: &mut Context<HostManager>,
-    ) -> Self {
+    ) -> Result<Self, &'static str> {
         let draft = HostDraft::from(&host);
         let values = [
             draft.name,
@@ -28,6 +28,22 @@ impl HostForm {
             draft.key_file,
             draft.passphrase,
         ];
+        form_input::validate_values(
+            values
+                .iter()
+                .map(String::as_str)
+                .chain([
+                    draft.server.as_str(),
+                    draft.protocol.as_str(),
+                    draft.auth_kind.as_str(),
+                ])
+                .chain(
+                    draft
+                        .mappings
+                        .iter()
+                        .flat_map(|mapping| [mapping.local.as_str(), mapping.remote.as_str()]),
+                ),
+        )?;
         let fields = values
             .into_iter()
             .enumerate()
@@ -64,7 +80,7 @@ impl HostForm {
             })
             .collect();
         fields[NAME].focus_handle(cx).focus(window, cx);
-        Self {
+        Ok(Self {
             reveal: FocusReveal::default(),
             expected,
             fields,
@@ -72,7 +88,7 @@ impl HostForm {
             protocol: draft.protocol,
             auth_kind: draft.auth_kind,
             mappings,
-        }
+        })
     }
     pub(super) fn draft(&self, cx: &App) -> HostDraft {
         let values: Vec<_> = self
@@ -113,17 +129,17 @@ impl HostManager {
             .flex_col()
             .gap_1()
             .child(FIELDS[index].0)
-            .child(
+            .child(form_input::guard(&form.fields[index], |input| {
                 form.reveal.wrap(
                     ("host-field", form.fields[index].entity_id()),
-                    Input::new(&form.fields[index])
+                    input
                         .id(FIELDS[index].1)
                         .disabled(self.writing)
                         .when(matches!(index, PASSWORD | PASSPHRASE), |input| {
                             input.mask_toggle()
                         }),
-                ),
-            )
+                )
+            }))
             .into_any_element()
     }
     pub(super) fn render_form(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -294,26 +310,24 @@ impl HostManager {
                             .min_w_0()
                             .flex_wrap()
                             .gap_2()
-                            .child(
-                                div().flex_1().min_w_0().child(
+                            .child(div().flex_1().min_w_0().child(form_input::guard(
+                                local,
+                                |input| {
                                     form.reveal.wrap(
                                         ("reveal-map-local", local.entity_id()),
-                                        Input::new(local)
-                                            .id(("map-local", index))
-                                            .disabled(self.writing),
-                                    ),
-                                ),
-                            )
-                            .child(
-                                div().flex_1().min_w_0().child(
+                                        input.id(("map-local", index)).disabled(self.writing),
+                                    )
+                                },
+                            )))
+                            .child(div().flex_1().min_w_0().child(form_input::guard(
+                                remote,
+                                |input| {
                                     form.reveal.wrap(
                                         ("reveal-map-remote", remote.entity_id()),
-                                        Input::new(remote)
-                                            .id(("map-remote", index))
-                                            .disabled(self.writing),
-                                    ),
-                                ),
-                            )
+                                        input.id(("map-remote", index)).disabled(self.writing),
+                                    )
+                                },
+                            )))
                             .child(
                                 form.reveal.wrap(
                                     ("reveal-map-remove", local.entity_id()),

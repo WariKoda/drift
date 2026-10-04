@@ -482,20 +482,23 @@ pub(crate) async fn classify_ignored(
     use tokio::io::AsyncWriteExt;
     // Read output concurrently: a large finder query must not deadlock on full
     // stdout/stderr pipes while its stdin is still being written.
-    let output = tokio::select! {
+    let (written, output) = tokio::select! {
         _ = cancel.cancelled() => return Err(Error::Invalid("operation cancelled".into())),
         result = async {
             let write = async { stdin.write_all(&input).await?; drop(stdin); Ok::<(), std::io::Error>(()) };
-            let (written, output) = tokio::join!(write, child.wait_with_output());
-            written?; output
-        } => result?,
+            tokio::join!(write, child.wait_with_output())
+        } => result,
     };
+    let output = output?;
+    // Git may reject its index before consuming stdin. Prefer that failure to
+    // its secondary broken pipe; a successful process still requires a full write.
     if !output.status.success() && output.status.code() != Some(1) {
         return Err(Error::Invalid(format!(
             "Git ignore classification: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
     }
+    written?;
     let fields: Vec<_> = output.stdout.split(|b| *b == 0).collect();
     if fields.len() != entries.len() * 4 + 1 || fields.last() != Some(&&b""[..]) {
         return Err(Error::Invalid("malformed Git ignore output".into()));
@@ -505,6 +508,9 @@ pub(crate) async fn classify_ignored(
         .map(|record| !record[0].is_empty() && !record[2].starts_with(b"!"))
         .collect())
 }
+
+#[cfg(test)]
+mod tests;
 
 pub fn hard_excluded(path: &Path, directory: bool) -> bool {
     let parts: Vec<_> = path.components().collect();

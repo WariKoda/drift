@@ -393,8 +393,13 @@ current form; Enter at the default confirmation target or y confirms deletion,
 and Escape returns to the list with its cursor retained. Enter/Space activates
 focused native buttons; Cancel/Back/Reload never turns into confirmation. Without
 a project, list Tab/Shift+Tab follows normal control traversal instead of doing
-nothing. The inactive list leaves Tab order while editing. Letters in filters and form fields remain ordinary text; search
-shortcuts do not move focus out of an active form. Validation/conflict errors keep
+nothing. The inactive list leaves Tab order while editing. Host fields, mapping
+inputs and native controls reveal themselves within the actual external scroll
+viewport on Tab/Shift+Tab or viewport resize. Ordinary typing/redraws and wheel
+scrolling do not snap the view back. Mappings and actions wrap; removing a mapping
+focuses the related remaining local input, or Root path after the last removal.
+Draft/input entities and masked secrets remain unchanged. Letters in filters and
+form fields remain ordinary text; search shortcuts do not move focus out of an active form. Validation/conflict errors keep
 the form or confirmation open.
 
 **Test** in the host list or **Test connection** in a form resolves fresh defaults
@@ -551,7 +556,11 @@ Host tests use real stores to verify forms, CRUD, duplication, defaults, links,
 masked fields, concurrent-edit conflicts and deletion guards. Management keyboard
 tests cover empty/filtered lists, scrolling, cursor retention, archive/unarchive,
 scope switching, form validation, saved-host connection tests and trust-reset
-conflicts. Numeric shortcut tests cover all nine rows, filtering, archive visibility
+conflicts. Host-form scroll tests assert actual visible control bounds in short,
+narrow and inset windows, forward/reverse native Tab, additions/removals and
+protocol/auth/link changes. They preserve draft entities/masking, test resize and
+stale frames, hidden async completion and wheel scrolling without snap-back.
+Numeric shortcut tests cover all nine rows, filtering, archive visibility
 and text input. Shell tests open projects through keyboard events and the CLI start result.
 CLI tests execute the actual binary without display access to check help, version,
 project mutations, error exits and a lock held by another process. Logging tests
@@ -606,8 +615,9 @@ scrollable help and guarded native confirmation controls are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Finder fuzzy matching and
 explicit return-state restoration and mapped remote ignored visibility are available.
-Keyboard reveal of offscreen form controls, form IME/paste hardening and
-character-precise diff selection remain.
+Host/mapping controls have external-scroll focus reveal. Bounded Tools/Links/
+project-form details/actions, form IME/paste hardening and character-precise diff
+selection remain.
 Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

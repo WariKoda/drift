@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) struct HostForm {
+    pub(super) reveal: FocusReveal,
     pub(super) expected: Option<Host>,
     pub(super) fields: Vec<Entity<InputState>>,
     pub(super) server: String,
@@ -64,6 +65,7 @@ impl HostForm {
             .collect();
         fields[NAME].focus_handle(cx).focus(window, cx);
         Self {
+            reveal: FocusReveal::default(),
             expected,
             fields,
             server: draft.server,
@@ -112,12 +114,15 @@ impl HostManager {
             .gap_1()
             .child(FIELDS[index].0)
             .child(
-                Input::new(&form.fields[index])
-                    .id(FIELDS[index].1)
-                    .disabled(self.writing)
-                    .when(matches!(index, PASSWORD | PASSPHRASE), |input| {
-                        input.mask_toggle()
-                    }),
+                form.reveal.wrap(
+                    ("host-field", form.fields[index].entity_id()),
+                    Input::new(&form.fields[index])
+                        .id(FIELDS[index].1)
+                        .disabled(self.writing)
+                        .when(matches!(index, PASSWORD | PASSPHRASE), |input| {
+                            input.mask_toggle()
+                        }),
+                ),
             )
             .into_any_element()
     }
@@ -128,6 +133,8 @@ impl HostManager {
         let mut view = div()
             .flex()
             .flex_col()
+            .flex_shrink_0()
+            .min_w_0()
             .gap_3()
             .child(if form.expected.is_some() {
                 "Edit host"
@@ -143,22 +150,28 @@ impl HostManager {
                         .flex_wrap()
                         .gap_2()
                         .child(
-                            Button::new("direct")
-                                .label("Own connection")
-                                .selected(!linked)
-                                .disabled(self.writing)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.form.as_mut().unwrap().server.clear();
-                                    cx.notify();
-                                })),
+                            form.reveal.wrap(
+                                "reveal-direct",
+                                Button::new("direct")
+                                    .label("Own connection")
+                                    .selected(!linked)
+                                    .disabled(self.writing)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.form.as_mut().unwrap().server.clear();
+                                        cx.notify();
+                                    })),
+                            ),
                         )
                         .child(
-                            Button::new("host-choose-link")
-                                .label("Choose server / other project")
-                                .disabled(self.writing)
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.open_links(window, cx)),
-                                ),
+                            form.reveal.wrap(
+                                "reveal-choose-link",
+                                Button::new("host-choose-link")
+                                    .label("Choose server / other project")
+                                    .disabled(self.writing)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_links(window, cx)
+                                    })),
+                            ),
                         )
                         .children(
                             self.catalog
@@ -168,14 +181,17 @@ impl HostManager {
                                 .enumerate()
                                 .map(|(index, server)| {
                                     let name = server.name.clone();
-                                    Button::new(("link", index))
-                                        .label(format!("Link {}", name))
-                                        .selected(form.server == name)
-                                        .disabled(self.writing)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.form.as_mut().unwrap().server = name.clone();
-                                            cx.notify();
-                                        }))
+                                    form.reveal.wrap(
+                                        format!("reveal-link-{name}"),
+                                        Button::new(("link", index))
+                                            .label(format!("Link {}", name))
+                                            .selected(form.server == name)
+                                            .disabled(self.writing)
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.form.as_mut().unwrap().server = name.clone();
+                                                cx.notify();
+                                            })),
+                                    )
                                 }),
                         ),
                 ),
@@ -196,8 +212,8 @@ impl HostManager {
                     div()
                         .flex()
                         .gap_3()
-                        .child(div().flex_1().child(self.field(PORT)))
-                        .child(div().flex_1().child(self.field(USER))),
+                        .child(div().flex_1().min_w_0().child(self.field(PORT)))
+                        .child(div().flex_1().min_w_0().child(self.field(USER))),
                 )
                 .child(
                     div().flex().flex_wrap().gap_2().child("Protocol").children(
@@ -209,14 +225,17 @@ impl HostManager {
                         ]
                         .into_iter()
                         .map(|(value, label)| {
-                            Button::new(format!("protocol-{value}"))
-                                .label(label)
-                                .selected(form.protocol == value)
-                                .disabled(self.writing)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.form.as_mut().unwrap().protocol = value.into();
-                                    cx.notify();
-                                }))
+                            form.reveal.wrap(
+                                format!("reveal-protocol-{value}"),
+                                Button::new(format!("protocol-{value}"))
+                                    .label(label)
+                                    .selected(form.protocol == value)
+                                    .disabled(self.writing)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.form.as_mut().unwrap().protocol = value.into();
+                                        cx.notify();
+                                    })),
+                            )
                         }),
                     ),
                 )
@@ -237,14 +256,17 @@ impl HostManager {
                             ]
                             .into_iter()
                             .map(|(value, label)| {
-                                Button::new(format!("auth-{value}"))
-                                    .label(label)
-                                    .selected(form.auth_kind == value)
-                                    .disabled(self.writing)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.form.as_mut().unwrap().auth_kind = value.into();
-                                        cx.notify();
-                                    }))
+                                form.reveal.wrap(
+                                    format!("reveal-auth-{value}"),
+                                    Button::new(format!("auth-{value}"))
+                                        .label(label)
+                                        .selected(form.auth_kind == value)
+                                        .disabled(self.writing)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.form.as_mut().unwrap().auth_kind = value.into();
+                                            cx.notify();
+                                        })),
+                                )
                             }),
                         ),
                 );
@@ -265,69 +287,123 @@ impl HostManager {
                     .iter()
                     .enumerate()
                     .map(|(index, (local, remote))| {
+                        let local_id = local.entity_id();
                         div()
+                            .id(("mapping-row", local.entity_id()))
                             .flex()
+                            .min_w_0()
+                            .flex_wrap()
                             .gap_2()
                             .child(
-                                Input::new(local)
-                                    .id(("map-local", index))
-                                    .disabled(self.writing),
+                                div().flex_1().min_w_0().child(
+                                    form.reveal.wrap(
+                                        ("reveal-map-local", local.entity_id()),
+                                        Input::new(local)
+                                            .id(("map-local", index))
+                                            .disabled(self.writing),
+                                    ),
+                                ),
                             )
                             .child(
-                                Input::new(remote)
-                                    .id(("map-remote", index))
-                                    .disabled(self.writing),
+                                div().flex_1().min_w_0().child(
+                                    form.reveal.wrap(
+                                        ("reveal-map-remote", remote.entity_id()),
+                                        Input::new(remote)
+                                            .id(("map-remote", index))
+                                            .disabled(self.writing),
+                                    ),
+                                ),
                             )
                             .child(
-                                Button::new(("map-remove", index))
-                                    .label("Remove")
-                                    .disabled(self.writing)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.form.as_mut().unwrap().mappings.remove(index);
-                                        cx.notify();
-                                    })),
+                                form.reveal.wrap(
+                                    ("reveal-map-remove", local.entity_id()),
+                                    Button::new(("map-remove", local.entity_id()))
+                                        .label("Remove")
+                                        .disabled(self.writing)
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            if this.writing {
+                                                return;
+                                            }
+                                            let Some(form) = this.form.as_mut() else {
+                                                return;
+                                            };
+                                            let Some(index) =
+                                                form.mappings.iter().position(|(local, _)| {
+                                                    local.entity_id() == local_id
+                                                })
+                                            else {
+                                                return;
+                                            };
+                                            form.mappings.remove(index);
+                                            let focus = form
+                                                .mappings
+                                                .get(
+                                                    index
+                                                        .min(form.mappings.len().saturating_sub(1)),
+                                                )
+                                                .map(|(local, _)| local.focus_handle(cx))
+                                                .unwrap_or_else(|| {
+                                                    form.fields[ROOT].focus_handle(cx)
+                                                });
+                                            focus.focus(window, cx);
+                                            cx.notify();
+                                        })),
+                                ),
                             )
                     }),
             )
             .child(
-                Button::new("map-add")
-                    .label("Add mapping")
-                    .disabled(self.writing)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let local =
-                            cx.new(|cx| InputState::new(window, cx).placeholder("Local path"));
-                        let remote =
-                            cx.new(|cx| InputState::new(window, cx).placeholder("Deploy path"));
-                        local.focus_handle(cx).focus(window, cx);
-                        this.form.as_mut().unwrap().mappings.push((local, remote));
-                        cx.notify();
-                    })),
+                form.reveal.wrap(
+                    "reveal-map-add",
+                    Button::new("map-add")
+                        .label("Add mapping")
+                        .disabled(self.writing)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let local =
+                                cx.new(|cx| InputState::new(window, cx).placeholder("Local path"));
+                            let remote =
+                                cx.new(|cx| InputState::new(window, cx).placeholder("Deploy path"));
+                            local.focus_handle(cx).focus(window, cx);
+                            this.form.as_mut().unwrap().mappings.push((local, remote));
+                            cx.notify();
+                        })),
+                ),
             )
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .gap_2()
                     .child(
-                        Button::new("host-save")
-                            .label("Save host (Ctrl/Cmd+S)")
-                            .disabled(self.cancel.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
+                        form.reveal.wrap(
+                            "reveal-host-save",
+                            Button::new("host-save")
+                                .label("Save host (Ctrl/Cmd+S)")
+                                .disabled(self.cancel.is_some())
+                                .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
+                        ),
                     )
                     .child(
-                        Button::new("host-test-draft")
-                            .label("Test connection")
-                            .disabled(self.cancel.is_some())
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.test_draft(window, cx)),
-                            ),
+                        form.reveal.wrap(
+                            "reveal-host-test-draft",
+                            Button::new("host-test-draft")
+                                .label("Test connection")
+                                .disabled(self.cancel.is_some())
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.test_draft(window, cx)),
+                                ),
+                        ),
                     )
                     .child(
-                        Button::new("host-cancel")
-                            .label("Cancel")
-                            .disabled(self.writing)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.close(&Close, window, cx)),
-                            ),
+                        form.reveal.wrap(
+                            "reveal-host-cancel",
+                            Button::new("host-cancel")
+                                .label("Cancel")
+                                .disabled(self.writing)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.close(&Close, window, cx)
+                                })),
+                        ),
                     ),
             );
         view.into_any_element()

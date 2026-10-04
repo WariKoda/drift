@@ -411,7 +411,8 @@ async fn sftp_entries_use_local_git_policy_without_changing_the_connection() {
 
 #[tokio::test]
 async fn ftp_entries_use_local_git_policy_without_changing_the_connection() {
-    let server = support::ftp::Server::new(4);
+    // Peer cleanup may lag shutdown before the second four-socket pool connects.
+    let server = support::ftp::Server::new(8);
     exercise(
         server.host(),
         server.options(),

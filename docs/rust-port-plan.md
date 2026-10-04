@@ -34,17 +34,19 @@ Vorschau-Toggle/-Fokus/-Kopie, Shortcut-Hilfe und Filter-Rückwege sind ergänzt
 Native Dialogbuttons behalten Enter/Space; Escape/Reject beendet auch ausstehende
 Zertifikatsfreigaben ohne Retry und ohne Rücknahme bereits gespeicherten Vertrauens.
 Finder-Fuzzy-Suche und explizite Rückkehr zum gespeicherten Browserzustand sind ergänzt.
-Gemappte Remote-Ignored-Sichtbarkeit ist ergänzt; die erfassten Formularlücken folgen.
+Gemappte Remote-Ignored-Sichtbarkeit und Fokus-Reveal für gescrollte Host-/Mapping-
+Kontrollen sind ergänzt. Tools/Links/Projektformulare und Eingabegrenzen folgen.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-remote-ignored`, aufgebaut auf
-  `feature/rust-finder-parity` (Commit `9d12622`, einschließlich portabler Fehler-Fixtures
-  und stabiler Git-Fehlerdiagnose).
-- Implementierungsstand: Commit `68e6934`,
-  [Draft-PR #88](https://github.com/WariKoda/drift/pull/88) für gemappte Remote-Ignored-
-  Sichtbarkeit. Er basiert auf [#87](https://github.com/WariKoda/drift/pull/87) für
+- Aktueller Branch: `feature/rust-form-scroll-reveal`, aufgebaut auf
+  `feature/rust-remote-ignored` (Commit `70e3ab4`, einschließlich FTP-Fixture-Korrektur).
+- Implementierungsstand: Commit `2687a15`,
+  [Draft-PR #89](https://github.com/WariKoda/drift/pull/89) für Fokus-Reveal gescrollter
+  Host-/Mapping-Kontrollen. Er basiert auf [#88](https://github.com/WariKoda/drift/pull/88)
+  für gemappte Remote-Ignored-Sichtbarkeit (`68e6934`), dieser auf
+  [#87](https://github.com/WariKoda/drift/pull/87) für
   Finder-Fuzzy-Suche und gespeicherten Browser-Rückweg (`2f99818`, Fixture-Fix `932917c`,
   Git-Pipe-Fix `9d12622`),
   dieser auf
@@ -58,34 +60,47 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
   Die PRs sind offen und nicht in `main` integriert. Vor Integration die
-  gestapelte Kette #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- CI von #86, #85, #84, #83, #82, #81 und #80 ist vollständig bestanden, jeweils Go
-  sowie Rust Linux/macOS. #87 bestand Linux/Go; macOS verweigerte die ungültigen
-  UTF-8-Testdateinamen (APFS/EILSEQ). `932917c` ersetzt alle drei Fixtures durch echte
-  Git-Index-Fehler, ohne Tests zu überspringen. Eine weitere Linux-Prüfung fand
-  deren sekundären EPIPE-Race: `9d12622` meldet den eigentlichen Git-Prozessfehler
-  vor dem Schreibfehler. Frische Rust-CI von #87 sowie CI von #88 sind separat zu prüfen. CI ist keine native Plattformabnahme.
+  gestapelte Kette #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- CI von #88 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+  #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt APFS-unzulässiger
+  UTF-8-Testdateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
+  #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
+  überlappten mit asynchronem Shutdown. `70e3ab4` gibt allen vier überlappenden Pools
+  Platz, ohne Produktions-Retries; 32 Scheduler-Seeds und Gesamtprüfung bestanden.
+  Frische CI von #89 bleibt separat zu prüfen. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
 | Bereich | Implementiert und lokal geprüft | Verbleibende Arbeit |
 | --- | --- | --- |
-| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest und Trust-Reset | Automatische Link-Angebote bei gleichen Endpunkten |
+| Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest, Trust-Reset und Fokus-Reveal im Host-/Mappingformular | Automatische Link-Angebote bei gleichen Endpunkten; Tools/Links/Projektform-Scroll/Input-Härtung |
 | Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe und Filter-Rückwege | Formular-Scroll/Input-Härtung |
 | Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **236 Rust-Tests, davon 116 Headless-GPUI-Tests;
+Letzte lokale Gesamtprüfung: **242 Rust-Tests, davon 122 Headless-GPUI-Tests;
 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, Clippy, Go-Test/Vet/Build,
 Go/Rust-Prozessparität und Linux-Release-Build bestanden. Native Plattformabnahme
-und CI von #87/#88 bleiben separate Freigabeschritte.
+und CI von #89 bleiben separate Freigabeschritte.
 
 ### Implementiert und lokal geprüft
 
 - Eigenständige Rust-App neben der Go-TUI; gemeinsame TOML-Dateien und permanente
   `write.lock`, mit getrennten Rohwerten und aufgelöster Konfiguration.
+- Host-/Mapping-Kontrollen werden beim Tab-/Shift-Tab-Fokus im tatsächlich
+  gemessenen äußeren Scrollbereich sichtbar. `focus_reveal.rs` arbeitet mit
+  formular-eigenem ScrollHandle und nicht tabbbaren Kontroll-Scopes; native
+  Input-/Button-Entities und deren Enter-/Space-Aktionen bleiben erhalten.
+  Fokuswechsel und Viewport-Verkleinerung erlauben einmaligen Nearest-Reveal,
+  normale Repaints oder Mausradbewegungen erzeugen kein Zurückschnappen.
+  Vorherige Frame-/Fokus-/Viewport-Anfragen werden verworfen; Input selbst wird
+  gemessen, nicht ein zu hoher Label-Block. Verborgene Abschlüsse stehlen keinen Fokus.
+  Mapping-Löschung verwendet stabile Entity-IDs und fokussiert die verwandte
+  verbleibende lokale Eingabe, nach der letzten Löschung das Rootfeld; keine
+  Tastaturfalle durch einen entfernten nativen Button. Entwürfe/Maskierung bleiben
+  erhalten; Kontrollen/Mappings/Aktionen wrappen. Keine Präferenz-/Config-Änderung.
 - Remote-Ignored-Klassifikation in `drift-app` nach Mapping mit kanonischem
   Session-Root; Host-Mappings gehen Projekt-Fallbacks vor. Die vorhandene
   gebatchte Git-Policy berücksichtigt Remote-only-/negierte/getrackte Pfade und
@@ -325,6 +340,11 @@ und CI von #87/#88 bleiben separate Freigabeschritte.
   Eine weitere App-Regression sendet mehr als einen Pipe-Puffer echter Pfadanfragen
   an Git: früher Prozessabbruch meldet den Indexfehler, nicht nur den sekundären EPIPE;
   erfolgreiche Prozesse müssen weiterhin vollständige Eingaben erhalten.
+  6 Hostformular-Regressionen prüfen native Tab-/Shift-Tab-/Enter-/Space-Routen
+  anhand sichtbarer Kontrollbounds in kurzen/schmalen/inset Viewports, Add/Remove,
+  Auth-/Protokoll-/Linkwechsel, Mausrad ohne Snap-back, verborgene Load-Abschlüsse,
+  Shrink/Grow und alte Frame-Geometrie. Echte Stores bleiben unverändert;
+  Eingabe-Entities, Maskierung, Entwürfe und letzter Löschfokus werden geprüft.
 
 ### Nächster Arbeitsblock: Formularlücken
 
@@ -335,9 +355,9 @@ Editor-Tasten. Listen-Paging und ein `q`-Alias sind keine fehlenden Go-Abläufe.
 Native Buttons bedienen bereits Protokoll/Auth und Mapping-CRUD; fehlende
 Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
-1. **Kurze Fenster und Formulare:** Tab-fokussierte, außen gescrollte Hostfelder/
-   Mapping-Zeilen tatsächlich ins Blickfeld bringen. Tools/Links/Projektformulare
-   brauchen begrenzte scrollbare Details und sichtbare/wrappende Aktionen.
+1. **Kurze Fenster und weitere Formulare:** Host-/Mapping-Fokus-Reveal ist umgesetzt.
+   Tools/Links/Projektformulare brauchen noch begrenzte scrollbare Details und
+   sichtbare/wrappende Aktionen samt Fokus-Reveal.
    Sichtbarkeit prüfen, nicht nur FocusHandles; keine optische Neugestaltung.
 2. **Textfeldgrenzen härten:** echte Paste-/InputHandler-Tests für Tab/NUL und
    weitere Steuerzeichen; Formular-Escape darf nicht gleichzeitig IME-Komposition
@@ -358,7 +378,7 @@ stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Browser-Bedienung | Formular-Scroll/Input-Härtung offen; gemappte Remote-Ignored-Sichtbarkeit, Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
+| 1 | Browser-Bedienung | Tools/Links/Projektform-Scroll und Input-Härtung offen; Host-/Mapping-Fokus-Reveal, gemappte Remote-Ignored-Sichtbarkeit, Finder-Fuzzy/Rückweg, Vorschau/Hilfe, sichere Dialogtasten, Filter-Rückwege und bestehende Pane-/Baum-/Markierungsabläufe sind umgesetzt. |
 | 2 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
 | 3 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
 | 4 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
@@ -379,7 +399,9 @@ sowie `diff.rs`. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
 ComparisonPane routen seine Keyboard-/Escape-Aktionen. `shell/keyboard.rs` hält
 Vorschau-Routing und Shortcut-Hilfe. `remote/visibility.rs` hält Klassifikations-
 Identitäten und gecachte Sichtbarkeit, `drift-app/src/remote.rs::classify_entries`
-die Mapping-/Git-Policy. `browser/finder.rs` hält den gespeicherten
+die Mapping-/Git-Policy. `focus_reveal.rs` misst äußeren Formularscroll ohne neue
+Tab-Stopps; `hosts/form.rs` hält die Controls und deren stabile Mapping-IDs.
+`browser/finder.rs` hält den gespeicherten
 Browser-Rückweg, `drift-app/src/finder.rs` das reine Ranking. `DefaultConfirm` in Verwaltungsdialogen schützt
 native Enter/Space-Aktionen. `Ctrl+Escape` ist die explizite Work-Abbruchroute aus Filtern.
 Abläufe liegen in `drift-app`, Persistenz/Policies in `drift-core`.

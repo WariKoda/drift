@@ -7,6 +7,7 @@ mod comparison;
 mod diff;
 #[cfg(test)]
 mod finder_test_support;
+mod focus_reveal;
 mod hosts;
 mod pane_split;
 mod preview;

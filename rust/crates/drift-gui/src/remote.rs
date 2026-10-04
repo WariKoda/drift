@@ -1,13 +1,14 @@
 //! Remote browser and host selection. Network tasks belong to drift-app.
 mod menu;
 mod tree;
+mod visibility;
 use crate::actions::*;
 use crate::browser_menu::BrowserMenu;
 use drift_app::{
     FileList,
     browser::{Location, OperationId},
     navigation::History,
-    remote::{RemoteDirectory, RemoteService, RemoteSession},
+    remote::{RemoteDirectory, RemoteService, RemoteSession, RemoteVisibility},
     tree::FileTree,
 };
 use drift_core::{
@@ -87,6 +88,7 @@ pub struct RemotePane {
     observer: Option<CancellationToken>,
     path: String,
     entries: Vec<RemoteEntry>,
+    directory_entries: std::collections::BTreeMap<String, RemoteEntry>,
     files: FileList,
     tree: FileTree,
     tree_pending: Option<String>,
@@ -99,6 +101,10 @@ pub struct RemotePane {
     history: History,
     navigation: Navigation,
     show_hidden: bool,
+    show_ignored: bool,
+    visibility: Option<RemoteVisibility>,
+    visibility_cancel: Option<CancellationToken>,
+    visibility_revision: u64,
     menu: Option<(Snapshot, BrowserMenu)>,
     menu_anchor: Point<Pixels>,
     menu_revision: u64,
@@ -112,6 +118,9 @@ impl Focusable for RemotePane {
 }
 impl Drop for RemotePane {
     fn drop(&mut self) {
+        if let Some(cancel) = self.visibility_cancel.take() {
+            cancel.cancel();
+        }
         if let Some(cancel) = self.listing.take() {
             cancel.cancel();
         }
@@ -148,6 +157,7 @@ impl RemotePane {
             observer: None,
             path: String::new(),
             entries: vec![],
+            directory_entries: Default::default(),
             files: FileList::new(vec![]),
             tree: FileTree::default(),
             tree_pending: None,
@@ -160,6 +170,10 @@ impl RemotePane {
             history: History::default(),
             navigation: Navigation::Reset,
             show_hidden: false,
+            show_ignored: false,
+            visibility: None,
+            visibility_cancel: None,
+            visibility_revision: 0,
             menu: None,
             menu_anchor: point(px(0.), px(0.)),
             menu_revision: 0,
@@ -183,7 +197,12 @@ impl RemotePane {
         self.hosts = hosts;
         cx.notify();
     }
-    pub fn set_selection_location(&mut self, location: Option<Location>, cx: &mut Context<Self>) {
+    pub fn set_selection_location(
+        &mut self,
+        location: Option<Location>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let unchanged = match (&self.selection_location, &location) {
             (Some(old), Some(new)) => {
                 old.root.base() == new.root.base() && old.config.mappings == new.config.mappings
@@ -193,7 +212,7 @@ impl RemotePane {
         };
         self.selection_location = location;
         if !unchanged {
-            self.set_entries(cx);
+            self.start_visibility(window, cx);
         }
         cx.notify();
     }
@@ -226,7 +245,7 @@ impl RemotePane {
         self.project
     }
     pub fn is_loading(&self) -> bool {
-        self.listing.is_some()
+        self.listing.is_some() || self.visibility_cancel.is_some()
     }
     pub fn has_session(&self) -> bool {
         self.session.is_some()
@@ -238,6 +257,11 @@ impl RemotePane {
         &self.path
     }
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
+        self.visibility_revision += 1;
+        if let Some(cancel) = self.visibility_cancel.take() {
+            cancel.cancel();
+        }
+        self.visibility = None;
         self.tree_restore.clear();
         self.tree_cursor = None;
         self.connection += 1;
@@ -256,6 +280,7 @@ impl RemotePane {
         self.pending = None;
         self.path.clear();
         self.entries.clear();
+        self.directory_entries.clear();
         self.tree = FileTree::default();
         self.files = FileList::new(vec![]);
         self.history = History::default();
@@ -410,37 +435,56 @@ impl RemotePane {
             self.tree = FileTree::new(nodes);
         }
         self.entries = directory.entries;
-        self.set_entries(cx);
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
-        self.status(format!("{} remote entries", self.files.len()), cx);
-        self.restore_tree(window, cx);
+        self.start_visibility(window, cx);
         cx.notify();
     }
     fn set_entries(&mut self, cx: &mut Context<Self>) {
         self.menu_revision += 1;
-        self.files.replace_entries(
-            self.tree
-                .nodes()
-                .iter()
-                .filter(|e| {
-                    self.show_hidden
-                        || !std::path::Path::new(&e.path)
-                            .strip_prefix(&self.path)
-                            .unwrap_or(std::path::Path::new(&e.path))
-                            .components()
-                            .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
+        let paths = self
+            .tree
+            .nodes()
+            .iter()
+            .filter(|e| {
+                self.visibility.as_ref().is_some_and(|visibility| {
+                    !visibility.excluded.contains(&e.path)
+                        && (self.show_ignored || !visibility.ignored.contains(&e.path))
                 })
-                .map(|e| e.path.clone())
-                .collect(),
-        );
+            })
+            .filter(|e| {
+                self.show_hidden
+                    || !std::path::Path::new(&e.path)
+                        .strip_prefix(&self.path)
+                        .unwrap_or(std::path::Path::new(&e.path))
+                        .components()
+                        .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
+            })
+            .map(|e| e.path.clone())
+            .collect();
+        if let Some(session) = &self.session {
+            self.files.replace_remote_entries(&session.root, paths);
+        } else {
+            self.files.replace_entries(paths);
+        }
         if let (Some(location), Some(host), Some(session)) =
             (&self.selection_location, &self.target, &self.session)
         {
             let mut paths = self.files.marked();
             paths.extend(self.entries.iter().map(|entry| entry.path.clone()));
-            match drift_app::comparison::remote_markable_paths(location, host, &session.root, paths)
-            {
-                Ok(allowed) => self.files.restrict_marks(allowed),
+            let directories = self.directory_entries.keys().cloned().collect();
+            match drift_app::comparison::remote_markable_paths(
+                location,
+                host,
+                &session.root,
+                paths,
+                &directories,
+            ) {
+                Ok(mut allowed) => {
+                    if let Some(visibility) = &self.visibility {
+                        allowed.retain(|path| !visibility.excluded.contains(path));
+                    }
+                    self.files.restrict_marks(allowed);
+                }
                 Err(error) => {
                     self.files.restrict_marks(Default::default());
                     self.status(error.to_string(), cx);
@@ -459,7 +503,7 @@ impl RemotePane {
         let Some(session) = self.session.clone() else {
             return;
         };
-        if !session.contains(&path) || self.listing.is_some() {
+        if !session.contains(&path) || self.is_loading() {
             return;
         }
         self.tree_restore = if matches!(navigation, Navigation::Keep) {
@@ -507,7 +551,7 @@ impl RemotePane {
         cx.notify();
     }
     fn choose(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.listing.is_some() {
+        if self.is_loading() {
             return;
         }
         self.files.select(index);
@@ -633,7 +677,7 @@ impl RemotePane {
         cx.notify();
     }
     fn toggle_mark(&mut self, _: &ToggleMark, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) || self.is_loading() {
             cx.propagate();
             return;
         }
@@ -653,7 +697,7 @@ impl RemotePane {
         cx.notify();
     }
     fn visual_range(&mut self, _: &VisualRange, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) || self.is_loading() {
             cx.propagate();
             return;
         }
@@ -665,7 +709,7 @@ impl RemotePane {
         cx.notify();
     }
     fn mark_all(&mut self, _: &MarkAll, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) || self.is_loading() {
             cx.propagate();
             return;
         }
@@ -677,7 +721,7 @@ impl RemotePane {
         cx.notify();
     }
     fn invert_marks(&mut self, _: &InvertMarks, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) || self.is_loading() {
             cx.propagate();
             return;
         }
@@ -711,7 +755,7 @@ impl RemotePane {
         cx.notify();
     }
     fn range_up(&mut self, _: &RangeUp, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) || self.is_loading() {
             cx.propagate();
             return;
         }
@@ -725,7 +769,7 @@ impl RemotePane {
         cx.notify();
     }
     fn range_down(&mut self, _: &RangeDown, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) || self.is_loading() {
             cx.propagate();
             return;
         }
@@ -873,13 +917,23 @@ impl Render for RemotePane {
                             .on_click(cx.listener(|this, _, w, cx| this.refresh(&Refresh, w, cx))),
                     )
                     .child(
+                        Button::new("remote-ignored")
+                            .label(if self.show_ignored { "Hide ignored" } else { "Show ignored" })
+                            .disabled(self.is_loading() || !self.has_session() || self.selection_location.is_none() || self.visibility.is_none())
+                            .on_click(cx.listener(|this, _, window, cx| this.toggle_ignored(window, cx))),
+                    )
+                    .child(
                         Button::new("remote-hidden")
+                            .disabled(self.is_loading())
                             .label(if self.show_hidden {
                                 "Hide hidden"
                             } else {
                                 "Show hidden"
                             })
                             .on_click(cx.listener(|this, _, _, cx| {
+                                if this.is_loading() {
+                                    return;
+                                }
                                 this.show_hidden = !this.show_hidden;
                                 this.set_entries(cx);
                                 cx.notify();
@@ -951,9 +1005,15 @@ impl Render for RemotePane {
                     .on_action(cx.listener(Self::cursor_up))
                     .on_action(cx.listener(Self::cursor_down))
                     .on_action(cx.listener(|this, _: &ToggleHidden, _, cx| {
+                        if this.is_loading() {
+                            return;
+                        }
                         this.show_hidden = !this.show_hidden;
                         this.set_entries(cx);
                         cx.notify();
+                    }))
+                    .on_action(cx.listener(|this, _: &ToggleIgnored, window, cx| {
+                        this.toggle_ignored(window, cx);
                     }))
                     .on_action(
                         cx.listener(|this, _: &CursorFirst, w, cx| this.cursor_edge(false, w, cx)),
@@ -1013,7 +1073,9 @@ impl Render for RemotePane {
                                             .on_click(cx.listener(move |this, _, w, cx| {
                                                 if is_directory {
                                                     cx.stop_propagation();
-                                                    this.toggle_tree(toggle_path.clone(), w, cx);
+                                                    if (this.project, this.connection, this.operation, this.menu_revision) == row_stamp {
+                                                        this.toggle_tree(toggle_path.clone(), w, cx);
+                                                    }
                                                 }
                                             }));
                                         #[cfg(test)]
@@ -1078,6 +1140,10 @@ impl Render for RemotePane {
                                             ))
                                             .on_click(cx.listener(
                                                 move |this, event: &gpui_kit::ClickEvent, w, cx| {
+                                                    if this.is_loading() || (this.project, this.connection, this.operation, this.menu_revision) != row_stamp
+                                                        || this.files.row(index) != Some(path.as_str()) {
+                                                        return;
+                                                    }
                                                     this.focus.focus(w, cx);
                                                     let modifiers = event.modifiers();
                                                     if modifiers.shift {
@@ -1117,3 +1183,5 @@ impl Render for RemotePane {
 mod menu_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod visibility_tests;

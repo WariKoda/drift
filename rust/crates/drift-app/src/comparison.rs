@@ -30,6 +30,7 @@ pub fn remote_markable_paths(
     host: &Host,
     remote_root: &str,
     paths: Vec<String>,
+    directories: &BTreeSet<String>,
 ) -> Result<BTreeSet<String>> {
     let base = location
         .root
@@ -42,7 +43,7 @@ pub fn remote_markable_paths(
         .filter(|path| {
             mapper.remote_to_local(path).ok().is_some_and(|local| {
                 let relative = std::path::Path::new(&local).strip_prefix(location.root.base());
-                relative.is_ok_and(|relative| !hard_excluded(relative, false))
+                relative.is_ok_and(|relative| !hard_excluded(relative, directories.contains(path)))
             })
         })
         .collect())

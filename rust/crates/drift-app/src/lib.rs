@@ -22,6 +22,7 @@ pub struct FileList {
     marked: BTreeSet<String>,
     range_start: Option<String>,
     allowed_marks: Option<BTreeSet<String>>,
+    remote_root: Option<std::path::PathBuf>,
 }
 impl FileList {
     pub fn new(entries: Vec<String>) -> Self {
@@ -37,16 +38,53 @@ impl FileList {
             marked: BTreeSet::new(),
             range_start: None,
             allowed_marks: None,
+            remote_root: None,
         }
+    }
+    /// Remote paths stay absolute for selection; exclusions apply only inside
+    /// the host root, never to the external prefix naming that root.
+    pub fn new_remote(root: &str, entries: Vec<String>) -> Self {
+        let mut list = Self::new(vec![]);
+        list.remote_root = Some(root.into());
+        list.entries = entries
+            .into_iter()
+            .filter(|path| list.eligible_path(path))
+            .collect();
+        list.visible = (0..list.entries.len()).collect();
+        list
+    }
+    fn eligible_path(&self, path: &str) -> bool {
+        if path.contains('\0') {
+            return false;
+        }
+        let path = std::path::Path::new(path);
+        let relative = match &self.remote_root {
+            Some(root) => match path.strip_prefix(root) {
+                Ok(relative) => relative,
+                Err(_) => return false,
+            },
+            None => path,
+        };
+        !relative
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+            && !browser::hard_excluded(relative, false)
     }
     /// Replace a listing without losing project-wide marks from other folders
     /// or visibility settings. Only a new project/connection clears marks.
     pub fn replace_entries(&mut self, entries: Vec<String>) {
         let cursor = self.selected().map(str::to_owned);
         let marked = std::mem::take(&mut self.marked);
-        *self = Self::new(entries);
+        *self = match self.remote_root.clone() {
+            Some(root) => Self::new_remote(&root.to_string_lossy(), entries),
+            None => Self::new(entries),
+        };
         self.marked = marked;
         self.selected = cursor.and_then(|path| self.entries.iter().position(|p| *p == path));
+    }
+    pub fn replace_remote_entries(&mut self, root: &str, entries: Vec<String>) {
+        self.remote_root = Some(root.into());
+        self.replace_entries(entries);
     }
     /// Restore a saved view, keeping live mark additions and removals even for
     /// paths outside that view. The saved view's marking restrictions apply.
@@ -71,7 +109,7 @@ impl FileList {
         self.allowed_marks = Some(allowed);
     }
     pub fn can_mark(&self, path: &str) -> bool {
-        !browser::hard_excluded(std::path::Path::new(path), false)
+        self.eligible_path(path)
             && self
                 .allowed_marks
                 .as_ref()
@@ -289,6 +327,57 @@ mod tests {
         list.select(0);
         list.mark_siblings();
         assert_eq!(list.marked(), ["a", "child/c"]);
+    }
+
+    #[test]
+    fn remote_lists_scope_exclusions_to_the_host_root_across_replacements() {
+        let root = "/srv/node_modules/site";
+        let good = format!("{root}/normal.txt");
+        let staging = format!("{root}/.normal.drift-tmp-0123456789abcdef0123456789abcdef");
+        let mut list = FileList::new_remote(
+            root,
+            vec![
+                good.clone(),
+                format!("{root}/node_modules/x"),
+                staging,
+                "/outside/file".into(),
+                format!("{root}/../escape"),
+                format!("{root}/bad\0name"),
+            ],
+        );
+        assert_eq!(list.len(), 1);
+        list.select(0);
+        list.toggle_mark();
+        list.replace_remote_entries(
+            root,
+            vec![
+                format!("{root}/node_modules"),
+                good.clone(),
+                format!("{root}/.git/config"),
+            ],
+        );
+        assert_eq!(list.len(), 2);
+        assert_eq!(list.selected(), Some(good.as_str()));
+        assert_eq!(list.marked(), [good]);
+        assert!(list.can_mark(&format!("{root}/node_modules")));
+        assert!(!list.can_mark("/outside/file"));
+    }
+
+    #[test]
+    fn saved_remote_view_retains_relative_exclusion_policy_and_live_marks() {
+        let root = "/srv/.git/tree";
+        let first = format!("{root}/first");
+        let second = format!("{root}/second");
+        let mut list = FileList::new_remote(root, vec![first.clone(), second.clone()]);
+        list.select(0);
+        let saved = list.clone();
+        list.select(1);
+        list.toggle_mark();
+        list.restore_view(saved);
+        assert_eq!(list.selected(), Some(first.as_str()));
+        assert_eq!(list.marked(), [second]);
+        assert!(!list.can_mark(&format!("{root}/.git/config")));
+        assert!(list.can_mark(&first));
     }
 }
 

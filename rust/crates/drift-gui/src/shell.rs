@@ -399,7 +399,11 @@ impl Shell {
                     .unwrap_or_default();
                 self.remote.update(cx, |remote, cx| {
                     remote.set_context(id.project, hosts, cx);
-                    remote.set_selection_location(self.browser.read(cx).location().cloned(), cx);
+                    remote.set_selection_location(
+                        self.browser.read(cx).location().cloned(),
+                        window,
+                        cx,
+                    );
                 });
                 let can_register = self
                     .browser
@@ -573,7 +577,7 @@ impl Shell {
         self.config_cancel = Some((id, operation.cancel));
         cx.spawn_in(window, async move |this, cx| {
             let result = operation.task.await;
-            let _ = this.update_in(cx, |this, _, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 if this.browser.read(cx).id().project != id.project
                     || this.configuration != id.operation
                 {
@@ -590,6 +594,7 @@ impl Shell {
                             remote.set_context(id.project, hosts, cx);
                             remote.set_selection_location(
                                 this.browser.read(cx).location().cloned(),
+                                window,
                                 cx,
                             );
                         });
@@ -1050,6 +1055,8 @@ mod menu_tests;
 #[cfg(test)]
 mod project_tests;
 mod projects;
+#[cfg(test)]
+mod remote_visibility_tests;
 #[cfg(test)]
 mod resize_focus_tests;
 #[cfg(test)]

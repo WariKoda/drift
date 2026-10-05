@@ -21,19 +21,24 @@ use tokio_util::sync::CancellationToken;
 struct Verifier {
     options: ConnectOptions,
     names: Vec<String>,
+    hostname: String,
 }
 impl client::Handler for Verifier {
     type Error = Error;
     async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool> {
-        if key.certificate().is_some() {
-            return Err(Error::Invalid(
-                "SSH host certificate verification is not implemented yet".into(),
-            ));
-        }
         let path = self.options.known_hosts.clone();
         let names = self.names.clone();
-        let key = key.public_key();
-        tokio::task::spawn_blocking(move || known_hosts::verify(&path, &names, &key))
+        let hostname = self.hostname.clone();
+        let key = match key {
+            PublicKeyOrCertificate::Certificate(cert) => cert.clone().into(),
+            PublicKeyOrCertificate::PublicKey { key, hash_alg } => {
+                PublicKeyOrCertificate::PublicKey {
+                    key: key.clone(),
+                    hash_alg: *hash_alg,
+                }
+            }
+        };
+        tokio::task::spawn_blocking(move || known_hosts::verify(&path, &names, &hostname, &key))
             .await
             .map_err(|e| Error::Invalid(format!("known_hosts task: {e}")))??;
         Ok(true)
@@ -147,24 +152,17 @@ async fn establish(host: Host, options: ConnectOptions) -> Result<SftpClient> {
     let names = vec![known_hosts::endpoint(hostname, port)];
     let path = options.known_hosts.clone();
     let host_names = names.clone();
-    let mut preferred =
+    config.preferred =
         tokio::task::spawn_blocking(move || known_hosts::preferred(&path, &host_names))
             .await
             .map_err(|e| Error::Invalid(format!("known_hosts task: {e}")))??;
-    if !preferred.is_empty() {
-        for algorithm in config.preferred.key.iter() {
-            if !preferred.contains(algorithm) {
-                preferred.push(algorithm.clone());
-            }
-        }
-        config.preferred.key = std::borrow::Cow::Owned(preferred);
-    }
     let mut ssh = client::connect_stream(
         Arc::new(config),
         stream,
         Verifier {
             options: options.clone(),
             names,
+            hostname: hostname.to_owned(),
         },
     )
     .await?;

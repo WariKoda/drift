@@ -7,7 +7,7 @@ use drift_core::{
 use std::{
     fs,
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::OnceLock,
     time::Duration,
@@ -33,13 +33,67 @@ impl Drop for Process {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct CertificateOptions<'a> {
+    pub host_key: &'a str,
+    pub ca_key: &'a str,
+    pub host_certificate: bool,
+    pub principals: Option<&'a str>,
+    pub validity: &'a str,
+    pub critical: Option<&'a str>,
+    pub raw_fallback: bool,
+    pub tamper_signature: bool,
+}
+impl Default for CertificateOptions<'_> {
+    fn default() -> Self {
+        Self {
+            host_key: "ed25519",
+            ca_key: "ed25519",
+            host_certificate: true,
+            principals: Some("127.0.0.1"),
+            validity: "-1h:+1h",
+            critical: None,
+            raw_fallback: false,
+            tamper_signature: false,
+        }
+    }
+}
+
 pub struct Server {
     pub dir: tempfile::TempDir,
     pub port: u16,
     pub child: Process,
 }
 impl Server {
-    pub fn new(drop_probes: bool) -> Self {
+    fn generate_key(dir: &Path, name: &str, algorithm: &str) {
+        let mut command = Command::new("ssh-keygen");
+        command.args(["-q", "-t", algorithm, "-N", ""]);
+        match algorithm {
+            "rsa" => {
+                command.args(["-b", "2048"]);
+            }
+            "ecdsa" => {
+                command.args(["-b", "256"]);
+            }
+            _ => {}
+        }
+        let result = command
+            .arg("-f")
+            .arg(dir.join(name))
+            .output()
+            .expect("ssh-keygen is required for real protocol tests");
+        assert!(
+            result.status.success(),
+            "generate {algorithm} {name}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    fn spawn(
+        dir: &Path,
+        port: u16,
+        drop_probes: bool,
+        certificate: Option<&CertificateOptions<'_>>,
+    ) -> (Process, u16) {
         let binary = SERVER.get_or_init(|| {
             let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .ancestors()
@@ -64,29 +118,27 @@ impl Server {
             );
             binary
         });
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir(dir.path().join("files")).unwrap();
-        for name in ["host-key", "client-key"] {
-            assert!(
-                Command::new("ssh-keygen")
-                    .args(["-q", "-t", "ed25519", "-N", "", "-f"])
-                    .arg(dir.path().join(name))
-                    .status()
-                    .unwrap()
-                    .success()
-            );
+        let mut command = Command::new(binary);
+        command
+            .arg(dir.join("host-key"))
+            .arg(dir.join("client-key.pub"))
+            .arg(dir.join("files"))
+            .arg(port.to_string())
+            .env("DRIFT_TEST_DROP_PROBES", drop_probes.to_string())
+            .env_remove("DRIFT_TEST_HOST_CERT")
+            .env_remove("DRIFT_TEST_RAW_HOST_KEY")
+            .env_remove("DRIFT_TEST_TAMPER_CERT")
+            .stdout(Stdio::piped());
+        if let Some(options) = certificate {
+            command
+                .env("DRIFT_TEST_HOST_CERT", dir.join("host-key-cert.pub"))
+                .env("DRIFT_TEST_RAW_HOST_KEY", options.raw_fallback.to_string())
+                .env(
+                    "DRIFT_TEST_TAMPER_CERT",
+                    options.tamper_signature.to_string(),
+                );
         }
-        let mut child = Process(
-            Command::new(binary)
-                .arg(dir.path().join("host-key"))
-                .arg(dir.path().join("client-key.pub"))
-                .arg(dir.path().join("files"))
-                .arg("0")
-                .env("DRIFT_TEST_DROP_PROBES", drop_probes.to_string())
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap(),
-        );
+        let mut child = Process(command.spawn().unwrap());
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap())
             .read_line(&mut line)
@@ -95,6 +147,47 @@ impl Server {
             .trim()
             .parse()
             .expect("server did not return listening port");
+        (child, port)
+    }
+    pub fn new(drop_probes: bool) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("files")).unwrap();
+        for name in ["host-key", "client-key"] {
+            Self::generate_key(dir.path(), name, "ed25519");
+        }
+        let (child, port) = Self::spawn(dir.path(), 0, drop_probes, None);
+        Self { dir, port, child }
+    }
+    pub fn certified(options: CertificateOptions<'_>) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("files")).unwrap();
+        Self::generate_key(dir.path(), "host-key", options.host_key);
+        Self::generate_key(dir.path(), "ca-key", options.ca_key);
+        Self::generate_key(dir.path(), "client-key", "ed25519");
+        let mut command = Command::new("ssh-keygen");
+        command
+            .args(["-q", "-s"])
+            .arg(dir.path().join("ca-key"))
+            .args(["-I", "drift-test-host", "-V", options.validity]);
+        if options.host_certificate {
+            command.arg("-h");
+        }
+        if let Some(principals) = options.principals {
+            command.args(["-n", principals]);
+        }
+        if let Some(critical) = options.critical {
+            command.args(["-O", critical]);
+        }
+        let result = command
+            .arg(dir.path().join("host-key.pub"))
+            .output()
+            .expect("ssh-keygen is required for real certificate tests");
+        assert!(
+            result.status.success(),
+            "sign real SSH certificate: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let (child, port) = Self::spawn(dir.path(), 0, false, Some(&options));
         Self { dir, port, child }
     }
     pub fn host(&self) -> Host {
@@ -161,29 +254,10 @@ impl Server {
         self.stop();
         fs::remove_file(self.dir.path().join("host-key")).unwrap();
         fs::remove_file(self.dir.path().join("host-key.pub")).unwrap();
-        assert!(
-            Command::new("ssh-keygen")
-                .args(["-q", "-t", "ed25519", "-N", "", "-f"])
-                .arg(self.dir.path().join("host-key"))
-                .status()
-                .unwrap()
-                .success()
-        );
-        self.child = Process(
-            Command::new(SERVER.get().unwrap())
-                .arg(self.dir.path().join("host-key"))
-                .arg(self.dir.path().join("client-key.pub"))
-                .arg(self.dir.path().join("files"))
-                .arg(self.port.to_string())
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap(),
-        );
-        let mut line = String::new();
-        BufReader::new(self.child.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
-        assert_eq!(line.trim(), self.port.to_string());
+        Self::generate_key(self.dir.path(), "host-key", "ed25519");
+        let (child, port) = Self::spawn(self.dir.path(), self.port, false, None);
+        self.child = child;
+        assert_eq!(port, self.port);
     }
 }
 impl Drop for Server {

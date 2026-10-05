@@ -22,7 +22,7 @@ use gpui_kit::base::{Disableable, ElementExt};
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -952,7 +952,7 @@ impl Render for RemotePane {
                     .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
                         this.focus.focus(w, cx);
                     }))
-                    .child(Input::new(&self.filter).id("remote-filter")),
+                    .child(crate::form_input::guard(&self.filter, |input| input.id("remote-filter"))),
             )
             .child(
                 div()

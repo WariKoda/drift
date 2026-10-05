@@ -68,9 +68,10 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Die PRs sind offen und nicht in `main` integriert. Vor Integration die
+  Alle PRs #91 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Vor Integration die
   gestapelte Kette #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- CI von #90 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+- Bestätigte CI von #91 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
   #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
@@ -79,9 +80,12 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Die App-Visibility-Fixture in #89 hatte dieselbe Peer-Cleanup-Grenze beim Wechsel vom
   Rohclient zur Dienst-Sitzung: `2a40c22` erlaubt beide Vier-Socket-Pools (8), ohne
   Sleep/Retry oder Produktionsänderung. Die korrigierte CI ist vollständig grün.
-  Auch die frischen Go-/Linux-/macOS-Läufe von #90 sind bestanden
-  (`37205728099`, `37205731151`). Frische CI von #91 bleibt separat zu prüfen.
-  CI ist keine native Plattformabnahme.
+  Auch die Go-/Linux-/macOS-Läufe von #90 sind bestanden
+  (`37205728099`, `37205731151`). Für #91 sind alle sechs Checks der Läufe
+  [37232332638](https://github.com/WariKoda/drift/actions/runs/37232332638) und
+  [37232336139](https://github.com/WariKoda/drift/actions/runs/37232336139) bestanden
+  (geprüfter Stand `84b0388`, Implementierung `4fe98de`). Damit ist die Paste-/IME-
+  Härtung lokal und in Linux-/macOS-CI geprüft. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
 
@@ -99,8 +103,9 @@ Letzte lokale Gesamtprüfung: **295 Rust-Tests, davon 175 Headless-GPUI-Tests
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
 Prüfartefakte: `/var/tmp/drift-input-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
-fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. Native Plattformabnahme
-und frische CI von #91 bleiben separate Freigabeschritte.
+fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI von #91 ist ebenfalls
+bestanden. Offen bleiben native Plattformabnahme sowie Review und Integration des
+Draft-PR-Stacks; die sieben verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 

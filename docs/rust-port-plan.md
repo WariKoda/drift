@@ -53,7 +53,9 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 - Implementierungsstand: Commit `66359d9`,
   [Draft-PR #93](https://github.com/WariKoda/drift/pull/93) für automatische
   Serverlink-Angebote, Snapshot-/Defaultprüfung vor Writes und abgesicherte
-  Native-Dialogrouten. Er basiert auf #92; frische CI von #93 ist noch nicht bestätigt.
+  Native-Dialogrouten. Er basiert auf #92. Die macOS-CI fand einen Fixture-Fehler:
+  Passwort-Select-all nutzte Ctrl+A statt Cmd+A; der Test verwendet jetzt die native
+  Plattformtaste. Linux-Regression bestanden; neue vollständige CI noch nicht bestätigt.
 - Basisstand: Commit `4ebdda8`,
   [Draft-PR #92](https://github.com/WariKoda/drift/pull/92) für zeichengenaue
   Diff-Auswahl, Inhaltskopie, virtualisierten Auto-Scroll und zustandserhaltenden
@@ -119,7 +121,8 @@ Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
 Prüfartefakte: `/var/tmp/drift-offer-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI der Basis #92 ist
-vollständig bestanden; frische CI von #93 ist noch nicht bestätigt.
+vollständig bestanden. #93 hatte den oben beschriebenen macOS-Select-all-
+Fixture-Fehler; korrigierte vollständige CI ist noch nicht bestätigt.
 Zwei unabhängige statische Reviews sind ohne Blocker abgeschlossen. Offen bleiben
 native Plattformabnahme sowie Review und Integration des Draft-PR-Stacks; die fünf
 verbleibenden Arbeitsblöcke stehen unten.

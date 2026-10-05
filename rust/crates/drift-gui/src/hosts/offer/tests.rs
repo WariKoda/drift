@@ -942,7 +942,14 @@ async fn offer_rejected_approval_and_back_preserve_password_hidden_marks_and_inp
     let (handle, manager) = fixture(&store, Some("dest"), desired, None, cx).await;
     tab_to(handle, "password", cx);
     cx.update_window(handle, |_, w, cx| {
-        w.press("ctrl-a", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
         w.input(" 日本🦀e\u{301} replacement ", cx);
     })
     .unwrap();

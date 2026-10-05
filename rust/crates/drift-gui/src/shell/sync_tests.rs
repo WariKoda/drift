@@ -1,4 +1,7 @@
 use super::*;
+mod rename_ack;
+mod replacement;
+mod terminal_preview;
 use crate::{actions::bind_keys, sftp_test_support as support};
 use drift_app::sync::{ItemOutcome, StopReason};
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};

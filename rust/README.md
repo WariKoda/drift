@@ -441,6 +441,33 @@ prevents the test retry; cancelling does not undo already committed trust, and
 the status explicitly warns to reload/reset it before retrying. Existing connections keep their policy;
 future connections verify again. Reset neither reconnects nor repeats transfers.
 
+Saving a direct project host first checks for equal endpoints without changing any
+host/server records. Matching uses ASCII-case-insensitive hostnames, effective
+ports and exact users/protocols (empty protocol means SFTP), with each record's
+own scope defaults. Credentials, keep-alive, roots and mappings are not matching
+criteria. The first sorted global server takes precedence over sorted hosts in
+other projects; the manual picker remains available for a different target.
+**Use server link** (`y`) explicitly replaces the draft's connection/authentication
+and keep-alive settings with the server's, retaining its name, root and mappings.
+**Save own connection** (`n`) retains the original connection. **Back to form** or
+Escape preserves the native inputs, secrets and draft; checking can be cancelled,
+but an approved write cannot be cancelled or rolled back. Native Enter/Space
+keeps each focused button's labelled action; unfocused Enter never accepts a link.
+Global/already-linked forms bypass this check. No match continues the original
+ordinary Save; discovery errors require a new explicit decision, not a silent save.
+
+Acceptance revalidates the destination version/name, source record/defaults and
+effective endpoint under the shared write lock before any commit. Cross-project
+acceptance promotes global → source → destination, using collision-safe server
+names. If a later write fails, committed server information and warnings remain
+visible; the destination draft keeps that server reference for a subsequent
+explicit Save, without repeating promotion. A promotion that changes the effective
+account/endpoint is rejected before writing. All discovery/write work remains in
+the background; covering help/certificates reject prior-frame pointer/keyboard
+approval and background completion does not steal their focus. Short offer views
+use bounded scrolling and native focus/resize reveal. These routes are headless
+checked, not native Wayland/X11/macOS acceptance.
+
 Save conflicts and validation errors leave the form open. Cancel it, reload the
 list and reopen the record to use a newer version. Delete asks for confirmation;
 deleting or renaming a server used by project links fails visibly. Closing Hosts

@@ -530,9 +530,13 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
    Einfügungen bleiben praktisch zu prüfen. Keine Secret-/Pfadbereinigung.
-3. **Nächster begrenzter Codeblock:** SSH-Hostzertifikate und CA-Einträge;
-   aktuell werden sie ausdrücklich abgewiesen. Native Diff-Auswahl, Glyphen-Hit-
-   Tests und Clipboard sowie neue Serverlink-Angebote praktisch mit abnehmen.
+3. **Nächster begrenzter Codeblock:** SFTP-Zielersatz auf eingeschränkten Servern.
+   SSH-Hostzertifikate/CA bleiben wegen Parser-/Exchange-Signatur-/Rekey-Problemen
+   der Abhängigkeiten gesperrt. Der separate lokale Prototyp ist mit 42 gezielten
+   Tests geprüft, aber nicht freigegeben; siehe
+   [SSH-Blocker und Wiederaufnahme](rust-ssh-certificate-blockers.md).
+   Native Diff-Auswahl, Glyphen-Hit-Tests, Clipboard und Serverlink-Angebote
+   bleiben praktisch mit abzunehmen.
 4. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
    Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
@@ -551,7 +555,7 @@ stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
+| 1 | SSH-Hostzertifikate/CA | Blockiert: separater lokaler Prototyp mit 42 gezielten Tests; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Regulärer Stand weist Zertifikate weiterhin ab; keine Release-Freigabe. |
 | 2 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
 | 3 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
 | 4 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |

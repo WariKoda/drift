@@ -526,6 +526,8 @@ impl Shell {
         cx.notify();
     }
     fn open_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         let slug = self
             .browser
             .read(cx)
@@ -713,6 +715,8 @@ impl Shell {
                     .update(cx, |browser, cx| browser.focus(window, cx));
             }
             ToolbarEvent::Projects => {
+                self.comparison
+                    .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
                 self.projects
                     .update(cx, |projects, cx| projects.toggle(window, cx));
                 if !self.projects.read(cx).visible() {

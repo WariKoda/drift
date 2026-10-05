@@ -18,7 +18,7 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **4. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
+Stand: **5. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
 aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
 Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
@@ -39,14 +39,20 @@ Kontrollen sind ergänzt. Tools/Links/Projektformulare haben begrenzte Details u
 Aktionen samt Fokus-Reveal und abgesichertem asynchronem Buttonfokus.
 Einzeilige Eingabegrenzen für Paste, native Text-/IME-Callbacks und Accessibility
 sind ergänzt; gespeicherte problematische Formularwerte werden vor nativer
-Normalisierung abgewiesen.
+Normalisierung abgewiesen. Zeichengenaue Diff-Auswahl über Zeilengrenzen ist
+mit graphemsicheren Endpunkten, Kopie sichtbarer Inhalte und erhaltener
+Auswahl/Faltung/Scrollposition für unveränderte Refresh-Ergebnisse ergänzt.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `fix/rust-form-input-boundaries`, aufgebaut auf
-  `feature/rust-aux-form-scroll` (Commit `d1b4e30`).
-- Implementierungsstand: Commit `4fe98de`,
+- Aktueller Branch: `feature/rust-diff-text-selection`, aufgebaut auf
+  `fix/rust-form-input-boundaries` (Commit `c8ae4b4`).
+- Implementierungsstand: Commit `4ebdda8`,
+  [Draft-PR #92](https://github.com/WariKoda/drift/pull/92) für zeichengenaue
+  Diff-Auswahl, Inhaltskopie, virtualisierten Auto-Scroll und zustandserhaltenden
+  Refresh. Er basiert auf #91; CI von #92 ist noch nicht bestätigt.
+- Basisstand: Commit `4fe98de`,
   [Draft-PR #91](https://github.com/WariKoda/drift/pull/91) für Raw-Paste-/InputHandler-/
   Accessibility-Grenzen, IME-/Bestätigungsisolation und blockierte problematische
   gespeicherte Formularwerte. Er basiert auf Commit `86ae26c`,
@@ -68,9 +74,9 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Alle PRs #91 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Alle PRs #92 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
   Vor Integration die
-  gestapelte Kette #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+  gestapelte Kette #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
 - Bestätigte CI von #91 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
@@ -81,10 +87,10 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Rohclient zur Dienst-Sitzung: `2a40c22` erlaubt beide Vier-Socket-Pools (8), ohne
   Sleep/Retry oder Produktionsänderung. Die korrigierte CI ist vollständig grün.
   Auch die Go-/Linux-/macOS-Läufe von #90 sind bestanden
-  (`37205728099`, `37205731151`). Für #91 sind alle sechs Checks der Läufe
-  [37232332638](https://github.com/WariKoda/drift/actions/runs/37232332638) und
-  [37232336139](https://github.com/WariKoda/drift/actions/runs/37232336139) bestanden
-  (geprüfter Stand `84b0388`, Implementierung `4fe98de`). Damit ist die Paste-/IME-
+  (`37205728099`, `37205731151`). Für #91 sind auch alle sechs Checks der Läufe
+  [37316574252](https://github.com/WariKoda/drift/actions/runs/37316574252) und
+  [37316567202](https://github.com/WariKoda/drift/actions/runs/37316567202) bestanden
+  (geprüfter Stand `c8ae4b4`, Implementierung `4fe98de`). Damit ist die Paste-/IME-
   Härtung lokal und in Linux-/macOS-CI geprüft. CI ist keine native Plattformabnahme.
 
 ### Fortschritt auf einen Blick
@@ -93,21 +99,46 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | --- | --- | --- |
 | Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion, Verbindungstest, Trust-Reset und Fokus-Reveal, begrenzte Details/Aktionen und einzeilige Eingabe-/IME-Grenzen | Automatische Link-Angebote bei gleichen Endpunkten; native Eingabeabnahme |
 | Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe, Filter-Rückwege und Eingabegrenzen | Native Eingabeabnahme |
-| Vergleich und Sync | Unified-Diff, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Refresh, Abbruch/Verlust und einblendbare Fehlerdetails | Zeichengenaue Textauswahl |
+| Vergleich und Sync | Unified-Diff, graphemsichere Textauswahl über Zeilen, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Zustandserhalt bei unverändertem Refresh, Abbruch/Verlust und Fehlerdetails | Native Plattformabnahme |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **295 Rust-Tests, davon 175 Headless-GPUI-Tests
-(GUI-Binärsuite 185); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Letzte lokale Gesamtprüfung: **324 Rust-Tests, davon 193 Headless-GPUI-Tests
+(GUI-Binärsuite 214); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
-Prüfartefakte: `/var/tmp/drift-input-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
+Prüfartefakte: `/var/tmp/drift-diff-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI von #91 ist ebenfalls
-bestanden. Offen bleiben native Plattformabnahme sowie Review und Integration des
-Draft-PR-Stacks; die sieben verbleibenden Arbeitsblöcke stehen unten.
+bestanden; frische CI von #92 ist noch nicht bestätigt. Offen bleiben native
+Plattformabnahme sowie Review und Integration des Draft-PR-Stacks; die sechs
+verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
+
+- Die Diff-Auswahl verwendet unveränderliche Quellzeilenindizes und UTF-8-
+  Graphemgrenzen statt Pixelendpunkten oder flüchtiger Auswahl einzelner
+  virtualisierter Rows. Native `StyledText`-Geometrie liefert Hit-Tests und
+  Markierung; `unicode-segmentation` ist direkt auf die bereits transitive
+  Version `1.13.3` gepinnt, ohne Vendoring oder neue Paketversionen.
+- Textklick setzt den Caret, Drag/Shift-Klick erweitert zeilenübergreifend;
+  Gutterklick wählt eine Inhaltszeile. Links/Rechts bewegt den Caret,
+  Shift-Pfeile/Shift-Home/End erweitern, Ctrl/Cmd+A wählt sichtbare Inhalte.
+  Kopie enthält nur ausgewählten angezeigten Dateiinhalt mit Leerzeichen und
+  Leerzeilen: keine Nummern, +/-Präfixe, Hunk-Header, Fold-Platzhalter oder
+  eingeklappte Inhalte. Ohne nichtleere Auswahl bleibt die formatierte Diff-Kopie.
+  Vergleichstext ist dekodiert/zeilenende-normalisiert, kein Raw-Dateiexport.
+- Auto-Scroll trifft neu gemountete Zeilen nach abgeschlossenen Frames;
+  Release/Escape, Blur, Datenwechsel und Abdeckung stoppen die eigene Geste.
+  Resize behält seine Priorität. Hilfe/Hosts/Projekte/Zertifikate und Vergleichs-
+  Schließen deaktivieren synchron, bevor ein neues Bild vorliegt; Capture-
+  Grenzen verhindern alte Pointer-/Button-/Wheel-Callbacks und Fokusdiebstahl.
+- Pro Datei bleiben Folds, Range und Scroll bei Dateiwechsel/Resize erhalten;
+  Vorschau-Richtungswechsel ordnen Endpunkte in sichtbarer Reihenfolge und
+  remappen den Scroll-Quellanker. Refresh erhält Zustand nur für dieselben
+  lokalen/entfernten Pfadpaare mit identischen fehlerfreien Vergleichsdaten und
+  gleicher Seitenpräsenz. Geänderte/entfernte/fehlgeschlagene Ergebnisse werfen
+  alte Koordinaten ab; Transferentscheidungen werden frisch aufgebaut.
 
 - Eigenständige Rust-App neben der Go-TUI; gemeinsame TOML-Dateien und permanente
   `write.lock`, mit getrennten Rohwerten und aufgelöster Konfiguration.
@@ -430,6 +461,16 @@ Draft-PR-Stacks; die sieben verbleibenden Arbeitsblöcke stehen unten.
   problematische gespeicherte Werte ohne Umschreibung, Resize-Escape-Priorität und
   Sync-Bestätigung erst nach Kompositionsende oder explizitem nativen Buttonfokus.
   Diese Tests sind keine OS-IME-/Accessibility-/Permission-Clipboard-Abnahme.
+  29 zusätzliche Diff-Regressionen (11 Modell-, 14 Headless-GPUI- und 4 echte
+  Shell-/SFTP-Tests) prüfen native Glyphen-Hits, kombinierende/ZWJ-Zeichen,
+  Vorwärts-/Rückwärtsdrag, Shift-Tasten, Leerzeichen/Leerzeilen, Upload-Reordering,
+  Folds und alte Paint-Identitäten. Deterministische Timer treiben Auto-Scroll
+  über gemountete Zeilen hinaus; Release/Escape/Abdeckung stoppen ihn.
+  Echter Refresh prüft eingefügte frühere Listenzeilen, geänderte/entfernte Inhalte
+  und Dateiwechsel/Help/Resize ohne Transfer. Raw-Events auf dem alten Dispatch-
+  Baum prüfen Fokus/Range/Folds/Scroll/Kopie nach Hilfe, Projekte, Hosts und
+  Vergleichs-Schließen, einschließlich zuvor gedrücktem Copy-Button und Wheel.
+  Native Glyphen-/Clipboard-/Accessibility-Abnahme bleibt separat.
 
 ### Native Abnahme und nächster Codeblock
 
@@ -448,8 +489,9 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
    Einfügungen bleiben praktisch zu prüfen. Keine Secret-/Pfadbereinigung.
-3. **Nächster begrenzter Codeblock:** zeichengenaue Diff-Textauswahl über
-   Zeilengrenzen, ohne Verlust von Folds, Scroll und Auswahl bei Resize/Refresh.
+3. **Nächster begrenzter Codeblock:** automatische Serverlink-Angebote beim
+   Speichern gleicher Endpunkte; manuelle Links/Promotion bleiben die Grundlage.
+   Native Diff-Auswahl, Glyphen-Hit-Tests und Clipboard praktisch mit abnehmen.
 4. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
    Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
@@ -458,22 +500,21 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
-**7 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
+**6 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
 Browser-Kontextmenüs, veränderbare Bereiche, Keyboard-/Dialog-Sicherheit,
 Finder-Fuzzy/Rückweg, Remote-Ignored-Sichtbarkeit sowie Formular-Scroll und
-Eingabegrenzen sind headless umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
+Eingabegrenzen und zeichengenaue Diff-Auswahl sind headless umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
 sind keine gleich großen Zeiteinheiten. Bereits implementierte Kernabläufe
 stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | Diff-Textauswahl | Offen: einzelne Zeichen über Zeilengrenzen auswählen; Auswahl ganzer Zeilen ist umgesetzt. |
-| 2 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
-| 3 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
-| 4 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
-| 5 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
-| 6 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |
-| 7 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
+| 1 | Automatische Serverlink-Angebote | Offen: beim Speichern Hosts mit gleichem Endpunkt erkennen und Verknüpfung anbieten; manuelle Links/Promotion sind umgesetzt. |
+| 2 | SSH-Hostzertifikate/CA | Offen: Hostzertifikate und CA-Einträge unterstützen; aktuell ausdrücklich abgewiesen. |
+| 3 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
+| 4 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
+| 5 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |
+| 6 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
 
 ### Orientierung und Prüfbefehle
 
@@ -481,7 +522,8 @@ Die zuständigen Module sind bereits aufgeteilt: `projects.rs` mit
 `projects/form.rs` und `projects/management.rs`; `shell/projects.rs` für Start
 und aktiven Root; `hosts/form.rs`, `hosts/tools.rs`, `hosts/links.rs` und
 `hosts/linking.rs`; `comparison.rs`, `comparison/view.rs`, `comparison/sync.rs`
-sowie `diff.rs`. `form_input.rs` samt `form_input/handler.rs`,
+sowie `diff.rs` mit `diff/{selection,text,interaction,viewport,view}.rs`.
+`form_input.rs` samt `form_input/handler.rs`,
 `form_input/accessibility.rs` und `form_input/ime_rejection.rs` hält die
 Eingabegrenze bei unveränderten nativen Entities. Kontextmenüs liegen in `browser/menu.rs`, `remote/menu.rs` und
 `browser_menu.rs`; `shell/comparison.rs` koordiniert ihren Vergleichsscope.
@@ -650,7 +692,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe implementiert und lokal geprüft; Hostzertifikate/CA, SFTP-Zielersatz auf eingeschränkten Servern, restliche Tastaturparität und zeichengenaue Textselektion offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe implementiert und lokal geprüft; Hostzertifikate/CA, SFTP-Zielersatz auf eingeschränkten Servern, native Tastatur-/Textauswahlabnahme offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version, optionales Datei-Logging und Browser-Kontextmenüs implementiert und lokal geprüft; restliche Tastaturparität offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Lokaler Linux-Release-Build bestanden; Pakete/Bundles, GUI-Release-Wege, Installation und native Abnahme offen |

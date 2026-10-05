@@ -12,7 +12,14 @@ use gpui_kit::{
     ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
     UniformListScrollHandle, Window, div, px, uniform_list,
 };
-use std::{collections::BTreeSet, sync::Arc};
+use std::{cell::RefCell, collections::BTreeSet, rc::Rc, sync::Arc};
+
+mod interaction;
+mod selection;
+mod text;
+mod view;
+mod viewport;
+use selection::{Selection, TextPoint};
 
 const ROW_HEIGHT: f32 = 25.;
 
@@ -21,7 +28,9 @@ pub struct DiffState {
     pub expanded: BTreeSet<usize>,
     pub direction: Decision,
     pub scroll: UniformListScrollHandle,
-    pub selection: Option<(usize, usize)>,
+    pub selection: Option<Selection>,
+    pub scroll_anchor: Option<usize>,
+    pub rendered_direction: Option<Decision>,
 }
 impl Default for DiffState {
     fn default() -> Self {
@@ -30,6 +39,8 @@ impl Default for DiffState {
             direction: Decision::Skip,
             scroll: UniformListScrollHandle::new(),
             selection: None,
+            scroll_anchor: None,
+            rendered_direction: None,
         }
     }
 }
@@ -53,6 +64,12 @@ pub struct DiffPane {
     rows: Vec<Row>,
     message: String,
     focus: FocusHandle,
+    geometry: Rc<RefCell<text::Geometry>>,
+    revision: u64,
+    active: bool,
+    drag: Option<interaction::Drag>,
+    auto_scroll: gpui_kit::base::AutoScroll,
+    blur: Option<gpui_kit::Subscription>,
 }
 impl Focusable for DiffPane {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -67,6 +84,12 @@ impl DiffPane {
             rows: vec![],
             message: "Select a comparison file".into(),
             focus: cx.focus_handle().tab_stop(true),
+            geometry: Rc::new(RefCell::new(text::Geometry::default())),
+            revision: 0,
+            active: false,
+            drag: None,
+            auto_scroll: gpui_kit::base::AutoScroll::default(),
+            blur: None,
         }
     }
     pub fn show(
@@ -76,19 +99,45 @@ impl DiffPane {
         message: String,
         cx: &mut Context<Self>,
     ) {
+        self.stop_gesture();
+        self.revision += 1;
+        self.geometry = Rc::new(RefCell::new(text::Geometry::default()));
         self.result = result;
         self.state = state;
         self.message = message;
         self.rows = self.result.as_ref().map_or_else(Vec::new, |r| {
             hunks::flatten(r, &self.state.expanded, self.state.direction)
         });
+        if self
+            .state
+            .rendered_direction
+            .is_some_and(|direction| direction != self.state.direction)
+            && let Some(source) = self.state.scroll_anchor
+        {
+            self.state.scroll.scroll_to_item_strict(
+                hunks::source_index(&self.rows, source),
+                ScrollStrategy::Top,
+            );
+        }
         cx.notify();
+    }
+    pub fn snapshot(&self) -> DiffState {
+        let mut state = self.state.clone();
+        state.scroll_anchor = self.rows.get(state.top_row()).map(Row::source);
+        state.rendered_direction = Some(state.direction);
+        state
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+        self.stop_gesture();
     }
     pub fn direction(&mut self, direction: Decision, cx: &mut Context<Self>) {
         self.state.direction = direction;
         self.rebuild(cx);
     }
     fn rebuild(&mut self, cx: &mut Context<Self>) {
+        self.stop_gesture();
+        self.revision += 1;
         let top = self.state.top_row();
         let anchor = self.rows.get(top).map_or(0, Row::source);
         self.rows = self.result.as_ref().map_or_else(Vec::new, |r| {
@@ -100,6 +149,9 @@ impl DiffPane {
         cx.notify();
     }
     fn select(&mut self, index: usize, extend: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.active {
+            return;
+        }
         self.focus.focus(window, cx);
         if let Some(Row::Fold { gap, .. }) = self.rows.get(index) {
             self.state.expanded.insert(*gap);
@@ -107,12 +159,22 @@ impl DiffPane {
             return;
         }
         if let Some(Row::Line(source)) = self.rows.get(index) {
-            let start = if extend {
-                self.state.selection.map_or(*source, |(start, _)| start)
-            } else {
-                *source
+            let point = TextPoint {
+                source: *source,
+                byte: 0,
             };
-            self.state.selection = Some((start, *source));
+            let anchor = if extend {
+                self.state
+                    .selection
+                    .map_or(point, |selection| selection.anchor)
+            } else {
+                point
+            };
+            let head = TextPoint {
+                source: *source,
+                byte: self.result.as_ref().unwrap().lines[*source].text.len(),
+            };
+            self.state.selection = Some(Selection { anchor, head });
             cx.notify();
         }
     }
@@ -253,67 +315,28 @@ impl DiffPane {
         }
     }
     fn copy(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
-        let text = self
-            .rows
-            .iter()
-            .filter(|row| {
-                self.state.selection.is_none_or(
-                    |(a, b)| matches!(row,Row::Line(i) if (a.min(b)..=a.max(b)).contains(i)),
-                )
+        if !self.active {
+            return;
+        }
+        let text = if let Some(selection) = self
+            .state
+            .selection
+            .filter(|selection| !selection.collapsed())
+        {
+            self.result.as_ref().map_or_else(String::new, |result| {
+                selection.copy_text(result, &self.rows)
             })
-            .map(|r| self.row_text(r))
-            .collect::<Vec<_>>()
-            .join("\n");
+        } else {
+            self.rows
+                .iter()
+                .map(|row| self.row_text(row))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 }
-impl Render for DiffPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let background = cx.theme().background;
-        let selected = cx.theme().selection;
-        div().id("unified-diff").flex().flex_col().flex_1().min_w_0().min_h_0()
-            .key_context("DriftDiff").track_focus(&self.focus)
-            .on_action(cx.listener(Self::copy))
-            .on_action(cx.listener(|this, _: &ScrollUp, _, cx| this.scroll_rows(false, 1, cx)))
-            .on_action(cx.listener(|this, _: &ScrollDown, _, cx| this.scroll_rows(true, 1, cx)))
-            .on_action(cx.listener(|this, _: &PageUp, _, cx| this.scroll_rows(false, this.page_rows(), cx)))
-            .on_action(cx.listener(|this, _: &PageDown, _, cx| this.scroll_rows(true, this.page_rows(), cx)))
-            .on_action(cx.listener(|this, _: &HalfPageUp, _, cx| this.scroll_rows(false, (this.page_rows()/2).max(1), cx)))
-            .on_action(cx.listener(|this, _: &HalfPageDown, _, cx| this.scroll_rows(true, (this.page_rows()/2).max(1), cx)))
-            .on_action(cx.listener(|this, _: &CursorFirst, _, cx| this.scroll_rows(false, usize::MAX, cx)))
-            .on_action(cx.listener(|this, _: &CursorLast, _, cx| this.scroll_rows(true, usize::MAX, cx)))
-            .on_action(cx.listener(|this, _: &ExpandContext, _, cx| this.expand_visible(cx)))
-            .on_action(cx.listener(|this, _: &FoldContext, _, cx| this.fold_visible(cx)))
-            .on_action(cx.listener(|this, _: &ToggleFolds, _, cx| this.toggle_folds(cx)))
-            .on_action(cx.listener(|this, _: &NextHunk, _, cx| this.hunk(true,cx)))
-            .on_action(cx.listener(|this, _: &PreviousHunk, _, cx| this.hunk(false,cx)))
-            .child(div().flex().flex_wrap().gap_2().p_2()
-                .child(Button::new("previous-hunk").label("Previous hunk").on_click(cx.listener(|this,_,_,cx| this.hunk(false,cx))))
-                .child(Button::new("next-hunk").label("Next hunk").on_click(cx.listener(|this,_,_,cx| this.hunk(true,cx))))
-                .child(Button::new("collapse-context").label("Fold context").on_click(cx.listener(|this,_,_,cx| { this.state.expanded.clear(); this.rebuild(cx); })))
-                .child(Button::new("copy-diff").label("Copy diff / selection").on_click(cx.listener(|this,_,w,cx| this.copy(&CopySelection,w,cx)))))
-            .child(div().p_2().child(match self.state.direction {
-                Decision::Upload => "Remote → Local (Upload preview)", Decision::Download | Decision::Skip => "Local → Remote (Download preview)", Decision::DeleteLocal => "Local → removed", Decision::DeleteRemote => "Remote → removed",
-            }))
-            .child(if self.rows.is_empty() {
-                div().p_3().child(if self.result.as_ref().is_some_and(|r| r.binary) { "Binary or large file: content comparison only".into() } else { self.message.clone() }).into_any_element()
-            } else {
-                uniform_list("diff-lines", self.rows.len(), cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                    range.map(|i| {
-                        let row = &this.rows[i];
-                        let chosen = this.state.selection.is_some_and(|(a,b)| matches!(row,Row::Line(source) if (a.min(b)..=a.max(b)).contains(source)));
-                        let color = match row { Row::Line(index) => match hunks::line(&this.result.as_ref().unwrap().lines[*index],this.state.direction).2 { LineKind::Added => cx.theme().success, LineKind::Removed => cx.theme().danger, LineKind::Equal => cx.theme().foreground }, _ => cx.theme().muted_foreground };
-                        let element = div().id(("diff-row",i)).h(px(ROW_HEIGHT)).px_2().font_family("monospace").whitespace_nowrap().bg(if chosen { selected } else { background }).text_color(color)
-                            .child(this.row_text(row))
-                            .on_click(cx.listener(move |this,event: &gpui_kit::ClickEvent,w,cx| this.select(i,event.modifiers().shift,w,cx)));
-                        #[cfg(test)]
-                        let element = element.test_support();
-                        element
-                    }).collect()
-                })).track_scroll(&self.state.scroll).flex_1().min_h_0().into_any_element()
-            })
-    }
-}
-
+#[cfg(test)]
+mod selection_tests;
 #[cfg(test)]
 mod tests;

@@ -1914,6 +1914,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "unicode-segmentation",
 ]
 
 [[package]]

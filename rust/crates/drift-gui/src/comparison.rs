@@ -154,12 +154,17 @@ impl ComparisonPane {
     }
     pub fn deactivate_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.split.deactivate(window, cx);
+        self.diff.update(cx, |diff, _| diff.deactivate());
     }
     pub fn visible(&self) -> bool {
         self.visible
     }
     pub fn is_loading(&self) -> bool {
         self.loading.is_some() || self.syncing.is_some()
+    }
+    #[cfg(test)]
+    pub(crate) fn diff_for_test(&self) -> &Entity<DiffPane> {
+        &self.diff
     }
     #[cfg(test)]
     pub(crate) fn sync_result_for_test(&self) -> Option<&SyncResult> {
@@ -274,14 +279,37 @@ impl ComparisonPane {
                 match result {
                     Ok(Ok(session)) => {
                         this.stale = false;
-                        let previous = this.selected.and_then(|i| this.session.as_ref()?.entries.get(i)).map(|e| e.local.clone());
+                        let previous = this.selected.and_then(|i| this.session.as_ref()?.entries.get(i)).map(|e| (e.local.clone(), e.remote.clone()));
+                        if let Some(index) = this.selected {
+                            this.states.insert(index, this.diff.read(cx).snapshot());
+                        }
                         this.decisions = session.entries.iter().map(|entry| if entry.error.is_some() { Decision::Skip } else { entry.result.as_ref().map_or(Decision::Skip,|r| r.suggestion()) }).collect();
+                        let mut states = BTreeMap::new();
+                        if let Some(old_session) = &this.session {
+                            let old_entries: BTreeMap<_, _> = old_session.entries.iter().enumerate()
+                                .map(|(index, entry)| ((&entry.local, &entry.remote), (index, entry))).collect();
+                            for (index, entry) in session.entries.iter().enumerate() {
+                                let Some((old_index, old_entry)) = old_entries.get(&(&entry.local, &entry.remote)) else { continue; };
+                                if old_entry.error.is_some() || entry.error.is_some() { continue; }
+                                let (Some(old_result), Some(result)) = (&old_entry.result, &entry.result) else { continue; };
+                                if old_result.lines != result.lines
+                                    || old_result.binary != result.binary
+                                    || old_result.content_diff != result.content_diff
+                                    || old_result.local.is_some() != result.local.is_some()
+                                    || old_result.remote.is_some() != result.remote.is_some()
+                                { continue; }
+                                if let Some(mut state) = this.states.get(old_index).cloned() {
+                                    state.direction = this.decisions[index];
+                                    states.insert(index, state);
+                                }
+                            }
+                        }
                         let errors = session.entries.iter().filter(|e| e.error.is_some()).count();
                         let message = format!("{} pairs; {} differences/errors; {errors} errors; {} ignored skipped; {} explicit ignored; {} hidden",session.scope.pairs,session.entries.len(),session.scope.ignored_skipped,session.scope.explicit_ignored,session.scope.hidden);
-                        this.session = Some(session); this.states.clear(); this.selected = None;
+                        this.session = Some(session); this.states = states; this.selected = None;
                         this.filter.update(cx,|input,cx| input.set_value("",window,cx));
                         this.files = (0..this.session.as_ref().unwrap().entries.len()).collect();
-                        let index = previous.and_then(|path| this.session.as_ref().unwrap().entries.iter().position(|e| e.local == path)).or_else(|| this.files.first().copied());
+                        let index = previous.and_then(|(local, remote)| this.session.as_ref().unwrap().entries.iter().position(|e| e.local == local && e.remote == remote)).or_else(|| this.files.first().copied());
                         this.choose(index,window,cx);
                         this.status(message,cx);
                     }
@@ -296,7 +324,7 @@ impl ComparisonPane {
     }
     fn choose(&mut self, index: Option<usize>, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(old) = self.selected {
-            self.states.insert(old, self.diff.read(cx).state.clone());
+            self.states.insert(old, self.diff.read(cx).snapshot());
         }
         self.selected = index;
         let (result, state, message) =
@@ -400,7 +428,7 @@ impl ComparisonPane {
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.load(window, cx);
     }
-    pub fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.confirm_sync.take().is_some() {
             cx.notify();
             return;
@@ -423,6 +451,7 @@ impl ComparisonPane {
         } else {
             self.visible = false;
         }
+        self.deactivate_layout(window, cx);
         cx.emit(ComparisonEvent::Closed);
         cx.notify();
     }

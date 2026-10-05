@@ -267,14 +267,28 @@ between those two areas. The r key refreshes and i toggles ignored paths.
 Upload shows Remote → Local, Download Local → Remote and deletion shows
 the affected side being removed. Unified rows have two number columns, hunk headers and three
 context lines. Click an unchanged fold to expand it; **Fold context** collapses it.
-Alt+Up/Down, [/] and the hunk buttons navigate changes. In the diff, arrows/J/K
+Alt+Up/Down, [/] and the hunk buttons navigate changes. In the diff, Up/Down/J/K
 scroll by line, PageUp/PageDown by page, Ctrl+U/D by half a page, and Home/g or
 End/G to the start/end. Enter/l expands the first visible folded gap, h collapses
 a visible expanded gap, and c toggles all foldable gaps. Space cycles the current
 action; A cycles every valid action, including files hidden by the filter.
-Click a text row, Shift-click another to select a line range, then Ctrl/Cmd+C to copy; **Copy diff / selection**
-copies that range or all displayed rows. Selection currently operates on whole
-lines. Each file retains its own fold/scroll state while browsing the results.
+Click text to place a caret; drag or Shift-click to select characters across lines.
+Selection follows extended graphemes, so combining characters and joined emoji
+are not split. Click the number/sign gutter to select a whole content line.
+Left/Right moves the caret; Shift+arrows extends the selection, Shift+Home/End
+extends to the line edge, and Ctrl/Cmd+A selects all visible content.
+Ctrl/Cmd+C or **Copy diff / selection** copies selected content only: no numbers,
++/- prefixes, hunk headers, fold placeholders or hidden context. Whitespace and
+blank lines are retained. Without a nonempty selection, copy still produces the
+formatted displayed diff. Text is the comparison's decoded, newline-normalized
+content, not an original-file byte export.
+
+Dragging near the viewport edge scrolls through virtualized rows; release or
+Escape ends that gesture without clearing its range. Pane resize keeps priority.
+Each file retains its own selection/fold/scroll state while browsing results.
+Refresh retains it for unchanged comparison content identified by the exact
+local/remote path pair; changed, removed or failed comparisons discard stale
+coordinates. Fresh sync suggestions and explicit confirmation are unaffected.
 
 **Sync selected** runs the active file's chosen action. **Sync all actions** runs
 all chosen actions in the comparison, including rows hidden by the text filter.
@@ -497,7 +511,9 @@ results, and `shell/projects.rs` routes startup and active-root changes. `toolba
 and `actions.rs` defines key bindings. `remote.rs` owns the remote pane and its
 connection/listing identities. `comparison.rs` and `comparison/view.rs` own the
 comparison lifetime and file list; `diff.rs` owns immutable-data rendering,
-direction, folds, source anchors, line selection and scroll state. Shell comparison
+direction, folds, source anchors, grapheme selection and scroll state. Its `diff/`
+modules use native shaped-text geometry and an application-owned logical range
+rather than pixel endpoints or independent virtual-row selection participants. Shell comparison
 entry routing lives separately in `shell/comparison.rs`. Certificate presentation
 lives in `certificates.rs`; `shell/certificates.rs` coordinates background trust
 writes and identity-checked connection retries. Host forms live in `hosts/form.rs`;
@@ -660,7 +676,7 @@ explicit return-state restoration and mapped remote ignored visibility are avail
 Host/mapping controls have external-scroll focus reveal; Tools/Links/project-form
 details/actions are bounded and wrapping. Single-line input boundaries reject
 whole unsafe insertions and isolate IME Escape/Enter; native platform acceptance
-and character-precise diff selection remain.
+remains. Character-precise, cross-line diff selection is implemented.
 Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

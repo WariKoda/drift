@@ -1066,6 +1066,8 @@ mod resize_focus_tests;
 #[cfg(test)]
 mod resize_tests;
 #[cfg(test)]
+mod serverlink_tests;
+#[cfg(test)]
 mod shutdown_logging_tests;
 #[cfg(test)]
 mod sync_tests;

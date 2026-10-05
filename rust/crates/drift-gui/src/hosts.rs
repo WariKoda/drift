@@ -2,6 +2,7 @@ mod form;
 mod keyboard;
 mod linking;
 mod links;
+mod offer;
 mod tools;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use crate::focus_reveal::FocusReveal;
@@ -64,6 +65,7 @@ pub fn bind_keys(cx: &mut App) {
     keyboard::bind_keys(cx);
     tools::bind_keys(cx);
     links::bind_keys(cx);
+    offer::bind_keys(cx);
     cx.bind_keys([
         KeyBinding::new("escape", Close, Some("DriftHosts")),
         KeyBinding::new("ctrl-f", Search, Some("DriftHosts")),
@@ -88,6 +90,8 @@ pub struct HostManager {
     global: bool,
     catalog: Option<HostCatalog>,
     form: Option<HostForm>,
+    offer: Option<offer::LinkOffer>,
+    offer_restore: Option<(u64, FocusHandle, Option<gpui_kit::EntityId>)>,
     delete: Option<Host>,
     query: Entity<InputState>,
     focus: FocusHandle,
@@ -97,6 +101,7 @@ pub struct HostManager {
     operation: u64,
     cancel: Option<CancellationToken>,
     writing: bool,
+    active: bool,
     changed: bool,
     status: String,
     pending_status: Option<String>,
@@ -139,6 +144,8 @@ impl HostManager {
             project_slug,
             catalog: None,
             form: None,
+            offer: None,
+            offer_restore: None,
             delete: None,
             query,
             focus,
@@ -148,6 +155,7 @@ impl HostManager {
             operation: 0,
             cancel: None,
             writing: false,
+            active: false,
             changed: false,
             status: String::new(),
             pending_status: None,
@@ -165,10 +173,11 @@ impl HostManager {
             cancel.cancel();
         }
         self.writing = !matches!(command, HostCommand::Load);
-        self.status = if self.writing {
-            "Saving changes…"
-        } else {
-            "Loading hosts…"
+        self.status = match command {
+            HostCommand::OfferLink { .. } => "Checking matching servers…",
+            HostCommand::SaveLink { .. } => "Saving server link…",
+            HostCommand::Load => "Loading hosts…",
+            _ => "Saving changes…",
         }
         .into();
         let id = OperationId {
@@ -206,19 +215,26 @@ impl HostManager {
                         }
                     }
                     Ok(Ok(HostResponse::Saved | HostResponse::Deleted)) => {
-                        if let Some(form) = &this.form {
-                            this.cursor =
-                                Some(form.fields[NAME].read(cx).value().trim().to_owned());
-                        }
-                        this.form = None;
-                        this.delete = None;
-                        this.list_focus.focus(window, cx);
-                        this.changed = true;
-                        this.request(HostCommand::Load, window, cx);
+                        this.host_saved(window, cx)
+                    }
+                    Ok(Ok(HostResponse::LinkOffer(catalog))) => {
+                        this.offer_loaded(*catalog, window, cx)
+                    }
+                    Ok(Ok(HostResponse::LinkSaved(result))) => {
+                        this.linked_saved(*result, window, cx)
                     }
                     Ok(Ok(_)) => this.status = "Unexpected host management response".into(),
-                    Ok(Err(error)) => this.status = error.to_string(),
-                    Err(error) => this.status = format!("Background task failed: {error}"),
+                    Ok(Err(error)) => {
+                        this.offer_failed();
+                        this.status = this.pending_status.clone().map_or_else(
+                            || error.to_string(),
+                            |warning| format!("{warning} — Reload failed: {error}"),
+                        );
+                    }
+                    Err(error) => {
+                        this.offer_failed();
+                        this.status = format!("Background task failed: {error}");
+                    }
                 }
                 cx.notify();
             });
@@ -226,8 +242,22 @@ impl HostManager {
         .detach();
         cx.notify();
     }
+    pub fn operation(&self) -> u64 {
+        self.operation
+    }
+    #[cfg(test)]
+    pub(super) fn is_loading(&self) -> bool {
+        self.cancel.is_some()
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.focus.focus(window, cx);
+        if let Some(offer) = &self.offer {
+            offer.focus.focus(window, cx);
+        } else {
+            self.focus.focus(window, cx);
+        }
     }
     fn change_scope(&mut self, global: bool, window: &mut Window, cx: &mut Context<Self>) {
         if !self.list_active() || (!global && self.project_slug.is_none()) {
@@ -284,6 +314,14 @@ impl HostManager {
         cx.notify();
     }
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.active
+            || self.offer.is_some()
+            || self.cancel.is_some()
+            || self.links.is_some()
+            || self.tools.is_some()
+        {
+            return;
+        }
         let Some(form) = &self.form else {
             return;
         };
@@ -302,15 +340,19 @@ impl HostManager {
         }
         match form.draft(cx).build(self.global) {
             Ok(desired) => {
-                let expected = form.expected.clone().map(Box::new);
-                self.request(
-                    HostCommand::Save {
-                        expected,
-                        desired: Box::new(desired),
-                    },
-                    window,
-                    cx,
-                );
+                let expected = form.expected.clone();
+                if !self.global && desired.server.is_empty() {
+                    self.start_offer(expected, desired, window, cx);
+                } else {
+                    self.request(
+                        HostCommand::Save {
+                            expected: expected.map(Box::new),
+                            desired: Box::new(desired),
+                        },
+                        window,
+                        cx,
+                    );
+                }
             }
             Err(error) => {
                 self.status = error.to_string();
@@ -319,7 +361,7 @@ impl HostManager {
         }
     }
     fn open_tools(&mut self, host: Host, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if self.cancel.is_some() || self.offer.is_some() {
             return;
         }
         if self.form.is_none() {
@@ -360,6 +402,9 @@ impl HostManager {
         cx.notify();
     }
     fn test_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.offer.is_some() || self.cancel.is_some() {
+            return;
+        }
         let Some(form) = &self.form else {
             return;
         };
@@ -385,6 +430,10 @@ impl HostManager {
         }
     }
     fn close(&mut self, _: &Close, window: &mut Window, cx: &mut Context<Self>) {
+        if self.offer.is_some() {
+            self.back_offer(window, cx);
+            return;
+        }
         if self.writing {
             return;
         }
@@ -407,6 +456,10 @@ impl HostManager {
 
 impl Render for HostManager {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.active = true;
+        if self.offer.is_some() {
+            return self.render_offer(cx);
+        }
         if let Some(tools) = &self.tools {
             return div().size_full().child(tools.clone()).into_any_element();
         }
@@ -419,8 +472,19 @@ impl Render for HostManager {
         let background = cx.theme().background;
         let foreground = cx.theme().foreground;
         let border = cx.theme().border;
+        let offer_scene = self.offer_scene();
+        let restore = self.offer_restore.clone();
+        let owner = cx.weak_entity();
         div().key_context(if self.form.is_some() { "DriftHosts DriftHostForm" } else if self.delete.is_some() { "DriftHosts DriftHostConfirm" } else { "DriftHosts" }).track_focus(&self.focus.clone().tab_stop(self.delete.is_none())).flex().flex_col().size_full()
             .bg(background).text_color(foreground)
+            .capture_any_mouse_down(cx.listener(move |this,_,window,cx| {if !this.active || this.offer_scene()!=offer_scene {window.prevent_default();cx.stop_propagation();}}))
+            .capture_any_mouse_up(cx.listener(move |this,_,window,cx| {if !this.active || this.offer_scene()!=offer_scene {window.prevent_default();cx.stop_propagation();}}))
+            .children(restore.map(|(operation,target,form)|gpui_kit::canvas(|_,_,_|(),move |_,_,window,cx|window.defer(cx,move |window,cx| {let _ = owner.update(cx,|this,cx| {
+                if this.offer_restore.as_ref()!=Some(&(operation,target.clone(),form)) {return;}
+                if this.cancel.is_some() {return;}
+                this.offer_restore=None;
+                if this.active && this.operation==operation && this.offer.is_none() && this.tools.is_none() && this.links.is_none() && this.form.as_ref().map(|current|current.fields[NAME].entity_id())==form && this.focus.is_focused(window) && this.focus.contains(&target,window) {target.focus(window,cx);}
+            });})).absolute().size_0()))
             .on_action(cx.listener(Self::close)).on_action(cx.listener(Self::search))
             .on_action(cx.listener(|this, _: &FocusList, w, cx| this.select_row(this.cursor_row(cx), w, cx)))
             .on_action(cx.listener(|this, _: &Save, w, cx| this.save(w, cx)))

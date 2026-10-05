@@ -17,6 +17,8 @@ impl Shell {
         }
         self.close_help(window, cx);
         self.close_certificate(window, cx);
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         let prompt = cx.new(|cx| CertificatePrompt::new(challenge, window, cx));
         self.certificate_subscription =
             Some(

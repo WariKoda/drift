@@ -195,6 +195,8 @@ impl Shell {
         if self.startup.is_some() || self.folder_prompt || self.split.is_resizing() {
             return;
         }
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         let focus = cx.focus_handle();
         self.help = Some(ShortcutHelp {
             restore: window.focused(cx),

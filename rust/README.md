@@ -343,7 +343,10 @@ key paths. Empty auth/key-file settings use `SSH_AUTH_SOCK`. Connect/auth is bou
 by 15 seconds. Unknown host keys are added to `~/.ssh/known_hosts` following Go's
 TOFU behavior. Hashed entries, OpenSSH patterns, preferred known host-key algorithms
 and revocation are checked; changed keys fail visibly. Host certificates/CA entries
-are currently rejected explicitly and still need parity work.
+remain rejected in the regular development/release line. The separate local
+`feature/rust-ssh-host-certificates` prototype is blocked on SSH dependency
+parser, exchange-signature and rekey checks; it is not release-ready. See
+[the blocker record](../docs/rust-ssh-certificate-blockers.md).
 
 Keep-alive belongs to the connection: default 60 seconds, zero disables it and
 missing replies time out after 15 seconds. Connection failures are observed even

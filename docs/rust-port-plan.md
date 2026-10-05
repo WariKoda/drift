@@ -48,14 +48,24 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Branch: `feature/rust-serverlink-offers`, aufgebaut auf
-  `feature/rust-diff-text-selection` (Commit `07887ce`).
-- Implementierungsstand: Commit `66359d9`,
+- Aktueller Arbeitsbranch: `feature/rust-sftp-replacement`, aufgebaut auf
+  `feature/rust-serverlink-offers` (Commit `5f8015c`). Der SSH-Prototyp bleibt
+  separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`, Dokumentation
+  `b605dda`); seine Transportänderungen sind hier nicht übernommen.
+- Implementierungsstand: Commit `3f76124`,
+  [Draft-PR #94](https://github.com/WariKoda/drift/pull/94) für atomaren
+  Ein-Kanal-SFTP-Zielersatz, begrenzte Raw-SDK-I/O, terminale Reader-/CLOSE-
+  Behandlung und Stage-Bereinigung bei Fehlern anderer Quell-Peers.
+  Er basiert auf #93. Lokale Gesamtprüfung bestanden; CI des neuen Heads
+  noch nicht bestätigt. Native I/O-/WAN-Performanceabnahme bleibt offen.
+- Basisstand: Commit `66359d9`,
   [Draft-PR #93](https://github.com/WariKoda/drift/pull/93) für automatische
   Serverlink-Angebote, Snapshot-/Defaultprüfung vor Writes und abgesicherte
   Native-Dialogrouten. Er basiert auf #92. Die macOS-CI fand einen Fixture-Fehler:
   Passwort-Select-all nutzte Ctrl+A statt Cmd+A; der Test verwendet jetzt die native
-  Plattformtaste. Linux-Regression bestanden; neue vollständige CI noch nicht bestätigt.
+  Plattformtaste. Alle sechs Go-/Linux-/macOS-Checks sind für `5f8015c` bestanden:
+  [37351007582](https://github.com/WariKoda/drift/actions/runs/37351007582) und
+  [37350999560](https://github.com/WariKoda/drift/actions/runs/37350999560).
 - Basisstand: Commit `4ebdda8`,
   [Draft-PR #92](https://github.com/WariKoda/drift/pull/92) für zeichengenaue
   Diff-Auswahl, Inhaltskopie, virtualisierten Auto-Scroll und zustandserhaltenden
@@ -85,10 +95,10 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Alle PRs #93 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Alle PRs #94 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
   Vor Integration die
-  gestapelte Kette #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- Bestätigte CI von #92 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+  gestapelte Kette #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- Bestätigte CI von #93 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
   #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
@@ -111,24 +121,38 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | Projekte und Hosts | CRUD, Archivierung, Dashboard/Startwiederherstellung, Mappings, Serverlinks/Promotion und automatische Angebote, Verbindungstest, Trust-Reset und Fokus-Reveal, begrenzte Details/Aktionen und einzeilige Eingabe-/IME-Grenzen | Native Eingabeabnahme |
 | Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe, Filter-Rückwege und Eingabegrenzen | Native Eingabeabnahme |
 | Vergleich und Sync | Unified-Diff, graphemsichere Textauswahl über Zeilen, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Zustandserhalt bei unverändertem Refresh, Abbruch/Verlust und Fehlerdetails | Native Plattformabnahme |
-| Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive und FTPS-Zertifikatsvertrauen | SSH-Hostzertifikate/CA und SFTP-Zielersatz auf eingeschränkten Servern |
+| Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive, FTPS-Zertifikatsvertrauen und atomarer SFTP-Zielersatz über eine einzige primäre Session | SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performanceabnahme |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **358 Rust-Tests, davon 210 Headless-GPUI-Tests
-(GUI-Binärsuite 231); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Letzte lokale Gesamtprüfung: **389 Rust-Tests, davon 214 Headless-GPUI-Tests
+(GUI-Binärsuite 235); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
-Prüfartefakte: `/var/tmp/drift-offer-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
+Prüfartefakte: `/var/tmp/drift-sftp-replacement-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI der Basis #92 ist
-vollständig bestanden. #93 hatte den oben beschriebenen macOS-Select-all-
-Fixture-Fehler; korrigierte vollständige CI ist noch nicht bestätigt.
+vollständig bestanden. Auch die sechs korrigierten Go-/Linux-/macOS-Checks von
+#93 sind für `5f8015c` bestanden; der Select-all-Fixture-Fehler ist behoben.
 Zwei unabhängige statische Reviews sind ohne Blocker abgeschlossen. Offen bleiben
-native Plattformabnahme sowie Review und Integration des Draft-PR-Stacks; die fünf
+native Plattformabnahme sowie Review und Integration des Draft-PR-Stacks; die vier
 verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 
+- SFTP verwendet einen einzigen primären Raw-SDK-Kanal für Datei-I/O und
+  POSIX-Zielersatz. Damit funktionieren atomare Ersetzungen auch bei abgelehntem
+  Zweitkanal und Standard-Rename ohne Overwrite. Nur ausdrückliches
+  `OpUnsupported` erlaubt den Standard-Fallback; Unknown-Antworten sind terminal.
+  Keine alte Zieldatei wird entfernt/verschoben, kein Backup-Tausch und kein Retry.
+- Begrenzte 32-KiB-I/O berücksichtigt Server-/Client-Limits und Handle-Overhead;
+  Writes, Permissions, Flush und beide CLOSEs werden vor Publish bestätigt.
+  Malformed DATA und nicht sendbare CLOSEs beenden die Session auch im Preview;
+  gestoppte Reader/Clients verweigern weitere Daten/Operationen. Fehler eines
+  anderen Quell-Peers verhindern nicht die Stage-Bereinigung auf einem gesunden
+  Ziel. 31 zusätzliche Regressionen prüfen echte Server/Dateien/Handle-Ressourcen,
+  Mutation ohne Antwort, Unknown-Berichte, Native-Confirm und Hilfe-Isolation.
+  Zwei statische Follow-ups sind ohne verbleibende Blocker abgeschlossen.
+  WAN-Performanceparität und native laufende I/O bleiben unabgenommen.
 - Direkte Projekt-Hosts werden vor Save gegen gleiche Endpunkte geprüft:
   ASCII-case-insensitiver Hostname, effektiver Port, exakter User/Protokoll
   (leeres Protokoll = SFTP), jeweils mit eigenen Scope-Defaults. Auth, Keep-alive,
@@ -530,7 +554,7 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
    Einfügungen bleiben praktisch zu prüfen. Keine Secret-/Pfadbereinigung.
-3. **Nächster begrenzter Codeblock:** SFTP-Zielersatz auf eingeschränkten Servern.
+3. **Nächster begrenzter Codeblock:** GUI-Präferenzen und Themes in `gui.toml`.
    SSH-Hostzertifikate/CA bleiben wegen Parser-/Exchange-Signatur-/Rekey-Problemen
    der Abhängigkeiten gesperrt. Der separate lokale Prototyp ist mit 42 gezielten
    Tests geprüft, aber nicht freigegeben; siehe
@@ -545,21 +569,20 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
-**5 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
+**4 größere Arbeitsblöcke bleiben offen.** CLI-Verwaltung, Datei-Logging und
 Browser-Kontextmenüs, veränderbare Bereiche, Keyboard-/Dialog-Sicherheit,
 Finder-Fuzzy/Rückweg, Remote-Ignored-Sichtbarkeit sowie Formular-Scroll und
-Eingabegrenzen, zeichengenaue Diff-Auswahl und automatische Serverlink-Angebote
-sind headless umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
+Eingabegrenzen, zeichengenaue Diff-Auswahl, automatische Serverlink-Angebote
+und primärer Ein-Kanal-SFTP-Zielersatz sind headless umgesetzt. Die verbleibenden Blöcke enthalten mehrere Teilaufgaben und
 sind keine gleich großen Zeiteinheiten. Bereits implementierte Kernabläufe
 stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
 | 1 | SSH-Hostzertifikate/CA | Blockiert: separater lokaler Prototyp mit 42 gezielten Tests; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Regulärer Stand weist Zertifikate weiterhin ab; keine Release-Freigabe. |
-| 2 | SFTP-Zielersatz | Offen: vorhandenes Ziel auf Servern ersetzen, die den zusätzlichen POSIX-Rename-Kanal ablehnen und keinen passenden Standard-Rename unterstützen. |
-| 3 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
-| 4 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O. Headless-Tests ersetzen diese Abnahme nicht. |
-| 5 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
+| 2 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
+| 3 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O einschließlich WAN-Durchsatz des begrenzten SFTP-Adapters. Headless-Tests ersetzen diese Abnahme nicht. |
+| 4 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
 
 ### Orientierung und Prüfbefehle
 
@@ -737,7 +760,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
 | 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
-| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe implementiert und lokal geprüft; Hostzertifikate/CA, SFTP-Zielersatz auf eingeschränkten Servern, native Tastatur-/Textauswahlabnahme offen |
+| 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe und Ein-Kanal-Zielersatz implementiert und lokal geprüft; SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performance- und Tastatur-/Textauswahlabnahme offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version, optionales Datei-Logging und Browser-Kontextmenüs implementiert und lokal geprüft; restliche Tastaturparität offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Lokaler Linux-Release-Build bestanden; Pakete/Bundles, GUI-Release-Wege, Installation und native Abnahme offen |
@@ -793,11 +816,26 @@ SFTP-Upload schließt Quelle und Staging-Datei vor Rename; Download verwendet
 ProjectRoot::write_atomic und prüft den Remote-Close vor dem Zielersatz. Staging
 verwendet auf beiden Seiten denselben Namensgenerator. Go/Rust-Sync-Parität prüft
 Aktionen, Inhalte und Rechte. Echte Tests unterbrechen Transfers sowie die
-Verbindung beim CLOSE nach erfolgreichem EOF. Der aktuelle Bibliotheksstand nutzt
-für POSIX Rename einen optionalen zweiten SFTP-Kanal derselben SSH-Verbindung.
-Bei dessen Ablehnung bleibt Standard-Rename verfügbar; Server ohne geeigneten
-Zielersatz melden einen Fehler und behalten das bisherige Ziel. Diese Servergrenze
-ist vor vollständiger Protokollparität noch aufzulösen.
+Verbindung beim CLOSE nach erfolgreichem EOF. Ein einziger primärer
+`RawSftpSession`-Kanal führt jetzt Datei-I/O und POSIX Rename über öffentliche
+SDK-APIs aus. Version-1-Extension-Angebote und ausgehandelte Limits werden geprüft;
+32-KiB-Chunks, Handle-Overhead, Short Reads, EOF und explizite CLOSE-Antworten
+begrenzen und bestätigen I/O. Das behebt die eigene Zweitkanal-Grenze, ohne SDK-
+Fork, Wire-Rewriting, neues Schema oder Go im Rust-Laufzeitpfad.
+
+Nur ausdrückliches POSIX `OpUnsupported` erlaubt Standard-Rename. Fehlende oder
+ungültige Mutationsantworten bleiben Unknown/Connection; kein Retry. Fehlen dem
+Server tatsächlich beide Ersetzungsoperationen, bleibt das alte Ziel unverändert:
+kein Delete-first und kein nichtatomarer Backup-Tausch. Fehlerhafte DATA-Antworten
+und nicht sendbare/fehlgeschlagene CLOSEs beenden auch außerhalb von Sync die
+Session. Bereits gestoppte Reader geben keine gepufferten Bytes mehr aus; neue
+Anfragen werden vor dem Poll ihrer SDK-Futures abgewiesen. Ein Quellfehler einer
+anderen Verbindung darf das Entfernen des eigenen bestätigten Stagings auf einem
+noch gesunden Ziel nicht vorzeitig verhindern.
+
+Single-flight-I/O verzichtet bewusst auf SDK-Pipelining. WAN-Durchsatz und native
+laufende I/O sind separat abzunehmen; die lokalen Protokolltests belegen keine
+Performanceparität.
 
 Der FTP-Durchstich verwendet `suppaftp = 12.1.0` mit Tokio und dieselben
 Remote-/Vergleichs-/Sync-Services wie SFTP. Eine Session besitzt höchstens vier

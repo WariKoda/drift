@@ -318,13 +318,22 @@ the operation running; Cancel waits for the active operation's result, closes th
 connection and stops subsequent items. Project/window changes cancel in the
 background and reject stale completions.
 
-The pinned SFTP library's high-level API lacks the
+SFTP uses one primary raw SDK session for file I/O and the
 [OpenSSH POSIX rename extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL).
-An optional second SFTP subsystem channel on the same authenticated SSH connection
-handles that extension. Servers that reject it retain browsing and standard
-SFTP rename support. If a server's standard rename cannot replace an existing
-target, the upload fails visibly and leaves that target intact; drift never deletes
-the target to force a rename or resends a rename after an ambiguous response.
+Servers limited to one subsystem channel can therefore replace existing files
+atomically when they support that extension, even if standard rename refuses
+existing destinations. Only explicit `OpUnsupported` permits standard-rename
+fallback; an ambiguous acknowledgement is terminal and is never retried.
+If neither server operation can replace the destination, the upload fails visibly
+and leaves the old target intact. There is no delete-first or non-atomic backup swap.
+
+Reads and acknowledged writes use bounded chunks of at most 32 KiB, respecting
+negotiated packet/data limits and handle overhead. Permission updates, staged-file
+close and source close must succeed before publication. Explicit handle-close
+failures and malformed read replies terminate the session; new requests are refused
+even before the GUI receives the connection observer event. Single-flight I/O
+trades pipelined WAN throughput for bounded buffering; performance parity and
+native ongoing-I/O acceptance are not established by the local tests.
 
 F5 rebuilds the comparison with the same selection and ignore scope. Progress can
 be hidden without cancelling. Cancelling a running comparison closes its remote

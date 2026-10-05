@@ -1,7 +1,7 @@
 use super::*;
 impl HostManager {
     pub(super) fn open_links(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() || self.global {
+        if self.cancel.is_some() || self.offer.is_some() || self.global {
             return;
         }
         let Some(slug) = self.project_slug.clone() else {

@@ -608,6 +608,12 @@ async fn keyboard_hosts_crud_scope_links_and_real_connection_test(cx: &mut TestA
     })
     .unwrap();
     idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).offer.is_some());
+        w.press("n", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
     assert_eq!(store.project("project").unwrap().hosts.len(), 3);
     cx.update_window(handle, |_, w, cx| {
         assert!(manager.read(cx).list_focus.is_focused(w));
@@ -626,6 +632,12 @@ async fn keyboard_hosts_crud_scope_links_and_real_connection_test(cx: &mut TestA
         );
         w.input("edited", cx);
         w.press("cmd-s", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).offer.is_some());
+        w.press("n", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;

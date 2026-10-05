@@ -9,7 +9,7 @@ mod servers;
 use fs2::FileExt;
 pub use projects::ProjectRemoval;
 use serde::{Serialize, de::DeserializeOwned};
-pub use servers::{LinkCatalog, LinkTarget, Promotion};
+pub use servers::{LinkCatalog, LinkTarget, LinkedHostSave, Promotion};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,

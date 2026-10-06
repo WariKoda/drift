@@ -318,13 +318,22 @@ the operation running; Cancel waits for the active operation's result, closes th
 connection and stops subsequent items. Project/window changes cancel in the
 background and reject stale completions.
 
-The pinned SFTP library's high-level API lacks the
+SFTP uses one primary raw SDK session for file I/O and the
 [OpenSSH POSIX rename extension](https://github.com/openssh/openssh-portable/blob/master/PROTOCOL).
-An optional second SFTP subsystem channel on the same authenticated SSH connection
-handles that extension. Servers that reject it retain browsing and standard
-SFTP rename support. If a server's standard rename cannot replace an existing
-target, the upload fails visibly and leaves that target intact; drift never deletes
-the target to force a rename or resends a rename after an ambiguous response.
+Servers limited to one subsystem channel can therefore replace existing files
+atomically when they support that extension, even if standard rename refuses
+existing destinations. Only explicit `OpUnsupported` permits standard-rename
+fallback; an ambiguous acknowledgement is terminal and is never retried.
+If neither server operation can replace the destination, the upload fails visibly
+and leaves the old target intact. There is no delete-first or non-atomic backup swap.
+
+Reads and acknowledged writes use bounded chunks of at most 32 KiB, respecting
+negotiated packet/data limits and handle overhead. Permission updates, staged-file
+close and source close must succeed before publication. Explicit handle-close
+failures and malformed read replies terminate the session; new requests are refused
+even before the GUI receives the connection observer event. Single-flight I/O
+trades pipelined WAN throughput for bounded buffering; performance parity and
+native ongoing-I/O acceptance are not established by the local tests.
 
 F5 rebuilds the comparison with the same selection and ignore scope. Progress can
 be hidden without cancelling. Cancelling a running comparison closes its remote
@@ -343,7 +352,10 @@ key paths. Empty auth/key-file settings use `SSH_AUTH_SOCK`. Connect/auth is bou
 by 15 seconds. Unknown host keys are added to `~/.ssh/known_hosts` following Go's
 TOFU behavior. Hashed entries, OpenSSH patterns, preferred known host-key algorithms
 and revocation are checked; changed keys fail visibly. Host certificates/CA entries
-are currently rejected explicitly and still need parity work.
+remain rejected in the regular development/release line. The separate local
+`feature/rust-ssh-host-certificates` prototype is blocked on SSH dependency
+parser, exchange-signature and rekey checks; it is not release-ready. See
+[the blocker record](../docs/rust-ssh-certificate-blockers.md).
 
 Keep-alive belongs to the connection: default 60 seconds, zero disables it and
 missing replies time out after 15 seconds. Connection failures are observed even

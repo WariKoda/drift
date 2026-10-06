@@ -2,6 +2,7 @@
 """Assemble native, test-only GUI archives; never build, install, or publish them."""
 
 import argparse
+import ctypes
 import gzip
 import hashlib
 import io
@@ -180,13 +181,48 @@ def bounded_command(argv, env, cwd):
         if process is not None:
             # WNOWAIT retains the child's PID until group cleanup, so killpg cannot
             # target a reused group ID after successful inspection.
+            cleanup_error = None
             try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
-            process.stdout.close()
-            process.stderr.close()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    if platform.system() != "Darwin":
+                        raise
+                    status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+                    if (status is None or status.si_pid != process.pid
+                            or status.si_code not in (os.CLD_EXITED, os.CLD_KILLED, os.CLD_DUMPED)):
+                        raise
+                    # XNU excludes zombies from killpg's signalable count. EPERM
+                    # is harmless only if this unreaped child is the entire group.
+                    libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+                    list_pids = libproc.proc_listpgrppids
+                    list_pids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+                    list_pids.restype = ctypes.c_int
+                    pids = (ctypes.c_int * 2)()
+                    count = list_pids(process.pid, pids, ctypes.sizeof(pids))
+                    if count != 1 or pids[0] != process.pid:
+                        raise
+            except Exception as error:
+                cleanup_error = error
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                if cleanup_error is None:
+                    cleanup_error = PackagingError("inspection command cleanup exceeded its time limit")
+            except Exception as error:
+                if cleanup_error is None:
+                    cleanup_error = error
+            finally:
+                for stream in (process.stdout, process.stderr):
+                    try:
+                        stream.close()
+                    except Exception as error:
+                        if cleanup_error is None:
+                            cleanup_error = error
+            if cleanup_error is not None:
+                raise cleanup_error from None
 
 
 def linux_inventory(binary, env, home):

@@ -1,6 +1,8 @@
 """Data-only assembler tests. Native drift-gui execution is a separate CI gate."""
 
 import contextlib
+import ctypes
+import errno
 import gzip
 import hashlib
 import io
@@ -8,11 +10,15 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import signal
+import socket
 import stat
 import struct
+import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 
 import package
@@ -195,6 +201,212 @@ class ContentTests(unittest.TestCase):
 
 
 class ProcessTests(unittest.TestCase):
+    def check_waiting_process(self, mode):
+        # The socket stays open until SIGKILL (or the 60-second safety alarm).
+        # A pipe handshake prevents the leader from exiting before its child
+        # closes output and establishes the cleanup witness.
+        code = """
+import os, signal, socket, sys
+signal.alarm(60)
+mode = sys.argv[1]
+if mode != 'leader':
+    ready_read, ready_write = os.pipe()
+    child = os.fork()
+    if child:
+        os.close(ready_write)
+        assert os.read(ready_read, 1) == b'R'
+        os.close(ready_read)
+        print('leader exited', flush=True)
+        os._exit(0)
+    os.close(ready_read)
+    signal.alarm(60)
+if mode != 'inherited':
+    os.close(1)
+    os.close(2)
+witness = socket.socket(socket.AF_UNIX)
+witness.connect('witness')
+witness.sendall(f'{os.getpid()} {os.getpgrp()}\\n'.encode())
+if mode != 'leader':
+    os.write(ready_write, b'R')
+    os.close(ready_write)
+witness.recv(1)
+os._exit(99)
+"""
+        with tempfile.TemporaryDirectory() as temporary, socket.socket(socket.AF_UNIX) as listener:
+            home = Path(temporary)
+            env = package.isolated_environment(home)
+            listener.bind(str(home / "witness"))
+            listener.listen(1)
+            listener.settimeout(2)
+            started = time.monotonic()
+            try:
+                if mode == "closed":
+                    self.assertEqual(package.bounded_command([sys.executable, "-B", "-c", code, mode], env, home), b"leader exited\n")
+                else:
+                    with self.assertRaisesRegex(package.PackagingError, "^inspection command exceeded its time limit$"):
+                        package.bounded_command([sys.executable, "-B", "-c", code, mode], env, home)
+                elapsed = time.monotonic() - started
+                self.assertLess(elapsed, 24 if mode != "closed" else 5)
+                if mode != "closed":
+                    self.assertGreaterEqual(elapsed, 20)
+            finally:
+                # Even a failing assertion releases a surviving fixture process.
+                with listener.accept()[0] as witness:
+                    witness.settimeout(2)
+                    message = bytearray()
+                    while not message.endswith(b"\n"):
+                        chunk = witness.recv(64)
+                        self.assertTrue(chunk, "missing process identity handshake")
+                        message.extend(chunk)
+                        self.assertLess(len(message), 64)
+                    pid, pgid = map(int, message.split())
+                    self.assertNotEqual(pgid, os.getpgrp())
+                    self.assertEqual(pid == pgid, mode == "leader")
+                    self.assertEqual(witness.recv(1), b"", "same-group process survived cleanup")
+                    with self.assertRaises(ChildProcessError):
+                        os.waitpid(pgid, os.WNOHANG)
+
+    def test_exited_leader_with_live_descendant_closing_output_is_cleaned_up(self):
+        self.check_waiting_process("closed")
+
+    def test_silent_live_leader_with_closed_output_times_out(self):
+        self.check_waiting_process("leader")
+
+    def test_exited_leader_with_descendant_inheriting_output_times_out(self):
+        self.check_waiting_process("inherited")
+
+    def test_real_wnowait_retains_exited_child_identity_through_group_cleanup(self):
+        process = subprocess.Popen(
+            [sys.executable, "-B", "-c", "import os, signal; signal.alarm(5); print(os.getpid(), os.getpgrp(), flush=True)"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while True:
+                status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+                if status is not None:
+                    break
+                self.assertLess(time.monotonic(), deadline, "child did not exit")
+                time.sleep(0.01)
+            self.assertEqual((status.si_pid, status.si_code, status.si_status), (process.pid, os.CLD_EXITED, 0))
+            self.assertIsNone(process.returncode)
+            pid, pgid = map(int, process.stdout.read().split())
+            self.assertEqual((pid, pgid), (process.pid, process.pid))
+            self.assertEqual(os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG), status)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except PermissionError:
+                self.assertEqual(platform.system(), "Darwin")
+                libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+                list_pids = libproc.proc_listpgrppids
+                list_pids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+                list_pids.restype = ctypes.c_int
+                pids = (ctypes.c_int * 2)()
+                self.assertEqual(list_pids(process.pid, pids, ctypes.sizeof(pids)), 1)
+                self.assertEqual(pids[0], process.pid)
+            self.assertEqual(os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG), status)
+        finally:
+            try:
+                process.kill()
+                process.wait(timeout=1)
+            finally:
+                process.stdout.close()
+                process.stderr.close()
+        with self.assertRaises(ChildProcessError):
+            os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+
+    @unittest.skipUnless(os.geteuid() == 0, "requires a privileged supervisor; no setuid fixture is installed")
+    def test_real_permission_denial_with_live_descendant_is_not_suppressed(self):
+        # Only this disposable packaging-parent subprocess drops credentials;
+        # the privileged test supervisor can still clean up the denied group.
+        fixture = """
+import os, signal, socket
+signal.alarm(60)
+control = socket.socket(socket.AF_UNIX)
+control.connect('leader')
+ready_read, ready_write = os.pipe()
+child = os.fork()
+if child == 0:
+    signal.alarm(60)
+    os.close(ready_read)
+    os.close(1)
+    os.close(2)
+    os.write(ready_write, b'R')
+    os.close(ready_write)
+    signal.pause()
+    os._exit(99)
+os.close(ready_write)
+assert os.read(ready_read, 1) == b'R'
+os.close(ready_read)
+control.sendall(f'{os.getpid()} {child}\\n'.encode())
+assert control.recv(1) == b'E'
+os._exit(0)
+"""
+        runner = """
+import os, signal, socket, sys
+sys.path.insert(0, sys.argv[1])
+import package
+signal.alarm(10)
+control = socket.socket(socket.AF_UNIX)
+control.connect('parent')
+def drop_credentials(signum, frame):
+    os.setgid(65534)
+    os.setuid(65534)
+    control.sendall(b'D')
+signal.signal(signal.SIGUSR1, drop_credentials)
+control.sendall(b'R')
+try:
+    package.bounded_command([sys.executable, '-B', '-c', sys.argv[2]], os.environ.copy(), os.getcwd())
+except PermissionError as error:
+    print(f'PermissionError:{error.errno}', flush=True)
+else:
+    raise SystemExit('permission denial was suppressed')
+"""
+        with tempfile.TemporaryDirectory() as temporary, socket.socket(socket.AF_UNIX) as parent_listener, socket.socket(socket.AF_UNIX) as leader_listener:
+            home = Path(temporary)
+            for listener, name in ((parent_listener, "parent"), (leader_listener, "leader")):
+                listener.bind(str(home / name))
+                listener.listen(1)
+                listener.settimeout(3)
+            process = subprocess.Popen(
+                [sys.executable, "-B", "-c", runner, str(Path(package.__file__).resolve().parent), fixture],
+                cwd=home, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+            )
+            pgid = None
+            try:
+                with parent_listener.accept()[0] as parent, leader_listener.accept()[0] as leader:
+                    parent.settimeout(3)
+                    leader.settimeout(3)
+                    self.assertEqual(parent.recv(1), b'R')
+                    message = bytearray()
+                    while not message.endswith(b'\n'):
+                        chunk = leader.recv(64)
+                        self.assertTrue(chunk)
+                        message.extend(chunk)
+                        self.assertLess(len(message), 64)
+                    pgid, descendant = map(int, message.split())
+                    self.assertNotEqual(pgid, descendant)
+                    self.assertNotEqual(pgid, os.getpgrp())
+                    os.kill(process.pid, signal.SIGUSR1)
+                    self.assertEqual(parent.recv(1), b'D')
+                    leader.sendall(b'E')
+                    output, errors = process.communicate(timeout=3)
+                    self.assertEqual(process.returncode, 0, errors.decode())
+                    self.assertEqual(output, f'PermissionError:{errno.EPERM}\n'.encode())
+                    # The denial really left a live, privileged descendant.
+                    os.kill(descendant, 0)
+            finally:
+                if pgid is not None:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(pgid, signal.SIGKILL)
+                if process.returncode is None:
+                    process.kill()
+                try:
+                    process.wait(timeout=1)
+                finally:
+                    process.stdout.close()
+                    process.stderr.close()
+
     def test_real_native_process_success_and_nonzero_exit(self):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)

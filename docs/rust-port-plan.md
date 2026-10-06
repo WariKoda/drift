@@ -48,18 +48,34 @@ GUI-Präferenzen in `gui.toml`, getrennte Pane-Verhältnisse, logische Fenstergr
 und Maximierung sowie System/Dark/Light sind mit vorläufigen Kit-Themes ergänzt.
 Monokai Pro Dark/Light Sun bleibt bis zur Klärung der Weitergabe gesperrt; der
 Nutzer hat Präferenzen zuerst gewählt. Native OS-/Fensterabnahme bleibt offen.
-Die optische Überarbeitung bleibt ausdrücklich für später geplant.
+Der Nutzer hat nun Zed als visuelle Referenz und **Design-Tokens plus Browser-/Toolbar-Pilot**
+gewählt. Typografie, Spacing, Dichte, Icon- und Gruppierungsregeln liegen in einem
+eigenen [Designsystem](rust-gui-design-system.md); Dialoglayouts werden zunächst
+nur dokumentiert, nicht pauschal umgebaut. Keine Zed-Assets oder Paletten übernommen.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Arbeitsbranch: `feature/rust-gui-packaging`, aufgebaut auf
-  `feature/rust-gui-preferences` (Commit `a1c375c`, Draft #95). Der SSH-Prototyp
+- Aktueller Arbeitsbranch: `feature/rust-zed-design-system`, aufgebaut auf
+  `feature/rust-gui-packaging` (Draft #96). Der SSH-Prototyp
   bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
   Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
-- Implementierungsstand: Commit `589f7a8`,
+- Implementierungsstand: Commit `94972c8`,
+  [Draft-PR #97](https://github.com/WariKoda/drift/pull/97), aufgebaut auf #96.
+  Design-Tokens und Browser-/Toolbar-Pilot sind lokal vollständig geprüft.
+  Dialogregeln und HTML-Vorschau bleiben Entwurf; frische Design-Head-CI noch nicht
+  bestätigt. Die dokumentierte 120er-Pane-/24er-Font-Grenze ist keine native Abnahme.
+- Basisstand: Commit `589f7a8`,
   [Draft-PR #96](https://github.com/WariKoda/drift/pull/96), aufgebaut auf #95.
-  Lokale Gesamtprüfung bestanden; frische CI des Paketierungs-Heads noch nicht
-  bestätigt. Der Nutzer wählte Linux-Tarball/Desktop-Datei, separate
+  Lokale Gesamtprüfung bestanden. Bei `3ecfa8e` bestanden Go/Linux; beide macOS-Jobs
+  scheiterten an Darwin-EPERM beim Signalisieren einer alleinigen Zombie-Prozessgruppe.
+  Korrektur `55b73ad`: kein Reap vor Signal/Identitätsprüfung, nur bestätigter alleiniger
+  Zombie über libproc darf EPERM erklären; sonst Fehler, begrenztes Wait und Pipe-Close.
+  27 Python-Tests bestanden, ein privilegierter Realfall ohne Root-Supervisor übersprungen;
+  alle sechs korrigierten Go-/Linux-/macOS-Checks bestanden für `55b73ad`:
+  [37534282813](https://github.com/WariKoda/drift/actions/runs/37534282813) und
+  [37534278457](https://github.com/WariKoda/drift/actions/runs/37534278457).
+  Das ist Prozess-/Test-CI, keine native .app-/GUI-Abnahme.
+  Der Nutzer wählte Linux-Tarball/Desktop-Datei, separate
   Intel-/ARM-macOS-Testbundles ohne Developer-ID/Notarisierung und ausschließlich
   manuelle Prüfartefakte. Build-SemVer, geprüfte native Header/Versionen,
   normalisierte Archive und Checksummen sind von Go getrennt. Kein Publishing,
@@ -135,9 +151,9 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Alle PRs #96 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Alle PRs #97 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
   Vor Integration die
-  gestapelte Kette #96 → #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+  gestapelte Kette #97 → #96 → #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
 - Bestätigte CI von #95 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
@@ -165,11 +181,12 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes, optionales Datei-Logging und getrennte GUI-Build-Version | Öffentliche Release-Freigabe bleibt gesperrt |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **443 Rust-Tests, davon 223 Headless-GPUI-Tests
-(GUI-Binärsuite 254); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Letzte lokale Gesamtprüfung: **453 Rust-Tests, davon 231 Headless-GPUI-Tests
+(GUI-Binärsuite 264); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
-Zusätzlich 23 Python-Paket-/Prozess-Tests, Workflow-Validierung mit actionlint und
+Zusätzlich 27 Python-Paket-/Prozess-Tests bestanden; ein privilegierter Realfall
+mangels Root-Supervisor übersprungen. Workflow-Validierung mit actionlint und
 nativer Linux-Tarball inklusive extrahiertem Binary/Version/Hilfe, Desktop-Datei,
 Checksumme, Reproduzierbarkeit und Overwrite-/Versionsverweigerung bestanden.
 Ein echter Cargo-Build verweigert unsichere Versionswerte ohne Rohwertdiagnose,
@@ -178,7 +195,7 @@ Diese Befunde sind keine native GUI-/macOS-Bundleabnahme. Das Make-Alias wurde
 mit relativen/Leerzeichen-Pfaden strukturell geprüft; sein kompletter zusätzlicher
 Native-Target-Build wurde hier nicht ausgeführt. Die manuelle CI-Matrix kann vor
 Integration der Workflow-Datei in den Default-Branch nicht gestartet werden.
-Prüfartefakte: `/var/tmp/drift-gui-package-verified-*` und
+Prüfartefakte: `/var/tmp/drift-zed-design-verified-*` und
 `/var/tmp/drift-package-native-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI der Basis #92 ist
 vollständig bestanden. Auch die sechs korrigierten Go-/Linux-/macOS-Checks von
@@ -192,6 +209,20 @@ verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 
+- Zed-inspirierter Designsystem-/Browser-Pilot: eigene zentrale 14/12/16-Typografie,
+  4/8/12/16-Abstände, skalierte 24er-Zeilen/28er-Kontrollen, semantische Kit-Flächen,
+  bestehende eingebettete Icons und gruppierte native Toolbar. 16 vorhandene
+  Kontrollen bleiben, der bestehende Marked-Workflow hat zusätzlich einen Button.
+  Kein Transfer ohne bestehende Bestätigung; kein SDK-/Font-/Palette-Import aus Zed.
+  Zehn neue Regressionen (2 Modelle/8 GPUI) prüfen reale native Labels/Disabled-
+  Aktivierung, Layout, Fokus/Palette, Scroll/Virtualisierung, Range/Disclosure und
+  SFTP-Zustand. Review-P2 für abgeschnittene Symlink-/Mapping-Hinweise korrigiert:
+  Namensgruppe separat, feste Arrow-/Unmapped-Metadaten außerhalb der Ellipse,
+  mit echten Unicode-Symlinks/Tiefe 9, Text-Shaping und Paint-Clip-Prüfung.
+  Getestete Pane-Breiten 210/420 bei Schrift 16/24; bekannte Grenze Pane 120/
+  Schrift 24 benötigt 160 und ist nicht als vollständig lesbar abgenommen.
+  [Designsystem](rust-gui-design-system.md) und [Skizze](design/drift-design-system.html)
+  dokumentieren Dialoglayouts nur für später; keine native Screenshot-Abnahme.
 - GUI-Paketierung ergänzt drei Rust-Regressionen für SemVer-/Bundlegrenzen und
   Runtime-Override-Verweigerung sowie 23 Python-Struktur-/Dateisystem-/Prozessfälle.
   Der Assembler validiert eine eigene reguläre Binary-Momentaufnahme, native
@@ -641,7 +672,8 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
 5. Pane-/Fensterpersistenz liegt ausschließlich in `gui.toml`, nicht in Go-Konfiguration.
-   Native Plattformabnahme und die optische Überarbeitung bleiben offen.
+   Native Plattformabnahme bleibt offen. Ein Zed-inspirierter Browser-/Toolbar-Pilot
+   mit zentralen Tokens ist ausgewählt; die Dialogumstellung bleibt ein späterer Block.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
@@ -706,6 +738,10 @@ Ordnerargument starten: `make rust-run` reicht ausdrücklich den Repository-Pfad
 weiter und prüft deshalb den Start mit explizitem Ordner.
 
 ## Oberfläche und Themes
+
+[Designsystem und Zed-Referenzen](rust-gui-design-system.md) definieren die neue
+kompakte Richtung; [HTML-Skizze](design/drift-design-system.html) zeigt Tokens und
+Dialogentwurf, nicht native Abnahme. Bestehende Kit-Paletten bleiben vorläufig.
 
 Zwei unabhängig navigierbare Dateibäume, veränderbare Bereichsgrößen, Toolbar,
 Kontextmenüs und Dialoge bilden die Oberfläche. Zeilen werden virtualisiert.

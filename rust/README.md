@@ -37,6 +37,21 @@ lock. GUI window/theme/pane preferences live separately in `gui.toml`; the Go
 configuration schema is unchanged. Shared file format changes still require
 coordination despite independent application versions.
 
+## Browser design pilot
+
+The browser/toolbar pilot follows Zed's compact visual hierarchy: semantic
+14/12/16 UI typography, 4/8/12/16 spacing, separate marks/disclosure/file glyphs,
+and labelled native actions grouped by project, session, comparison, navigation
+and visibility. Presentation tokens live in `drift-gui/src/design.rs`, still using
+the active Kit theme and existing bundled icons. No Zed fonts, SVGs, palettes or
+UI implementation are copied. Native input entities and transfer approvals remain
+unchanged; this is not a whole-app restyle.
+
+See the [design system and pinned references](../docs/rust-gui-design-system.md)
+and [schematic HTML preview](../docs/design/drift-design-system.html). Dialog
+layouts are documented for later implementation; the preview is not a native
+screenshot or accessibility/platform acceptance.
+
 ## GUI preferences
 
 The browser and comparison footer provides native **System**, **Dark** and

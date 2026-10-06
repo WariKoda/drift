@@ -4,6 +4,7 @@ mod browser_menu;
 mod certificates;
 mod cli;
 mod comparison;
+mod design;
 mod diff;
 #[cfg(test)]
 mod finder_test_support;

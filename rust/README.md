@@ -138,12 +138,26 @@ the opening timestamp is written only after the GUI loads the project. Listing
 includes active, archived and missing paths. Mutations use the shared write lock
 and preserve project identity, timestamps and settings where applicable.
 `projects --help` documents options; help/version need no configuration directory.
-Version currently reports the Cargo package version; release packaging remains open.
+Version reports build-time `DRIFT_GUI_VERSION` (unset uses the Cargo package
+version); runtime environment cannot replace it. It accepts bounded SemVer without
+a `v` prefix, independently of Go's release version.
 Use `--` before a directory named `projects`, `open`, `dash` or `version`, or one
 beginning with `-` (`drift-gui -- projects`); `./projects` also selects that folder.
 Project commands accept `--` before positional arguments with leading hyphens.
 Invalid syntax, validation failures and lock contention return exit code 1.
 Optional file logging is available for both GUI starts and project commands.
+
+## GUI test artifacts
+
+`make rust-package GUI_VERSION=0.1.0-dev.1` prepares a native Linux tarball with a
+Desktop entry or a separate Intel/ARM macOS `.app` archive; `make rust-package-test`
+checks the standard-library assembler. These are **test artifacts, not public
+releases**. No Developer-ID signing/notarization, publishing, tags, Go replacement
+or bundled Linux runtime is supplied. A manual-only Actions matrix is prepared;
+it cannot be dispatched while its definition exists only on an unmerged branch.
+
+See [PACKAGING.md](PACKAGING.md) for native targets, checksums, dependencies, manual
+installation, Gatekeeper limitations and open SSH/theme/native acceptance gates.
 
 ## Optional diagnostics
 
@@ -783,6 +797,7 @@ Host/mapping controls have external-scroll focus reveal; Tools/Links/project-for
 details/actions are bounded and wrapping. Single-line input boundaries reject
 whole unsafe insertions and isolate IME Escape/Enter; native platform acceptance
 remains. Character-precise, cross-line diff selection is implemented.
-Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
+Test packaging and GUI version embedding are prepared; native Intel/ARM bundle
+execution, signing/notarization, public release policy and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

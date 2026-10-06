@@ -4,6 +4,7 @@ use crate::{
     project::{Project, Registry, now},
     tlstrust::{Endpoint, TrustedCertificate},
 };
+mod gui_preferences;
 mod projects;
 mod servers;
 use fs2::FileExt;

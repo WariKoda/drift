@@ -28,6 +28,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 pub struct Shell {
+    preferences: Option<Entity<crate::preferences::Preferences>>,
     help: Option<keyboard::ShortcutHelp>,
     certificate: Option<(u64, u64, Entity<CertificatePrompt>)>,
     certificate_subscription: Option<Subscription>,
@@ -307,6 +308,7 @@ impl Shell {
         })
         .detach();
         let mut shell = Self {
+            preferences: None,
             help: None,
             certificate: None,
             certificate_subscription: None,
@@ -851,7 +853,8 @@ impl Shell {
                 .size_full()
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
-                .child(self.comparison.clone())
+                .child(div().flex_1().min_h_0().child(self.comparison.clone()))
+                .child(self.preference_controls(cx))
                 .child(div().p_2().child(self.status.clone()))
                 .into_any_element();
         }
@@ -1026,6 +1029,7 @@ impl Shell {
                 window,
                 cx,
             )))
+            .child(self.preference_controls(cx))
             .child(
                 div()
                     .p_3()
@@ -1056,6 +1060,7 @@ mod keyboard_tests;
 mod logging_tests;
 #[cfg(test)]
 mod menu_tests;
+mod preferences;
 #[cfg(test)]
 mod project_tests;
 mod projects;

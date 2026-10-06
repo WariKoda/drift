@@ -56,8 +56,15 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   [Draft-PR #94](https://github.com/WariKoda/drift/pull/94) für atomaren
   Ein-Kanal-SFTP-Zielersatz, begrenzte Raw-SDK-I/O, terminale Reader-/CLOSE-
   Behandlung und Stage-Bereinigung bei Fehlern anderer Quell-Peers.
-  Er basiert auf #93. Lokale Gesamtprüfung bestanden; CI des neuen Heads
-  noch nicht bestätigt. Native I/O-/WAN-Performanceabnahme bleibt offen.
+  Er basiert auf #93. Lokale Gesamtprüfung bestanden. Für `16a7aeb` bestand
+  der PR-Lauf [37364859237](https://github.com/WariKoda/drift/actions/runs/37364859237)
+  (Go/Linux/macOS); im Push-Lauf [37364853162](https://github.com/WariKoda/drift/actions/runs/37364853162)
+  scheiterte Linux am fünfsekündigen SSH-Timeout der Logging-Erfolgsfixture,
+  Go wurde abgebrochen. Die einzelne Fixture verwendet nun 15 Sekunden wie
+  Produktion, weiterhin innerhalb des äußeren 20-Sekunden-Limits; alle acht
+  Logging-Tests bestanden lokal. Scheduler-Last ist eine mögliche, nicht
+  bewiesene Ursache. CI des korrigierten Heads ist noch nicht bestätigt.
+  Native I/O-/WAN-Performanceabnahme bleibt offen.
 - Basisstand: Commit `66359d9`,
   [Draft-PR #93](https://github.com/WariKoda/drift/pull/93) für automatische
   Serverlink-Angebote, Snapshot-/Defaultprüfung vor Writes und abgesicherte

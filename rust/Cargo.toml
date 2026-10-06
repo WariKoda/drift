@@ -15,6 +15,7 @@ drift-app = { path = "crates/drift-app" }
 gpui-kit = "=0.7.0"
 unicode-segmentation = "=1.13.3"
 serde = { version = "1", features = ["derive"] }
+semver = "=1.0.28"
 toml = "1"
 cap-std = "4"
 fs2 = "0.4"

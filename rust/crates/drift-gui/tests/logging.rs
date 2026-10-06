@@ -84,6 +84,7 @@ fn flags_environment_debug_and_append_match_go_priority() {
     ));
     let first = fs::read_to_string(&env_log).unwrap();
     assert!(first.contains("level=INFO"));
+    assert!(first.contains(&format!("version={:?}", env!("DRIFT_GUI_VERSION"))));
     assert!(!first.contains("level=DEBUG"));
     assert!(!default.exists());
     ok(invoke(

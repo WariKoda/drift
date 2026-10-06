@@ -49,7 +49,7 @@ fn help_and_version_need_neither_display_nor_configuration() {
     }
     assert_eq!(
         success(&inaccessible_config, root.path(), &["version"]),
-        format!("drift-gui {}\n", env!("CARGO_PKG_VERSION"))
+        format!("drift-gui {}\n", env!("DRIFT_GUI_VERSION"))
     );
     let output = Command::new(env!("CARGO_BIN_EXE_drift-gui"))
         .arg("--help")

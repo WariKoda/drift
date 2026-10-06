@@ -52,14 +52,26 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Arbeitsbranch: `feature/rust-gui-preferences`, aufgebaut auf
-  `feature/rust-sftp-replacement` (Commit `b79c655`, Draft #94). Der SSH-Prototyp
+- Aktueller Arbeitsbranch: `feature/rust-gui-packaging`, aufgebaut auf
+  `feature/rust-gui-preferences` (Commit `a1c375c`, Draft #95). Der SSH-Prototyp
   bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
   Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
-- Implementierungsstand: Commit `9394ba4`,
+- Implementierungsstand: Commit `589f7a8`,
+  [Draft-PR #96](https://github.com/WariKoda/drift/pull/96), aufgebaut auf #95.
+  Lokale Gesamtprüfung bestanden; frische CI des Paketierungs-Heads noch nicht
+  bestätigt. Der Nutzer wählte Linux-Tarball/Desktop-Datei, separate
+  Intel-/ARM-macOS-Testbundles ohne Developer-ID/Notarisierung und ausschließlich
+  manuelle Prüfartefakte. Build-SemVer, geprüfte native Header/Versionen,
+  normalisierte Archive und Checksummen sind von Go getrennt. Kein Publishing,
+  keine Tags und keine Freigabe offener SSH-/Palette-/Native-Gates.
+  [Pakete, Runtime, Installation und Grenzen](../rust/PACKAGING.md).
+- Basisstand: Commit `9394ba4`,
   [Draft-PR #95](https://github.com/WariKoda/drift/pull/95) für GUI-Präferenzen
-  mit Kit-Themes, aufgebaut auf #94. Lokale Gesamtprüfung bestanden; frische
-  CI dieses PR-Heads noch nicht bestätigt. Keine Monokai-Paletten/Assets übernommen. Normaler Fensterinhalt wird vor dem Zoom gemessen, Native-State
+  mit Kit-Themes, aufgebaut auf #94. Lokale Gesamtprüfung und alle sechs
+  Go-/Linux-/macOS-Checks von `a1c375c` bestanden:
+  [37458447455](https://github.com/WariKoda/drift/actions/runs/37458447455) und
+  [37458439050](https://github.com/WariKoda/drift/actions/runs/37458439050).
+  Keine Monokai-Paletten/Assets übernommen. Normaler Fensterinhalt wird vor dem Zoom gemessen, Native-State
   unabhängig von X11-Bounds-Callbacks beobachtet und unbekannte Übergangsgeometrie
   nicht als neue Größe gespeichert. Fensterposition/Fullscreen bleiben ungespeichert.
   Die unabhängigen Pane-Verhältnisse ändern weder Sitzung noch Transferfreigaben.
@@ -123,10 +135,10 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Alle PRs #95 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Alle PRs #96 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
   Vor Integration die
-  gestapelte Kette #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- Bestätigte CI von #94 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+  gestapelte Kette #96 → #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- Bestätigte CI von #95 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
   #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
@@ -150,18 +162,29 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | Browser | Lokale/entfernte Navigation, gemappte Remote-Ignored-Sichtbarkeit, Filter/Vorschau, Finder-Fuzzy/Rückweg, aufklappbare Bäume, Mehrfach-/Bereichsmarkierungen, Kontextmenüs, veränderbare Bereiche, Vorschau-Tasten/Hilfe, Filter-Rückwege und Eingabegrenzen | Native Eingabeabnahme |
 | Vergleich und Sync | Unified-Diff, graphemsichere Textauswahl über Zeilen, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Zustandserhalt bei unverändertem Refresh, Abbruch/Verlust und Fehlerdetails | Native Plattformabnahme |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive, FTPS-Zertifikatsvertrauen und atomarer SFTP-Zielersatz über eine einzige primäre Session | SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performanceabnahme |
-| CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
+| CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes, optionales Datei-Logging und getrennte GUI-Build-Version | Öffentliche Release-Freigabe bleibt gesperrt |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **440 Rust-Tests, davon 223 Headless-GPUI-Tests
+Letzte lokale Gesamtprüfung: **443 Rust-Tests, davon 223 Headless-GPUI-Tests
 (GUI-Binärsuite 254); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
-Prüfartefakte: `/var/tmp/drift-gui-preferences-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
+Zusätzlich 23 Python-Paket-/Prozess-Tests, Workflow-Validierung mit actionlint und
+nativer Linux-Tarball inklusive extrahiertem Binary/Version/Hilfe, Desktop-Datei,
+Checksumme, Reproduzierbarkeit und Overwrite-/Versionsverweigerung bestanden.
+Ein echter Cargo-Build verweigert unsichere Versionswerte ohne Rohwertdiagnose,
+aktualisiert die eingebettete gültige Version und ignoriert Runtime-Overrides.
+Diese Befunde sind keine native GUI-/macOS-Bundleabnahme. Das Make-Alias wurde
+mit relativen/Leerzeichen-Pfaden strukturell geprüft; sein kompletter zusätzlicher
+Native-Target-Build wurde hier nicht ausgeführt. Die manuelle CI-Matrix kann vor
+Integration der Workflow-Datei in den Default-Branch nicht gestartet werden.
+Prüfartefakte: `/var/tmp/drift-gui-package-verified-*` und
+`/var/tmp/drift-package-native-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI der Basis #92 ist
 vollständig bestanden. Auch die sechs korrigierten Go-/Linux-/macOS-Checks von
 #93 sind für `5f8015c` bestanden; der Select-all-Fixture-Fehler ist behoben.
 Alle sechs korrigierten Basis-Checks von #94 sind für `b79c655` ebenfalls bestanden.
+Die sechs Basis-Checks von #95 bestanden für `a1c375c`.
 Die statischen Window-Follow-ups bestätigen die korrigierten Startup-/Restore-
 und Close-Geometrie-Guards; sie führten keine Tests aus und ersetzen keine native Abnahme. Offen bleiben
 native Plattformabnahme sowie Review und Integration des Draft-PR-Stacks; die vier
@@ -169,6 +192,16 @@ verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 
+- GUI-Paketierung ergänzt drei Rust-Regressionen für SemVer-/Bundlegrenzen und
+  Runtime-Override-Verweigerung sowie 23 Python-Struktur-/Dateisystem-/Prozessfälle.
+  Der Assembler validiert eine eigene reguläre Binary-Momentaufnahme, native
+  ELF-/Mach-O-Header und die exakte Build-Version vor der Archivierung. Kein
+  nichtnativer Lauf, kein Loader-`ldd`, keine unbestätigte Versionsableitung.
+  Readelf-Inventar ist ausdrücklich keine vollständige Laufzeit-/ABI-Abnahme.
+  Ausgabe ist normalisiert, no-clobber und checksum-first/archive-last. Ein
+  nicht reapendes Child-Completion-Verfahren hält die PID bis zum Group-Cleanup;
+  Python 3.13+ ist für Darwin verbindlich. Eigene GUI-Build-Version und manuelle
+  readonly Artefakt-Matrix veröffentlichen keine Tags/Releases oder Go-Pakete.
 - GUI-Präferenzen erweitern den Stand um 51 Regressionen: 13 echte Core-
   Filesystem-/Lock-/Unknown-field-Fälle, 8 App-Coalescing-/Fehlerzustandstests,
   10 echte App-Store-/Drain-/Busy-/Fehlerfälle, 10 GUI-Zustandsmodelle, 9
@@ -596,8 +629,8 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 3. **GUI-Präferenzen:** `gui.toml`, Fenster/Pane und System/Dark/Light mit
    vorläufigen Kit-Themes sind implementiert. Monokai-Paletten bleiben nach
    Nutzerentscheidung bis zur Weitergabe-Klärung gesperrt; siehe
-   [Theme-Gate](rust-gui-theme-blockers.md). Als nächster begrenzter Codeblock
-   kommen getrennte GUI-Pakete/Release-Wege infrage; sie ersetzen keine native Abnahme.
+   [Theme-Gate](rust-gui-theme-blockers.md). Der Paketierungsblock
+   bereitet nur getrennte manuelle Prüfartefakte vor; er ersetzt keine native Abnahme.
    SSH-Hostzertifikate/CA bleiben wegen Parser-/Exchange-Signatur-/Rekey-Problemen
    der Abhängigkeiten gesperrt. Der separate lokale Prototyp ist mit 42 gezielten
    Tests geprüft, aber nicht freigegeben; siehe
@@ -625,7 +658,7 @@ stehen oben.
 | 1 | SSH-Hostzertifikate/CA | Blockiert: separater lokaler Prototyp mit 42 gezielten Tests; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Regulärer Stand weist Zertifikate weiterhin ab; keine Release-Freigabe. |
 | 2 | GUI-Präferenzen und Themes | Teilweise umgesetzt: `gui.toml`, normale logische Inhaltsgröße/Maximierung, unabhängige Pane-Verhältnisse und System/Dark/Light mit Kit-Themes. Monokai Dark/Light Sun wegen Weitergabe-Klärung gesperrt; native laufende OS-/Fensterwechsel bleiben abzunehmen. |
 | 3 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O einschließlich WAN-Durchsatz des begrenzten SFTP-Adapters. Headless-Tests ersetzen diese Abnahme nicht. |
-| 4 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
+| 4 | Pakete und GUI-Releases | Prüfartefakte vorbereitet: native Linux-Tarball/Desktop-Datei, getrennte Intel-/ARM-.app-Archive, SemVer-Einbettung und manuelle Actions-Matrix ohne Publishing/Tags. Native Mac-Bundles/Installation, Signierung/Notarisierung und öffentliche Release-Regeln bleiben offen. |
 
 ### Orientierung und Prüfbefehle
 
@@ -809,7 +842,7 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe und Ein-Kanal-Zielersatz implementiert und lokal geprüft; SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performance- und Tastatur-/Textauswahlabnahme offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
 | 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version, optionales Datei-Logging und Browser-Kontextmenüs implementiert und lokal geprüft; Tastatur-Workflows abgeglichen, native Abnahme offen |
-| 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Lokaler Linux-Release-Build bestanden; Pakete/Bundles, GUI-Release-Wege, Installation und native Abnahme offen |
+| 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Linux-Tarball/Desktop und Intel-/ARM-Testbundles, getrennte Version und manuelle Artefakt-Matrix vorbereitet; native Bundle-/Installationsabnahme, Signierung/Notarisierung und öffentliche Release-Freigabe offen |
 
 Der SFTP-Durchstich verwendet native `russh`-/`russh-sftp`-Clients und ein
 Remote-Session-Handle in `drift-app`. Die GUI erreicht Transporte ausschließlich
@@ -961,7 +994,8 @@ Quell-/Default-Konflikte, Namenskollisionen, Schreibsperren, Teilerfolge,
 unveränderte Formulare und fehlende Writes in Projektverzeichnissen. Die gemeinsame
 Go-Parität prüft dieselben Rohdatensätze nach Promotion und einen konkurrierenden
 Go-Edit nach Öffnen des Rust-Pickers. Automatische Angebote zum Verknüpfen eines
-neu gespeicherten Hosts mit demselben Endpunkt bleiben eine Paritätsaufgabe.
+neu gespeicherten Hosts mit demselben Endpunkt sind mit ausdrücklich bestätigter
+Übernahme und frischer Snapshot-Prüfung ergänzt; native Abnahme bleibt offen.
 
 Die Projektverwaltung bietet Anlegen, Bearbeiten mit unveränderlichem Slug,
 Archivieren/Wiederherstellen und bestätigtes Entfernen. Formulare erhalten Werte

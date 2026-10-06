@@ -65,6 +65,30 @@ fn help_and_version_need_neither_display_nor_configuration() {
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
 }
 #[test]
+fn non_gui_commands_ignore_invalid_gui_preferences_without_rewriting_them() {
+    let root = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let dir = config.path().join("drift");
+    fs::create_dir(&dir).unwrap();
+    let original = b"theme = [never print this invalid preferences value\n";
+    let path = dir.join("gui.toml");
+    fs::write(&path, original).unwrap();
+    for args in [
+        vec!["--help"],
+        vec!["version"],
+        vec!["projects", "list"],
+        vec!["projects", "add", "Shop"],
+        vec!["projects", "edit", "shop", "--name", "New Shop"],
+        vec!["projects", "archive", "shop"],
+        vec!["projects", "remove", "shop"],
+    ] {
+        success(config.path(), root.path(), &args);
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn real_cli_mutations_roundtrip_shared_stores_without_touching_local_trees() {
     let root = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();

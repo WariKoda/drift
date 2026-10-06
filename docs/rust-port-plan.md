@@ -18,7 +18,7 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **5. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
+Stand: **6. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
 aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
 Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
@@ -44,15 +44,34 @@ mit graphemsicheren Endpunkten, Kopie sichtbarer Inhalte und erhaltener
 Auswahl/Faltung/Scrollposition für unveränderte Refresh-Ergebnisse ergänzt.
 Automatische Serverlink-Angebote beim Speichern gleicher Endpunkte sind ergänzt,
 mit ausdrücklicher Link-/Eigenverbindungswahl und sichtbaren Commit-Teilerfolgen.
+GUI-Präferenzen in `gui.toml`, getrennte Pane-Verhältnisse, logische Fenstergröße
+und Maximierung sowie System/Dark/Light sind mit vorläufigen Kit-Themes ergänzt.
+Monokai Pro Dark/Light Sun bleibt bis zur Klärung der Weitergabe gesperrt; der
+Nutzer hat Präferenzen zuerst gewählt. Native OS-/Fensterabnahme bleibt offen.
 Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Arbeitsbranch: `feature/rust-sftp-replacement`, aufgebaut auf
-  `feature/rust-serverlink-offers` (Commit `5f8015c`). Der SSH-Prototyp bleibt
-  separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`, Dokumentation
-  `b605dda`); seine Transportänderungen sind hier nicht übernommen.
-- Implementierungsstand: Commit `3f76124`,
+- Aktueller Arbeitsbranch: `feature/rust-gui-preferences`, aufgebaut auf
+  `feature/rust-sftp-replacement` (Commit `b79c655`, Draft #94). Der SSH-Prototyp
+  bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
+  Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
+- Implementierungsstand: Commit `9394ba4`,
+  [Draft-PR #95](https://github.com/WariKoda/drift/pull/95) für GUI-Präferenzen
+  mit Kit-Themes, aufgebaut auf #94. Lokale Gesamtprüfung bestanden; frische
+  CI dieses PR-Heads noch nicht bestätigt. Keine Monokai-Paletten/Assets übernommen. Normaler Fensterinhalt wird vor dem Zoom gemessen, Native-State
+  unabhängig von X11-Bounds-Callbacks beobachtet und unbekannte Übergangsgeometrie
+  nicht als neue Größe gespeichert. Fensterposition/Fullscreen bleiben ungespeichert.
+  Die unabhängigen Pane-Verhältnisse ändern weder Sitzung noch Transferfreigaben.
+  [Palette und native Wiederaufnahme](rust-gui-theme-blockers.md).
+  Vier begrenzte/coalescende Hintergrundslots schreiben atomar mit Modus 600 unter
+  frischem gemeinsamem Lock; unbekannte TOML-Felder bleiben erhalten. Fehler sind
+  feldbezogen sichtbar, werden nicht durch fremde erfolgreiche Writes gelöscht
+  und nicht automatisch wiederholt. Der Drain/Join erfolgt nach der GUI-Schleife.
+  Window-State wird alle 250 ms gelesen; 150 ms ruhige Geometrie und konservatives
+  Close/Quit verhindern die Übernahme noch unbestätigter Übergangsgrößen. Sehr
+  spätes echtes Resize direkt vor Close kann deshalb die vorherige Größe behalten.
+- Basisstand: Commit `3f76124`,
   [Draft-PR #94](https://github.com/WariKoda/drift/pull/94) für atomaren
   Ein-Kanal-SFTP-Zielersatz, begrenzte Raw-SDK-I/O, terminale Reader-/CLOSE-
   Behandlung und Stage-Bereinigung bei Fehlern anderer Quell-Peers.
@@ -63,7 +82,9 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   Go wurde abgebrochen. Die einzelne Fixture verwendet nun 15 Sekunden wie
   Produktion, weiterhin innerhalb des äußeren 20-Sekunden-Limits; alle acht
   Logging-Tests bestanden lokal. Scheduler-Last ist eine mögliche, nicht
-  bewiesene Ursache. CI des korrigierten Heads ist noch nicht bestätigt.
+  bewiesene Ursache. Alle sechs korrigierten Go-/Linux-/macOS-Checks bestanden
+  für `b79c655`: [37447896761](https://github.com/WariKoda/drift/actions/runs/37447896761)
+  und [37447893343](https://github.com/WariKoda/drift/actions/runs/37447893343).
   Native I/O-/WAN-Performanceabnahme bleibt offen.
 - Basisstand: Commit `66359d9`,
   [Draft-PR #93](https://github.com/WariKoda/drift/pull/93) für automatische
@@ -102,10 +123,10 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Alle PRs #94 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Alle PRs #95 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
   Vor Integration die
-  gestapelte Kette #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
-- Bestätigte CI von #93 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
+  gestapelte Kette #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+- Bestätigte CI von #94 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
   #88 hatte einen kapazitätsabhängigen Reconnect-Test: vier FTP-Sockets pro Pool
@@ -130,22 +151,33 @@ Die optische Überarbeitung bleibt ausdrücklich für später geplant.
 | Vergleich und Sync | Unified-Diff, graphemsichere Textauswahl über Zeilen, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Zustandserhalt bei unverändertem Refresh, Abbruch/Verlust und Fehlerdetails | Native Plattformabnahme |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive, FTPS-Zertifikatsvertrauen und atomarer SFTP-Zielersatz über eine einzige primäre Session | SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performanceabnahme |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes und optionales Datei-Logging mit Flags/Umgebungsvariablen | Release-Versionseinbettung mit den GUI-Paketen |
-| Oberfläche und Veröffentlichung | Kit-Oberfläche und lokaler Linux-Release-Build | GUI-Präferenzen/Monokai-Themes, native Plattformabnahme und Release-Pakete |
+| Oberfläche und Veröffentlichung | Kit-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **389 Rust-Tests, davon 214 Headless-GPUI-Tests
-(GUI-Binärsuite 235); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Letzte lokale Gesamtprüfung: **440 Rust-Tests, davon 223 Headless-GPUI-Tests
+(GUI-Binärsuite 254); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
-Prüfartefakte: `/var/tmp/drift-sftp-replacement-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
+Prüfartefakte: `/var/tmp/drift-gui-preferences-verified-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI der Basis #92 ist
 vollständig bestanden. Auch die sechs korrigierten Go-/Linux-/macOS-Checks von
 #93 sind für `5f8015c` bestanden; der Select-all-Fixture-Fehler ist behoben.
-Zwei unabhängige statische Reviews sind ohne Blocker abgeschlossen. Offen bleiben
+Alle sechs korrigierten Basis-Checks von #94 sind für `b79c655` ebenfalls bestanden.
+Die statischen Window-Follow-ups bestätigen die korrigierten Startup-/Restore-
+und Close-Geometrie-Guards; sie führten keine Tests aus und ersetzen keine native Abnahme. Offen bleiben
 native Plattformabnahme sowie Review und Integration des Draft-PR-Stacks; die vier
 verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 
+- GUI-Präferenzen erweitern den Stand um 51 Regressionen: 13 echte Core-
+  Filesystem-/Lock-/Unknown-field-Fälle, 8 App-Coalescing-/Fehlerzustandstests,
+  10 echte App-Store-/Drain-/Busy-/Fehlerfälle, 10 GUI-Zustandsmodelle, 9
+  Headless-GPUI-Tests und einen displayfreien CLI-Fall. Native Controls behalten
+  Sitzung, Markierungen/Range, Filter, Vorschau, Diff-Kopie und ausstehende
+  Sync-Bestätigung. Alte Help-/Dialogbäume können keinen Moduswechsel auslösen.
+  Tests prüfen normale Inhaltsgröße statt Frame, beide Restore-Reihenfolgen,
+  ausstehende Startup-Maximierung und konservatives Close vor/nach ruhiger
+  Geometrie; keine echte OS-Change-/Maximize-/Close-Injektion wird behauptet.
 - SFTP verwendet einen einzigen primären Raw-SDK-Kanal für Datei-I/O und
   POSIX-Zielersatz. Damit funktionieren atomare Ersetzungen auch bei abgelehntem
   Zweitkanal und Standard-Rename ohne Overwrite. Nur ausdrückliches
@@ -561,7 +593,11 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
    Einfügungen bleiben praktisch zu prüfen. Keine Secret-/Pfadbereinigung.
-3. **Nächster begrenzter Codeblock:** GUI-Präferenzen und Themes in `gui.toml`.
+3. **GUI-Präferenzen:** `gui.toml`, Fenster/Pane und System/Dark/Light mit
+   vorläufigen Kit-Themes sind implementiert. Monokai-Paletten bleiben nach
+   Nutzerentscheidung bis zur Weitergabe-Klärung gesperrt; siehe
+   [Theme-Gate](rust-gui-theme-blockers.md). Als nächster begrenzter Codeblock
+   kommen getrennte GUI-Pakete/Release-Wege infrage; sie ersetzen keine native Abnahme.
    SSH-Hostzertifikate/CA bleiben wegen Parser-/Exchange-Signatur-/Rekey-Problemen
    der Abhängigkeiten gesperrt. Der separate lokale Prototyp ist mit 42 gezielten
    Tests geprüft, aber nicht freigegeben; siehe
@@ -571,7 +607,7 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 4. Jede neue Route headless gegen echte lokale/Remote-Abläufe prüfen: leere/gefilterte
    Listen, Busy/Abbruch, stale Identitäten, erhaltene Auswahl/Scroll und ausdrückliche
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
-5. Pane-/Fensterpersistenz bleibt im späteren `gui.toml`-Block, nicht in Go-Konfiguration.
+5. Pane-/Fensterpersistenz liegt ausschließlich in `gui.toml`, nicht in Go-Konfiguration.
    Native Plattformabnahme und die optische Überarbeitung bleiben offen.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
@@ -587,7 +623,7 @@ stehen oben.
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
 | 1 | SSH-Hostzertifikate/CA | Blockiert: separater lokaler Prototyp mit 42 gezielten Tests; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Regulärer Stand weist Zertifikate weiterhin ab; keine Release-Freigabe. |
-| 2 | GUI-Präferenzen und Themes | Offen: `gui.toml` für Fenster/Pane/Theme, Monokai Pro Dark/Light Sun und System/Dark/Light samt laufendem OS-Wechsel. |
+| 2 | GUI-Präferenzen und Themes | Teilweise umgesetzt: `gui.toml`, normale logische Inhaltsgröße/Maximierung, unabhängige Pane-Verhältnisse und System/Dark/Light mit Kit-Themes. Monokai Dark/Light Sun wegen Weitergabe-Klärung gesperrt; native laufende OS-/Fensterwechsel bleiben abzunehmen. |
 | 3 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O einschließlich WAN-Durchsatz des begrenzten SFTP-Adapters. Headless-Tests ersetzen diese Abnahme nicht. |
 | 4 | Pakete und GUI-Releases | Offen: Linux-Paket/Desktop-Eintrag, macOS-App-Bundles, getrennte Release-Wege, Versionseinbettung und Installationsdokumentation. Lokaler Release-Build vorhanden. |
 
@@ -647,7 +683,7 @@ Abgebrochene oder fehlgeschlagene Navigation erhält den bisherigen Ordner.
 Registrierte Projekt-Roots begrenzen den Sync; die freie Ordnerauswahl kann
 ausdrücklich einen neuen Projekt-Root öffnen.
 
-Die Standard-Themes sind verbindlich:
+Die geplanten Standard-Themes bleiben das Ziel, sind aber noch nicht mitgeliefert:
 
 | Einstellung | Verwendetes Theme |
 | --- | --- |
@@ -655,13 +691,16 @@ Die Standard-Themes sind verbindlich:
 | **Light** | **Monokai Pro Light Sun** |
 | **Dark** | **Monokai Pro Dark** |
 
-Die Einstellung wird in `<config.Dir()>/gui.toml` gespeichert. System folgt auch
-Änderungen der OS-Darstellung während der laufenden Sitzung; Light und Dark
-bleiben ausdrücklich festgelegt. Ein Wechsel gilt für Fenster, Kit-Komponenten,
-Browser, Vorschau und Diff, ohne die Sitzung oder Auswahl zurückzusetzen.
-Farbzuordnung, Fokus, Auswahl, Fehler und Additions-/Deletionsmarkierungen werden
-in beiden Themes auf Lesbarkeit geprüft. Die Themes sind geplant; die bisherigen
-Kit-Standardfarben stellen noch keine Umsetzung dieser Vorgabe dar.
+Die Einstellung wird in `<config.Dir()>/gui.toml` gespeichert. System beobachtet
+`Window.appearance()` auch während der Sitzung; Light und Dark bleiben fest.
+Die Plattform-API bekommt eine feste Darstellung bzw. `None` für System, soweit
+vom Backend unterstützt. Kit-/Base-Tokens ändern Browser, Vorschau und Diff ohne
+neue Entities, Sitzungswechsel oder Auswahlreset. Die sichtbaren Controls heißen
+vorläufig **Theme (Kit)**; das ist keine Umsetzung der Monokai-Vorgabe.
+Farbzuordnung, Fokus, Auswahl, Fehler und Additions-/Deletionsmarkierungen bleiben
+für die endgültigen Paletten und native Darstellung abzunehmen. Die offiziellen
+CE-Bedingungen erlauben nur den Standardfilter als Monokai Pro (CE), nicht Light
+Sun; siehe [Weitergabe-Gate](rust-gui-theme-blockers.md).
 
 Vorschau: höchstens 1 MiB, reguläre Textdateien, Zeilennummern, Umbruch,
 Textauswahl und native Zwischenablage. Finder/Vorschau laufen im Hintergrund;
@@ -766,10 +805,10 @@ im Hintergrund. Logging bleibt dateibasiert, standardmäßig aus und ohne Secret
 | Meilenstein | Ergebnis / Abnahme | Stand |
 | --- | --- | --- |
 | 1. Grundlage | Workspace, Toolchain, CI, Kit-Fenster, Fokus/Eingaben/Clipboard, Virtualisierung, gemeinsame Fixtures | Grundlage vorhanden; native Plattformabnahme offen |
-| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktvorschläge, vollständige Tastaturparität und Themes offen |
+| 2. Persistenz / lokaler Browser | TOML/Registry/Mapping/Ignore/Root, gemeinsame Sperre, Projekte, Hostformulare, Finder/Vorschau, GUI-Präferenzen/Themes | In Arbeit: Stores, lokaler Browser, Rücknavigation, aufgeteilte Views, Projektwechsel und Host-CRUD mit projektübergreifenden Links/Server-Promotion, Mappings, Verbindungstest und Trust-Reset sowie Projekt-CRUD/Archivieren, Dashboard und Startwiederherstellung vorhanden; automatische Endpunktangebote, Tastatur-Workflows und GUI-Präferenzen mit Kit-Themes ergänzt; endgültige Monokai-Paletten und native Abnahme offen |
 | 3. SFTP | Auth-Fälle, Remote-Browser, Vergleich, Unified-Diff, alle Sync-Aktionen, Abbruch/Verlust | Kernabläufe und Ein-Kanal-Zielersatz implementiert und lokal geprüft; SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performance- und Tastatur-/Textauswahlabnahme offen |
 | 4. FTP / FTPS | Listings, Missing-Klassifikation, TLS/Trust-Dialoge, Keep-alive, Vergleichsparallelität | In Arbeit: nativer FTP-/FTPS-Browser/Vorschau/Vergleich/Sync, Pool bis vier Verbindungen, adaptive Login-Grenze, 550-Prüfung und Keep-alive sowie TLS 1.2, Zertifikatsspeicher und Trust-Dialog vorhanden; vollständige native Plattformabnahme offen |
-| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version, optionales Datei-Logging und Browser-Kontextmenüs implementiert und lokal geprüft; restliche Tastaturparität offen |
+| 5. Parität | Verwaltung/CLI/Tastatur; Refresh und Sync bauen Vergleich mit erhaltenem Scope neu auf | Teilweise umgesetzt: GUI-Verwaltung, Scope-erhaltender Refresh/Sync, numerische Projektdirektwahl, Sync-Fehlerdetails, CLI-Projektbefehle samt open/dash/version, optionales Datei-Logging und Browser-Kontextmenüs implementiert und lokal geprüft; Tastatur-Workflows abgeglichen, native Abnahme offen |
 | 6. Veröffentlichung | Linux-Paket/Desktop-Eintrag, macOS-Bundles für Intel/Apple Silicon, Installation und Release-Builds | Lokaler Linux-Release-Build bestanden; Pakete/Bundles, GUI-Release-Wege, Installation und native Abnahme offen |
 
 Der SFTP-Durchstich verwendet native `russh`-/`russh-sftp`-Clients und ein

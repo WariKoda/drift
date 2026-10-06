@@ -1,5 +1,6 @@
 use super::*;
 mod input;
+mod preferences;
 mod selection;
 use crate::{actions::bind_keys, sftp_test_support as support};
 use gpui_kit::base::test_support::snapshots;
@@ -16,9 +17,16 @@ struct Fixture {
     local: tempfile::TempDir,
     server: support::Server,
     _config: tempfile::TempDir,
+    preferences_writer: Option<drift_app::gui_preferences::PreferencesWriter>,
 }
 impl Fixture {
     async fn new(cx: &mut TestAppContext) -> Self {
+        Self::build(cx, None).await
+    }
+    async fn build(
+        cx: &mut TestAppContext,
+        preferences: Option<drift_core::gui_preferences::GuiPreferences>,
+    ) -> Self {
         cx.executor().allow_parking();
         let server = support::Server::new(false);
         let local = tempfile::tempdir().unwrap();
@@ -35,6 +43,10 @@ impl Fixture {
         }
         let store = Store::new(config.path().into());
         store.save_host(None, None, server.host()).unwrap();
+        let preferences_writer = preferences.as_ref().map(|_| {
+            drift_app::gui_preferences::PreferencesWriter::open(store.clone(), Default::default())
+                .unwrap()
+        });
         let (handle, shell) = cx.update(|cx| {
             gpui_kit::init(cx);
             bind_keys(cx);
@@ -50,14 +62,24 @@ impl Fixture {
                 |w, cx| {
                     cx.new(|cx| {
                         let service = BrowserService::new().unwrap();
-                        Shell::new(
+                        let shell = Shell::new(
                             w,
                             cx,
                             store,
                             service.clone(),
                             RemoteService::with_options(service, server.options()),
                             local.path().to_path_buf(),
-                        )
+                        );
+                        match preferences {
+                            Some(initial) => shell.with_preferences(
+                                initial,
+                                preferences_writer.clone().unwrap(),
+                                None,
+                                w,
+                                cx,
+                            ),
+                            None => shell,
+                        }
                     })
                 },
             )
@@ -69,6 +91,7 @@ impl Fixture {
             local,
             server,
             _config: config,
+            preferences_writer,
         };
         fixture.idle(cx).await;
         cx.update_window(handle, |_, w, cx| {

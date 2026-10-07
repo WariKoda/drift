@@ -70,6 +70,7 @@ func (a *App) connectionEnded(msg msgConnectionEnded) {
 // Close releases connections and background observers after Bubble Tea exits.
 // It runs outside Update, so waiting for transport shutdown cannot block input.
 func (a *App) Close() {
+	a.projectRequest = nil
 	a.cancelNetworkActivity()
 	a.watchConnection(nil)
 	if cmd := a.browser.CloseRemote(); cmd != nil {

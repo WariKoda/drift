@@ -63,9 +63,11 @@ type App struct {
 	connectionSeq    uint64
 	connectionCancel context.CancelFunc
 
-	dashboard   dashboard.Model
-	projectForm projectform.Model
-	projectSel  projectselector.Model
+	dashboard      dashboard.Model
+	projectForm    projectform.Model
+	projectSel     projectselector.Model
+	projectSeq     uint64
+	projectRequest *projectOpenRequest
 
 	// diffRequest is the ID of the diff request whose result the app still
 	// wants; 0 means none is pending. diffSeq issues those IDs. Results of
@@ -284,50 +286,6 @@ func (a App) blocksQuitKey(key tea.KeyMsg) bool {
 	return a.state.Screen == ScreenBrowser || a.state.Screen == ScreenDashboard
 }
 
-// openProject re-roots the running app into p: it loads p's config, builds a
-// fresh browser at p.Path and switches to the browser screen. A diff request
-// still in flight belongs to the project being left and is abandoned.
-func (a *App) openProject(p project.Project) (tea.Cmd, error) {
-	cfg, err := config.Load(p.Path, p.Slug)
-	if err != nil {
-		return nil, err
-	}
-	b, err := browser.New(p.Path)
-	if err != nil {
-		return nil, err
-	}
-	b.SetSize(a.state.TermWidth, a.state.TermHeight)
-	if err := b.SetConfig(cfg); err != nil {
-		return nil, err
-	}
-	b.SetProjectName(p.Name)
-	b.SetMouseEnabled(a.mouseEnabled)
-	b.SetTrustManager(a.trust)
-
-	// Preparing the new browser can fail. Keep the old browser and diff session
-	// attached until every fallible setup step has succeeded, so App.Close can
-	// still reach their connection and local root on an error.
-	a.abandonDiffRequest()
-	a.watchConnection(nil)
-	a.state.SelectedHost = nil
-	closeBrowser := a.browser.CloseRemote()
-	closeDiff := a.diffView.Close()
-
-	a.browser = b
-	a.state.Config = cfg
-	a.state.WorkingDir = p.Path
-	a.state.Selection = b.Selection
-	a.state.RemoteSelection = b.RemoteSelection
-	a.state.ScopeOptions.IncludeIgnored = false
-	a.pendingDiffStatus = ""
-	a.pendingDiffErrors = nil
-	pc := p
-	a.state.ActiveProject = &pc
-	a.state.Screen = ScreenBrowser
-	a.recordOpened(p.Slug)
-	return tea.Batch(closeBrowser, closeDiff, b.Init()), nil
-}
-
 // adoptRegisteredProject points the loaded config at the project that was just
 // registered, so its store is in reach without a restart. Until it runs there
 // is no slug, and a project host could not be saved anywhere.
@@ -496,8 +454,47 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.connectionEnded(ended)
 		return a, nil
 	}
+	switch result := msg.(type) {
+	case msgProjectPrepared:
+		return a.applyPreparedProject(result)
+	case msgProjectOpened:
+		if result.err != nil {
+			a.globalError = "Project registry update failed: " + result.err.Error()
+			return a, nil
+		}
+		if a.registry != result.previous {
+			store, previous := a.store, a.registry
+			return a, func() tea.Msg {
+				reg, err := store.Load()
+				if err != nil {
+					log.Error("reload registry after project open failed", "err", err)
+					err = fmt.Errorf("reload registry after project open: %w", err)
+				}
+				return msgProjectOpened{previous: previous, registry: reg, err: err}
+			}
+		}
+		a.registry = result.registry
+		a.dashboard.Refresh(a.registry)
+		if p := a.registry.Find(a.currentSlug()); p != nil && p.Path == a.state.WorkingDir {
+			pc := *p
+			a.state.ActiveProject = &pc
+			a.browser.SetProjectName(pc.Name)
+		}
+		return a, nil
+	}
 	if cmd := a.loader.Update(msg); cmd != nil {
 		return a, cmd
+	}
+	if a.projectRequest != nil {
+		switch input := msg.(type) {
+		case tea.KeyMsg:
+			if input.String() == "esc" || isActivityCancelKey(input) {
+				a.projectRequest = nil
+			}
+			return a, nil
+		case tea.MouseMsg:
+			return a, nil
+		}
 	}
 
 	if a.certPrompt != nil {
@@ -575,12 +572,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// ── Project Dashboard ─────────────────────────────────────────────
 	case dashboard.MsgProjectChosen:
-		cmd, err := a.openProject(msg.Project)
-		if err != nil {
-			a.dashboard.SetStatus("Cannot open project: " + err.Error())
-			return a, nil
-		}
-		a.dashboard.SetReturnable(false)
+		cmd := a.openProject(msg.Project)
 		return a, cmd
 
 	case dashboard.MsgOpenProjectForm:
@@ -695,11 +687,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.Screen = ScreenBrowser
 			return a, nil
 		}
-		cmd, err := a.openProject(msg.Project)
-		if err != nil {
-			a.projectSel.SetStatus("Cannot open project: " + err.Error())
-			return a, nil
-		}
+		cmd := a.openProject(msg.Project)
 		return a, cmd
 
 	// ── Browser → Host Selector / direct sync ─────────────────────────
@@ -1183,6 +1171,10 @@ func (a App) View() string {
 	}
 	if a.loader.Visible() {
 		return a.loader.Overlay(base, a.state.TermWidth, a.state.TermHeight)
+	}
+	if a.projectRequest != nil {
+		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,
+			"Opening "+a.projectRequest.project.Name+"…  [Esc/q] cancel", false)
 	}
 	if a.loader.BackgroundVisible() {
 		return replaceStatusLine(base, a.state.TermWidth, a.state.TermHeight,

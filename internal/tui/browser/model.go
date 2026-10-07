@@ -77,6 +77,7 @@ type Model struct {
 	remoteOffset         int
 	remoteLoading        bool
 	remoteReading        bool
+	remoteReadPath       string
 	remotePreviewReading bool
 	remotePreviewID      uint64 // generation of the dispatched read, independent of the current selection
 	remotePreviewCancel  context.CancelFunc
@@ -251,7 +252,9 @@ func (m Model) AcceptsRemoteResult(msg MsgRemoteLoaded) bool {
 // AcceptsRemoteChildrenResult reports whether a directory result belongs to
 // the active remote connection generation.
 func (m Model) AcceptsRemoteChildrenResult(msg MsgRemoteChildrenLoaded) bool {
-	return m.remoteReading && msg.session == m.remoteSession && msg.ID == m.remoteLoadID && m.remoteHost != nil && m.remoteHost.Name == msg.Host.Name
+	return m.remoteReading && msg.session == m.remoteSession && msg.ID == m.remoteLoadID &&
+		msg.conn == m.remoteConn && msg.tracker == m.remoteTracker &&
+		m.remoteHost != nil && m.remoteHost.Name == msg.Host.Name
 }
 
 // RemoteHost returns the host currently assigned to the remote pane.
@@ -262,17 +265,43 @@ func (m Model) RemoteHost() (config.Host, bool) {
 	return *m.remoteHost, true
 }
 
-// CancelRemote aborts an in-flight root listing and ignores its result.
-func (m *Model) CancelRemote() {
+// CancelRemote aborts an in-flight listing and ignores its result. A directory
+// read also returns a command to close its connection off the UI thread.
+func (m *Model) CancelRemote() tea.Cmd {
+	var conn remote.Client
 	if m.remoteTracker != nil {
 		m.remoteTracker.Cancel()
+		m.remoteTracker = nil
 	}
 	m.remoteLoadID++
-	if !m.remoteLoading {
-		return
+	if m.remoteReading {
+		if idx := m.remoteIndexByPath(m.remoteReadPath); idx >= 0 {
+			m.remoteEntries[idx].Expanded = false
+		}
+		m.remoteReading = false
+		m.remoteReadPath = ""
+		conn = m.remoteConn
+		m.remoteConn = nil
+		m.remoteStatus = "Remote directory read cancelled. Press [r] to reconnect."
+		if m.preview.source == PaneRemote {
+			m.preview.generation++
+			m.preview.loading = false
+			m.preview.waiting = false
+		}
 	}
-	m.remoteLoading = false
-	m.remoteStatus = "Cancelled"
+	if m.remoteLoading {
+		m.remoteLoading = false
+		m.remoteStatus = "Cancelled"
+	}
+	if conn == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := conn.Close(); err != nil {
+			log.Error("close cancelled browser directory read", "err", err)
+		}
+		return nil
+	}
 }
 
 // SetSize updates terminal dimensions.
@@ -473,6 +502,16 @@ func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
 		return false
 	}
 	_ = m.cancelRemotePreview(false)
+	if m.remoteTracker != nil {
+		m.remoteTracker.Cancel()
+		m.remoteTracker = nil
+	}
+	if m.remoteReading {
+		if idx := m.remoteIndexByPath(m.remoteReadPath); idx >= 0 {
+			m.remoteEntries[idx].Expanded = false
+		}
+	}
+	m.remoteReadPath = ""
 	m.remoteLoadID++
 	m.remoteReading = false
 	m.remotePreviewReading = false

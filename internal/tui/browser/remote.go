@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"sync"
@@ -15,6 +16,8 @@ import (
 	"github.com/WariKoda/drift/internal/tlstrust"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+const remoteDirectoryTimeout = 30 * time.Second
 
 // MsgRemoteLoaded is emitted after connecting to a host and loading its root.
 type MsgRemoteLoaded struct {
@@ -35,6 +38,8 @@ type MsgRemoteChildrenLoaded struct {
 	ParentPath string
 	Children   []*fs.FileEntry
 	Err        error
+	conn       remote.Client
+	tracker    *progress.Tracker
 }
 
 // StartRemote points the right pane at host and starts loading its root. The
@@ -141,20 +146,37 @@ func loadRemoteCmd(host config.Host, parent context.Context, id uint64, session 
 	}
 }
 
-func readRemoteDirCmd(conn remote.Client, host config.Host, id uint64, session *string, parentPath string, classifier *fs.Classifier, cfg *config.MergedConfig, workDir string) tea.Cmd {
+func readRemoteDirCmd(parent context.Context, request MsgRemoteChildrenLoaded, classifier *fs.Classifier, cfg *config.MergedConfig, workDir string) tea.Cmd {
 	return func() tea.Msg {
-		children, err := conn.ReadDir(parentPath)
+		msg := request
+		ctx, cancel := context.WithTimeout(parent, remoteDirectoryTimeout)
+		defer cancel()
+		detach := remote.CloseOnContextDone(ctx, request.conn)
+		defer detach()
+
+		children, readErr := request.conn.ReadDir(request.ParentPath)
+		detach()
+		err := ctx.Err()
+		if err == nil {
+			err = readErr
+		}
+		if err == nil {
+			err = request.conn.Err()
+		}
 		if err != nil {
-			log.Error("remote browser directory read failed", "remote", parentPath, "err", err)
-			return MsgRemoteChildrenLoaded{Host: host, ID: id, session: session, ParentPath: parentPath, Err: fmt.Errorf("read %s: %w", parentPath, err)}
+			log.Error("remote browser directory read failed", "host", request.Host.Name, "remote", request.ParentPath, "err", err)
+			msg.Err = fmt.Errorf("read %s: %w", request.ParentPath, err)
+			return msg
 		}
 		classifierModel := Model{WorkDir: workDir, classifier: classifier, config: cfg}
-		children, err = classifierModel.classifyRemote(children, host)
+		children, err = classifierModel.classifyRemote(children, request.Host)
 		if err != nil {
-			log.Error("remote browser classification failed", "remote", parentPath, "err", err)
-			return MsgRemoteChildrenLoaded{Host: host, ID: id, session: session, ParentPath: parentPath, Err: fmt.Errorf("classify %s: %w", parentPath, err)}
+			log.Error("remote browser classification failed", "remote", request.ParentPath, "err", err)
+			msg.Err = fmt.Errorf("classify %s: %w", request.ParentPath, err)
+			return msg
 		}
-		return MsgRemoteChildrenLoaded{Host: host, ID: id, session: session, ParentPath: parentPath, Children: children}
+		msg.Children = children
+		return msg
 	}
 }
 
@@ -196,17 +218,34 @@ func (m *Model) applyRemoteChildrenLoaded(msg MsgRemoteChildrenLoaded) {
 		return
 	}
 	m.remoteReading = false
+	m.remoteReadPath = ""
+	if m.remoteTracker != nil {
+		m.remoteTracker.Cancel()
+		m.remoteTracker = nil
+	}
 	idx := m.remoteIndexByPath(msg.ParentPath)
+	if idx >= 0 {
+		m.remoteEntries[idx].Expanded = false
+	}
+	if msg.Err != nil {
+		m.remoteStatus = "Remote error: " + sanitizePreviewError(msg.Err)
+		if errors.Is(msg.Err, context.Canceled) || errors.Is(msg.Err, context.DeadlineExceeded) {
+			m.remoteConn = nil
+			m.remoteLoadID++
+			m.remoteStatus += ". Press [r] to reconnect."
+			if m.preview.source == PaneRemote {
+				m.preview.generation++
+				m.preview.loading = false
+				m.preview.waiting = false
+			}
+		}
+		return
+	}
 	if idx < 0 {
 		return
 	}
 	parent := m.remoteEntries[idx]
 	revealChildren := m.remoteCurrent() == parent
-	parent.Expanded = false
-	if msg.Err != nil {
-		m.remoteStatus = "Remote error: " + msg.Err.Error()
-		return
-	}
 	for _, child := range msg.Children {
 		child.Depth = parent.Depth + 1
 		child.Parent = parent

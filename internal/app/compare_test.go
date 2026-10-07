@@ -6,13 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	stdsync "sync"
 	"testing"
 	"time"
 
+	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/ftptest"
+	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 )
@@ -196,6 +200,79 @@ func TestCompareCancellationClosesExtraWorker(t *testing.T) {
 	case <-conn.Done():
 		t.Fatal("canceling extra workers closed the owned primary connection")
 	default:
+	}
+}
+
+func TestLoadLogsScanErrorSessions(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "drift.log")
+	logFile, err := log.Init(log.Options{Path: logPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := logFile.Close(); err != nil {
+			t.Errorf("close log: %v", err)
+		}
+	})
+
+	localDir := t.TempDir()
+	localPath := filepath.Join(localDir, "missing local.txt")
+	remotePath := "/denied remote.txt"
+	server := ftptest.Start(t, 1)
+	server.AddFile(remotePath, "payload")
+	server.SetDenyCommand(func(_, argument string) bool { return argument == remotePath })
+	host := server.Host(t)
+	host.Auth.Password = "scan-log-password-must-stay-private"
+	conn := connectTestHost(t, host)
+	localSelection := fs.NewSelectionState()
+	localSelection.Marked[localPath] = struct{}{}
+	remoteSelection := fs.NewSelectionState()
+	remoteSelection.Marked[remotePath] = struct{}{}
+	tracker := progress.NewTracker("Scanning…")
+	loaded, err := Load(tracker.Context(), LoadRequest{
+		Host: host, Config: &config.MergedConfig{ProjectRoot: localDir},
+		Local: localSelection, Remote: remoteSelection, Conn: conn,
+	}, tracker)
+	if err != nil {
+		t.Fatalf("load scan failures: %v", err)
+	}
+	defer loaded.Root.Close()
+	if len(loaded.Sessions) != 2 {
+		t.Fatalf("sessions = %+v, want local and remote scan errors", loaded.Sessions)
+	}
+	for _, session := range loaded.Sessions {
+		if session.Err == nil || !session.Loaded || session.Result != nil {
+			t.Fatalf("scan error was not preserved as a loaded error session: %+v", session)
+		}
+		if session.RemotePath == "" && !errors.Is(session.Err, os.ErrNotExist) {
+			t.Fatalf("local missing classification lost: %v", session.Err)
+		}
+		if session.RemotePath != "" && errors.Is(session.Err, os.ErrNotExist) {
+			t.Fatalf("remote permission failure classified as missing: %v", session.Err)
+		}
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(data)
+	if got := strings.Count(output, `msg="diff scan failed"`); got != len(loaded.Sessions) {
+		t.Fatalf("scan log entries = %d, want %d:\n%s", got, len(loaded.Sessions), output)
+	}
+	for _, session := range loaded.Sessions {
+		for _, field := range []string{
+			"local=" + strconv.Quote(session.LocalPath),
+			"remote=" + strconv.Quote(session.RemotePath),
+			"err=" + strconv.Quote(session.Err.Error()),
+		} {
+			if !strings.Contains(output, field) {
+				t.Errorf("scan log lacks %s:\n%s", field, output)
+			}
+		}
+	}
+	if strings.Contains(output, host.Auth.Password) {
+		t.Fatal("scan log includes host credentials")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
+	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	"github.com/aymanbagabas/go-osc52/v2"
@@ -142,6 +143,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, m.schedulePreview()
 
 	case MsgRemoteChildrenLoaded:
+		if !m.AcceptsRemoteChildrenResult(msg) {
+			return m, nil
+		}
 		m.applyRemoteChildrenLoaded(msg)
 		return m, m.resumePreviewLoad()
 
@@ -201,6 +205,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.updateMouse(msg)
 
 	case tea.KeyMsg:
+		if (m.remoteLoading || m.remoteReading) && (msg.String() == keyEsc || msg.String() == keyCtrlC) {
+			cmd := m.CloseRemote()
+			return m, cmd
+		}
 		// Overlays capture keys first.
 		if m.finder.active {
 			return m.updateFinder(msg)
@@ -484,9 +492,11 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			conn = m.remoteConn
 			m.remoteConn = nil // hand connection ownership to the diff view
 		}
-		return m, tea.Batch(mouseCmd, func() tea.Msg {
-			return MsgSyncRequested{Selection: m.Selection.Clone(), RemoteSelection: m.RemoteSelection.Clone(), Host: host, Conn: conn, Options: syncpolicy.ScopeOptions{}}
-		})
+		request := MsgSyncRequested{
+			Selection: m.Selection.Clone(), RemoteSelection: m.RemoteSelection.Clone(),
+			Host: host, Conn: conn, Options: syncpolicy.ScopeOptions{},
+		}
+		return m, tea.Batch(mouseCmd, func() tea.Msg { return request })
 
 	// ── Remote browser host ────────────────────────────
 	case keyAt:
@@ -599,8 +609,14 @@ func (m Model) updateRemoteOpen() (Model, tea.Cmd) {
 	}
 	entry.Expanded = true
 	m.remoteReading = true
-	m.remoteStatus = "Loading remote: " + entry.Path
-	return m, readRemoteDirCmd(m.remoteConn, *m.remoteHost, m.remoteLoadID, m.remoteSession, entry.Path, m.classifier, m.config, m.WorkDir)
+	m.remoteReadPath = entry.Path
+	m.remoteStatus = "Loading remote: " + entry.Path + " (Esc/Ctrl+C cancel)"
+	m.remoteTracker = progress.NewTracker(m.remoteStatus)
+	request := MsgRemoteChildrenLoaded{
+		Host: *m.remoteHost, ID: m.remoteLoadID, session: m.remoteSession,
+		ParentPath: entry.Path, conn: m.remoteConn, tracker: m.remoteTracker,
+	}
+	return m, readRemoteDirCmd(m.remoteTracker.Context(), request, m.classifier, m.config, m.WorkDir)
 }
 
 func (m Model) updateRemoteClose() (Model, tea.Cmd) {

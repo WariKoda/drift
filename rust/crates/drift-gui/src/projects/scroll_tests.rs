@@ -6,7 +6,7 @@ use gpui_kit::{
 };
 use std::{fs, time::Duration};
 
-struct InsetProjects {
+pub(super) struct InsetProjects {
     panel: Entity<ProjectsPanel>,
     inset: Pixels,
     hidden: bool,
@@ -30,7 +30,7 @@ impl Render for InsetProjects {
             })
     }
 }
-fn fixture(
+pub(super) fn fixture(
     store: &Store,
     width: f32,
     height: f32,
@@ -81,26 +81,36 @@ fn fixture(
     let panel = root.read_with(cx, |root, _| root.panel.clone());
     (handle, root, panel)
 }
-async fn idle(handle: AnyWindowHandle, panel: &Entity<ProjectsPanel>, cx: &mut TestAppContext) {
+pub(super) async fn idle(
+    handle: AnyWindowHandle,
+    panel: &Entity<ProjectsPanel>,
+    cx: &mut TestAppContext,
+) {
     cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
         panel.read(cx).cancel.is_none()
     })
     .await;
     frame(handle, cx);
 }
-fn frame(handle: AnyWindowHandle, cx: &mut TestAppContext) {
+pub(super) fn frame(handle: AnyWindowHandle, cx: &mut TestAppContext) {
     cx.update_window(handle, |_, w, cx| w.render_frame(cx))
         .unwrap();
 }
-fn press(handle: AnyWindowHandle, key: &str, cx: &mut TestAppContext) {
+pub(super) fn press(handle: AnyWindowHandle, key: &str, cx: &mut TestAppContext) {
     cx.update_window(handle, |_, w, cx| w.press(key, cx))
         .unwrap();
     frame(handle, cx);
 }
-fn visible(handle: AnyWindowHandle, id: impl Into<ElementId>, cx: &mut TestAppContext) {
+pub(super) fn visible(handle: AnyWindowHandle, id: impl Into<ElementId>, cx: &mut TestAppContext) {
     let id = id.into();
     cx.update_window(handle, |_, w, _| {
-        let viewport = w.find("project-details").bounds();
+        let viewport = if w.try_find("project-dialog").is_some()
+            && matches!(id, ElementId::Name(ref name) if name.as_ref() == "project-save" || name.as_ref() == "project-close")
+        {
+            w.find("project-form-footer").bounds()
+        } else {
+            w.find("project-details").bounds()
+        };
         let target = w.find(id.clone());
         let bounds = target.bounds();
         assert!(
@@ -120,7 +130,7 @@ fn visible(handle: AnyWindowHandle, id: impl Into<ElementId>, cx: &mut TestAppCo
     })
     .unwrap();
 }
-fn tab_to(handle: AnyWindowHandle, id: &'static str, cx: &mut TestAppContext) {
+pub(super) fn tab_to(handle: AnyWindowHandle, id: &'static str, cx: &mut TestAppContext) {
     for _ in 0..16 {
         press(handle, "tab", cx);
         if cx
@@ -156,10 +166,10 @@ async fn project_edit_short_inset_tab_and_reverse_tab_reveal_controls_and_keep_d
         cx.update_window(handle, |_, w, cx| w.input(" draft", cx))
             .unwrap();
         frame(handle, cx);
-        for id in ["project-edit-path", "project-save", "project-close"] {
+        for id in ["project-edit-path", "project-close", "project-save"] {
             tab_to(handle, id, cx);
         }
-        for id in ["project-save", "project-edit-path", "project-edit-name"] {
+        for id in ["project-close", "project-edit-path", "project-edit-name"] {
             press(handle, "shift-tab", cx);
             visible(handle, id, cx);
             assert_eq!(
@@ -413,4 +423,71 @@ async fn project_validation_error_keeps_native_inputs_and_can_scroll_back_to_can
     press(handle, "enter", cx);
     fs::remove_file(config.path().join("projects.toml")).unwrap();
     assert!(store.registry().unwrap().projects.is_empty());
+}
+
+#[gpui_kit::test]
+async fn project_hidden_form_save_still_validates_native_composition_and_preserves_outside_focus(
+    cx: &mut TestAppContext,
+) {
+    use gpui_kit::EntityInputHandler as _;
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let rootdir = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    store.register("Keep", rootdir.path().into()).unwrap();
+    let before = fs::read(config.path().join("projects.toml")).unwrap();
+    let (handle, root, panel) = fixture(&store, 380., 180., 12., cx);
+    idle(handle, &panel, cx).await;
+    press(handle, "down", cx);
+    press(handle, "e", cx);
+    tab_to(handle, "project-edit-path", cx);
+    let (name, path, operation) = panel.read_with(cx, |p, _| {
+        let form = p.form.as_ref().unwrap();
+        (form.name.clone(), form.path.clone(), p.operation)
+    });
+    cx.update_window(handle, |_, w, cx| {
+        path.update(cx, |s, cx| {
+            s.set_value("A🦀Z", w, cx);
+            s.replace_and_mark_text_in_range(Some(1..3), "に🦀", Some(1..3), w, cx);
+        });
+        root.update(cx, |root, cx| {
+            root.hidden = true;
+            root.outside.focus_handle(cx).focus(w, cx);
+            cx.notify();
+        });
+    })
+    .unwrap();
+    frame(handle, cx);
+    for poisoned in [false, true] {
+        cx.update_window(handle, |_, w, cx| {
+            if poisoned {
+                path.update(cx, |s, cx| {
+                    s.unmark_text(w, cx);
+                    s.set_value("secret\u{85}path", w, cx);
+                });
+            }
+            panel.update(cx, |p, cx| p.save_form(w, cx));
+            let p = panel.read(cx);
+            assert_eq!(p.operation, operation);
+            assert_eq!(p.form.as_ref().unwrap().name, name);
+            assert_eq!(p.form.as_ref().unwrap().path, path);
+            assert!(p.cancel.is_none() && !p.writing);
+            assert!(root.read(cx).outside.focus_handle(cx).is_focused(w));
+            assert!(!p.status.contains("secret"));
+            assert_eq!(
+                p.status,
+                if poisoned {
+                    "Input rejected: control characters and line separators are not allowed."
+                } else {
+                    "Finish text composition before saving."
+                }
+            );
+        })
+        .unwrap();
+        frame(handle, cx);
+        assert_eq!(
+            fs::read(config.path().join("projects.toml")).unwrap(),
+            before
+        );
+    }
 }

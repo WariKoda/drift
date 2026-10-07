@@ -84,7 +84,14 @@ fn tab_to(handle: AnyWindowHandle, id: &'static str, cx: &mut TestAppContext) {
             cx.update_window(handle, |_, w, _| {
                 let target = w.find(id);
                 assert!(target.visible());
-                if let Some(viewport) = w.try_find("project-details") {
+                let viewport_id = if matches!(id, "project-save" | "project-close")
+                    && w.try_find("project-dialog").is_some()
+                {
+                    "project-form-footer"
+                } else {
+                    "project-details"
+                };
+                if let Some(viewport) = w.try_find(viewport_id) {
                     assert!(target.bounds().top() >= viewport.bounds().top() - px(1.));
                     assert!(target.bounds().bottom() <= viewport.bounds().bottom() + px(1.));
                 }
@@ -361,7 +368,7 @@ async fn project_save_blocks_focused_and_native_tab_blurred_path_composition(
         if blurred {
             press(handle, "tab", cx);
             cx.update_window(handle, |_, w, _| {
-                assert_eq!(w.find("project-save").focused(), Some(true))
+                assert_eq!(w.find("project-close").focused(), Some(true))
             })
             .unwrap();
         }

@@ -1,4 +1,4 @@
-//! Presentation tokens for the browser pilot; native controls own interaction.
+//! Presentation tokens for the browser and project form; native controls own interaction.
 use gpui_kit::Styled;
 use gpui_kit::component::{
     ActiveTheme, Sizable,
@@ -38,6 +38,7 @@ pub mod size {
     pub const ICON: f32 = 16.;
     pub const DISCLOSURE: f32 = 20.;
     pub const FILTER: f32 = 300.;
+    pub const PROJECT_FORM: f32 = 560.;
     pub const RADIUS: f32 = 4.;
 }
 

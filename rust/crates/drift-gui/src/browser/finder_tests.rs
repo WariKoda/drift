@@ -54,7 +54,7 @@ impl Render for TwoPanes {
                             this.left.update(cx, |pane, cx| pane.focus(w, cx));
                         },
                     ))
-                    .child(self.left.read(cx).header()),
+                    .child(self.left.read(cx).header(cx)),
             )
             .child(self.left.clone())
             .into_any_element();
@@ -65,7 +65,7 @@ impl Render for TwoPanes {
             .size_full()
             .min_w_0()
             .min_h_0()
-            .child(self.right.read(cx).header())
+            .child(self.right.read(cx).header(cx))
             .child(self.right.clone())
             .into_any_element();
         let split = self.split.view("finder-split", left, right, window, cx);

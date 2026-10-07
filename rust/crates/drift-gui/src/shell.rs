@@ -1,5 +1,6 @@
 //! Window/session coordination. Child views own their interaction and load state.
 use crate::certificates::CertificatePrompt;
+use crate::design::{Palette, Text, metric, space};
 use crate::{
     actions::*,
     browser::{BrowserCommand, BrowserEvent, BrowserPane},
@@ -878,7 +879,8 @@ impl Shell {
             },
             cx.listener(Self::toolbar_event),
         );
-        let header = browser.header();
+        let header = browser.header(cx);
+        let palette = Palette::current(cx);
         let hosts = browser
             .location()
             .map(|location| {
@@ -1032,9 +1034,13 @@ impl Shell {
             .child(self.preference_controls(cx))
             .child(
                 div()
-                    .p_3()
+                    .id("workspace-status")
+                    .text_size(Text::Metadata.rems())
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .bg(palette.chrome)
                     .border_t_1()
-                    .border_color(cx.theme().border)
+                    .border_color(palette.border)
                     .child(self.status.clone()),
             )
             .into_any_element()
@@ -1045,6 +1051,8 @@ mod certificates;
 mod comparison;
 #[cfg(test)]
 mod comparison_tests;
+#[cfg(test)]
+mod design_tests;
 #[cfg(test)]
 mod finder_tests;
 #[cfg(test)]

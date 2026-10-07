@@ -1,3 +1,4 @@
+mod view;
 use super::*;
 pub(super) struct ProjectForm {
     pub expected: Option<Project>,
@@ -61,6 +62,9 @@ impl ProjectsPanel {
             input
         });
         name.focus_handle(cx).focus(window, cx);
+        self.details_reveal
+            .scroll_handle()
+            .set_offset(Default::default());
         self.form = Some(ProjectForm {
             expected,
             name,

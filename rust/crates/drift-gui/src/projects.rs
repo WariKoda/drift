@@ -175,7 +175,7 @@ impl Render for ProjectsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected_project(cx).map(|p| p.slug);
         let busy = self.is_loading();
-        let editing = self.form.is_some() || self.delete.is_some();
+        let editing = self.delete.is_some();
         let mut view =
             div()
                 .key_context(if self.form.is_some() {
@@ -192,8 +192,7 @@ impl Render for ProjectsPanel {
                 .whitespace_normal()
                 .flex()
                 .flex_col()
-                .p_3()
-                .gap_2()
+                .when(self.form.is_none(), |view| view.p_3().gap_2())
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
                 .on_action(cx.listener(Self::cancel_view))
@@ -214,6 +213,9 @@ impl Render for ProjectsPanel {
                         cx.propagate();
                     }
                 }));
+        if self.form.is_some() {
+            return view.child(self.render_form(cx));
+        }
         if editing {
             let mut details = div()
                 .id("project-details")
@@ -241,40 +243,7 @@ impl Render for ProjectsPanel {
                         .child("Projects")
                         .child(self.status.clone()),
                 );
-            if let Some(form) = &self.form {
-                details = details.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .min_w_0()
-                        .child(form_input::guard(&form.name, |input| {
-                            self.details_reveal.wrap(
-                                ("reveal-project-name", form.name.entity_id()),
-                                input.id("project-edit-name").disabled(busy),
-                            )
-                        }))
-                        .child(form_input::guard(&form.path, |input| {
-                            self.details_reveal.wrap(
-                                ("reveal-project-path", form.path.entity_id()),
-                                input.id("project-edit-path").disabled(busy),
-                            )
-                        }))
-                        .child(
-                            div().flex().flex_wrap().gap_2().min_w_0().child(
-                                self.details_reveal.wrap(
-                                    "reveal-project-save",
-                                    Button::new("project-save")
-                                        .label("Save project (Ctrl/Cmd+S)")
-                                        .disabled(busy)
-                                        .on_click(
-                                            cx.listener(|this, _, w, cx| this.save_form(w, cx)),
-                                        ),
-                                ),
-                            ),
-                        ),
-                );
-            } else if let Some(project) = &self.delete {
+            if let Some(project) = &self.delete {
                 details = details.child(div().flex().flex_col().gap_2().min_w_0()
                     .child(format!("Remove {:?} and its saved hosts/mappings? Local project files remain in place.", project.name))
                     .child(div().flex().flex_wrap().min_w_0().gap_2()
@@ -601,6 +570,8 @@ impl Render for ProjectsPanel {
         )
     }
 }
+#[cfg(test)]
+mod design_tests;
 #[cfg(test)]
 mod input_tests;
 #[cfg(test)]

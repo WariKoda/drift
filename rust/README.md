@@ -37,7 +37,7 @@ lock. GUI window/theme/pane preferences live separately in `gui.toml`; the Go
 configuration schema is unchanged. Shared file format changes still require
 coordination despite independent application versions.
 
-## Browser design pilot
+## Browser and project-dialog design pilots
 
 The browser/toolbar pilot follows Zed's compact visual hierarchy: semantic
 14/12/16 UI typography, 4/8/12/16 spacing, separate marks/disclosure/file glyphs,
@@ -48,9 +48,17 @@ UI implementation are copied. Native input entities and transfer approvals remai
 unchanged; this is not a whole-app restyle.
 
 See the [design system and pinned references](../docs/rust-gui-design-system.md)
-and [schematic HTML preview](../docs/design/drift-design-system.html). Dialog
-layouts are documented for later implementation; the preview is not a native
-screenshot or accessibility/platform acceptance.
+and [schematic HTML preview](../docs/design/drift-design-system.html). The Create/Edit
+project form now uses a parent-measured 560px preferred dialog, fixed header/footer
+and body-only scrolling. Native Tab order is name → path → Cancel → Save project;
+input Enter is not save consent, while Ctrl/Cmd+S remains explicit. Input entities,
+IME/history, validation and busy guards stay native. Project lists and deletion
+views are unchanged; other dialog layouts remain proposals.
+
+At 104px usable height and test-only 24px Kit font size, a 42px input cannot fully
+fit the 21px body: only its top edge is revealed, while footer actions remain visible. This is
+not arbitrary viewport/readability acceptance or a new font preference. The preview
+is not a native screenshot or accessibility/platform acceptance.
 
 ## GUI preferences
 

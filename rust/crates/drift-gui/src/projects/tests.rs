@@ -146,8 +146,10 @@ async fn keyboard_safety_project_edit_tab_navigation_keeps_input_and_cancel_nati
         );
         w.press("tab", cx);
         w.press("tab", cx);
-        assert_eq!(w.find("project-save").focused(), Some(true));
+        assert_eq!(w.find("project-close").focused(), Some(true));
         w.press("tab", cx);
+        assert_eq!(w.find("project-save").focused(), Some(true));
+        w.press("shift-tab", cx);
         assert_eq!(w.find("project-close").focused(), Some(true));
         w.press("enter", cx);
         assert!(panel.read(cx).form.is_none());

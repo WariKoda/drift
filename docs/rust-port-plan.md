@@ -18,7 +18,7 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **6. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
+Stand: **7. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
 aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
 Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
@@ -50,26 +50,41 @@ Monokai Pro Dark/Light Sun bleibt bis zur Klärung der Weitergabe gesperrt; der
 Nutzer hat Präferenzen zuerst gewählt. Native OS-/Fensterabnahme bleibt offen.
 Der Nutzer hat nun Zed als visuelle Referenz und **Design-Tokens plus Browser-/Toolbar-Pilot**
 gewählt. Typografie, Spacing, Dichte, Icon- und Gruppierungsregeln liegen in einem
-eigenen [Designsystem](rust-gui-design-system.md); Dialoglayouts werden zunächst
-nur dokumentiert, nicht pauschal umgebaut. Keine Zed-Assets oder Paletten übernommen.
+eigenen [Designsystem](rust-gui-design-system.md). Als nächsten Pilot wählte der
+Nutzer das **Projektformular**: Create/Edit sind nun parent-gemessen zentriert,
+mit festem Header/Footer, Body-Scroll und bewusstem Tab Name → Path → Cancel → Save.
+Native Eingaben/IME/History, Validierung und Busy-/Speicherbedingungen bleiben;
+Listen/Löschen/Registrierung unverändert. Weitere Dialoge sind weiterhin Entwurf.
+Keine Zed-Assets oder Paletten übernommen.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Arbeitsbranch: `feature/rust-zed-design-system`, aufgebaut auf
-  `feature/rust-gui-packaging` (Draft #96). Der SSH-Prototyp
+- Aktueller Arbeitsbranch: `feature/rust-project-dialog-design`, aufgebaut auf
+  `feature/rust-zed-design-system` (Draft #97). Der SSH-Prototyp
   bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
   Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
-- Implementierungsstand: Commit `94972c8`,
+- Implementierungsstand: Commit `029d6d7`,
+  [Draft-PR #98](https://github.com/WariKoda/drift/pull/98), aufgebaut auf korrigiertem
+  #97 (`f8e5b94`). Sieben neue GPUI-Regressionen und lokaler Gesamtcheck bestanden;
+  scoped static PASS getrennt davon. Bevorzugte 560er-Breite passt sich tatsächlichem
+  Parent an; Header/Footer fest, Body allein scrollbar. Parent 320×120/Inset 8/Kit16
+  bietet einen ganzen Input plus Footer; Kit24 lässt bei 104 nutzbarer Höhe nur 21
+  für den 42er-Input, also keine volle Lesbarkeitsabnahme. Keine neue Font-Preference.
+  Frische Child-CI und native GUI-Abnahme offen.
+- Basisstand: Commit `94972c8`,
   [Draft-PR #97](https://github.com/WariKoda/drift/pull/97), aufgebaut auf #96.
   Design-Tokens und Browser-/Toolbar-Pilot sind lokal vollständig geprüft.
-  Dialogregeln und HTML-Vorschau bleiben Entwurf. CI bei `973db61`: Go/Linux
+  Weitere Dialogregeln und HTML-Vorschau bleiben Entwurf. CI bei `973db61`: Go/Linux
   bestanden, beide macOS-Jobs scheiterten im nicht abgenommenen 120er-Pane-/24er-
   Font-Testfall an einem Wheel-Ereignis auf unsichtbarer Dateiansicht. Die 210/420er-
   Layout-/Text-/Paint-Prüfungen bestanden vorher in beiden Läufen. Testkorrektur
   übernimmt unveränderte Textmaße aus sichtbarem Layout; erhält Resize-, Rem-,
   Fokus-/Session-/Mark-/Auswahlprüfungen, ohne virtuellen Row-Zugriff/Wheel auf
   unsichtbarer Fläche. Keine Produktionsänderung, Sleeps, Retries oder Skips;
-  korrigierte macOS-CI noch offen. Siehe [Nachprüfung](rust-gui-design-system.md).
+  alle sechs korrigierten Go-/Linux-/macOS-Checks für `f8e5b94` bestanden:
+  [37620612116](https://github.com/WariKoda/drift/actions/runs/37620612116) und
+  [37620605228](https://github.com/WariKoda/drift/actions/runs/37620605228).
+  Siehe [Nachprüfung](rust-gui-design-system.md).
   Die dokumentierte 120er-Pane-/24er-Font-Grenze ist keine native Abnahme.
 - Basisstand: Commit `589f7a8`,
   [Draft-PR #96](https://github.com/WariKoda/drift/pull/96), aufgebaut auf #95.
@@ -158,9 +173,9 @@ nur dokumentiert, nicht pauschal umgebaut. Keine Zed-Assets oder Paletten übern
   und open/dash/version, [#81](https://github.com/WariKoda/drift/pull/81) für
   numerische Projektdirektwahl/Sync-Fehlerdetails und
   [#80](https://github.com/WariKoda/drift/pull/80) für Picker-/Diff-Tastaturarbeit.
-  Alle PRs #97 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
+  Alle PRs #98 bis #80 sind weiterhin offene Drafts und nicht in `main` integriert.
   Vor Integration die
-  gestapelte Kette #97 → #96 → #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
+  gestapelte Kette #98 → #97 → #96 → #95 → #94 → #93 → #92 → #91 → #90 → #89 → #88 → #87 → #86 → #85 → #84 → #83 → #82 → #81 → #80 prüfen.
 - Bestätigte CI von #95 bis #80 ist vollständig bestanden, jeweils Go und Rust Linux/macOS.
   #87 erhielt portable Git-Fehler-Fixtures (`932917c`) statt auf APFS unzulässiger
   nicht-UTF-8-Dateinamen und die primäre Git-Diagnose vor sekundärem EPIPE (`9d12622`).
@@ -188,8 +203,8 @@ nur dokumentiert, nicht pauschal umgebaut. Keine Zed-Assets oder Paletten übern
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes, optionales Datei-Logging und getrennte GUI-Build-Version | Öffentliche Release-Freigabe bleibt gesperrt |
 | Oberfläche und Veröffentlichung | Kit-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **453 Rust-Tests, davon 231 Headless-GPUI-Tests
-(GUI-Binärsuite 264); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Letzte lokale Gesamtprüfung: **460 Rust-Tests, davon 238 Headless-GPUI-Tests
+(GUI-Binärsuite 271); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
 Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
 Zusätzlich 27 Python-Paket-/Prozess-Tests bestanden; ein privilegierter Realfall
@@ -202,7 +217,7 @@ Diese Befunde sind keine native GUI-/macOS-Bundleabnahme. Das Make-Alias wurde
 mit relativen/Leerzeichen-Pfaden strukturell geprüft; sein kompletter zusätzlicher
 Native-Target-Build wurde hier nicht ausgeführt. Die manuelle CI-Matrix kann vor
 Integration der Workflow-Datei in den Default-Branch nicht gestartet werden.
-Prüfartefakte: `/var/tmp/drift-zed-design-verified-*` und
+Prüfartefakte: `/var/tmp/drift-project-dialog-verified-*` und
 `/var/tmp/drift-package-native-*`; Go mit `TMPDIR=/var/tmp`, um den
 fremden `/tmp/.git` aus Plain-directory-Fixtures fernzuhalten. CI der Basis #92 ist
 vollständig bestanden. Auch die sechs korrigierten Go-/Linux-/macOS-Checks von
@@ -216,6 +231,15 @@ verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 
+- Projektformular-Designpilot (`029d6d7`): Create/Edit-Header, Body und Footer
+  getrennt, 560 nominal, tatsächliche Parent-Bounds via öffentlichem Canvas;
+  native Entities/Guard-Handler, Scroll-Reveal und Speicherbedingungen erhalten.
+  Sieben neue GPUI-Fälle: Parent/Einzüge/Schmal/Höhe, feste Fußleisten-/Body-Bounds,
+  Tab/Reverse-Tab und Cancel ohne Writes, Save erst nach Absicht am echten Store,
+  Busy-Regeln, Theme-/Font-/Resize-erhaltene IME/History/Fokus/Operationen und Wrap.
+  Registry-/Delete-/Registrierungsansichten unberührt. Scope-Review ohne neue
+  Blocker, getrennt von Tests. Die 104er-Höhe/24er-Font-Grenze ist keine volle
+  Input-Lesbarkeitsabnahme. Aktualisierte HTML-Vorschau ist schematisch, nicht GPUI.
 - Zed-inspirierter Designsystem-/Browser-Pilot: eigene zentrale 14/12/16-Typografie,
   4/8/12/16-Abstände, skalierte 24er-Zeilen/28er-Kontrollen, semantische Kit-Flächen,
   bestehende eingebettete Icons und gruppierte native Toolbar. 16 vorhandene

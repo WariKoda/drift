@@ -59,7 +59,8 @@ Keine Zed-Assets oder Paletten übernommen.
 
 ### Ausgangspunkt und Git
 
-- Aktueller Arbeitsbranch: `feature/rust-project-dialog-design`, aufgebaut auf
+- Aktueller Arbeitsbranch: `docs/rust-project-dialog-native-check`, aufgebaut auf
+  `feature/rust-project-dialog-design` (Draft #98), dieser auf
   `feature/rust-zed-design-system` (Draft #97). Der SSH-Prototyp
   bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
   Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
@@ -70,7 +71,13 @@ Keine Zed-Assets oder Paletten übernommen.
   Parent an; Header/Footer fest, Body allein scrollbar. Parent 320×120/Inset 8/Kit16
   bietet einen ganzen Input plus Footer; Kit24 lässt bei 104 nutzbarer Höhe nur 21
   für den 42er-Input, also keine volle Lesbarkeitsabnahme. Keine neue Font-Preference.
-  Frische Child-CI und native GUI-Abnahme offen.
+  Alle sechs Child-CI-Checks für `e4fc6c0` bestanden:
+  [37627684353](https://github.com/WariKoda/drift/actions/runs/37627684353) und
+  [37627674302](https://github.com/WariKoda/drift/actions/runs/37627674302).
+  Begrenzte native Wayland-/Scale-1-Prüfung von Create/Edit mit Kit Dark/Light,
+  Tab, Cancel, Save, Validierung, History und 320×120-Fokus-Reveal bestanden;
+  [Befunde, Aufnahmen und Grenzen](rust-project-dialog-native-check.md).
+  Echte IME/Accessibility, X11/macOS und vollständige Plattformabnahme offen.
 - Basisstand: Commit `94972c8`,
   [Draft-PR #97](https://github.com/WariKoda/drift/pull/97), aufgebaut auf #96.
   Design-Tokens und Browser-/Toolbar-Pilot sind lokal vollständig geprüft.
@@ -238,7 +245,11 @@ verbleibenden Arbeitsblöcke stehen unten.
   Tab/Reverse-Tab und Cancel ohne Writes, Save erst nach Absicht am echten Store,
   Busy-Regeln, Theme-/Font-/Resize-erhaltene IME/History/Fokus/Operationen und Wrap.
   Registry-/Delete-/Registrierungsansichten unberührt. Scope-Review ohne neue
-  Blocker, getrennt von Tests. Die 104er-Höhe/24er-Font-Grenze ist keine volle
+  Blocker, getrennt von Tests. Ergänzend begrenzte native Wayland-Prüfung bei
+  Scale 1 mit Create/Edit, Kit Dark/Light und 320×120; kein neuer Formularblocker
+  im geprüften Ablauf, keine gesamte Plattformfreigabe. Siehe
+  [native Prüfbefunde](rust-project-dialog-native-check.md).
+  Die 104er-Höhe/24er-Font-Grenze ist keine volle
   Input-Lesbarkeitsabnahme. Aktualisierte HTML-Vorschau ist schematisch, nicht GPUI.
 - Zed-inspirierter Designsystem-/Browser-Pilot: eigene zentrale 14/12/16-Typografie,
   4/8/12/16-Abstände, skalierte 24er-Zeilen/28er-Kontrollen, semantische Kit-Flächen,
@@ -681,9 +692,11 @@ Native Buttons bedienen bereits Protokoll/Auth und Mapping-CRUD; fehlende
 Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
 1. **Native Formularabnahme:** Host-/Mapping-Reveal und begrenzte Tools/Links/
-   Projektform-Details/Aktionen sind headless umgesetzt. Reale Wayland/X11/macOS-
-   Fenster, lange Inhalte und kleine Viewports bleiben praktisch abzunehmen;
-   Sichtbarkeit statt nur FocusHandles prüfen. Keine optische Neugestaltung.
+   Projektform-Details/Aktionen sind headless umgesetzt. Create/Edit ist nun
+   begrenzt in echten Wayland-Fenstern bei Scale 1/Kit Dark und Light bis 320×120
+   geprüft; [Umfang und offene Fälle](rust-project-dialog-native-check.md).
+   X11/macOS, native Pointer-/Wheel-/Busy-Fälle und weitere Viewports bleiben
+   abzunehmen; Sichtbarkeit statt nur FocusHandles prüfen.
 2. **Native Eingabeabnahme:** Whole-insertion-Ablehnung und IME-Escape/Enter sind
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
@@ -704,7 +717,8 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
 5. Pane-/Fensterpersistenz liegt ausschließlich in `gui.toml`, nicht in Go-Konfiguration.
    Native Plattformabnahme bleibt offen. Ein Zed-inspirierter Browser-/Toolbar-Pilot
-   mit zentralen Tokens ist ausgewählt; die Dialogumstellung bleibt ein späterer Block.
+   mit zentralen Tokens und der Create/Edit-Projektformular-Pilot sind umgesetzt;
+   weitere Dialogumstellungen bleiben ein späterer Block.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 

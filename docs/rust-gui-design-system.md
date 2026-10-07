@@ -217,9 +217,12 @@ Tests, 271 GUI-Binärtests einschließlich 238 Headless-GPUI**, ohne Fehler/Igno
 Rustfmt, striktes Clippy, Release, display-/Go-freier CLI-Smoke, Store-/Go-Parität,
 Go-Test/Vet/Build, 27 Python-Paket-Tests (ein privilegierter Realfall ohne Root
 übersprungen) und actionlint bestanden. Alle zehn Exits unter
-`/var/tmp/drift-project-dialog-verified-*` sind null. Frische Child-CI bleibt offen;
-Parent-CI ist kein Nachweis für #98. HTML neu headless gerendert und visuell geprüft,
-weiterhin kein natives GPUI-Bild.
+`/var/tmp/drift-project-dialog-verified-*` sind null. Alle sechs Child-CI-Checks
+für `e4fc6c0` bestanden:
+[37627684353](https://github.com/WariKoda/drift/actions/runs/37627684353) und
+[37627674302](https://github.com/WariKoda/drift/actions/runs/37627674302).
+HTML neu headless gerendert und visuell geprüft, weiterhin kein natives GPUI-Bild.
+Separate echte Fensteraufnahmen liegen in der begrenzten nativen Prüfung unten.
 
 Sieben neue GPUI-Fälle prüfen tatsächliche Parent-Inset-/Dialog-/Footer-Bounds,
 Native-Tab/Cancel ohne Writes, Save mit realem Store erst nach Absicht, Busy-Schutz,
@@ -236,6 +239,22 @@ bleiben 21 für einen 42er-Input: Aktionen sichtbar, Input nur an oberer Kante r
 keine Garantie für beliebig kleine Viewports/Schriften. Native Plattform-/IME-/
 Accessibility-/Glyph-Abnahme bleibt separat. Host-/Trust-/Transferdialoge sind
 weiterhin nur Entwurf; Bestätigungsbesitz und Transferfreigaben werden nicht verändert.
+
+### Ergänzende native Wayland-Prüfung
+
+Create/Edit wurde am 7. Oktober 2026 in echten Hyprland-/Wayland-Fenstern bei
+Skalierung 1 mit Kit Dark und Light geprüft. Native Tab-Reihenfolge, ausgewählte
+Reverse-Tab-Wege, Cancel/Escape ohne Registryänderung, Input-Enter ohne Save,
+Validierungsfehler, explizites Create/Edit-Save und Linux-Undo/Redo funktionierten.
+Bei 320×120 bleiben fokussiertes Feld und Footer sichtbar; Tab revealt das andere
+Feld im begrenzten Body. Die bekannten größeren Schrift-/Extremfälle sind dadurch
+nicht freigegeben. Reale IME, Accessibility, Clipboard, Pointer/Wheel, HiDPI,
+X11/macOS und laufende Theme-/OS-Wechsel bleiben offen.
+
+[Befunde und native Aufnahmen](rust-project-dialog-native-check.md) halten Umgebung,
+Binary-Hash, geprüfte Registryänderungen, unterbrochenen zusätzlichen Build und
+verbleibende Grenzen getrennt von Headless-Tests/CI fest. Keine Produktionsänderung
+und keine gesamte Plattform- oder Release-Freigabe.
 
 ## Umsetzungs- und Abnahmegrenzen
 

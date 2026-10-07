@@ -210,20 +210,23 @@ async fn narrow_unicode_unmapped_symlinks_keep_hints_outside_filename_and_deep_i
             assert!(!f.shell.read(cx).comparison.read(cx).visible());
             assert!(!f.shell.read(cx).preview.read(cx).is_loading());
         }
-        // At a 120px pane / font 24 the full fixed hints plus panel padding
-        // physically cannot fit. Record that boundary; do not claim readability.
-        w.resize(size(px(240.), px(1800.)));
-        w.bounds_changed(cx);
-        w.render_frame(cx);
-        w.scroll("remote-files-pane", gpui_kit::ScrollDelta::Pixels(point(px(0.), px(-2000.))), cx);
-        w.render_frame(cx);
-        let tiny_pane = w.find("remote-files-pane").bounds();
+        // Measure in the completed, visible layout. The tiny shell's file pane
+        // is not visible in macOS headless CI, so wheel dispatch or querying its
+        // virtualized rows cannot establish this unaccepted layout bound.
+        let hint_rem = w.rem_size();
         let arrow = w.find(("remote-row-symlink", 13usize)).bounds();
         let badge = w.find(("remote-row-unmapped", 13usize)).bounds();
         let required = 2. * metric(space::PANEL, cx) + 2. * metric(space::TIGHT, cx)
             + arrow.size.width + badge.size.width;
+        w.resize(size(px(240.), px(1800.)));
+        w.bounds_changed(cx);
+        w.render_frame(cx);
+        assert_eq!(w.rem_size(), hint_rem, "resize must not change hint typography");
+        let tiny_files = w.find("remote-files-pane");
+        let tiny_pane = tiny_files.bounds();
+        assert!((tiny_pane.size.width - px(120.)).abs() < px(1.));
         assert!(required > tiny_pane.size.width);
-        eprintln!("remote hints limit: pane={:?}, font=24, required={required:?}, arrow={arrow:?}, badge={badge:?}", tiny_pane.size.width);
+        eprintln!("remote hints limit: pane={:?}, visible={}, font=24, required={required:?}, arrow={arrow:?}, badge={badge:?}", tiny_pane, tiny_files.visible());
         assert_eq!(remote.read(cx).session_id(), session);
         assert_eq!(remote.read(cx).marked(), marks);
         assert_eq!(remote.read(cx).selected(), Some(selected.as_str()));

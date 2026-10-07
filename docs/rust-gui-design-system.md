@@ -198,7 +198,21 @@ Rustfmt, striktes Clippy, Release-Build, CLI-Smoke, Store-/Go-Parität und Go-Pr
 bestanden. Paket-Tests: 27 bestanden, ein privilegierter Realfall ohne Root übersprungen.
 Read-only Folgeprüfung bestätigt die Korrektur des Namens-/Hint-Clipping-P2 im
 getesteten/default Layout; sie ist von Testläufen und der genannten Extremgrenze
-getrennt. Frische Design-CI und native GUI-Abnahme bleiben offen.
+getrennt. Native GUI-Abnahme bleibt offen.
+
+CI-Nachprüfung für Design-Head `973db61`: beide Go-/Linux-Jobs bestanden, beide
+macOS-Jobs scheiterten erst im nicht abgenommenen 120er-Pane-/24er-Font-Extremfall:
+Der Test versuchte ein Wheel-Ereignis auf einer unsichtbaren Dateiansicht. Die
+210/420er-Prüfungen einschließlich nativer Textbreiten und Paint-Clips bestanden
+bereits in beiden macOS-Läufen
+([37538741980](https://github.com/WariKoda/drift/actions/runs/37538741980),
+[37538736895](https://github.com/WariKoda/drift/actions/runs/37538736895)).
+Die Testkorrektur ermittelt die Hinweisbreite im letzten sichtbaren 24er-Font-Frame,
+prüft danach weiterhin tatsächliche 120er-Pane-Breite, unveränderte Rem-Größe,
+fehlende Platzreserve und erhaltenen Fokus/Session-/Mark-/Auswahlzustand. Kein Wheel
+oder virtuelle Row-Abfrage auf unsichtbarer Fläche; keine Sleeps, Retries, Skips,
+Timeout-Erhöhung oder Produktionsänderung. Das bleibt eine Platzgrenze, **keine**
+Lesbarkeits-/Paint-Abnahme des Extremfalls. Frische korrigierte macOS-CI steht aus.
 
 Weiter nativ prüfen: lange Namen, kleine Fenster, große Listen, UI-Skalierung/HiDPI, Light/Dark,
 Tastatur ohne Maus, Hover/Fokus/Auswahl, Disabled-Aktionen und Themewechsel während

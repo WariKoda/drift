@@ -62,8 +62,15 @@ nur dokumentiert, nicht pauschal umgebaut. Keine Zed-Assets oder Paletten übern
 - Implementierungsstand: Commit `94972c8`,
   [Draft-PR #97](https://github.com/WariKoda/drift/pull/97), aufgebaut auf #96.
   Design-Tokens und Browser-/Toolbar-Pilot sind lokal vollständig geprüft.
-  Dialogregeln und HTML-Vorschau bleiben Entwurf; frische Design-Head-CI noch nicht
-  bestätigt. Die dokumentierte 120er-Pane-/24er-Font-Grenze ist keine native Abnahme.
+  Dialogregeln und HTML-Vorschau bleiben Entwurf. CI bei `973db61`: Go/Linux
+  bestanden, beide macOS-Jobs scheiterten im nicht abgenommenen 120er-Pane-/24er-
+  Font-Testfall an einem Wheel-Ereignis auf unsichtbarer Dateiansicht. Die 210/420er-
+  Layout-/Text-/Paint-Prüfungen bestanden vorher in beiden Läufen. Testkorrektur
+  übernimmt unveränderte Textmaße aus sichtbarem Layout; erhält Resize-, Rem-,
+  Fokus-/Session-/Mark-/Auswahlprüfungen, ohne virtuellen Row-Zugriff/Wheel auf
+  unsichtbarer Fläche. Keine Produktionsänderung, Sleeps, Retries oder Skips;
+  korrigierte macOS-CI noch offen. Siehe [Nachprüfung](rust-gui-design-system.md).
+  Die dokumentierte 120er-Pane-/24er-Font-Grenze ist keine native Abnahme.
 - Basisstand: Commit `589f7a8`,
   [Draft-PR #96](https://github.com/WariKoda/drift/pull/96), aufgebaut auf #95.
   Lokale Gesamtprüfung bestanden. Bei `3ecfa8e` bestanden Go/Linux; beide macOS-Jobs

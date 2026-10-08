@@ -38,6 +38,7 @@ Name=Drift GUI
 Exec=drift-gui
 TryExec=drift-gui
 Terminal=false
+StartupWMClass=io.github.WariKoda.drift-gui
 Categories=Development;Network;
 """
 

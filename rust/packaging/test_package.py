@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import re
 import signal
 import socket
 import stat
@@ -157,8 +158,28 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(fields, {
             "Type": "Application", "Name": "Drift GUI", "Exec": "drift-gui",
             "TryExec": "drift-gui", "Terminal": "false", "Categories": "Development;Network;",
+            "StartupWMClass": "io.github.WariKoda.drift-gui",
         })
         self.assertNotIn(b"%", package.DESKTOP)
+
+    def test_window_identity_matches_desktop_and_bundles(self):
+        source = (Path(__file__).resolve().parents[1] / "crates/drift-gui/src/main.rs").read_text()
+        app_id = re.search(r'^const APP_ID: &str = "([^"\n]+)";$', source, re.MULTILINE)
+        app_name = re.search(r'^const APP_NAME: &str = "([^"\n]+)";$', source, re.MULTILINE)
+        self.assertIsNotNone(app_id)
+        self.assertIsNotNone(app_name)
+        fields = dict(line.split("=", 1) for line in package.DESKTOP.decode().splitlines()[1:])
+        self.assertEqual(fields["StartupWMClass"], app_id.group(1))
+        self.assertEqual(fields["Name"], app_name.group(1))
+        contents = package.archive_contents(VERSION, LINUX, b"MIT test data", "")
+        self.assertIn(f"share/applications/{app_id.group(1)}.desktop", contents)
+        for target in (INTEL_MAC, ARM_MAC):
+            contents = package.archive_contents(VERSION, target, b"MIT test data", "")
+            data = contents[f"{app_name.group(1)}.app/Contents/Info.plist"][1]
+            fields = plistlib.loads(data)
+            self.assertEqual(fields["CFBundleIdentifier"], app_id.group(1))
+            self.assertEqual(fields["CFBundleName"], app_name.group(1))
+            self.assertEqual(fields["CFBundleDisplayName"], app_name.group(1))
 
     def test_mac_plist_exact_schema(self):
         for target in (INTEL_MAC, ARM_MAC):

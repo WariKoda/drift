@@ -179,6 +179,15 @@ releases**. No Developer-ID signing/notarization, publishing, tags, Go replaceme
 or bundled Linux runtime is supplied. A manual-only Actions matrix is prepared;
 it cannot be dispatched while its definition exists only on an unmerged branch.
 
+The main window uses the static title **Drift GUI** and app ID
+`io.github.WariKoda.drift-gui`, matching the Linux Desktop filename and existing
+macOS bundle identifier. The Desktop entry also uses that ID as `StartupWMClass`
+for X11. Project paths and hostnames are not included in the window title. A limited
+native Hyprland 0.56.2/Wayland/scale-1 check confirmed current and initial metadata
+for directory/dashboard starts from the extracted Linux package; see the
+[native check](../docs/rust-project-dialog-native-check.md#native-wayland-metadatenpr%C3%BCfung-8-oktober).
+X11/macOS metadata and launcher grouping still require platform acceptance.
+
 See [PACKAGING.md](PACKAGING.md) for native targets, checksums, dependencies, manual
 installation, Gatekeeper limitations and open SSH/theme/native acceptance gates.
 

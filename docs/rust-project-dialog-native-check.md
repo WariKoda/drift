@@ -84,10 +84,82 @@ werden nicht als hier erneut ausgeführte Tests ausgegeben.
   Fokus-Rückkehr aus Hilfe/anderen Modals und kontrollierte Busy-/Writing-Zustände.
 - Laufender Theme-/OS-Wechsel, Maximieren/Restore, native Dekorationen und Fensterpersistenz.
 - Desktopintegration: Hyprland meldete bei beiden Starts leere `class` und `title`.
-  Fensteridentifikation erfolgte deshalb über die PID. App-ID/Titel sind separat
-  zu klären; das Formularlayout behebt oder erklärt diesen Befund nicht.
+  Fensteridentifikation erfolgte deshalb über die PID. App-ID/Titel wurden danach
+  separat im Code ergänzt (siehe unten); das Formularlayout behebt oder erklärt
+  diesen Befund nicht. Die begrenzte native Wayland-Nachprüfung ist bestanden;
+  X11/macOS und Launcher-Zuordnung bleiben offen.
 - Host-/Trust-/Transferdialoge, laufende Remote-I/O und WAN-Performance waren nicht
   Teil dieser Prüfung. SSH-, Monokai-, Paketierungs- und Release-Gates bleiben bestehen.
 
 **Fazit:** Kein neuer Formularblocker in diesem begrenzten Wayland-/Scale-1-Ablauf.
 Kein pauschales Bestehen der nativen Plattformabnahme und keine Release-Freigabe.
+
+## Fenstermetadaten: Code-Follow-up (8. Oktober)
+
+Auf `fix/rust-window-identity`, Basis `76f2f22`, in einem eigenen Worktree:
+
+- Der Einstieg übergab nur Bounds und GPUI-Defaults; diese enthalten weder Titel
+  noch App-ID. Die produktiven Fensteroptionen setzen jetzt `Drift GUI` und
+  `io.github.WariKoda.drift-gui`. Kein Projektpfad oder Hostname wird in den
+  Fenstertitel aufgenommen. Dekorationen, Bounds und Fokusdefaults bleiben erhalten.
+- Die Linux-Desktop-Datei bekommt die passende `StartupWMClass`. Ihr Dateiname
+  und die vorhandene macOS-`CFBundleIdentifier` stimmen mit der Fenster-ID überein.
+- Zwei Rust-Tests prüfen die produktiven Optionen und unveränderte Geometrie/
+  Defaults. Ein neuer Python-Test gleicht Rust-Konstanten, Desktop-Datei und beide
+  macOS-Bundle-Metadaten ab. Das gepinnte GPUI-Testbackend ignoriert initiale
+  Titel/App-IDs in seinem auslesbaren Plattformzustand; keine native Übernahme
+  wird daraus abgeleitet und kein produktiver SetTitle-Aufruf nur dafür ergänzt.
+- 462 Rust-Tests (weiterhin 238 Headless-GPUI), Rustfmt, striktes Clippy,
+  Linux-Release-Build, Go-Test/Vet/Build und frische Go/Rust-Prozessparität bestanden.
+  28 Python-Tests bestanden; ein privilegierter Prozessfall mangels Root-Supervisor
+  übersprungen. Linux-Tarball mit extrahierter Desktop-Datei, Checksumme und
+  display-/Go-freiem Version-/Hilfe-Smoke geprüft; Artefakte unter
+  `/var/tmp/drift-window-identity-package-P9Yfqu`.
+
+Bei dieser automatisierten Code-/Paketprüfung wurde kein Desktopfenster gestartet.
+Die folgende native Nachprüfung fand anschließend mit ausdrücklicher Testpause
+statt. Die Aufnahmen oben zeigen unverändert den Stand **vor** dieser Korrektur.
+
+### Native Wayland-Metadatenprüfung (8. Oktober)
+
+- Hyprland 0.56.2, Monitor 3440×1440, Scale 1. Geprüft wurde das extrahierte
+  Linux-Paket `drift-gui 0.1.0`, nicht das frühere Formularbinary.
+  SHA-256: `8538088ac71faab49f9c017d1bf3af9aec3a08aadb5b6832d29362855a321903`;
+  bytegleich mit dem Release-Binary des separaten Worktrees.
+- Worktree-Basis `76f2f22` plus die lokale Fensteridentitätskorrektur;
+  SHA-256 von `src/main.rs`:
+  `c75c5e32855ce62754736cce597ee355e21cb7997ed331d747b0b27707a0e524`.
+- Getrennte temporäre HOME-/XDG_CONFIG_HOME-/Projektordner für beide Starts;
+  `DISPLAY` entfernt, Wayland-Verbindung vorhanden. Keine realen Drift-Projekte,
+  Server oder Secrets. Keine Tastatur-/Mausinjektion und keine Desktopkonfigänderung.
+- Fenster zuerst über die PID des gestarteten Kindes identifiziert; je drei
+  Compositor-Abfragen im Abstand von 0,5 Sekunden, anschließend gezieltes Close
+  über die erneut geprüfte PID/Adresse. Kein Close nach globalem Fokus oder nur
+  nach dem nun korrekt gesetzten Klassennamen.
+
+| Start | Compositor-Nachweis | Abschluss |
+| --- | --- | --- |
+| Expliziter leerer Ordner | `class` und `initialClass`: `io.github.WariKoda.drift-gui`; `title` und `initialTitle`: `Drift GUI`; `xwayland: false`, mapped/visible | Exit 0, stdout/stderr leer, Projektordner leer |
+| Derselbe Start mit `--dashboard`, eigener Teststore | Dieselben korrekten aktuellen/initialen Metadaten; `xwayland: false`, mapped/visible | Exit 0, stdout/stderr leer, Projektordner leer |
+
+In beiden temporären Config-Verzeichnissen entstanden `drift/write.lock` und
+`drift/gui.toml` (`window.maximized = true` in dieser Tiling-Umgebung). Das ist
+kein Nachweis korrekter Maximierungs-/Restore-Persistenz. Es blieb kein Testfenster
+übrig; der ursprüngliche Fokus wurde anhand PID/Adresse wiederhergestellt.
+
+Ein Vorversuch scheiterte beim Schließen an den hier nicht mehr verfügbaren
+Legacy-Dispatchern `closewindow`/`focuswindow` (IPC-Exit 7), nicht an der App.
+Sein Testfenster wurde gezielt mit der vorhandenen Lua-API geschlossen; die beiden
+vollständigen Prüfabläufe oben wurden danach mit `hl.dsp.window.close` und
+`hl.dsp.focus` ausgeführt. Der Vorversuch zählt nicht als bestandener Gesamtlauf.
+
+Nachweise: `/var/tmp/drift-window-native-gk3u58tw/manifest.json`, stdout/stderr
+beider Kinder und `/var/tmp/drift-window-identity-native-check.py`. Die Prüfhilfe
+ist sitzungsgebunden, kein portabler CI-Test. Es wurden keine neuen Screenshots
+angefertigt; der Nachweis betrifft die tatsächlich vom Compositor empfangenen
+Metadaten, nicht optische Titelbar-/Formularabnahme.
+
+**Ergebnis:** Der frühere leere Wayland-App-ID-/Titelbefund ist im geprüften
+Ordner-/Dashboardstart behoben. X11-`WM_CLASS`/Titel, native macOS-Titeldarstellung,
+Linux-Launcher-Zuordnung und macOS-Installation bleiben offen; ebenso die übrigen
+Formular-/Eingabe-/I/O-/Release-Gates. Keine pauschale Plattformfreigabe.

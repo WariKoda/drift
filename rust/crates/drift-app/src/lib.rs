@@ -2,7 +2,10 @@
 pub mod browser;
 pub mod cli;
 pub mod comparison;
+mod finder;
+pub mod gui_preferences;
 pub mod hosts;
+pub mod logging;
 pub mod navigation;
 pub mod projects;
 pub mod remote;
@@ -12,6 +15,7 @@ pub mod tree;
 use std::collections::BTreeSet;
 
 /// Cursor uses the displayed row's stable path, independent of filtering.
+#[derive(Clone)]
 pub struct FileList {
     entries: Vec<String>,
     visible: Vec<usize>,
@@ -19,6 +23,7 @@ pub struct FileList {
     marked: BTreeSet<String>,
     range_start: Option<String>,
     allowed_marks: Option<BTreeSet<String>>,
+    remote_root: Option<std::path::PathBuf>,
 }
 impl FileList {
     pub fn new(entries: Vec<String>) -> Self {
@@ -34,16 +39,62 @@ impl FileList {
             marked: BTreeSet::new(),
             range_start: None,
             allowed_marks: None,
+            remote_root: None,
         }
+    }
+    /// Remote paths stay absolute for selection; exclusions apply only inside
+    /// the host root, never to the external prefix naming that root.
+    pub fn new_remote(root: &str, entries: Vec<String>) -> Self {
+        let mut list = Self::new(vec![]);
+        list.remote_root = Some(root.into());
+        list.entries = entries
+            .into_iter()
+            .filter(|path| list.eligible_path(path))
+            .collect();
+        list.visible = (0..list.entries.len()).collect();
+        list
+    }
+    fn eligible_path(&self, path: &str) -> bool {
+        if path.contains('\0') {
+            return false;
+        }
+        let path = std::path::Path::new(path);
+        let relative = match &self.remote_root {
+            Some(root) => match path.strip_prefix(root) {
+                Ok(relative) => relative,
+                Err(_) => return false,
+            },
+            None => path,
+        };
+        !relative
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+            && !browser::hard_excluded(relative, false)
     }
     /// Replace a listing without losing project-wide marks from other folders
     /// or visibility settings. Only a new project/connection clears marks.
     pub fn replace_entries(&mut self, entries: Vec<String>) {
         let cursor = self.selected().map(str::to_owned);
         let marked = std::mem::take(&mut self.marked);
-        *self = Self::new(entries);
+        *self = match self.remote_root.clone() {
+            Some(root) => Self::new_remote(&root.to_string_lossy(), entries),
+            None => Self::new(entries),
+        };
         self.marked = marked;
         self.selected = cursor.and_then(|path| self.entries.iter().position(|p| *p == path));
+    }
+    pub fn replace_remote_entries(&mut self, root: &str, entries: Vec<String>) {
+        self.remote_root = Some(root.into());
+        self.replace_entries(entries);
+    }
+    /// Restore a saved view, keeping live mark additions and removals even for
+    /// paths outside that view. The saved view's marking restrictions apply.
+    pub fn restore_view(&mut self, mut previous: FileList) {
+        previous.marked = std::mem::take(&mut self.marked)
+            .into_iter()
+            .filter(|path| previous.can_mark(path))
+            .collect();
+        *self = previous;
     }
     pub fn range_active(&self) -> bool {
         self.range_start.is_some()
@@ -59,9 +110,11 @@ impl FileList {
         self.allowed_marks = Some(allowed);
     }
     pub fn can_mark(&self, path: &str) -> bool {
-        self.allowed_marks
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(path))
+        self.eligible_path(path)
+            && self
+                .allowed_marks
+                .as_ref()
+                .is_none_or(|allowed| allowed.contains(path))
     }
     fn mark(&mut self, path: String) {
         if self.can_mark(&path) {
@@ -143,6 +196,15 @@ impl FileList {
             .enumerate()
             .filter_map(|(i, name)| name.to_lowercase().contains(&query).then_some(i))
             .collect();
+        if self.selected.is_some_and(|i| !self.visible.contains(&i)) {
+            self.selected = None;
+        }
+    }
+    /// Rank Unicode-lowercased subsequence matches across each full path.
+    /// Empty queries restore source order; marks, ranges and restrictions stay
+    /// intact, and the cursor stays on its stable path while it remains visible.
+    pub fn filter_finder(&mut self, query: &str) {
+        self.visible = finder::matching_indices(&self.entries, query);
         if self.selected.is_some_and(|i| !self.visible.contains(&i)) {
             self.selected = None;
         }
@@ -266,5 +328,282 @@ mod tests {
         list.select(0);
         list.mark_siblings();
         assert_eq!(list.marked(), ["a", "child/c"]);
+    }
+
+    #[test]
+    fn remote_lists_scope_exclusions_to_the_host_root_across_replacements() {
+        let root = "/srv/node_modules/site";
+        let good = format!("{root}/normal.txt");
+        let staging = format!("{root}/.normal.drift-tmp-0123456789abcdef0123456789abcdef");
+        let mut list = FileList::new_remote(
+            root,
+            vec![
+                good.clone(),
+                format!("{root}/node_modules/x"),
+                staging,
+                "/outside/file".into(),
+                format!("{root}/../escape"),
+                format!("{root}/bad\0name"),
+            ],
+        );
+        assert_eq!(list.len(), 1);
+        list.select(0);
+        list.toggle_mark();
+        list.replace_remote_entries(
+            root,
+            vec![
+                format!("{root}/node_modules"),
+                good.clone(),
+                format!("{root}/.git/config"),
+            ],
+        );
+        assert_eq!(list.len(), 2);
+        assert_eq!(list.selected(), Some(good.as_str()));
+        assert_eq!(list.marked(), [good]);
+        assert!(list.can_mark(&format!("{root}/node_modules")));
+        assert!(!list.can_mark("/outside/file"));
+    }
+
+    #[test]
+    fn saved_remote_view_retains_relative_exclusion_policy_and_live_marks() {
+        let root = "/srv/.git/tree";
+        let first = format!("{root}/first");
+        let second = format!("{root}/second");
+        let mut list = FileList::new_remote(root, vec![first.clone(), second.clone()]);
+        list.select(0);
+        let saved = list.clone();
+        list.select(1);
+        list.toggle_mark();
+        list.restore_view(saved);
+        assert_eq!(list.selected(), Some(first.as_str()));
+        assert_eq!(list.marked(), [second]);
+        assert!(!list.can_mark(&format!("{root}/.git/config")));
+        assert!(list.can_mark(&first));
+    }
+}
+
+#[cfg(test)]
+mod finder_tests {
+    use super::*;
+
+    fn list(paths: &[&str]) -> FileList {
+        FileList::new(paths.iter().map(|path| (*path).to_owned()).collect())
+    }
+
+    fn rows(list: &FileList) -> Vec<&str> {
+        (0..list.len()).map(|row| list.row(row).unwrap()).collect()
+    }
+
+    #[test]
+    fn finder_matches_subsequences_across_paths_not_ordinary_substrings() {
+        let source = [
+            "internal/config/loader.go",
+            "internal/diff/engine.go",
+            "README.md",
+        ];
+        let mut list = list(&source);
+        list.filter("cfgload");
+        assert!(list.is_empty());
+        list.filter_finder("CFGLOAD");
+        assert_eq!(rows(&list), [source[0]]);
+        list.filter_finder("zzzzzz");
+        assert!(list.is_empty());
+        list.filter_finder("");
+        assert_eq!(rows(&list), source);
+    }
+
+    #[test]
+    fn ranking_prefers_contiguous_boundary_early_and_short_matches() {
+        let mut list = list(&["a/b", "ab"]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["ab", "a/b"]);
+
+        let mut list = FileList::new(vec!["xab".into(), "x/ab".into()]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["x/ab", "xab"]);
+
+        let mut list = FileList::new(vec!["xab".into(), "xAb".into()]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["xAb", "xab"]);
+
+        let mut list = FileList::new(vec!["__ab_".into(), "ab___".into()]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["ab___", "__ab_"]);
+
+        let mut list = FileList::new(vec!["ab-long".into(), "ab".into()]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["ab", "ab-long"]);
+    }
+
+    #[test]
+    fn equal_quality_keeps_input_order_and_uses_best_not_first_alignment() {
+        let mut list = list(&["ab/z", "ab/a", "ab/m"]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["ab/z", "ab/a", "ab/m"]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["ab/z", "ab/a", "ab/m"]);
+
+        let mut list = FileList::new(vec!["a__b__".into(), "a___ab".into()]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["a___ab", "a__b__"]);
+    }
+
+    #[test]
+    fn unicode_lowercase_subsequences_and_expansions_are_scalar_based() {
+        let mut list = list(&["älpha/журнал.rs", "ÄЖ.rs", "plain.rs"]);
+        list.filter_finder("äж");
+        assert_eq!(rows(&list), ["ÄЖ.rs", "älpha/журнал.rs"]);
+        list.filter_finder("ÄЖ");
+        assert_eq!(rows(&list), ["ÄЖ.rs", "älpha/журнал.rs"]);
+
+        let mut list = FileList::new(vec!["İstanbul.rs".into(), "i\u{307}stanbul.rs".into()]);
+        list.filter_finder("İST");
+        assert_eq!(list.len(), 2);
+        list.filter_finder("📁");
+        assert!(list.is_empty());
+
+        let mut list = FileList::new(vec!["abé".into(), "abc".into(), "📁/ж.rs".into()]);
+        list.filter_finder("ab");
+        assert_eq!(rows(&list), ["abé", "abc"]); // Equal scalar, not byte lengths.
+        list.filter_finder("📁Ж");
+        assert_eq!(rows(&list), ["📁/ж.rs"]);
+    }
+
+    #[test]
+    fn ordinary_filter_stays_substring_only_and_source_ordered() {
+        let mut list = list(&["long/AB.rs", "ab", "a/b", "ÄЖ.rs"]);
+        list.filter_finder("ab");
+        assert_eq!(list.row(0), Some("ab"));
+        list.filter("AB");
+        assert_eq!(rows(&list), ["long/AB.rs", "ab"]);
+        list.filter("äж");
+        assert_eq!(rows(&list), ["ÄЖ.rs"]);
+        list.filter("");
+        assert_eq!(rows(&list), ["long/AB.rs", "ab", "a/b", "ÄЖ.rs"]);
+    }
+
+    #[test]
+    fn finder_preserves_stable_cursor_marks_restrictions_and_range_anchor() {
+        let mut list = list(&["alpha/beta", "ab", "a/b", "zz"]);
+        list.restrict_marks(["ab".into(), "a/b".into()].into());
+        list.select_path("a/b");
+        list.toggle_mark();
+        list.visual_range();
+        list.filter_finder("ab");
+        assert_eq!(list.selected(), Some("a/b"));
+        assert_eq!(list.selected_row(), Some(1));
+        assert!(list.range_active());
+        assert_eq!(list.marked(), ["a/b"]);
+        assert!(!list.can_mark("alpha/beta"));
+        list.select_range(0);
+        list.visual_range();
+        assert!(!list.range_active());
+        assert_eq!(list.marked(), ["a/b", "ab"]);
+        list.invert_visible();
+        assert!(list.marked().is_empty());
+        list.visual_range();
+        list.filter_finder("zz");
+        assert_eq!(list.selected(), None);
+        assert!(list.range_active());
+        list.select(0);
+        list.visual_range(); // A hidden anchor cannot mark intervening paths.
+        assert!(!list.range_active());
+        list.toggle_mark();
+        assert!(list.marked().is_empty());
+        list.filter_finder("");
+        assert_eq!(list.selected(), Some("zz"));
+        assert_eq!(list.selected_row(), Some(3));
+    }
+
+    #[test]
+    fn hard_exclusions_never_appear_or_become_marks_in_finder_or_restore() {
+        let excluded = [
+            ".git/config",
+            "node_modules/ab.rs",
+            "sub/.idea/ab.rs",
+            "sub/.ab.drift-tmp-0123456789abcdef0123456789abcdef",
+        ];
+        let mut list = list(&excluded);
+        let previous = list.clone();
+        for path in excluded {
+            assert!(!list.can_mark(path));
+            list.mark(path.into());
+        }
+        assert!(list.marked().is_empty());
+        // Even stale live marks must pass the shared policy during restoration.
+        list.marked.extend(excluded.map(str::to_owned));
+        list.restore_view(previous);
+        assert!(list.marked().is_empty());
+        for query in ["ab", "config", "drift-tmp", ""] {
+            list.filter_finder(query);
+            assert!(list.is_empty());
+        }
+    }
+
+    #[test]
+    fn restore_recovers_saved_view_but_keeps_live_added_and_removed_marks() {
+        let tree = ["tree/a", "tree/b", "tree/c", "tree/d", "forbidden"];
+        let mut list = list(&["outside/old"]);
+        list.select(0);
+        list.toggle_mark();
+        list.replace_entries(tree.map(str::to_owned).into());
+        list.select_path("tree/b");
+        list.toggle_mark();
+        let allowed = [
+            "tree/a",
+            "tree/b",
+            "tree/c",
+            "tree/d",
+            "outside/old",
+            "outside/new",
+        ]
+        .map(str::to_owned)
+        .into();
+        list.restrict_marks(allowed);
+        list.filter("tree");
+        list.visual_range();
+        list.select_path("tree/c");
+        let previous = list.clone();
+        assert_eq!(previous.marked(), ["outside/old", "tree/b"]);
+
+        list.replace_entries(
+            [
+                "tree/b",
+                "tree/a",
+                "outside/old",
+                "outside/new",
+                "forbidden",
+            ]
+            .map(str::to_owned)
+            .into(),
+        );
+        list.filter_finder("");
+        for path in [
+            "tree/b",
+            "outside/old",
+            "outside/new",
+            "tree/a",
+            "forbidden",
+        ] {
+            list.select_path(path);
+            list.toggle_mark();
+        }
+        assert_eq!(list.marked(), ["forbidden", "outside/new", "tree/a"]);
+        assert_eq!(previous.marked(), ["outside/old", "tree/b"]);
+        list.restore_view(previous);
+        assert_eq!(rows(&list), ["tree/a", "tree/b", "tree/c", "tree/d"]);
+        assert_eq!(list.selected(), Some("tree/c"));
+        assert_eq!(list.selected_row(), Some(2));
+        assert_eq!(list.marked(), ["outside/new", "tree/a"]);
+        assert!(!list.can_mark("forbidden"));
+        assert!(list.can_mark("outside/new"));
+        assert!(list.range_active());
+        list.visual_range();
+        assert_eq!(list.marked(), ["outside/new", "tree/a", "tree/b", "tree/c"]);
+        list.filter("");
+        assert_eq!(rows(&list), tree);
+        list.select_path("forbidden");
+        list.toggle_mark();
+        assert!(!list.is_marked("forbidden"));
     }
 }

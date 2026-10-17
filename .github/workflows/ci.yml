@@ -59,6 +59,14 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      - name: Python for GUI package tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: GUI packaging structural tests
+        run: python3 -m unittest discover -s packaging -p 'test_*.py'
+
       - name: Setup Go for real SSH/SFTP, FTP/FTPS and persistence test daemons
         uses: actions/setup-go@v5
         with:

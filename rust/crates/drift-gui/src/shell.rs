@@ -1,10 +1,12 @@
 //! Window/session coordination. Child views own their interaction and load state.
 use crate::certificates::CertificatePrompt;
+use crate::design::{Palette, Text, metric, space};
 use crate::{
     actions::*,
     browser::{BrowserCommand, BrowserEvent, BrowserPane},
     comparison::{ComparisonEvent, ComparisonPane},
     hosts::{HostEvent, HostManager},
+    pane_split::{PaneSplit, SplitCommand},
     preview::{PreviewEvent, PreviewPane},
     projects::{ProjectEvent, ProjectsPanel},
     remote::{RemoteEvent, RemotePane},
@@ -27,6 +29,8 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 pub struct Shell {
+    preferences: Option<Entity<crate::preferences::Preferences>>,
+    help: Option<keyboard::ShortcutHelp>,
     certificate: Option<(u64, u64, Entity<CertificatePrompt>)>,
     certificate_subscription: Option<Subscription>,
     certificate_cancel: Option<CancellationToken>,
@@ -37,6 +41,8 @@ pub struct Shell {
     remote: Entity<RemotePane>,
     show_remote: bool,
     remote_preview: bool,
+    split: PaneSplit,
+    split_context: Option<(u64, bool, bool)>,
     hosts: Option<Entity<HostManager>>,
     store: Store,
     service: BrowserService,
@@ -237,7 +243,7 @@ impl Shell {
             cx.subscribe_in(&browser, window, |this, _, event, window, cx| {
                 this.browser_event(event, window, cx)
             }),
-            cx.subscribe_in(&preview, window, |this, _, event, _, cx| {
+            cx.subscribe_in(&preview, window, |this, _, event, window, cx| {
                 match event {
                     PreviewEvent::Loaded(id)
                         if *id == this.preview.read(cx).id()
@@ -256,6 +262,20 @@ impl Shell {
                         this.status = error.clone()
                     }
                     PreviewEvent::Copied(path) => this.status = format!("Copied {path}"),
+                    PreviewEvent::TextCopied(id)
+                        if *id == this.preview.read(cx).id()
+                            && id.project == this.browser.read(cx).id().project =>
+                    {
+                        this.status = "Preview text copied".into();
+                    }
+                    PreviewEvent::Close(id)
+                        if *id == this.preview.read(cx).id()
+                            && id.project == this.browser.read(cx).id().project
+                            && this.browser_screen_active(cx)
+                            && (this.remote_preview || !this.show_remote) =>
+                    {
+                        this.close_preview(window, cx);
+                    }
                     _ => return,
                 }
                 cx.notify();
@@ -289,6 +309,8 @@ impl Shell {
         })
         .detach();
         let mut shell = Self {
+            preferences: None,
+            help: None,
             certificate: None,
             certificate_subscription: None,
             certificate_cancel: None,
@@ -299,6 +321,8 @@ impl Shell {
             remote,
             show_remote: false,
             remote_preview: false,
+            split: PaneSplit::new(None, cx),
+            split_context: None,
             hosts: None,
             store,
             service,
@@ -378,7 +402,11 @@ impl Shell {
                     .unwrap_or_default();
                 self.remote.update(cx, |remote, cx| {
                     remote.set_context(id.project, hosts, cx);
-                    remote.set_selection_location(self.browser.read(cx).location().cloned(), cx);
+                    remote.set_selection_location(
+                        self.browser.read(cx).location().cloned(),
+                        window,
+                        cx,
+                    );
                 });
                 let can_register = self
                     .browser
@@ -501,6 +529,8 @@ impl Shell {
         cx.notify();
     }
     fn open_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         let slug = self
             .browser
             .read(cx)
@@ -552,7 +582,7 @@ impl Shell {
         self.config_cancel = Some((id, operation.cancel));
         cx.spawn_in(window, async move |this, cx| {
             let result = operation.task.await;
-            let _ = this.update_in(cx, |this, _, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 if this.browser.read(cx).id().project != id.project
                     || this.configuration != id.operation
                 {
@@ -569,6 +599,7 @@ impl Shell {
                             remote.set_context(id.project, hosts, cx);
                             remote.set_selection_location(
                                 this.browser.read(cx).location().cloned(),
+                                window,
                                 cx,
                             );
                         });
@@ -665,6 +696,15 @@ impl Shell {
         }
         cx.notify();
     }
+    fn cancel_work(&mut self, _: &CancelWork, window: &mut Window, cx: &mut Context<Self>) {
+        if self.browser.read(cx).is_loading()
+            || self.remote.read(cx).is_loading()
+            || self.preview.read(cx).is_loading()
+            || self.registration.is_some()
+        {
+            self.cancel(&Cancel, window, cx);
+        }
+    }
     fn toolbar_event(&mut self, event: &ToolbarEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             ToolbarEvent::Remote => {
@@ -678,6 +718,8 @@ impl Shell {
                     .update(cx, |browser, cx| browser.focus(window, cx));
             }
             ToolbarEvent::Projects => {
+                self.comparison
+                    .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
                 self.projects
                     .update(cx, |projects, cx| projects.toggle(window, cx));
                 if !self.projects.read(cx).visible() {
@@ -704,6 +746,7 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = self.render_content(window, cx);
         let mut view = div()
+            .on_action(cx.listener(Self::show_help))
             .flex()
             .flex_col()
             .size_full()
@@ -725,7 +768,8 @@ impl Render for Shell {
 }
 impl Shell {
     fn browser_screen_active(&self, cx: &gpui_kit::App) -> bool {
-        self.certificate.is_none()
+        self.help.is_none()
+            && self.certificate.is_none()
             && self.hosts.is_none()
             && self.startup.is_none()
             && !self.projects.read(cx).visible()
@@ -738,6 +782,25 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let browser_active = self.browser_screen_active(cx);
+        let split_context = browser_active.then_some((
+            self.browser.read(cx).id().project,
+            self.show_remote,
+            self.remote_preview,
+        ));
+        if self.split_context != split_context {
+            self.split.deactivate(window, cx);
+            self.split_context = split_context;
+        }
+        let comparison_active = self.help.is_none()
+            && self.certificate.is_none()
+            && self.hosts.is_none()
+            && self.startup.is_none()
+            && !self.projects.read(cx).visible()
+            && self.comparison.read(cx).visible();
+        if !comparison_active {
+            self.comparison
+                .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
+        }
         let can_compare = self.remote.read(cx).has_session()
             && !self.remote.read(cx).is_loading()
             && !self.browser.read(cx).is_loading();
@@ -762,6 +825,9 @@ impl Shell {
                 pane.dismiss_context_menu(window, cx);
             }
         });
+        if self.help.is_some() {
+            return self.render_help(window, cx);
+        }
         if let Some((_, _, prompt)) = &self.certificate {
             return div().size_full().child(prompt.clone()).into_any_element();
         }
@@ -788,7 +854,8 @@ impl Shell {
                 .size_full()
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
-                .child(self.comparison.clone())
+                .child(div().flex_1().min_h_0().child(self.comparison.clone()))
+                .child(self.preference_controls(cx))
                 .child(div().p_2().child(self.status.clone()))
                 .into_any_element();
         }
@@ -812,7 +879,8 @@ impl Shell {
             },
             cx.listener(Self::toolbar_event),
         );
-        let header = browser.header();
+        let header = browser.header(cx);
+        let palette = Palette::current(cx);
         let hosts = browser
             .location()
             .map(|location| {
@@ -842,10 +910,56 @@ impl Shell {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            .capture_action(cx.listener(|this, _: &Cancel, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &ClearMarks, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::base::actions::Cancel, w, cx| {
+                    this.split.cancel_resize(w, cx);
+                }),
+            )
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                    this.split.cancel_resize(w, cx);
+                }),
+            )
+            .capture_action(cx.listener(|this, _: &OpenContextMenu, _, cx| {
+                if this.split.is_resizing() {
+                    cx.stop_propagation();
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .capture_any_mouse_down(
+                cx.listener(|this, event: &gpui_kit::MouseDownEvent, _, cx| {
+                    if event.button == gpui_kit::MouseButton::Right && this.split.is_resizing() {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .on_action(cx.listener(Self::focus_filter))
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::compare_marked))
+            .on_action(cx.listener(Self::toggle_preview))
+            .on_action(cx.listener(Self::focus_preview))
+            .on_action(cx.listener(Self::copy_preview))
+            .on_action(cx.listener(Self::cancel_work))
+            .on_action(cx.listener(|this, _: &ResizePaneLeft, w, cx| {
+                this.split.command(SplitCommand::Left, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneRight, w, cx| {
+                this.split.command(SplitCommand::Right, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResetPaneSizes, w, cx| {
+                this.split.command(SplitCommand::Reset, w, cx);
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &SwitchPane, w, cx| {
                 let event = if this.remote.focus_handle(cx).is_focused(w) {
                     ToolbarEvent::LocalBrowser
@@ -863,46 +977,70 @@ impl Shell {
             .on_action(cx.listener(|this, _: &ShowHosts, w, cx| {
                 this.toolbar_event(&ToolbarEvent::Hosts, w, cx)
             }))
+            .on_action(cx.listener(|this, _: &ReturnFromFinder, w, cx| {
+                if this.browser.read(cx).finder_active() {
+                    this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::ReturnFinder), w, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &FindFiles, w, cx| {
                 this.toolbar_event(&ToolbarEvent::LocalBrowser, w, cx);
                 this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::Find), w, cx);
             }))
             .on_action(cx.listener(Self::cancel))
             .child(toolbar)
-            .child(header)
             .child(
                 div()
-                    .flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(if self.remote_preview {
-                        self.preview.clone().into_any_element()
-                    } else {
-                        self.browser.clone().into_any_element()
-                    })
-                    .child(if self.show_remote {
-                        self.remote.clone().into_any_element()
-                    } else {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .min_h_0()
-                            .child(self.preview.clone())
-                            .child(div().p_2().child(if hosts.is_empty() {
-                                "No hosts configured".into()
-                            } else {
-                                format!("Hosts: {hosts}")
-                            }))
-                            .into_any_element()
-                    }),
+                    .key_context("DriftLocalFilter")
+                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                        this.browser.update(cx, |pane, cx| pane.focus(w, cx));
+                    }))
+                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                        this.browser.update(cx, |pane, cx| pane.focus(w, cx));
+                    }))
+                    .on_action(cx.listener(
+                        |this, _: &gpui_kit::component::input::Escape, w, cx| {
+                            this.browser.update(cx, |pane, cx| pane.focus(w, cx));
+                        },
+                    ))
+                    .child(header),
             )
+            .child(div().flex_1().min_h_0().min_w_0().child(self.split.view(
+                "browser-split",
+                if self.remote_preview {
+                    self.preview.clone().into_any_element()
+                } else {
+                    self.browser.clone().into_any_element()
+                },
+                if self.show_remote {
+                    self.remote.clone().into_any_element()
+                } else {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .min_h_0()
+                        .child(self.preview.clone())
+                        .child(div().p_2().child(if hosts.is_empty() {
+                            "No hosts configured".into()
+                        } else {
+                            format!("Hosts: {hosts}")
+                        }))
+                        .into_any_element()
+                },
+                window,
+                cx,
+            )))
+            .child(self.preference_controls(cx))
             .child(
                 div()
-                    .p_3()
+                    .id("workspace-status")
+                    .text_size(Text::Metadata.rems())
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .bg(palette.chrome)
                     .border_t_1()
-                    .border_color(cx.theme().border)
+                    .border_color(palette.border)
                     .child(self.status.clone()),
             )
             .into_any_element()
@@ -914,16 +1052,34 @@ mod comparison;
 #[cfg(test)]
 mod comparison_tests;
 #[cfg(test)]
+mod design_tests;
+#[cfg(test)]
+mod finder_tests;
+#[cfg(test)]
 mod ftp_tests;
 #[cfg(test)]
 mod ftps_tests;
+mod keyboard;
+#[cfg(test)]
+mod keyboard_focus_tests;
+#[cfg(test)]
+mod keyboard_tests;
 #[cfg(test)]
 mod logging_tests;
 #[cfg(test)]
 mod menu_tests;
+mod preferences;
 #[cfg(test)]
 mod project_tests;
 mod projects;
+#[cfg(test)]
+mod remote_visibility_tests;
+#[cfg(test)]
+mod resize_focus_tests;
+#[cfg(test)]
+mod resize_tests;
+#[cfg(test)]
+mod serverlink_tests;
 #[cfg(test)]
 mod shutdown_logging_tests;
 #[cfg(test)]

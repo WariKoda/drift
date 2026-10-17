@@ -108,7 +108,10 @@ impl BrowserService {
         let cancel = CancellationToken::new();
         let token = cancel.clone();
         let task = self.runtime.spawn(async move {
-            let mutating = !matches!(command, HostCommand::Load | HostCommand::LinkTargets);
+            let mutating = !matches!(
+                command,
+                HostCommand::Load | HostCommand::LinkTargets | HostCommand::OfferLink { .. }
+            );
             let action = move || match command {
                 HostCommand::Load => store
                     .host_catalog(slug.as_deref())
@@ -129,6 +132,28 @@ impl BrowserService {
                     )
                     .map(Box::new)
                     .map(HostResponse::LinkTargets),
+                HostCommand::OfferLink { desired } => store
+                    .matching_link_targets(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                        &desired,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkOffer),
+                HostCommand::SaveLink {
+                    expected,
+                    desired,
+                    target,
+                } => store
+                    .save_linked_host(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                        expected.as_deref(),
+                        *desired,
+                        &target,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkSaved),
                 HostCommand::SelectLink { expected } => store
                     .select_link_target(
                         slug.as_deref()
@@ -138,11 +163,33 @@ impl BrowserService {
                     .map(Box::new)
                     .map(HostResponse::LinkSelected),
             };
-            if mutating {
+            let result = if mutating {
                 service.blocking_mutation(&token, action).await
             } else {
                 service.blocking(&token, action).await
+            };
+            match &result {
+                Err(error) => service.logger.failure("host management failed", error, &[]),
+                Ok(HostResponse::LinkSaved(saved)) => {
+                    if saved.warning.is_some() {
+                        service
+                            .logger
+                            .error("host link save partially completed", &[]);
+                    }
+                    if let Some(error) = &saved.destination_error {
+                        service
+                            .logger
+                            .failure("host link destination save failed", error, &[]);
+                    }
+                }
+                Ok(HostResponse::LinkSelected(promotion)) if promotion.warning.is_some() => {
+                    service
+                        .logger
+                        .error("host link selection partially completed", &[]);
+                }
+                _ => {}
             }
+            result
         });
         Operation { id, cancel, task }
     }
@@ -482,20 +529,23 @@ pub(crate) async fn classify_ignored(
     use tokio::io::AsyncWriteExt;
     // Read output concurrently: a large finder query must not deadlock on full
     // stdout/stderr pipes while its stdin is still being written.
-    let output = tokio::select! {
+    let (written, output) = tokio::select! {
         _ = cancel.cancelled() => return Err(Error::Invalid("operation cancelled".into())),
         result = async {
             let write = async { stdin.write_all(&input).await?; drop(stdin); Ok::<(), std::io::Error>(()) };
-            let (written, output) = tokio::join!(write, child.wait_with_output());
-            written?; output
-        } => result?,
+            tokio::join!(write, child.wait_with_output())
+        } => result,
     };
+    let output = output?;
+    // Git may reject its index before consuming stdin. Prefer that failure to
+    // its secondary broken pipe; a successful process still requires a full write.
     if !output.status.success() && output.status.code() != Some(1) {
         return Err(Error::Invalid(format!(
             "Git ignore classification: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
     }
+    written?;
     let fields: Vec<_> = output.stdout.split(|b| *b == 0).collect();
     if fields.len() != entries.len() * 4 + 1 || fields.last() != Some(&&b""[..]) {
         return Err(Error::Invalid("malformed Git ignore output".into()));
@@ -505,6 +555,9 @@ pub(crate) async fn classify_ignored(
         .map(|record| !record[0].is_empty() && !record[2].starts_with(b"!"))
         .collect())
 }
+
+#[cfg(test)]
+mod tests;
 
 pub fn hard_excluded(path: &Path, directory: bool) -> bool {
     let parts: Vec<_> = path.components().collect();

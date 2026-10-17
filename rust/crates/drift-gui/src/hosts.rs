@@ -1,25 +1,43 @@
+mod form;
+mod keyboard;
+mod linking;
+mod links;
+mod offer;
+mod tools;
+use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
+use crate::focus_reveal::FocusReveal;
+use crate::form_input;
 use drift_app::{
     browser::{BrowserService, OperationId},
     hosts::{HostCommand, HostDraft, HostResponse},
+    remote::RemoteService,
 };
 use drift_core::{
     config::Host,
     pathmap::Mapping,
     store::{HostCatalog, Store},
 };
+use form::HostForm;
 use gpui_kit::base::{Disableable, Selectable};
+#[cfg(test)]
+use gpui_kit::component::input::Input;
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
+#[cfg(test)]
+use gpui_kit::test::TestSupportExt;
 use gpui_kit::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, ScrollHandle,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
+use keyboard::*;
+use links::{LinkEvent, LinkPicker};
 use tokio_util::sync::CancellationToken;
+use tools::{HostTools, Mode};
 
 const NAME: usize = 0;
 const HOSTNAME: usize = 1;
@@ -44,6 +62,10 @@ const FIELDS: [(&str, &str); 9] = [
 
 gpui_kit::actions!(drift_hosts, [Close, Search]);
 pub fn bind_keys(cx: &mut App) {
+    keyboard::bind_keys(cx);
+    tools::bind_keys(cx);
+    links::bind_keys(cx);
+    offer::bind_keys(cx);
     cx.bind_keys([
         KeyBinding::new("escape", Close, Some("DriftHosts")),
         KeyBinding::new("ctrl-f", Search, Some("DriftHosts")),
@@ -56,124 +78,33 @@ pub enum HostEvent {
 }
 impl EventEmitter<HostEvent> for HostManager {}
 
-struct HostForm {
-    expected: Option<Host>,
-    fields: Vec<Entity<InputState>>,
-    server: String,
-    protocol: String,
-    auth_kind: String,
-    mappings: Vec<(Entity<InputState>, Entity<InputState>)>,
-}
-impl HostForm {
-    fn new(
-        host: Host,
-        expected: Option<Host>,
-        window: &mut Window,
-        cx: &mut Context<HostManager>,
-    ) -> Self {
-        let draft = HostDraft::from(&host);
-        let values = [
-            draft.name,
-            draft.hostname,
-            draft.port,
-            draft.user,
-            draft.root_path,
-            draft.keep_alive,
-            draft.password,
-            draft.key_file,
-            draft.passphrase,
-        ];
-        let fields = values
-            .into_iter()
-            .enumerate()
-            .map(|(index, value)| {
-                cx.new(|cx| {
-                    let mut state = InputState::new(window, cx)
-                        .placeholder(match index {
-                            PORT => "Default",
-                            KEEP_ALIVE => "60; 0 disables probes",
-                            KEY_FILE => "~/.ssh/id_ed25519",
-                            _ => FIELDS[index].0,
-                        })
-                        .masked(matches!(index, PASSWORD | PASSPHRASE));
-                    state.set_value(value, window, cx);
-                    state
-                })
-            })
-            .collect::<Vec<_>>();
-        let mappings = draft
-            .mappings
-            .into_iter()
-            .map(|mapping| {
-                let local = cx.new(|cx| {
-                    let mut state = InputState::new(window, cx).placeholder("Local path");
-                    state.set_value(mapping.local, window, cx);
-                    state
-                });
-                let remote = cx.new(|cx| {
-                    let mut state = InputState::new(window, cx).placeholder("Deploy path");
-                    state.set_value(mapping.remote, window, cx);
-                    state
-                });
-                (local, remote)
-            })
-            .collect();
-        fields[NAME].focus_handle(cx).focus(window, cx);
-        Self {
-            expected,
-            fields,
-            server: draft.server,
-            protocol: draft.protocol,
-            auth_kind: draft.auth_kind,
-            mappings,
-        }
-    }
-    fn draft(&self, cx: &App) -> HostDraft {
-        let values: Vec<_> = self
-            .fields
-            .iter()
-            .map(|field| field.read(cx).value().to_string())
-            .collect();
-        HostDraft {
-            name: values[NAME].clone(),
-            hostname: values[HOSTNAME].clone(),
-            port: values[PORT].clone(),
-            user: values[USER].clone(),
-            root_path: values[ROOT].clone(),
-            keep_alive: values[KEEP_ALIVE].clone(),
-            password: values[PASSWORD].clone(),
-            key_file: values[KEY_FILE].clone(),
-            passphrase: values[PASSPHRASE].clone(),
-            server: self.server.clone(),
-            protocol: self.protocol.clone(),
-            auth_kind: self.auth_kind.clone(),
-            mappings: self
-                .mappings
-                .iter()
-                .map(|(local, remote)| Mapping {
-                    local: local.read(cx).value().to_string(),
-                    remote: remote.read(cx).value().to_string(),
-                })
-                .collect(),
-        }
-    }
-}
-
 pub struct HostManager {
     store: Store,
     service: BrowserService,
+    remote_service: RemoteService,
+    tools: Option<Entity<HostTools>>,
+    tools_subscription: Option<Subscription>,
+    links: Option<Entity<LinkPicker>>,
+    link_subscription: Option<Subscription>,
     project_slug: Option<String>,
     global: bool,
     catalog: Option<HostCatalog>,
     form: Option<HostForm>,
+    offer: Option<offer::LinkOffer>,
+    offer_restore: Option<(u64, FocusHandle, Option<gpui_kit::EntityId>)>,
     delete: Option<Host>,
     query: Entity<InputState>,
     focus: FocusHandle,
+    list_focus: FocusHandle,
+    cursor: Option<String>,
+    scroll: ScrollHandle,
     operation: u64,
     cancel: Option<CancellationToken>,
     writing: bool,
+    active: bool,
     changed: bool,
     status: String,
+    pending_status: Option<String>,
     _subscription: Subscription,
 }
 impl Drop for HostManager {
@@ -187,30 +118,47 @@ impl HostManager {
     pub fn new(
         store: Store,
         service: BrowserService,
+        remote_service: RemoteService,
         project_slug: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter hosts…"));
-        let subscription =
-            cx.subscribe_in(&query, window, |_, _, _: &InputEvent, _, cx| cx.notify());
+        let subscription = cx.subscribe_in(&query, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.scroll.scroll_to_item(this.cursor_row(cx));
+            }
+            cx.notify();
+        });
         let focus = cx.focus_handle().tab_stop(true);
         query.focus_handle(cx).focus(window, cx);
         let mut manager = Self {
             store,
             service,
+            remote_service,
+            tools: None,
+            tools_subscription: None,
+            links: None,
+            link_subscription: None,
             global: project_slug.is_none(),
             project_slug,
             catalog: None,
             form: None,
+            offer: None,
+            offer_restore: None,
             delete: None,
             query,
             focus,
+            list_focus: cx.focus_handle().tab_stop(true),
+            cursor: None,
+            scroll: ScrollHandle::new(),
             operation: 0,
             cancel: None,
             writing: false,
+            active: false,
             changed: false,
             status: String::new(),
+            pending_status: None,
             _subscription: subscription,
         };
         manager.request(HostCommand::Load, window, cx);
@@ -225,10 +173,11 @@ impl HostManager {
             cancel.cancel();
         }
         self.writing = !matches!(command, HostCommand::Load);
-        self.status = if self.writing {
-            "Saving changes…"
-        } else {
-            "Loading hosts…"
+        self.status = match command {
+            HostCommand::OfferLink { .. } => "Checking matching servers…",
+            HostCommand::SaveLink { .. } => "Saving server link…",
+            HostCommand::Load => "Loading hosts…",
+            _ => "Saving changes…",
         }
         .into();
         let id = OperationId {
@@ -254,22 +203,38 @@ impl HostManager {
                 this.writing = false;
                 match result {
                     Ok(Ok(HostResponse::Loaded(catalog))) => {
-                        this.status = format!("{} hosts", catalog.hosts.len());
+                        this.status = this
+                            .pending_status
+                            .take()
+                            .unwrap_or_else(|| format!("{} hosts", catalog.hosts.len()));
                         this.catalog = Some(*catalog);
+                        this.scroll.scroll_to_item(this.cursor_row(cx));
                         if this.changed {
                             this.changed = false;
                             cx.emit(HostEvent::Changed);
                         }
                     }
                     Ok(Ok(HostResponse::Saved | HostResponse::Deleted)) => {
-                        this.form = None;
-                        this.delete = None;
-                        this.focus.focus(window, cx);
-                        this.changed = true;
-                        this.request(HostCommand::Load, window, cx);
+                        this.host_saved(window, cx)
                     }
-                    Ok(Err(error)) => this.status = error.to_string(),
-                    Err(error) => this.status = format!("Background task failed: {error}"),
+                    Ok(Ok(HostResponse::LinkOffer(catalog))) => {
+                        this.offer_loaded(*catalog, window, cx)
+                    }
+                    Ok(Ok(HostResponse::LinkSaved(result))) => {
+                        this.linked_saved(*result, window, cx)
+                    }
+                    Ok(Ok(_)) => this.status = "Unexpected host management response".into(),
+                    Ok(Err(error)) => {
+                        this.offer_failed();
+                        this.status = this.pending_status.clone().map_or_else(
+                            || error.to_string(),
+                            |warning| format!("{warning} — Reload failed: {error}"),
+                        );
+                    }
+                    Err(error) => {
+                        this.offer_failed();
+                        this.status = format!("Background task failed: {error}");
+                    }
                 }
                 cx.notify();
             });
@@ -277,35 +242,60 @@ impl HostManager {
         .detach();
         cx.notify();
     }
+    pub fn operation(&self) -> u64 {
+        self.operation
+    }
+    #[cfg(test)]
+    pub(super) fn is_loading(&self) -> bool {
+        self.cancel.is_some()
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(offer) = &self.offer {
+            offer.focus.focus(window, cx);
+        } else {
+            self.focus.focus(window, cx);
+        }
+    }
     fn change_scope(&mut self, global: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.writing || self.form.is_some() || self.delete.is_some() {
+        if !self.list_active() || (!global && self.project_slug.is_none()) {
             return;
         }
         self.global = global;
         self.catalog = None;
+        self.cursor = None;
+        self.scroll.scroll_to_item(0);
         self.query
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.request(HostCommand::Load, window, cx);
     }
     fn edit(&mut self, host: Host, duplicate: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if !self.list_active() {
             return;
         }
+        self.cursor = Some(host.name.clone());
         let expected = (!duplicate).then(|| host.clone());
         let mut host = host;
         if duplicate {
             host.name = format!("{} copy", host.name);
         }
-        self.form = Some(HostForm::new(host, expected, window, cx));
-        self.delete = None;
-        self.status.clear();
+        match HostForm::new(host, expected, window, cx) {
+            Ok(form) => {
+                self.form = Some(form);
+                self.delete = None;
+                self.status.clear();
+            }
+            Err(error) => self.status = error.into(),
+        }
         cx.notify();
     }
     fn new_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if !self.list_active() {
             return;
         }
-        self.form = Some(HostForm::new(
+        match HostForm::new(
             Host {
                 protocol: "sftp".into(),
                 ..Host::default()
@@ -313,26 +303,56 @@ impl HostManager {
             None,
             window,
             cx,
-        ));
-        self.delete = None;
-        self.status.clear();
+        ) {
+            Ok(form) => {
+                self.form = Some(form);
+                self.delete = None;
+                self.status.clear();
+            }
+            Err(error) => self.status = error.into(),
+        }
         cx.notify();
     }
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.active
+            || self.offer.is_some()
+            || self.cancel.is_some()
+            || self.links.is_some()
+            || self.tools.is_some()
+        {
+            return;
+        }
         let Some(form) = &self.form else {
             return;
         };
+        if let Err(error) = form_input::validate_inputs(
+            form.fields.iter().chain(
+                form.mappings
+                    .iter()
+                    .flat_map(|(local, remote)| [local, remote]),
+            ),
+            window,
+            cx,
+        ) {
+            self.status = error.into();
+            cx.notify();
+            return;
+        }
         match form.draft(cx).build(self.global) {
             Ok(desired) => {
-                let expected = form.expected.clone().map(Box::new);
-                self.request(
-                    HostCommand::Save {
-                        expected,
-                        desired: Box::new(desired),
-                    },
-                    window,
-                    cx,
-                );
+                let expected = form.expected.clone();
+                if !self.global && desired.server.is_empty() {
+                    self.start_offer(expected, desired, window, cx);
+                } else {
+                    self.request(
+                        HostCommand::Save {
+                            expected: expected.map(Box::new),
+                            desired: Box::new(desired),
+                        },
+                        window,
+                        cx,
+                    );
+                }
             }
             Err(error) => {
                 self.status = error.to_string();
@@ -340,7 +360,80 @@ impl HostManager {
             }
         }
     }
+    fn open_tools(&mut self, host: Host, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cancel.is_some() || self.offer.is_some() {
+            return;
+        }
+        if self.form.is_none() {
+            self.cursor = Some(host.name.clone());
+        }
+        let slug = if self.global {
+            None
+        } else {
+            self.project_slug.clone()
+        };
+        let tools = cx.new(|cx| {
+            HostTools::new(
+                self.store.clone(),
+                self.remote_service.clone(),
+                slug,
+                host,
+                mode,
+                window,
+                cx,
+            )
+        });
+        self.tools_subscription = Some(cx.subscribe_in(
+            &tools,
+            window,
+            |this, tools, _: &tools::Closed, window, cx| {
+                let focus = tools.read(cx).previous_focus.clone();
+                this.tools = None;
+                this.tools_subscription = None;
+                if let Some(focus) = focus {
+                    focus.focus(window, cx);
+                } else {
+                    this.focus.focus(window, cx);
+                }
+                cx.notify();
+            },
+        ));
+        self.tools = Some(tools);
+        cx.notify();
+    }
+    fn test_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.offer.is_some() || self.cancel.is_some() {
+            return;
+        }
+        let Some(form) = &self.form else {
+            return;
+        };
+        if let Err(error) = form_input::validate_inputs(
+            form.fields.iter().chain(
+                form.mappings
+                    .iter()
+                    .flat_map(|(local, remote)| [local, remote]),
+            ),
+            window,
+            cx,
+        ) {
+            self.status = error.into();
+            cx.notify();
+            return;
+        }
+        match form.draft(cx).build(self.global) {
+            Ok(host) => self.open_tools(host, Mode::Test, window, cx),
+            Err(error) => {
+                self.status = error.to_string();
+                cx.notify();
+            }
+        }
+    }
     fn close(&mut self, _: &Close, window: &mut Window, cx: &mut Context<Self>) {
+        if self.offer.is_some() {
+            self.back_offer(window, cx);
+            return;
+        }
         if self.writing {
             return;
         }
@@ -348,279 +441,142 @@ impl HostManager {
             self.form = None;
             self.delete = None;
             self.status.clear();
-            self.focus.focus(window, cx);
+            self.list_focus.focus(window, cx);
             cx.notify();
         } else {
             cx.emit(HostEvent::Close);
         }
     }
     fn search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
-        self.query.focus_handle(cx).focus(window, cx);
-    }
-    fn field(&self, index: usize) -> AnyElement {
-        let form = self.form.as_ref().unwrap();
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(FIELDS[index].0)
-            .child(
-                Input::new(&form.fields[index])
-                    .id(FIELDS[index].1)
-                    .disabled(self.writing)
-                    .when(matches!(index, PASSWORD | PASSPHRASE), |input| {
-                        input.mask_toggle()
-                    }),
-            )
-            .into_any_element()
-    }
-    fn render_form(&self, cx: &mut Context<Self>) -> AnyElement {
-        let form = self.form.as_ref().unwrap();
-        let linked = !form.server.is_empty();
-        let ftp = matches!(form.protocol.as_str(), "ftp" | "ftps");
-        let mut view = div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(if form.expected.is_some() {
-                "Edit host"
-            } else {
-                "New host"
-            })
-            .child(self.field(NAME));
-        if !self.global {
-            view = view.child(
-                div().flex().flex_col().gap_2().child("Connection").child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(
-                            Button::new("direct")
-                                .label("Own connection")
-                                .selected(!linked)
-                                .disabled(self.writing)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.form.as_mut().unwrap().server.clear();
-                                    cx.notify();
-                                })),
-                        )
-                        .children(
-                            self.catalog
-                                .as_ref()
-                                .into_iter()
-                                .flat_map(|catalog| &catalog.servers)
-                                .enumerate()
-                                .map(|(index, server)| {
-                                    let name = server.name.clone();
-                                    Button::new(("link", index))
-                                        .label(format!("Link {}", name))
-                                        .selected(form.server == name)
-                                        .disabled(self.writing)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.form.as_mut().unwrap().server = name.clone();
-                                            cx.notify();
-                                        }))
-                                }),
-                        ),
-                ),
-            );
+        if self.form.is_none() && self.delete.is_none() {
+            self.query.focus_handle(cx).focus(window, cx);
         }
-        if linked {
-            let endpoint = self
-                .catalog
-                .as_ref()
-                .and_then(|c| c.servers.iter().find(|s| s.name == form.server))
-                .map(|s| s.hostname.as_str())
-                .unwrap_or("unavailable");
-            view = view.child(format!("Server: {} ({endpoint})", form.server));
-        } else {
-            view = view
-                .child(self.field(HOSTNAME))
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .child(div().flex_1().child(self.field(PORT)))
-                        .child(div().flex_1().child(self.field(USER))),
-                )
-                .child(
-                    div().flex().flex_wrap().gap_2().child("Protocol").children(
-                        [
-                            ("", "Default (SFTP)"),
-                            ("sftp", "SFTP"),
-                            ("ftp", "FTP"),
-                            ("ftps", "FTPS"),
-                        ]
-                        .into_iter()
-                        .map(|(value, label)| {
-                            Button::new(format!("protocol-{value}"))
-                                .label(label)
-                                .selected(form.protocol == value)
-                                .disabled(self.writing)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.form.as_mut().unwrap().protocol = value.into();
-                                    cx.notify();
-                                }))
-                        }),
-                    ),
-                )
-                .child(self.field(KEEP_ALIVE));
-            if !ftp {
-                view = view.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child("Authentication")
-                        .children(
-                            [
-                                ("", "Default key file"),
-                                ("keyfile", "Key file"),
-                                ("password", "Password"),
-                                ("agent", "SSH agent"),
-                            ]
-                            .into_iter()
-                            .map(|(value, label)| {
-                                Button::new(format!("auth-{value}"))
-                                    .label(label)
-                                    .selected(form.auth_kind == value)
-                                    .disabled(self.writing)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.form.as_mut().unwrap().auth_kind = value.into();
-                                        cx.notify();
-                                    }))
-                            }),
-                        ),
-                );
-            }
-            if ftp || form.auth_kind == "password" {
-                view = view.child(self.field(PASSWORD));
-            } else if form.auth_kind != "agent" {
-                view = view
-                    .child(self.field(KEY_FILE))
-                    .child(self.field(PASSPHRASE));
-            }
-        }
-        view = view
-            .child(self.field(ROOT))
-            .child("Mappings (relative to local and remote roots)")
-            .children(
-                form.mappings
-                    .iter()
-                    .enumerate()
-                    .map(|(index, (local, remote))| {
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                Input::new(local)
-                                    .id(("map-local", index))
-                                    .disabled(self.writing),
-                            )
-                            .child(
-                                Input::new(remote)
-                                    .id(("map-remote", index))
-                                    .disabled(self.writing),
-                            )
-                            .child(
-                                Button::new(("map-remove", index))
-                                    .label("Remove")
-                                    .disabled(self.writing)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.form.as_mut().unwrap().mappings.remove(index);
-                                        cx.notify();
-                                    })),
-                            )
-                    }),
-            )
-            .child(
-                Button::new("map-add")
-                    .label("Add mapping")
-                    .disabled(self.writing)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let local =
-                            cx.new(|cx| InputState::new(window, cx).placeholder("Local path"));
-                        let remote =
-                            cx.new(|cx| InputState::new(window, cx).placeholder("Deploy path"));
-                        local.focus_handle(cx).focus(window, cx);
-                        this.form.as_mut().unwrap().mappings.push((local, remote));
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        Button::new("host-save")
-                            .label("Save host")
-                            .disabled(self.cancel.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
-                    )
-                    .child(
-                        Button::new("host-cancel")
-                            .label("Cancel")
-                            .disabled(self.writing)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.close(&Close, window, cx)),
-                            ),
-                    ),
-            );
-        view.into_any_element()
     }
 }
+
 impl Render for HostManager {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let query = self.query.read(cx).value().to_lowercase();
+        self.active = true;
+        if self.offer.is_some() {
+            return self.render_offer(cx);
+        }
+        if let Some(tools) = &self.tools {
+            return div().size_full().child(tools.clone()).into_any_element();
+        }
+        if let Some(links) = &self.links {
+            return div().size_full().child(links.clone()).into_any_element();
+        }
+        let selected = self.selected_host(cx).map(|h| h.name);
         let busy = self.cancel.is_some();
         let editing = self.form.is_some() || self.delete.is_some();
         let background = cx.theme().background;
         let foreground = cx.theme().foreground;
         let border = cx.theme().border;
-        div().key_context("DriftHosts").track_focus(&self.focus).flex().flex_col().size_full()
+        let offer_scene = self.offer_scene();
+        let restore = self.offer_restore.clone();
+        let owner = cx.weak_entity();
+        div().key_context(if self.form.is_some() { "DriftHosts DriftHostForm" } else if self.delete.is_some() { "DriftHosts DriftHostConfirm" } else { "DriftHosts" }).track_focus(&self.focus.clone().tab_stop(self.delete.is_none())).flex().flex_col().size_full()
             .bg(background).text_color(foreground)
+            .capture_any_mouse_down(cx.listener(move |this,_,window,cx| {if !this.active || this.offer_scene()!=offer_scene {window.prevent_default();cx.stop_propagation();}}))
+            .capture_any_mouse_up(cx.listener(move |this,_,window,cx| {if !this.active || this.offer_scene()!=offer_scene {window.prevent_default();cx.stop_propagation();}}))
+            .children(restore.map(|(operation,target,form)|gpui_kit::canvas(|_,_,_|(),move |_,_,window,cx|window.defer(cx,move |window,cx| {let _ = owner.update(cx,|this,cx| {
+                if this.offer_restore.as_ref()!=Some(&(operation,target.clone(),form)) {return;}
+                if this.cancel.is_some() {return;}
+                this.offer_restore=None;
+                if this.active && this.operation==operation && this.offer.is_none() && this.tools.is_none() && this.links.is_none() && this.form.as_ref().map(|current|current.fields[NAME].entity_id())==form && this.focus.is_focused(window) && this.focus.contains(&target,window) {target.focus(window,cx);}
+            });})).absolute().size_0()))
             .on_action(cx.listener(Self::close)).on_action(cx.listener(Self::search))
+            .on_action(cx.listener(|this, _: &FocusList, w, cx| this.select_row(this.cursor_row(cx), w, cx)))
+            .on_action(cx.listener(|this, _: &Save, w, cx| this.save(w, cx)))
+            .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
+            .on_action(cx.listener(|this, _: &DefaultConfirm, w, cx| {
+                if this.focus.is_focused(w) {
+                    this.confirm_delete(w, cx);
+                } else {
+                    // Native buttons activate on key-up only after an unconsumed key-down.
+                    cx.propagate();
+                }
+            }))
             .child(div().flex().flex_wrap().items_center().gap_2().p_3().border_b_1().border_color(border)
                 .child(div().flex_1().child(if self.global { "Global servers".to_string() } else { format!("Project hosts: {}", self.project_slug.as_deref().unwrap_or_default()) }))
                 .child(Button::new("scope-project").label("Project hosts").selected(!self.global)
-                    .disabled(self.project_slug.is_none() || self.writing || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(false, w, cx))))
+                    .disabled(self.project_slug.is_none() || busy || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(false, w, cx))))
                 .child(Button::new("scope-global").label("Global servers").selected(self.global)
-                    .disabled(self.writing || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(true, w, cx))))
+                    .disabled(busy || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(true, w, cx))))
                 .child(Button::new("hosts-close").label("Back to browser").disabled(self.writing)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Close)))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().flex().flex_col().w(px(350.)).min_h_0().p_3().gap_3().border_r_1().border_color(border)
-                    .child(Input::new(&self.query).id("hosts-filter"))
+                    .child(div().key_context("DriftHostFilter").child(form_input::guard(&self.query, |input| input.id("hosts-filter").disabled(editing))))
                     .child(div().flex().gap_2()
                         .child(Button::new("host-new").label("New host").disabled(busy || editing || self.catalog.is_none())
                             .on_click(cx.listener(|this, _, w, cx| this.new_host(w, cx))))
+                        .when(!self.global, |view| view.child(Button::new("host-add-link").label("Link host").disabled(busy || editing || self.catalog.is_none())
+                            .on_click(cx.listener(|this, _, w, cx| this.open_links(w, cx)))))
                         .child(Button::new("hosts-reload").label("Reload").disabled(self.writing || editing)
                             .on_click(cx.listener(|this, _, w, cx| this.request(HostCommand::Load, w, cx)))))
-                    .child(div().id("host-list").flex().flex_col().gap_3().flex_1().min_h_0().overflow_y_scroll()
-                        .children(self.catalog.as_ref().into_iter().flat_map(|c| &c.hosts).filter(|h| h.name.to_lowercase().contains(&query) || h.hostname.to_lowercase().contains(&query)).enumerate().map(|(index, host)| {
-                            let edit = host.clone(); let duplicate = host.clone(); let delete = host.clone();
-                            div().flex().flex_col().gap_1().pb_3().border_b_1().border_color(border)
+                    .child(div().id("host-list")
+                        .key_context(if editing { "DriftHostListInactive" } else { "DriftHostList" })
+                        .track_focus(&self.list_focus.clone().tab_stop(!editing)).track_scroll(&self.scroll)
+                        .on_action(cx.listener(|this, _: &CursorUp, w, cx| this.select_row(this.cursor_row(cx).saturating_sub(1), w, cx)))
+                        .on_action(cx.listener(|this, _: &CursorDown, w, cx| this.select_row(this.cursor_row(cx) + 1, w, cx)))
+                        .on_action(cx.listener(|this, _: &CursorFirst, w, cx| this.select_row(0, w, cx)))
+                        .on_action(cx.listener(|this, _: &CursorLast, w, cx| this.select_row(usize::MAX, w, cx)))
+                        .on_action(cx.listener(|this, _: &New, w, cx| this.new_host(w, cx)))
+                        .on_action(cx.listener(|this, _: &Edit, w, cx| {
+                            if !this.list_focus.is_focused(w) {
+                                cx.propagate();
+                            } else if let Some(host) = this.selected_host(cx) {
+                                this.edit(host, false, w, cx);
+                            }
+                        }))
+                        .on_action(cx.listener(|this, _: &Duplicate, w, cx| { if let Some(host) = this.selected_host(cx) { this.edit(host, true, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Remove, w, cx| { if this.cancel.is_none() && let Some(host) = this.selected_host(cx) { this.ask_delete(host, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Test, w, cx| { if this.list_active() && let Some(host) = this.selected_host(cx) { this.open_tools(host, Mode::Test, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &ResetTrust, w, cx| this.reset_selected_trust(w, cx)))
+                        .on_action(cx.listener(|this, _: &Link, w, cx| { if this.list_active() { this.open_links(w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Reload, w, cx| { if this.list_active() { this.request(HostCommand::Load, w, cx); } }))
+                        .on_action(cx.listener(|this, _: &Scope, w, cx| {
+                            if this.project_slug.is_some() && this.list_active() && this.list_focus.is_focused(w) {
+                                this.change_scope(!this.global, w, cx);
+                            } else {
+                                cx.propagate();
+                            }
+                        }))
+                        .flex().flex_col().gap_3().flex_1().min_h_0().overflow_y_scroll()
+                        .children(self.visible_hosts(cx).into_iter().enumerate().map(|(index, host)| {
+                            let edit = host.clone(); let duplicate = host.clone(); let delete = host.clone(); let test = host.clone(); let reset = host.clone();
+                            let ftps = self.catalog.as_ref().is_some_and(|catalog| catalog.runtime.hosts.iter().any(|resolved| resolved.name == host.name && resolved.protocol == "ftps"));
+                            div().id(("host-row", index))
+                                .when(selected.as_ref() == Some(&host.name), |view| view.bg(cx.theme().accent))
+                                .on_click(cx.listener(move |this, _, w, cx| this.select_row(index, w, cx)))
+                                .map(|view| { #[cfg(test)] { view.test_support() } #[cfg(not(test))] { view } })
+                                .flex().flex_col().gap_1().pb_3().border_b_1().border_color(border)
                                 .child(host.name.clone()).child(if host.server.is_empty() { host.hostname.clone() } else { format!("Server link: {}", host.server) })
-                                .child(div().flex().gap_1()
+                                .child(div().flex().flex_wrap().gap_1()
                                     .child(Button::new(("host-edit", index)).label("Edit").disabled(busy || editing)
                                         .on_click(cx.listener(move |this, _, w, cx| this.edit(edit.clone(), false, w, cx))))
                                     .child(Button::new(("host-duplicate", index)).label("Duplicate").disabled(busy || editing)
                                         .on_click(cx.listener(move |this, _, w, cx| this.edit(duplicate.clone(), true, w, cx))))
                                     .child(Button::new(("host-delete", index)).label("Delete").disabled(busy || editing)
-                                        .on_click(cx.listener(move |this, _, _, cx| { this.delete = Some(delete.clone()); cx.notify(); }))))
+                                        .on_click(cx.listener(move |this, _, w, cx| this.ask_delete(delete.clone(), w, cx))))
+                                    .child(Button::new(("host-test", index)).label("Test").disabled(busy || editing)
+                                        .on_click(cx.listener(move |this, _, w, cx| this.open_tools(test.clone(), Mode::Test, w, cx))))
+                                    .when(ftps, |view| view.child(Button::new(("host-trust-reset", index)).label("Reset certificate trust").disabled(busy || editing)
+                                        .on_click(cx.listener(move |this, _, w, cx| this.open_tools(reset.clone(), Mode::Reset, w, cx))))))
                         }))
                         .when(self.catalog.as_ref().is_some_and(|c| c.hosts.is_empty()), |view| view.child("No hosts yet. Add a host to configure a sync target."))))
-                .child(div().id("host-details").flex_1().min_w_0().p_4().overflow_y_scroll()
+                .child(div().id("host-details").flex_1().min_w_0().min_h_0().p_4().overflow_y_scroll()
+                    .map(|view| { #[cfg(test)] { view.test_support() } #[cfg(not(test))] { view } })
+                    .when_some(self.form.as_ref(), |view, form| view.track_scroll(form.reveal.scroll_handle()))
                     .when(self.form.is_some(), |view| view.child(self.render_form(cx)))
                     .when_some(self.delete.as_ref(), |view, host| {
-                        let expected = host.clone();
                         view.child(div().flex().flex_col().gap_3()
                             .child(format!("Delete host {:?}?", host.name))
                             .child("Files on the host and in the project remain unchanged.")
                             .child(div().flex().gap_2()
                                 .child(Button::new("host-confirm-delete").label("Delete host").disabled(busy)
-                                    .on_click(cx.listener(move |this, _, w, cx| this.request(HostCommand::Delete { expected: Box::new(expected.clone()) }, w, cx))))
+                                    .on_click(cx.listener(|this, _, w, cx| this.confirm_delete(w, cx))))
                                 .child(Button::new("host-cancel-delete").label("Cancel").disabled(self.writing)
                                     .on_click(cx.listener(|this, _, w, cx| this.close(&Close, w, cx))))))
                     })
@@ -628,237 +584,15 @@ impl Render for HostManager {
                         let defaults = self.catalog.as_ref().map(|c| format!("Defaults: port {}, user {}. Empty fields keep these defaults.",
                             if c.defaults.port == 0 { "by protocol".into() } else { c.defaults.port.to_string() },
                             if c.defaults.user.is_empty() { "unspecified" } else { &c.defaults.user })).unwrap_or_default();
-                        view.child(div().flex().flex_col().gap_3().child("Select Edit or add a host.").child(defaults))
+                        view.child(div().flex().flex_col().gap_3().child("↓ from filter · j/k navigate · n new · e edit · c duplicate · d delete · t test · r reset trust · Tab scope").child(defaults))
                     })))
-            .child(div().p_3().border_t_1().border_color(border).child(self.status.clone()))
+            .child(div().p_3().border_t_1().border_color(border).child(self.status.clone())).into_any_element()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use gpui_kit::test::{TestAppContextExt, TestWindowExt};
-    use gpui_kit::{
-        AnyWindowHandle, Bounds, TestAppContext, WindowBounds, WindowOptions, point, size,
-    };
-    use std::{fs, time::Duration};
-
-    async fn idle(handle: AnyWindowHandle, manager: &Entity<HostManager>, cx: &mut TestAppContext) {
-        cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-            manager.read(cx).cancel.is_none()
-        })
-        .await;
-    }
-
-    #[gpui_kit::test]
-    async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppContext) {
-        cx.executor().allow_parking();
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::new(dir.path().into());
-        fs::write(
-            dir.path().join("config.toml"),
-            "[defaults]\nport = 2222\nuser = 'deploy'\n",
-        )
-        .unwrap();
-        let server = Host {
-            name: "shared".into(),
-            hostname: "server.example".into(),
-            root_path: "/srv".into(),
-            ..Host::default()
-        };
-        store.save_host(None, None, server.clone()).unwrap();
-        let (handle, manager) = cx.update(|cx| {
-            gpui_kit::init(cx);
-            bind_keys(cx);
-            gpui_kit::open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds {
-                        origin: point(px(0.), px(0.)),
-                        size: size(px(1400.), px(1200.)),
-                    })),
-                    ..WindowOptions::default()
-                },
-                cx,
-                |window, cx| {
-                    cx.new(|cx| {
-                        HostManager::new(
-                            store.clone(),
-                            BrowserService::new().unwrap(),
-                            Some("project".into()),
-                            window,
-                            cx,
-                        )
-                    })
-                },
-            )
-            .unwrap()
-        });
-        idle(handle, &manager, cx).await;
-        cx.update_window(handle, |_, window, cx| {
-            window.click("host-new", cx);
-            for (field, value) in [
-                ("host-name", "prod"),
-                ("hostname", "ftp.example"),
-                ("root-path", "/project"),
-                ("keep-alive", "0"),
-            ] {
-                window.click(field, cx);
-                window.input(value, cx);
-            }
-            window.click("protocol-ftps", cx);
-            window.click("password", cx);
-            window.input("secret", cx);
-            window.click("map-add", cx);
-            window.click(("map-local", 0usize), cx);
-            window.input("src", cx);
-            window.click(("map-remote", 0usize), cx);
-            window.input("deploy", cx);
-            assert!(
-                manager.read(cx).form.as_ref().unwrap().fields[PASSWORD]
-                    .read(cx)
-                    .presentation()
-                    .is_masked()
-            );
-            window.click("host-save", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        let original = store.project("project").unwrap().hosts.remove(0);
-        assert_eq!(original.protocol, "ftps");
-        assert_eq!(original.port, 0);
-        assert_eq!(original.keep_alive_interval, Some(0));
-        assert_eq!(original.auth.password, "secret");
-        assert_eq!(original.mappings[0].local, "src");
-        assert_eq!(store.runtime(Some("project")).unwrap().hosts[0].port, 21);
-
-        cx.update_window(handle, |_, window, cx| {
-            window.click(("host-edit", 0usize), cx);
-            window.click("hostname", cx);
-            window.press(
-                if cfg!(target_os = "macos") {
-                    "cmd-a"
-                } else {
-                    "ctrl-a"
-                },
-                cx,
-            );
-            window.input("edited.example", cx);
-        })
-        .unwrap();
-        let foreign = Host {
-            user: "other process".into(),
-            ..original.clone()
-        };
-        store
-            .save_host(Some("project"), Some(&original), foreign.clone())
-            .unwrap();
-        cx.update_window(handle, |_, window, cx| window.click("host-save", cx))
-            .unwrap();
-        idle(handle, &manager, cx).await;
-        manager.read_with(cx, |manager, cx| {
-            assert!(manager.status.contains("changed in another drift process"));
-            assert_eq!(
-                manager.form.as_ref().unwrap().fields[HOSTNAME]
-                    .read(cx)
-                    .value()
-                    .as_str(),
-                "edited.example"
-            );
-        });
-        assert_eq!(
-            store.project("project").unwrap().hosts[0].hostname,
-            original.hostname
-        );
-        cx.update_window(handle, |_, window, cx| {
-            window.click("host-cancel", cx);
-            window.click("hosts-reload", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        cx.update_window(handle, |_, window, cx| {
-            window.click(("host-edit", 0usize), cx);
-            window.click("hostname", cx);
-            window.press(
-                if cfg!(target_os = "macos") {
-                    "cmd-a"
-                } else {
-                    "ctrl-a"
-                },
-                cx,
-            );
-            window.input("edited.example", cx);
-            window.click("host-save", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        assert_eq!(
-            store.project("project").unwrap().hosts[0].hostname,
-            "edited.example"
-        );
-        cx.update_window(handle, |_, window, cx| {
-            window.click(("host-duplicate", 0usize), cx);
-            window.click("host-save", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        let hosts = store.project("project").unwrap().hosts;
-        assert_eq!(hosts.len(), 2);
-        assert_eq!(hosts[1].name, "prod copy");
-        assert_eq!(hosts[1].user, "other process");
-        cx.update_window(handle, |_, window, cx| {
-            window.click(("host-delete", 1usize), cx);
-            window.click("host-confirm-delete", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        assert_eq!(store.project("project").unwrap().hosts.len(), 1);
-
-        cx.update_window(handle, |_, window, cx| window.click("scope-global", cx))
-            .unwrap();
-        idle(handle, &manager, cx).await;
-        cx.update_window(handle, |_, window, cx| {
-            window.click(("host-edit", 0usize), cx);
-            let form = manager.read(cx).form.as_ref().unwrap();
-            assert!(form.fields[PORT].read(cx).value().is_empty());
-            assert!(form.fields[USER].read(cx).value().is_empty());
-            window.click("host-save", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        assert!(store.global().unwrap().hosts[0] == server); // resolved defaults never enter the form
-
-        cx.update_window(handle, |_, window, cx| window.click("scope-project", cx))
-            .unwrap();
-        idle(handle, &manager, cx).await;
-        cx.update_window(handle, |_, window, cx| {
-            window.click("host-new", cx);
-            window.click("host-name", cx);
-            window.input("linked", cx);
-            window.click(("link", 0usize), cx);
-            window.click("root-path", cx);
-            window.input("/linked", cx);
-            window.click("host-save", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        let hosts = store.project("project").unwrap().hosts;
-        assert_eq!(hosts[1].server, "shared");
-        assert!(hosts[1].hostname.is_empty());
-        assert!(hosts[1].auth == Default::default());
-        assert_eq!(store.runtime(Some("project")).unwrap().hosts[1].port, 2222);
-        cx.update_window(handle, |_, window, cx| window.click("scope-global", cx))
-            .unwrap();
-        idle(handle, &manager, cx).await;
-        cx.update_window(handle, |_, window, cx| {
-            window.click(("host-delete", 0usize), cx);
-            window.click("host-confirm-delete", cx);
-        })
-        .unwrap();
-        idle(handle, &manager, cx).await;
-        manager.read_with(cx, |manager, _| {
-            assert!(manager.status.contains("linked by project"));
-            assert!(manager.delete.is_some());
-        });
-        assert_eq!(store.global().unwrap().hosts.len(), 1);
-    }
-}
+mod input_tests;
+#[cfg(test)]
+mod scroll_tests;
+#[cfg(test)]
+mod tests;

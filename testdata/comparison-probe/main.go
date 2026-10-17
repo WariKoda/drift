@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -25,11 +26,25 @@ func main() {
 	}
 }
 func run() error {
+	// macOS uses its keychain verifier and ignores SSL_CERT_FILE. This test-only
+	// process uses the fixture CA explicitly, with the pure Go verifier on every OS.
+	if path := os.Getenv("DRIFT_TEST_CA"); path != "" {
+		pem, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(pem) {
+			return fmt.Errorf("test CA contains no certificates")
+		}
+		x509.SetFallbackRoots(roots)
+	}
 	var input struct {
-		Local          []string         `json:"local"`
-		Remote         []string         `json:"remote"`
-		Mappings       []config.Mapping `json:"mappings"`
-		IncludeIgnored bool             `json:"include_ignored"`
+		Local          []string          `json:"local"`
+		Remote         []string          `json:"remote"`
+		Mappings       []config.Mapping  `json:"mappings"`
+		IncludeIgnored bool              `json:"include_ignored"`
+		Sync           map[string]string `json:"sync"`
 	}
 	if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
 		return err
@@ -42,7 +57,11 @@ func run() error {
 		return err
 	}
 	zero := 0
-	host := config.Host{Name: "test", Hostname: "127.0.0.1", Port: port, User: "testuser", RootPath: os.Args[2], Protocol: "sftp", Auth: config.Auth{Type: "password", Password: "test-password"}, Mappings: input.Mappings, KeepAliveInterval: &zero}
+	protocol := "sftp"
+	if len(os.Args) > 4 {
+		protocol = os.Args[4]
+	}
+	host := config.Host{Name: "test", Hostname: "127.0.0.1", Port: port, User: "testuser", RootPath: os.Args[2], Protocol: protocol, Auth: config.Auth{Type: "password", Password: "test-password"}, Mappings: input.Mappings, KeepAliveInterval: &zero}
 	local, remote := fs.NewSelectionState(), fs.NewSelectionState()
 	for _, p := range input.Local {
 		local.Marked[p] = struct{}{}
@@ -58,6 +77,34 @@ func run() error {
 	}
 	defer result.Root.Close()
 	defer result.Conn.Close()
+	if input.Sync != nil {
+		items := make([]syncpolicy.Item, 0, len(result.Sessions))
+		for _, session := range result.Sessions {
+			name, err := filepath.Rel(os.Args[1], session.LocalPath)
+			if err != nil {
+				return err
+			}
+			decision := map[string]syncpolicy.Decision{"Upload": syncpolicy.DecisionUpload, "Download": syncpolicy.DecisionDownload, "Delete local": syncpolicy.DecisionDeleteLocal, "Delete remote": syncpolicy.DecisionDeleteRemote}[input.Sync[name]]
+			items = append(items, syncpolicy.Item{LocalPath: session.LocalPath, RemotePath: session.RemotePath, Decision: decision})
+		}
+		synced := syncpolicy.Run(ctx, result.Conn, result.Root, items, progress.NewTracker("sync test"))
+		if synced.Err != nil {
+			return synced.Err
+		}
+		completed := make([]string, 0, len(synced.Completed))
+		for _, index := range synced.Completed {
+			name, err := filepath.Rel(os.Args[1], items[index].LocalPath)
+			if err != nil {
+				return err
+			}
+			completed = append(completed, name)
+		}
+		sort.Strings(completed)
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Completed []string `json:"completed"`
+			Failures  int      `json:"failures"`
+		}{completed, len(synced.Failures)})
+	}
 	type row struct {
 		Local    string `json:"local"`
 		Remote   string `json:"remote"`

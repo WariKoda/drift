@@ -25,6 +25,7 @@ pub enum ConnectionState {
     Connected,
     Closed,
     Failed(String),
+    Certificate(Box<crate::tlstrust::Challenge>),
 }
 #[derive(Clone, Debug)]
 pub struct RemoteEntry {
@@ -39,6 +40,9 @@ pub struct RemoteEntry {
 pub trait RemoteClient: Send + Sync {
     async fn stat(&self, path: &str) -> Result<RemoteMetadata>;
     async fn open(&self, path: &str) -> Result<Box<dyn RemoteRead>>;
+    /// Consumes and closes the source, including error paths, before commit.
+    async fn upload(&self, path: &str, source: Box<dyn RemoteRead>) -> Result<()>;
+    async fn delete(&self, path: &str) -> Result<()>;
     async fn canonicalize(&self, path: &str) -> Result<String>;
     async fn read_dir(&self, path: &str) -> Result<Vec<RemoteEntry>>;
     async fn read_limited(&self, path: &str, limit: usize) -> Result<Vec<u8>>;
@@ -50,6 +54,7 @@ pub struct ConnectOptions {
     pub known_hosts: PathBuf,
     pub agent_socket: Option<PathBuf>,
     pub timeout: std::time::Duration,
+    pub tls: Option<crate::tlstrust::Policy>,
 }
 impl ConnectOptions {
     pub fn from_environment() -> Result<Self> {
@@ -62,6 +67,7 @@ impl ConnectOptions {
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
             timeout: std::time::Duration::from_secs(15),
+            tls: None,
         })
     }
 }
@@ -73,6 +79,9 @@ pub async fn connect(
     match host.protocol.as_str() {
         "" | "sftp" => Ok(std::sync::Arc::new(
             crate::sftp::connect(host, options, cancel).await?,
+        )),
+        "ftp" | "ftps" => Ok(std::sync::Arc::new(
+            crate::ftp::connect(host, options, cancel).await?,
         )),
         protocol => Err(Error::Invalid(format!(
             "{protocol} connections are not implemented yet"

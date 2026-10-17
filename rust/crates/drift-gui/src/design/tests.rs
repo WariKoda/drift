@@ -9,6 +9,7 @@ fn typography_and_density_leave_room_for_native_controls() {
     assert_eq!(Text::Metadata.rems(), rems(0.75));
     assert_eq!(Text::Title.rems(), rems(1.));
     assert_eq!(size::ROW, 24.);
+    assert_eq!(size::PROJECT_FORM, 560.);
     const {
         assert!(size::ROW >= size::ICON + 2. * space::TIGHT);
         assert!(size::HEADER >= size::CONTROL + 2. * space::TIGHT);
@@ -33,6 +34,7 @@ fn geometry_uses_the_existing_kit_font_scale_exactly_once(cx: &mut TestAppContex
                 size::ICON,
                 size::DISCLOSURE,
                 size::FILTER,
+                size::PROJECT_FORM,
                 size::RADIUS,
             ] {
                 assert_eq!(metric(token, cx), gpui_kit::px(token * font / 16.));

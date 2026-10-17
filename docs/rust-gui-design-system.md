@@ -153,7 +153,7 @@ Status / selection information
 - Host-/Mapping-/Transferbedingungen sind keine visuellen Freigaben. Ein schönerer
   Button darf niemals eine erneute Transferbestätigung ersetzen.
 
-## Dialoglayouts — Entwurf, noch nicht implementiert
+## Dialoglayouts — Projektformular-Pilot, weitere Dialoge Entwurf
 
 Zeds generisches `Modal` gibt Slots und optionales Body-Scrolling vor, **keine globale
 Breite**. `AlertModal` verwendet 440 logische px; eine konkrete Sicherheitsabfrage
@@ -185,6 +185,58 @@ Footer: Cancel / sekundär, danach ausdrücklich benannte Hauptaktion
 - Kein implizites Sync, Retry oder Vertrauen durch Enter, Focus-Fallback oder
   Außerklick. Abbrechen einer Ansicht ist nicht automatisch Abbrechen einer Operation.
 
+### Umgesetzt: Projekt anlegen/bearbeiten
+
+Der Nutzer wählte als nächsten Pilot ausdrücklich das **Projektformular**, nicht
+alle Dialoge. `projects/form/view.rs` setzt diese Regeln für Create/Edit um:
+
+- Bevorzugte Breite 560 bei Kit-Basis 16, einmal skalierbar, an tatsächliche
+  Parent-Content-Bounds geklemmt und darin zentriert. Canvas verwendet öffentliche
+  Layout-/Prepaint-/Paint-APIs; kein geschätztes Fenster-/Titlebar-Maß.
+- Titel `Create project`/`Edit project`, getrennte sichtbare Feldlabels; fester
+  Header und Footer, ausschließlich `project-details` scrollt. Native Eingaben
+  behalten Entities, IDs, Composition/History/UTF-16-Selektion und Boundary-Guards.
+- Footer visuell und per Tab: **Name → Path → Cancel → Save project**; Rückwärts-Tab
+  entsprechend. Das ist eine bewusste Reihenfolgeänderung gegenüber dem alten
+  Formular. `Ctrl/Cmd+S` bleibt explizit; Enter im Input/Fokus-Fallback ist keine
+  Speicherung. Save/Cancel behalten IDs, Busy-/Writing-Regeln und bestehende
+  Callback-/Validierungssemantik, einschließlich versteckter/blurred Preedit-Felder.
+- Normaler Felder-/Chrome-Einzug 16, Footer vertikal 12; außen 16, bei schmalem
+  Parent 8. Bei weniger als 240 skalierten Höhenpixeln: kein äußerer Rand,
+  Erklärung entfällt, Innenabstand 8 und Chrome vertikal 4. Das sind eigene
+  responsive Pilot-Anpassungen, keine kopierten Zed-Layoutregeln.
+- Ein neues Formular setzt seinen Body-Scroll zurück; Redraw, Typing, Themewechsel
+  und Idle tun dies nicht. Vorhandener FocusReveal bewegt weiter nur zur nächsten
+  sichtbaren Kante bei Fokus-/Viewportänderung; Header/Footer bleiben beim Scrollen.
+- Registry-Liste, Auswahl, Registrierung und Löschansicht bleiben optisch und
+  funktional unverändert; kein neues Preference-Feld, keine SDK-/Dependencyänderung.
+
+Implementierung `029d6d7`, [Draft-PR #98](https://github.com/WariKoda/drift/pull/98),
+aufgebaut auf dem korrigierten #97-Stand `f8e5b94`. Lokale Gesamtprüfung: **460 Rust-
+Tests, 271 GUI-Binärtests einschließlich 238 Headless-GPUI**, ohne Fehler/Ignore.
+Rustfmt, striktes Clippy, Release, display-/Go-freier CLI-Smoke, Store-/Go-Parität,
+Go-Test/Vet/Build, 27 Python-Paket-Tests (ein privilegierter Realfall ohne Root
+übersprungen) und actionlint bestanden. Alle zehn Exits unter
+`/var/tmp/drift-project-dialog-verified-*` sind null. Frische Child-CI bleibt offen;
+Parent-CI ist kein Nachweis für #98. HTML neu headless gerendert und visuell geprüft,
+weiterhin kein natives GPUI-Bild.
+
+Sieben neue GPUI-Fälle prüfen tatsächliche Parent-Inset-/Dialog-/Footer-Bounds,
+Native-Tab/Cancel ohne Writes, Save mit realem Store erst nach Absicht, Busy-Schutz,
+Theme-/Font-/Resize-erhaltene Inputs/IME/History/Fokus/Operation sowie Fußleisten-Wrap.
+Bestehende Project-/Input-/Scroll-/Keyboard-Prüfungen bleiben erhalten; Form-Footer-
+Assertions beziehen sich jetzt auf den festen Footer, Delete weiter auf den Body.
+Read-only Scope-Review: kein neuer handlungsbedürftiger Blocker; kein eigener Testlauf
+oder native Abnahme durch den Reviewer.
+
+**Gemessene Grenzen:** Parent `320×120`, Inset 8, Kit 16 lässt einen fokussierten
+28er-Input plus Footer vollständig zu. Bei Kit 24 und gleicher 104er nutzbarer Höhe
+bleiben 21 für einen 42er-Input: Aktionen sichtbar, Input nur an oberer Kante revealed,
+**nicht vollständig lesbar abgenommen**. Font 24 bleibt Test-API, kein GUI-Schalter;
+keine Garantie für beliebig kleine Viewports/Schriften. Native Plattform-/IME-/
+Accessibility-/Glyph-Abnahme bleibt separat. Host-/Trust-/Transferdialoge sind
+weiterhin nur Entwurf; Bestätigungsbesitz und Transferfreigaben werden nicht verändert.
+
 ## Umsetzungs- und Abnahmegrenzen
 
 Der Pilot ist ein eigener Feature-Zweig. Keine SDK-Forks, Vendor-Pakete, neuen Fonts,
@@ -212,7 +264,11 @@ prüft danach weiterhin tatsächliche 120er-Pane-Breite, unveränderte Rem-Grö�
 fehlende Platzreserve und erhaltenen Fokus/Session-/Mark-/Auswahlzustand. Kein Wheel
 oder virtuelle Row-Abfrage auf unsichtbarer Fläche; keine Sleeps, Retries, Skips,
 Timeout-Erhöhung oder Produktionsänderung. Das bleibt eine Platzgrenze, **keine**
-Lesbarkeits-/Paint-Abnahme des Extremfalls. Frische korrigierte macOS-CI steht aus.
+Lesbarkeits-/Paint-Abnahme des Extremfalls. Alle sechs korrigierten Go-/Linux-/macOS-
+Checks bestanden für `f8e5b94`
+([37620612116](https://github.com/WariKoda/drift/actions/runs/37620612116),
+[37620605228](https://github.com/WariKoda/drift/actions/runs/37620605228)); keine
+native GUI- oder beliebige Viewport-Abnahme dadurch.
 
 Weiter nativ prüfen: lange Namen, kleine Fenster, große Listen, UI-Skalierung/HiDPI, Light/Dark,
 Tastatur ohne Maus, Hover/Fokus/Auswahl, Disabled-Aktionen und Themewechsel während

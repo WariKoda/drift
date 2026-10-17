@@ -8,7 +8,7 @@ use gpui_kit::{
 struct HelpOwner {
     project: u64,
     finder: bool,
-    hosts: Option<EntityId>,
+    hosts: Option<(EntityId, u64)>,
     certificate: Option<(u64, u64)>,
     projects: bool,
     comparison: bool,
@@ -57,7 +57,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "Esc · . · Shift+I",
-                "Cancel range, clear filter or marks · Hidden · Ignored local paths",
+                "Cancel range, clear filter or marks · Hidden · Ignored local/mapped remote paths",
             ),
             (
                 "Ctrl+Esc",
@@ -93,10 +93,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
                 "Esc in preview",
                 "Close preview and return to its originating browser",
             ),
-            (
-                "Ctrl+Alt+← / → / 0",
-                "Resize panes / reset sizes (session only)",
-            ),
+            ("Ctrl+Alt+← / → / 0", "Resize panes / reset saved sizes"),
             (
                 "Esc during resize",
                 "End only the resize gesture; file work continues",
@@ -178,7 +175,10 @@ impl Shell {
                 && self.certificate.is_none()
                 && !self.projects.read(cx).visible()
                 && !self.comparison.read(cx).visible(),
-            hosts: self.hosts.as_ref().map(Entity::entity_id),
+            hosts: self
+                .hosts
+                .as_ref()
+                .map(|hosts| (hosts.entity_id(), hosts.read(cx).operation())),
             certificate: self.certificate.as_ref().map(|(p, c, _)| (*p, *c)),
             projects: self.projects.read(cx).visible(),
             comparison: self.comparison.read(cx).visible(),
@@ -194,6 +194,11 @@ impl Shell {
         }
         if self.startup.is_some() || self.folder_prompt || self.split.is_resizing() {
             return;
+        }
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
+        if let Some(hosts) = &self.hosts {
+            hosts.update(cx, |hosts, _| hosts.deactivate());
         }
         let focus = cx.focus_handle();
         self.help = Some(ShortcutHelp {

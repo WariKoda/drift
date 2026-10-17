@@ -152,6 +152,16 @@ impl ComparisonPane {
             _subscription: subscription,
         }
     }
+    pub fn configure_split_persistence(
+        &mut self,
+        preferred: Option<f32>,
+        writer: drift_app::gui_preferences::PreferencesWriter,
+    ) {
+        self.split.configure_persistence(preferred, move |value| {
+            writer.queue(drift_core::gui_preferences::GuiPreferenceChange::ComparisonSplit(value));
+        });
+    }
+
     pub fn deactivate_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.split.deactivate(window, cx);
         self.diff.update(cx, |diff, _| diff.deactivate());

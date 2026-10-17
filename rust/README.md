@@ -1,7 +1,8 @@
 # drift-gui
 
 See the [Rust/GPUI port plan](../docs/rust-port-plan.md) for milestones and the
-planned System/Dark/Light modes with Monokai Pro Dark and Monokai Pro Light Sun.
+System/Dark/Light preference and the still-blocked Monokai palettes
+([theme gate](../docs/rust-gui-theme-blockers.md)).
 
 The Rust desktop application develops alongside the Go TUI. It currently provides
 a local browser with directory navigation, filtering, a project-wide finder and a
@@ -32,9 +33,97 @@ error instead of waiting on the UI thread.
 
 Use the Go TUI built from this branch when running both applications against shared
 configuration. Older Go installations do not participate in the common transaction
-lock. GUI window/theme/pane preferences will live separately in `gui.toml`; that
-persistence is not implemented yet. Shared file format changes still require
+lock. GUI window/theme/pane preferences live separately in `gui.toml`; the Go
+configuration schema is unchanged. Shared file format changes still require
 coordination despite independent application versions.
+
+## Browser and project-dialog design pilots
+
+The browser/toolbar pilot follows Zed's compact visual hierarchy: semantic
+14/12/16 UI typography, 4/8/12/16 spacing, separate marks/disclosure/file glyphs,
+and labelled native actions grouped by project, session, comparison, navigation
+and visibility. Presentation tokens live in `drift-gui/src/design.rs`, still using
+the active Kit theme and existing bundled icons. No Zed fonts, SVGs, palettes or
+UI implementation are copied. Native input entities and transfer approvals remain
+unchanged; this is not a whole-app restyle.
+
+See the [design system and pinned references](../docs/rust-gui-design-system.md)
+and [schematic HTML preview](../docs/design/drift-design-system.html). The Create/Edit
+project form now uses a parent-measured 560px preferred dialog, fixed header/footer
+and body-only scrolling. Native Tab order is name → path → Cancel → Save project;
+input Enter is not save consent, while Ctrl/Cmd+S remains explicit. Input entities,
+IME/history, validation and busy guards stay native. Project lists and deletion
+views are unchanged; other dialog layouts remain proposals.
+
+At 104px usable height and test-only 24px Kit font size, a 42px input cannot fully
+fit the 21px body: only its top edge is revealed, while footer actions remain visible. This is
+not arbitrary viewport/readability acceptance or a new font preference. The preview
+is not a native screenshot or accessibility/platform acceptance.
+
+## GUI preferences
+
+The browser and comparison footer provides native **System**, **Dark** and
+**Light** buttons, currently labelled **Theme (Kit)**. System is the default and
+observes window appearance changes while running; fixed modes remain fixed.
+Kit/Base tokens change without rebuilding browser, form, preview or Diff entities,
+clearing selection, cancelling I/O or approving a transfer. Monokai Pro Dark and
+Light Sun are not included: [permission and native acceptance remain open](../docs/rust-gui-theme-blockers.md).
+
+Preferences are stored in `<config.Dir()>/gui.toml`, outside working trees and
+separate from the shared host/project configuration. Example:
+
+```toml
+theme = "system" # system, dark, light
+
+[window]
+width = 1100.0
+height = 720.0
+maximized = false
+
+[panes]
+browser = 0.60
+comparison = 0.30
+```
+
+Window dimensions are normal **logical content pixels**, not the macOS frame
+including its titlebar. Startup centers the window on the primary display and
+bounds it to the usable display area, accounting for measured frame overhead.
+Only size and maximization persist, not position or fullscreen. Startup measures
+the normal content rectangle before requesting maximization. Pending maximize
+acknowledgement and split state/geometry notifications on restore cannot replace
+the saved normal size with transient screen dimensions. If a backend never
+acknowledges maximization or restores a different rectangle, the GUI retains the
+saved size and shows a waiting banner rather than guessing. Normal size tracking
+resumes after the expected restore geometry; on unsupported backends, start with
+`window.maximized = false` in `gui.toml`. Native maximize/decorations still need
+platform acceptance. Native state is sampled every 250ms because X11 state-only
+notifications may omit the bounds callback; geometry must first be quiet for
+150ms. Close/quit samples settled state before the writer drains; unsettled
+geometry can save an acknowledged mode change but retains the last normal size.
+A genuine resize followed by closing within 150ms may therefore not persist that
+last size: it is indistinguishable from transient maximization geometry. Idle
+samples perform no file work, redraw, focus change or transfer. Dimensions must be finite,
+positive and at most 16384; pane ratios must be strictly between 0 and 1.
+
+Pane ratios are independent browser/comparison choices, not currently clamped
+viewport sizes. Without keys, browser starts at 50/50 and comparison at a nominal
+350-pixel file list. Divider drag, keyboard resizing and owned Escape retain the
+actual choice; Ctrl+Alt+0 clears the corresponding saved ratio. Resizing or
+remounting alone never saves a clamp as the preference.
+
+An idle start creates no preferences file. Updates coalesce on a dedicated
+writer (150ms quiet period, at most one second before a batch), re-read and patch
+under the shared lock, preserve unknown TOML fields and replace atomically with
+mode 600. GUI callbacks do no file work; final draining/join happens after the
+window loop. Invalid/non-regular/oversized files remain untouched and get a safe
+warning; repair them outside the GUI. CLI help/version/project management neither
+load nor rewrite `gui.toml`. Logging remains off by default.
+
+Save failures remain visible per changed field; an unrelated successful change
+cannot hide them. There is no automatic retry or rollback claim. A later explicit
+change retries only that field; clicking the already selected theme also retries
+that explicit choice. An unresolved failure is reported on shutdown, even if a
+write may already have committed before a lock-release error.
 
 ## Build and run
 
@@ -72,12 +161,26 @@ the opening timestamp is written only after the GUI loads the project. Listing
 includes active, archived and missing paths. Mutations use the shared write lock
 and preserve project identity, timestamps and settings where applicable.
 `projects --help` documents options; help/version need no configuration directory.
-Version currently reports the Cargo package version; release packaging remains open.
+Version reports build-time `DRIFT_GUI_VERSION` (unset uses the Cargo package
+version); runtime environment cannot replace it. It accepts bounded SemVer without
+a `v` prefix, independently of Go's release version.
 Use `--` before a directory named `projects`, `open`, `dash` or `version`, or one
 beginning with `-` (`drift-gui -- projects`); `./projects` also selects that folder.
 Project commands accept `--` before positional arguments with leading hyphens.
 Invalid syntax, validation failures and lock contention return exit code 1.
 Optional file logging is available for both GUI starts and project commands.
+
+## GUI test artifacts
+
+`make rust-package GUI_VERSION=0.1.0-dev.1` prepares a native Linux tarball with a
+Desktop entry or a separate Intel/ARM macOS `.app` archive; `make rust-package-test`
+checks the standard-library assembler. These are **test artifacts, not public
+releases**. No Developer-ID signing/notarization, publishing, tags, Go replacement
+or bundled Linux runtime is supplied. A manual-only Actions matrix is prepared;
+it cannot be dispatched while its definition exists only on an unmerged branch.
+
+See [PACKAGING.md](PACKAGING.md) for native targets, checksums, dependencies, manual
+installation, Gatekeeper limitations and open SSH/theme/native acceptance gates.
 
 ## Optional diagnostics
 
@@ -158,11 +261,11 @@ split (half-and-half in the browser, a 350-pixel comparison list where space
 allows). These shortcuts also work from filters and previews but not behind
 context menus. Dragging preserves keyboard focus; Escape stops the resize
 without clearing filters/marks or cancelling file work. Minimum widths adapt to
-small windows. Relative sizes survive screen/project switches and window resizing
-within the session; they do not start previews, comparisons or transfers. The
-existing child entities keep navigation, selection, folding and scroll state.
-Control rows wrap when a pane becomes narrow. Pane/window persistence and GUI
-preferences remain open and will use `gui.toml`, not shared Go configuration.
+small windows. Relative choices survive screen/project switches and window
+resizing and persist separately in `gui.toml`; they do not start previews,
+comparisons or transfers. The existing child entities keep navigation, selection,
+folding and scroll state. Control rows wrap when a pane becomes narrow.
+See [GUI preferences](#gui-preferences) for defaults, reset and save failures.
 
 **Projects** opens the dashboard without replacing the browser or remote session.
 Closing it or choosing the already active project preserves navigation, selection
@@ -702,12 +805,13 @@ rewrite the configuration or secrets automatically.
 
 ## Remaining port work
 
-Milestone 2 is in progress: automatic offers for matching endpoints, GUI preferences
-and the planned Monokai themes remain. Project CRUD/archive, dashboard and startup
+The planned Monokai palettes remain blocked by permission and native acceptance.
+GUI preferences with provisional Kit themes and automatic endpoint-link offers
+are implemented. SSH certificates remain blocked separately by dependencies. Project CRUD/archive, dashboard and startup
 restoration and core project/host keyboard flows are available, including numeric
 project shortcuts and the sync-error display shortcut. CLI project management and open/dash/version are
 also available, along with opt-in file logging and visible logging failures.
-Browser context menus, session-only resizable panes, preview/focus/copy shortcuts,
+Browser context menus, persistent resizable panes, preview/focus/copy shortcuts,
 scrollable help and guarded native confirmation controls are available.
 SFTP transport/browser and comparison/unified diff are available, including serial upload/download/delete sync. FTP now uses these same
 workflows, including FTPS and certificate challenges. Finder fuzzy matching and
@@ -716,6 +820,7 @@ Host/mapping controls have external-scroll focus reveal; Tools/Links/project-for
 details/actions are bounded and wrapping. Single-line input boundaries reject
 whole unsafe insertions and isolate IME Escape/Enter; native platform acceptance
 remains. Character-precise, cross-line diff selection is implemented.
-Packaging, release version injection and native release acceptance remain. Blocking local filesystem calls already running cannot
+Test packaging and GUI version embedding are prepared; native Intel/ARM bundle
+execution, signing/notarization, public release policy and native release acceptance remain. Blocking local filesystem calls already running cannot
 be interrupted by Tokio. Sync waits for their outcomes before reporting completion
 or cancellation; browsing discards stale results. Concurrency remains bounded.

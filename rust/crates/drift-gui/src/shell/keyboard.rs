@@ -93,10 +93,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
                 "Esc in preview",
                 "Close preview and return to its originating browser",
             ),
-            (
-                "Ctrl+Alt+← / → / 0",
-                "Resize panes / reset sizes (session only)",
-            ),
+            ("Ctrl+Alt+← / → / 0", "Resize panes / reset saved sizes"),
             (
                 "Esc during resize",
                 "End only the resize gesture; file work continues",

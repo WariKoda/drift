@@ -4,15 +4,43 @@ use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
 use gpui_kit::test::TestSupportExt;
 impl Render for ComparisonPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("comparison")
-            .key_context("Drift")
+            .key_context("Drift DriftComparison")
             .flex()
             .flex_col()
             .size_full()
+            .capture_action(cx.listener(|this, _: &Cancel, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &gpui_kit::base::actions::Cancel, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
+            .capture_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                this.split.cancel_resize(w, cx);
+            }))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(|this, _: &CancelWork, w, cx| {
+                if this.is_loading() {
+                    this.show_errors = false;
+                    this.cancel(&Cancel, w, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneLeft, w, cx| {
+                this.split.command(SplitCommand::Left, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneRight, w, cx| {
+                this.split.command(SplitCommand::Right, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ResetPaneSizes, w, cx| {
+                this.split.command(SplitCommand::Reset, w, cx);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSyncErrors, _, cx| this.toggle_sync_errors(cx)))
             .on_action(cx.listener(|this, _: &Activate, w, cx| this.cycle(w, cx)))
             .on_action(cx.listener(|this, _: &Upload, _, cx| this.direct_sync(Decision::Upload, cx)))
             .on_action(cx.listener(|this, _: &Download, _, cx| this.direct_sync(Decision::Download, cx)))
@@ -43,7 +71,9 @@ impl Render for ComparisonPane {
                     .p_2()
                     .child(
                         Button::new("comparison-back")
-                            .label(if self.syncing.is_some() {
+                            .label(if self.show_errors {
+                                "Close error details"
+                            } else if self.syncing.is_some() {
                                 "Cancel sync"
                             } else if self.is_loading() {
                                 "Cancel comparison"
@@ -127,9 +157,20 @@ impl Render for ComparisonPane {
                     let (label, reason) = match outcome { ItemOutcome::Failed(e) => ("Failed",e), ItemOutcome::Unknown(e) => ("Outcome unknown",e), _ => return None };
                     Some(format!("{label}: {} {} — {reason}", item.decision.label(), item.local.display()))
                 }).collect();
-                view.child(div().id("sync-report").p_2().max_h(px(160.)).overflow_y_scroll()
-                    .child(format!("Sync: {completed} completed, {} errors{suffix}", errors.len()))
-                    .children(errors.into_iter().map(|error| div().text_color(cx.theme().danger).child(error))))
+                view.child(div().id("sync-report").p_2()
+                    .child(div().flex().gap_2()
+                        .child(format!("Sync: {completed} completed, {} errors{suffix}", errors.len()))
+                        .when(!errors.is_empty(), |view| view.child(Button::new("sync-errors-toggle")
+                            .label(if self.show_errors { "Hide errors (e)" } else { "Show errors (e)" })
+                            .disabled(self.confirm_sync.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_sync_errors(cx))))))
+                    .when(self.show_errors, |view| view.child(div().id("sync-error-details")
+                        .max_h(px(160.)).overflow_y_scroll()
+                        .map(|view| {
+                            #[cfg(test)] { view.test_support() }
+                            #[cfg(not(test))] { view }
+                        })
+                        .children(errors.into_iter().map(|error| div().text_color(cx.theme().danger).child(error))))))
             })
             .child(
                 div()
@@ -152,17 +193,31 @@ impl Render for ComparisonPane {
             )
             .child(
                 div()
-                    .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(
+                    .min_w_0()
+                    .child(self.split.view("comparison-split",
                         div()
                             .id("comparison-files")
                             .flex()
                             .flex_col()
-                            .w(px(350.))
+                            .w_full()
+                            .min_w_0()
                             .min_h_0()
-                            .child(Input::new(&self.filter).id("comparison-filter"))
+                            .child(
+                                div()
+                                    .key_context("DriftComparisonFilter")
+                                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                                        this.focus.focus(w, cx);
+                                    }))
+                                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                                        this.focus.focus(w, cx);
+                                    }))
+                                    .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                                        this.focus.focus(w, cx);
+                                    }))
+                                    .child(crate::form_input::guard(&self.filter, |input| input.id("comparison-filter"))),
+                            )
                             .child(
                                 div()
                                     .id("comparison-file-list")
@@ -268,9 +323,9 @@ impl Render for ComparisonPane {
                                         .flex_1()
                                         .min_h_0(),
                                     ),
-                            ),
-                    )
-                    .child(self.diff.clone()),
+                            ).into_any_element(),
+                        self.diff.clone().into_any_element(), window, cx),
+                    ),
             )
     }
 }

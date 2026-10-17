@@ -4,6 +4,8 @@ mod keyboard;
 mod management;
 use crate::actions::Cancel;
 use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
+use crate::focus_reveal::FocusReveal;
+use crate::form_input;
 use drift_app::{
     browser::{BrowserService, OperationId},
     projects::{ProjectCommand, ProjectResponse},
@@ -14,10 +16,12 @@ use drift_core::{
 };
 use form::ProjectForm;
 use gpui_kit::base::Disableable;
+#[cfg(test)]
+use gpui_kit::component::input::Input;
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder;
 #[cfg(test)]
@@ -58,6 +62,8 @@ pub struct ProjectsPanel {
     list_focus: FocusHandle,
     cursor: Option<String>,
     scroll: ScrollHandle,
+    details_reveal: FocusReveal,
+    list_reveal: FocusReveal,
     status: String,
     _subscription: Subscription,
 }
@@ -83,6 +89,7 @@ impl ProjectsPanel {
             }
             cx.notify();
         });
+        let list_reveal = FocusReveal::default();
         Self {
             query,
             name,
@@ -101,7 +108,9 @@ impl ProjectsPanel {
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle().tab_stop(true),
             cursor: None,
-            scroll: ScrollHandle::new(),
+            scroll: list_reveal.scroll_handle().clone(),
+            details_reveal: FocusReveal::default(),
+            list_reveal,
             status: String::new(),
             _subscription: subscription,
         }
@@ -166,73 +175,111 @@ impl Render for ProjectsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected_project(cx).map(|p| p.slug);
         let busy = self.is_loading();
-        let editing = self.form.is_some() || self.delete.is_some();
-        let mut view = div()
-            .key_context(if self.form.is_some() {
-                "Drift DriftProjects DriftProjectForm"
-            } else if self.delete.is_some() {
-                "Drift DriftProjects DriftProjectConfirm"
-            } else {
-                "Drift DriftProjects"
-            })
-            .track_focus(&self.focus)
-            .size_full()
-            .flex()
-            .flex_col()
-            .p_3()
-            .gap_2()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .on_action(cx.listener(Self::cancel_view))
-            .on_action(cx.listener(|this, _: &Search, w, cx| {
-                if this.form.is_none() && this.delete.is_none() {
-                    this.query.focus_handle(cx).focus(w, cx);
-                }
-            }))
-            .on_action(
-                cx.listener(|this, _: &FocusList, w, cx| {
+        let editing = self.delete.is_some();
+        let mut view =
+            div()
+                .key_context(if self.form.is_some() {
+                    "Drift DriftProjects DriftProjectForm"
+                } else if self.delete.is_some() {
+                    "Drift DriftProjects DriftProjectConfirm"
+                } else {
+                    "Drift DriftProjects"
+                })
+                .track_focus(&self.focus)
+                .size_full()
+                .min_h_0()
+                .min_w_0()
+                .whitespace_normal()
+                .flex()
+                .flex_col()
+                .when(self.form.is_none(), |view| view.p_3().gap_2())
+                .bg(cx.theme().background)
+                .text_color(cx.theme().foreground)
+                .on_action(cx.listener(Self::cancel_view))
+                .on_action(cx.listener(|this, _: &Search, w, cx| {
+                    if this.form.is_none() && this.delete.is_none() {
+                        this.query.focus_handle(cx).focus(w, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &FocusList, w, cx| {
                     this.select_row(this.cursor_row(cx), w, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &Save, w, cx| this.save_form(w, cx)))
-            .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
-            .child(
-                "Projects · ↓ from filter · j/k navigate · n new · e edit · a archive · d remove",
-            )
-            .child(self.status.clone());
-        if let Some(form) = &self.form {
-            view = view
+                }))
+                .on_action(cx.listener(|this, _: &Save, w, cx| this.save_form(w, cx)))
+                .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm_delete(w, cx)))
+                .on_action(cx.listener(|this, _: &DefaultConfirm, w, cx| {
+                    if this.focus.is_focused(w) {
+                        this.confirm_delete(w, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }));
+        if self.form.is_some() {
+            return view.child(self.render_form(cx));
+        }
+        if editing {
+            let mut details = div()
+                .id("project-details")
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .overflow_y_scroll()
+                .track_scroll(self.details_reveal.scroll_handle())
+                .map(|view| {
+                    #[cfg(test)]
+                    {
+                        view.test_support()
+                    }
+                    #[cfg(not(test))]
+                    {
+                        view
+                    }
+                })
                 .child(
-                    Input::new(&form.name)
-                        .id("project-edit-name")
-                        .disabled(busy),
-                )
-                .child(
-                    Input::new(&form.path)
-                        .id("project-edit-path")
-                        .disabled(busy),
-                )
-                .child(
-                    Button::new("project-save")
-                        .label("Save project (Ctrl/Cmd+S)")
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, w, cx| this.save_form(w, cx))),
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .min_w_0()
+                        .child("Projects")
+                        .child(self.status.clone()),
                 );
-        } else if let Some(project) = &self.delete {
-            view = view.child(format!("Remove {:?} and its saved hosts/mappings? Local project files remain in place.", project.name))
-                .child(Button::new("project-delete-confirm").label("Remove project").disabled(busy).on_click(cx.listener(|this, _, w, cx| {
-                    this.confirm_delete(w, cx);
-                })));
+            if let Some(project) = &self.delete {
+                details = details.child(div().flex().flex_col().gap_2().min_w_0()
+                    .child(format!("Remove {:?} and its saved hosts/mappings? Local project files remain in place.", project.name))
+                    .child(div().flex().flex_wrap().min_w_0().gap_2()
+                        .child(self.details_reveal.wrap("reveal-project-delete", Button::new("project-delete-confirm").label("Remove project").disabled(busy)
+                            .on_click(cx.listener(|this, _, w, cx| this.confirm_delete(w, cx)))))));
+            }
+            details = details.child(
+                div().flex().flex_wrap().min_w_0().gap_2().child(
+                    self.details_reveal.wrap(
+                        "reveal-project-cancel",
+                        Button::new("project-close")
+                            .label("Cancel")
+                            .disabled(self.writing || self.busy)
+                            .on_click(
+                                cx.listener(|this, _, w, cx| this.cancel_view(&Cancel, w, cx)),
+                            ),
+                    ),
+                ),
+            );
+            return view.child(details);
         } else {
+            view = view.child("Projects · ↓ from filter · j/k navigate · n new · e edit · a archive · d remove")
+                .child(self.status.clone());
             view = view
                 .child(
                     div()
                         .key_context("DriftProjectFilter")
-                        .child(Input::new(&self.query).id("project-filter").w(px(320.))),
+                        .child(form_input::guard(&self.query, |input| {
+                            input.id("project-filter").w(px(320.)).max_w_full()
+                        })),
                 )
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
+                        .min_w_0()
                         .gap_2()
                         .child(
                             Button::new("project-new")
@@ -264,6 +311,16 @@ impl Render for ProjectsPanel {
                 .child(
                     div()
                         .id("project-list")
+                        .map(|view| {
+                            #[cfg(test)]
+                            {
+                                view.test_support()
+                            }
+                            #[cfg(not(test))]
+                            {
+                                view
+                            }
+                        })
                         .key_context("DriftProjectList")
                         .track_focus(&self.list_focus)
                         .track_scroll(&self.scroll)
@@ -280,36 +337,48 @@ impl Render for ProjectsPanel {
                             this.select_row(usize::MAX, w, cx)
                         }))
                         .on_action(cx.listener(|this, _: &New, w, cx| {
-                            if !this.is_loading() {
+                            if this.list_active() {
                                 this.edit(None, w, cx);
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Edit, w, cx| {
-                            if !this.is_loading()
+                            if this.list_active()
                                 && let Some(project) = this.selected_project(cx)
                             {
                                 this.edit(Some(project), w, cx);
                             }
                         }))
-                        .on_action(cx.listener(|this, _: &Open, _, cx| {
-                            if !this.is_loading()
-                                && let Some(project) = this.selected_project(cx)
-                            {
-                                cx.emit(ProjectEvent::Open(project.path));
+                        .on_action(cx.listener(|this, _: &Open, w, cx| {
+                            if this.list_focus.is_focused(w) {
+                                this.open_row(this.cursor_row(cx), cx);
+                            } else {
+                                cx.propagate();
                             }
                         }))
+                        .on_action(cx.listener(|this, _: &Open1, _, cx| this.open_row(0, cx)))
+                        .on_action(cx.listener(|this, _: &Open2, _, cx| this.open_row(1, cx)))
+                        .on_action(cx.listener(|this, _: &Open3, _, cx| this.open_row(2, cx)))
+                        .on_action(cx.listener(|this, _: &Open4, _, cx| this.open_row(3, cx)))
+                        .on_action(cx.listener(|this, _: &Open5, _, cx| this.open_row(4, cx)))
+                        .on_action(cx.listener(|this, _: &Open6, _, cx| this.open_row(5, cx)))
+                        .on_action(cx.listener(|this, _: &Open7, _, cx| this.open_row(6, cx)))
+                        .on_action(cx.listener(|this, _: &Open8, _, cx| this.open_row(7, cx)))
+                        .on_action(cx.listener(|this, _: &Open9, _, cx| this.open_row(8, cx)))
                         .on_action(cx.listener(|this, _: &Remove, w, cx| {
-                            if !this.is_loading()
+                            if this.list_active()
                                 && let Some(project) = this.selected_project(cx)
                             {
                                 this.cursor = Some(project.slug.clone());
+                                this.details_reveal
+                                    .scroll_handle()
+                                    .set_offset(Default::default());
                                 this.delete = Some(project);
                                 this.focus.focus(w, cx);
                                 cx.notify();
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Archive, w, cx| {
-                            if !this.is_loading()
+                            if this.list_active()
                                 && let Some(project) = this.selected_project(cx)
                             {
                                 this.request(
@@ -322,12 +391,12 @@ impl Render for ProjectsPanel {
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Archived, _, cx| {
-                            if !this.is_loading() {
+                            if this.list_active() {
                                 this.toggle_archived(cx);
                             }
                         }))
                         .on_action(cx.listener(|this, _: &Reload, w, cx| {
-                            if !this.is_loading() {
+                            if this.list_active() {
                                 this.request(ProjectCommand::Load, w, cx);
                             }
                         }))
@@ -363,9 +432,16 @@ impl Render for ProjectsPanel {
                                     })
                                     .flex()
                                     .flex_col()
+                                    .flex_shrink_0()
+                                    .min_w_0()
                                     .gap_2()
                                     .child(format!(
-                                        "{}{} — {}",
+                                        "{}{}{} — {}",
+                                        if index < 9 {
+                                            format!("[{}] ", index + 1)
+                                        } else {
+                                            String::new()
+                                        },
                                         project.name,
                                         if project.archived { " (archived)" } else { "" },
                                         project.path.display()
@@ -373,63 +449,86 @@ impl Render for ProjectsPanel {
                                     .child(
                                         div()
                                             .flex()
+                                            .flex_wrap()
+                                            .min_w_0()
                                             .gap_2()
                                             .child(
-                                                Button::new(format!(
-                                                    "project-open-{}",
-                                                    project.slug
-                                                ))
-                                                .label("Open")
-                                                .disabled(busy)
-                                                .on_click(cx.listener(move |_, _, _, cx| {
-                                                    cx.emit(ProjectEvent::Open(path.clone()))
-                                                })),
+                                                self.list_reveal.wrap(
+                                                    format!("reveal-project-open-{}", project.slug),
+                                                    Button::new(format!(
+                                                        "project-open-{}",
+                                                        project.slug
+                                                    ))
+                                                    .label("Open")
+                                                    .disabled(busy)
+                                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                                        cx.emit(ProjectEvent::Open(path.clone()))
+                                                    })),
+                                                ),
                                             )
                                             .child(
-                                                Button::new(format!(
-                                                    "project-edit-{}",
-                                                    project.slug
-                                                ))
-                                                .label("Edit")
-                                                .disabled(busy)
-                                                .on_click(cx.listener(move |this, _, w, cx| {
-                                                    this.edit(Some(edit.clone()), w, cx)
-                                                })),
+                                                self.list_reveal.wrap(
+                                                    format!("reveal-project-edit-{}", project.slug),
+                                                    Button::new(format!(
+                                                        "project-edit-{}",
+                                                        project.slug
+                                                    ))
+                                                    .label("Edit")
+                                                    .disabled(busy)
+                                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                                        this.edit(Some(edit.clone()), w, cx)
+                                                    })),
+                                                ),
                                             )
                                             .child(
-                                                Button::new(format!(
-                                                    "project-archive-{}",
-                                                    project.slug
-                                                ))
-                                                .label(if project.archived {
-                                                    "Unarchive"
-                                                } else {
-                                                    "Archive"
-                                                })
-                                                .disabled(busy)
-                                                .on_click(cx.listener(move |this, _, w, cx| {
-                                                    this.request(
-                                                        ProjectCommand::Archive {
-                                                            expected: Box::new(archive.clone()),
-                                                        },
-                                                        w,
-                                                        cx,
-                                                    )
-                                                })),
+                                                self.list_reveal.wrap(
+                                                    format!(
+                                                        "reveal-project-archive-{}",
+                                                        project.slug
+                                                    ),
+                                                    Button::new(format!(
+                                                        "project-archive-{}",
+                                                        project.slug
+                                                    ))
+                                                    .label(if project.archived {
+                                                        "Unarchive"
+                                                    } else {
+                                                        "Archive"
+                                                    })
+                                                    .disabled(busy)
+                                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                                        this.request(
+                                                            ProjectCommand::Archive {
+                                                                expected: Box::new(archive.clone()),
+                                                            },
+                                                            w,
+                                                            cx,
+                                                        )
+                                                    })),
+                                                ),
                                             )
                                             .child(
-                                                Button::new(format!(
-                                                    "project-delete-{}",
-                                                    project.slug
-                                                ))
-                                                .label("Remove")
-                                                .disabled(busy)
-                                                .on_click(cx.listener(move |this, _, w, cx| {
-                                                    this.cursor = Some(delete.slug.clone());
-                                                    this.delete = Some(delete.clone());
-                                                    this.focus.focus(w, cx);
-                                                    cx.notify();
-                                                })),
+                                                self.list_reveal.wrap(
+                                                    format!(
+                                                        "reveal-project-delete-{}",
+                                                        project.slug
+                                                    ),
+                                                    Button::new(format!(
+                                                        "project-delete-{}",
+                                                        project.slug
+                                                    ))
+                                                    .label("Remove")
+                                                    .disabled(busy)
+                                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                                        this.cursor = Some(delete.slug.clone());
+                                                        this.details_reveal
+                                                            .scroll_handle()
+                                                            .set_offset(Default::default());
+                                                        this.delete = Some(delete.clone());
+                                                        this.focus.focus(w, cx);
+                                                        cx.notify();
+                                                    })),
+                                                ),
                                             ),
                                     )
                             },
@@ -438,13 +537,24 @@ impl Render for ProjectsPanel {
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
+                        .min_w_0()
                         .gap_2()
-                        .child(Input::new(&self.name).id("project-name").w(px(280.)))
+                        .child(form_input::guard(&self.name, |input| {
+                            input.id("project-name").w(px(280.)).max_w_full()
+                        }))
                         .child(
                             Button::new("register")
                                 .label("Register current folder")
                                 .disabled(!self.can_register || self.busy || self.writing)
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .on_click(cx.listener(|this, _, w, cx| {
+                                    if let Err(error) =
+                                        form_input::validate_inputs([&this.name], w, cx)
+                                    {
+                                        this.status = error.into();
+                                        cx.notify();
+                                        return;
+                                    }
                                     cx.emit(ProjectEvent::Register(
                                         this.name.read(cx).value().to_string(),
                                     ))
@@ -454,15 +564,17 @@ impl Render for ProjectsPanel {
         }
         view.child(
             Button::new("project-close")
-                .label(if editing {
-                    "Cancel"
-                } else {
-                    "Return to browser"
-                })
+                .label("Return to browser")
                 .disabled(self.writing || self.busy)
                 .on_click(cx.listener(|this, _, w, cx| this.cancel_view(&Cancel, w, cx))),
         )
     }
 }
+#[cfg(test)]
+mod design_tests;
+#[cfg(test)]
+mod input_tests;
+#[cfg(test)]
+mod scroll_tests;
 #[cfg(test)]
 mod tests;

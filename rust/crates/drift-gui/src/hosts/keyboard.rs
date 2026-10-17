@@ -4,7 +4,18 @@ use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 gpui_kit::actions!(
     drift_hosts,
     [
-        FocusList, New, Edit, Duplicate, Remove, Test, ResetTrust, Link, Reload, Save, Confirm,
+        FocusList,
+        New,
+        Edit,
+        Duplicate,
+        Remove,
+        Test,
+        ResetTrust,
+        Link,
+        Reload,
+        Save,
+        Confirm,
+        DefaultConfirm,
         Scope
     ]
 );
@@ -35,11 +46,18 @@ pub(super) fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-tab", Scope, Some("DriftHostList")),
         KeyBinding::new("ctrl-s", Save, Some("DriftHostForm")),
         KeyBinding::new("cmd-s", Save, Some("DriftHostForm")),
-        KeyBinding::new("enter", Confirm, Some("DriftHostConfirm")),
+        KeyBinding::new("enter", DefaultConfirm, Some("DriftHostConfirm")),
         KeyBinding::new("y", Confirm, Some("DriftHostConfirm")),
     ]);
 }
 impl HostManager {
+    pub(super) fn list_active(&self) -> bool {
+        self.cancel.is_none()
+            && self.form.is_none()
+            && self.delete.is_none()
+            && self.tools.is_none()
+            && self.links.is_none()
+    }
     pub(super) fn visible_hosts(&self, cx: &App) -> Vec<Host> {
         let query = self.query.read(cx).value().to_lowercase();
         self.catalog
@@ -62,12 +80,7 @@ impl HostManager {
         self.visible_hosts(cx).get(self.cursor_row(cx)).cloned()
     }
     pub(super) fn select_row(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some()
-            || self.form.is_some()
-            || self.delete.is_some()
-            || self.tools.is_some()
-            || self.links.is_some()
-        {
+        if !self.list_active() {
             return;
         }
         let hosts = self.visible_hosts(cx);
@@ -78,12 +91,22 @@ impl HostManager {
         cx.notify();
     }
     pub(super) fn ask_delete(&mut self, host: Host, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.list_active() {
+            return;
+        }
         self.cursor = Some(host.name.clone());
         self.delete = Some(host);
         self.focus.focus(window, cx);
         cx.notify();
     }
     pub(super) fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.cancel.is_some()
+            || self.form.is_some()
+            || self.tools.is_some()
+            || self.links.is_some()
+        {
+            return;
+        }
         if let Some(expected) = self.delete.clone() {
             self.request(
                 HostCommand::Delete {
@@ -95,6 +118,9 @@ impl HostManager {
         }
     }
     pub(super) fn reset_selected_trust(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.list_active() {
+            return;
+        }
         if let Some(host) = self.selected_host(cx)
             && self.catalog.as_ref().is_some_and(|c| {
                 c.runtime

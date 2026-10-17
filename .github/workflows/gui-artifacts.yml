@@ -1,0 +1,83 @@
+name: GUI test artifacts (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'GUI SemVer, without v prefix (test artifact only)'
+        required: true
+        default: '0.1.0-dev.1'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      DRIFT_GUI_VERSION: ${{ inputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - name: Checkout selected source (no release or tag creation)
+        uses: actions/checkout@v4
+
+      - name: Native Python with non-reaping child observation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Linux platform libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ clang pkg-config libfontconfig-dev \
+            libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev \
+            libzstd-dev libvulkan1 binutils desktop-file-utils
+
+      - name: Pinned native Rust target
+        working-directory: rust
+        env:
+          GUI_TARGET: ${{ matrix.target }}
+        run: |
+          rustup show active-toolchain
+          rustup target add "$GUI_TARGET"
+
+      - name: Build independently of Go
+        working-directory: rust
+        env:
+          GUI_TARGET: ${{ matrix.target }}
+        run: cargo build --locked --release -p drift-gui --target "$GUI_TARGET"
+
+      - name: Structural packaging tests
+        run: python3 -m unittest discover -s rust/packaging -p 'test_*.py'
+
+      - name: Assemble native test archive and checksum
+        env:
+          GUI_TARGET: ${{ matrix.target }}
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          python3 rust/packaging/package.py \
+            --binary "rust/target/$GUI_TARGET/release/drift-gui" \
+            --version "$DRIFT_GUI_VERSION" --target "$GUI_TARGET" --output dist/gui
+
+      - name: Upload test artifacts (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-gui-${{ matrix.target }}
+          path: |
+            dist/gui/*.tar.gz
+            dist/gui/*.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -4,6 +4,7 @@ mod menu;
 mod tree;
 use crate::actions::*;
 use crate::browser_menu::BrowserMenu;
+use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::{
     FileList,
     browser::{BrowserService, Directory, Location, OperationId},
@@ -13,8 +14,9 @@ use drift_app::{
 use drift_core::{local::Entry, project::Registry, store::Store};
 use finder::FinderSnapshot;
 use gpui_kit::TestSupportExt;
+use gpui_kit::assets::IconName;
 use gpui_kit::base::ElementExt;
-use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::Icon;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
@@ -745,7 +747,7 @@ impl BrowserPane {
         }
         cx.notify();
     }
-    pub fn header(&self) -> gpui_kit::AnyElement {
+    pub fn header(&self, cx: &App) -> gpui_kit::AnyElement {
         let path = self
             .location
             .as_ref()
@@ -754,11 +756,16 @@ impl BrowserPane {
         div()
             .flex()
             .min_w_0()
-            .gap_3()
-            .p_3()
+            .items_center()
+            .gap(metric(space::CONTROL, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .min_h(metric(size::HEADER, cx))
+            .flex_shrink_0()
+            .text_size(Text::Body.rems())
             .child(
                 div()
-                    .w(px(300.))
+                    .w(metric(size::FILTER, cx))
                     .min_w_0()
                     .flex_shrink_1()
                     .child(crate::form_input::guard(&self.filter, |input| {
@@ -772,14 +779,18 @@ impl BrowserPane {
 impl Render for BrowserPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.validate_menu(window, cx);
-        let background = cx.theme().background;
-        let accent = cx.theme().accent;
-        let border = cx.theme().border;
+        let palette = Palette::current(cx);
+        let background = palette.canvas;
+        let accent = palette.selected;
+        let border = palette.border;
         let count = self.files.len();
         let entity = cx.entity();
         let context_stamp = (self.id(), self.menu_revision);
+        let empty_anchor_offset = metric(space::PANEL, cx);
+        let row_anchor_offset = metric(22., cx);
         div()
             .id("browser-pane")
+            .test_support()
             .key_context("DriftBrowser")
             .track_focus(&self.browser_focus)
             .on_action(cx.listener(Self::focus_filter))
@@ -814,11 +825,17 @@ impl Render for BrowserPane {
             .flex_1()
             .min_w_0()
             .min_h_0()
+            .text_size(Text::Body.rems())
+            .text_color(palette.text)
+            .bg(palette.canvas)
             .border_r_1()
+            .border_l(metric(2., cx))
             .border_color(border)
-            .child(div().flex().flex_wrap().min_w_0().items_center().gap_3().p_3().border_b_1().border_color(border).children(self.finder.then(|| {
-                Button::new("finder-return")
+            .focus(move |style| style.border_color(palette.focus))
+            .child(div().flex().flex_wrap().min_w_0().items_center().gap(metric(space::CONTROL, cx)).px(metric(space::PANEL, cx)).py(metric(space::TIGHT, cx)).min_h(metric(size::HEADER, cx)).text_size(Text::Metadata.rems()).bg(palette.chrome).border_b_1().border_color(border).children(self.finder.then(|| {
+                control(Button::new("finder-return"), cx)
                     .label("Return")
+                    .icon(IconName::ArrowLeft)
                     .min_w_0()
                     .max_w_full()
                     .overflow_hidden()
@@ -856,7 +873,7 @@ impl Render for BrowserPane {
                     move |bounds, _, cx| {
                         let _ = pane.update(cx, |this, _| {
                             if this.files.selected().is_none() {
-                                this.menu_anchor = point(bounds.origin.x + px(12.), bounds.origin.y + px(12.));
+                                this.menu_anchor = point(bounds.origin.x + empty_anchor_offset, bounds.origin.y + empty_anchor_offset);
                             }
                         });
                     }
@@ -880,16 +897,7 @@ impl Render for BrowserPane {
                                         .map(|n| n.to_string_lossy().into_owned())
                                         .unwrap_or(name.clone())
                                 };
-                                let label = format!(
-                                    "{} {}{}",
-                                    if this.files.is_marked(&name) {
-                                        "✓"
-                                    } else {
-                                        " "
-                                    },
-                                    display_name,
-                                    if directory { "/" } else { "" }
-                                );
+                                let marked = this.files.is_marked(&name);
                                 let depth = this.tree.node(&name).map_or(0, |n| n.depth);
                                 let expanded = this.tree.node(&name).is_some_and(|n| n.expanded);
                                 let pending = this.tree_pending.as_deref() == Some(name.as_str());
@@ -902,7 +910,7 @@ impl Render for BrowserPane {
                                 let is_directory = directory;
                                 let disclosure = div()
                                     .id(("local-tree-toggle", index))
-                                    .w(px(22.))
+                                    .w(metric(size::DISCLOSURE, cx))
                                     .flex_shrink_0()
                                     .child(if pending {
                                         "…"
@@ -927,14 +935,18 @@ impl Render for BrowserPane {
                                 let anchor_owner = cx.weak_entity();
                                 let row = div()
                                     .id(index)
-                                    .h(px(28.))
-                                    .pr_3()
-                                    .pl(px(12. + depth as f32 * 16.))
+                                    .h(metric(size::ROW, cx))
+                                    .pr(metric(space::PANEL, cx))
+                                    .pl(metric(space::PANEL + depth as f32 * space::INDENT, cx))
                                     .flex()
                                     .items_center()
+                                    .gap(metric(space::TIGHT, cx))
                                     .bg(if chosen { accent } else { background })
+                                    .hover(move |style| style.bg(if chosen { accent } else { palette.hover }))
                                     .child(disclosure)
-                                    .child(label)
+                                    .child(div().w(metric(size::ICON, cx)).flex_shrink_0().child(if marked { "✓" } else { "" }))
+                                    .child(Icon::new(if directory { if expanded { IconName::FolderOpen } else { IconName::FolderClosed } } else { IconName::File }).size(metric(size::ICON, cx)))
+                                    .child(div().min_w_0().truncate().child(if directory { format!("{display_name}/") } else { display_name }))
                                     .child(if descendants > 0 {
                                         format!(" · {descendants} marked")
                                     } else {
@@ -949,7 +961,7 @@ impl Render for BrowserPane {
                                     .on_prepaint(move |bounds, _, cx| {
                                         let _ = anchor_owner.update(cx, |this, _| {
                                             if this.files.selected() == Some(anchor_path.as_str()) {
-                                                this.menu_anchor = point(bounds.origin.x + px(22.), bounds.origin.y + bounds.size.height);
+                                                this.menu_anchor = point(bounds.origin.x + row_anchor_offset, bounds.origin.y + bounds.size.height);
                                             }
                                         });
                                     })

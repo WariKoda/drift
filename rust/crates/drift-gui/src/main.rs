@@ -4,6 +4,7 @@ mod browser_menu;
 mod certificates;
 mod cli;
 mod comparison;
+mod design;
 mod diff;
 #[cfg(test)]
 mod finder_test_support;
@@ -41,7 +42,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         cli::Command::Version => {
-            writeln!(stdout, "drift-gui {}", env!("CARGO_PKG_VERSION"))?;
+            writeln!(stdout, "drift-gui {}", env!("DRIFT_GUI_VERSION"))?;
             return Ok(());
         }
         _ => {}
@@ -87,7 +88,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     logger.info(
         "drift-gui start",
-        &[("version", env!("CARGO_PKG_VERSION")), ("command", mode)],
+        &[("version", env!("DRIFT_GUI_VERSION")), ("command", mode)],
     );
     logger.debug("command dispatch", &[("command", mode)]);
     let result = run_command(

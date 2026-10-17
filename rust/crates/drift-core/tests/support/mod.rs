@@ -47,13 +47,14 @@ impl Server {
                 .unwrap()
                 .to_path_buf();
             let dir = tempfile::tempdir().unwrap().keep();
+            let cache = tempfile::tempdir().unwrap();
             let binary = dir.join("sftp-test-server");
             let result = Command::new("go")
                 .args(["build", "-o"])
                 .arg(&binary)
                 .arg("./testdata/sftp-server")
                 .current_dir(repository)
-                .env("GOCACHE", dir.join("go-cache"))
+                .env("GOCACHE", cache.path())
                 .output()
                 .expect("Go is required for real protocol tests");
             assert!(
@@ -118,6 +119,7 @@ impl Server {
             known_hosts: self.dir.path().join("ssh/known_hosts"),
             agent_socket: None,
             timeout: Duration::from_secs(5),
+            tls: None,
         }
     }
     pub fn key_host(&self, encrypted: bool) -> Host {

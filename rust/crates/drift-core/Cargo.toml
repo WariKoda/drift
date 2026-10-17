@@ -26,6 +26,10 @@ sha1.workspace = true
 sha2.workspace = true
 similar.workspace = true
 suppaftp.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+rustls-native-certs.workspace = true
+x509-parser.workspace = true
 
 [lints]
 workspace = true

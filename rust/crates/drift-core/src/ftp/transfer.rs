@@ -1,3 +1,4 @@
+use super::tls::Stream;
 use super::{FtpClient, Lease, command_value, ftp_error, metadata};
 use crate::{
     error::{Error, Result},
@@ -9,11 +10,11 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use suppaftp::tokio::{AsyncNoTlsStream, TransferStream};
+use suppaftp::tokio::TransferStream;
 use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 
 struct FtpRead {
-    transfer: Option<TransferStream<AsyncNoTlsStream>>,
+    transfer: Option<TransferStream<Stream>>,
     lease: Lease,
 }
 impl AsyncRead for FtpRead {

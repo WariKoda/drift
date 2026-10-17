@@ -103,12 +103,13 @@ fn go_rows(request: &LoadRequest) -> serde_json::Value {
             .unwrap()
             .to_path_buf();
         let dir = tempfile::tempdir().unwrap().keep();
+        let cache = tempfile::tempdir().unwrap();
         let binary = dir.join("comparison-probe");
         let output = Command::new("go")
             .args(["build", "-o"])
             .arg(&binary)
             .arg("./testdata/comparison-probe")
-            .env("GOCACHE", dir.join("cache"))
+            .env("GOCACHE", cache.path())
             .current_dir(repo)
             .output()
             .unwrap();
@@ -371,5 +372,77 @@ async fn missing_mapped_local_root_errors_and_cancelled_io_do_not_become_actions
             .await
             .unwrap()
             .is_err()
+    );
+}
+
+#[test]
+fn remote_marks_follow_effective_mappings_and_mapped_hard_exclusions() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    let mut location = Location {
+        root: Arc::new(ProjectRoot::open(dir.path()).unwrap()),
+        directory: dir.path().into(),
+        slug: None,
+        config: RuntimeConfig {
+            hosts: vec![],
+            mappings: vec![Mapping {
+                local: "src".into(),
+                remote: "public".into(),
+            }],
+            ui: Default::default(),
+        },
+    };
+    let mut host = drift_core::config::Host::default();
+    let paths = vec![
+        "/deploy/public/file.txt".into(),
+        "/deploy/public/.hidden".into(),
+        "/deploy/public/node_modules/x".into(),
+        "/deploy/outside".into(),
+        "/deploy/public/.file.drift-tmp-0123456789abcdef0123456789abcdef".into(),
+    ];
+    let allowed = drift_app::comparison::remote_markable_paths(
+        &location,
+        &host,
+        "/deploy",
+        paths.clone(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        allowed,
+        [
+            "/deploy/public/file.txt".into(),
+            "/deploy/public/.hidden".into()
+        ]
+        .into()
+    );
+    host.mappings = vec![Mapping {
+        local: "src".into(),
+        remote: "outside".into(),
+    }];
+    let allowed = drift_app::comparison::remote_markable_paths(
+        &location,
+        &host,
+        "/deploy",
+        paths.clone(),
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(allowed, ["/deploy/outside".into()].into());
+    host.mappings.clear();
+    location.config.mappings = vec![Mapping {
+        local: "node_modules".into(),
+        remote: "public".into(),
+    }];
+    assert!(
+        drift_app::comparison::remote_markable_paths(
+            &location,
+            &host,
+            "/deploy",
+            paths,
+            &Default::default()
+        )
+        .unwrap()
+        .is_empty()
     );
 }

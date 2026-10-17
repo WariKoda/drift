@@ -30,8 +30,6 @@ type trustedCertificateFile struct {
 	Certificates []TrustedCertificate `toml:"certificates"`
 }
 
-var trustedCertificateMu sync.Mutex
-
 // LoadTrustedCertificates reads all persistent certificate exceptions.
 func LoadTrustedCertificates() ([]TrustedCertificate, error) {
 	entries, err := loadTrustedCertificateFile()
@@ -179,42 +177,12 @@ func trustedCertificatesPath() string {
 	return filepath.Join(Dir(), "trusted-certificates.toml")
 }
 
-func trustedCertificatesLockPath() string {
-	return trustedCertificatesPath() + ".lock"
-}
+var trustedCertificateMu sync.Mutex
 
 func withTrustedCertificateLock(fn func() error) error {
 	trustedCertificateMu.Lock()
 	defer trustedCertificateMu.Unlock()
-
-	if err := os.MkdirAll(Dir(), 0o700); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
-	}
-	lockPath := trustedCertificatesLockPath()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := os.Mkdir(lockPath, 0o700)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("lock trusted certificates: %w", err)
-		}
-		info, statErr := os.Stat(lockPath)
-		if statErr == nil && time.Since(info.ModTime()) > 30*time.Second {
-			_ = os.RemoveAll(lockPath)
-			continue
-		}
-		if time.Now().After(deadline) {
-			return errors.New("timed out locking trusted certificates")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	defer os.RemoveAll(lockPath)
-	if err := fn(); err != nil {
-		return fmt.Errorf("update trusted certificates: %w", err)
-	}
-	return nil
+	return WithWriteLock(func(_ *WriteLock) error { return fn() })
 }
 
 func netAddress(hostname string, port int) string {

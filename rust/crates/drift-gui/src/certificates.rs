@@ -80,6 +80,9 @@ impl CertificatePrompt {
         self.scroll.set_offset(point(offset.x, y));
         cx.notify();
     }
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus.focus(window, cx);
+    }
     pub fn previous_focus(&self) -> Option<FocusHandle> {
         self.previous_focus.clone()
     }

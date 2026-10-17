@@ -1,14 +1,20 @@
 //! Session ownership and cancellable remote work, independent of the GUI.
-use crate::browser::{BrowserService, Operation, OperationId};
+use crate::browser::{
+    BrowserService, Location, Operation, OperationId, classify_ignored, hard_excluded,
+};
 use drift_core::{
     config::Host,
     error::{Error, Result},
+    local::Entry,
+    pathmap::Mapper,
     remote::{self, ConnectOptions, ConnectionState, RemoteClient, RemoteEntry},
     store::Store,
     tlstrust::{Challenge, Endpoint, Manager, TrustSnapshot},
 };
 use std::{
+    collections::BTreeSet,
     future::Future,
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -53,6 +59,12 @@ pub struct RemoteDirectory {
     pub session: RemoteSession,
     pub path: String,
     pub entries: Vec<RemoteEntry>,
+}
+/// Raw remote paths, classified independently of the browser's visibility toggles.
+#[derive(Default)]
+pub struct RemoteVisibility {
+    pub ignored: BTreeSet<String>,
+    pub excluded: BTreeSet<String>,
 }
 #[derive(Clone)]
 pub struct RemoteService {
@@ -298,6 +310,98 @@ impl RemoteService {
         id: OperationId,
     ) -> Operation<RemoteDirectory> {
         self.run(id, move |cancel| Self::directory(session, path, cancel))
+    }
+    /// Classify a listing locally; cancellation does not close its connection.
+    pub fn classify_entries(
+        &self,
+        location: Location,
+        host: Host,
+        session: RemoteSession,
+        entries: Vec<RemoteEntry>,
+        id: OperationId,
+    ) -> Operation<RemoteVisibility> {
+        let browser = self.browser.clone();
+        self.run(id, move |cancel| async move {
+            let result = async {
+                if cancel.is_cancelled() {
+                    return Err(Error::Invalid("operation cancelled".into()));
+                }
+                let base = location.root.base();
+                let mapper = Mapper::new(
+                    base.to_str()
+                        .ok_or_else(|| Error::Invalid("project path is not UTF-8".into()))?,
+                    &session.root,
+                    &location.config.mappings,
+                    &host.mappings,
+                )?;
+                let has_mappings =
+                    !host.mappings.is_empty() || !location.config.mappings.is_empty();
+                let mut visibility = RemoteVisibility::default();
+                let mut paths = Vec::new();
+                let mut local_entries = Vec::new();
+                for entry in entries {
+                    if cancel.is_cancelled() {
+                        return Err(Error::Invalid("operation cancelled".into()));
+                    }
+                    if !session.contains(&entry.path)
+                        || Path::new(&entry.path)
+                            .strip_prefix(&session.root)
+                            .map_or(true, |relative| hard_excluded(relative, entry.directory))
+                    {
+                        visibility.excluded.insert(entry.path);
+                        continue;
+                    }
+                    let local = match mapper.remote_to_local(&entry.path) {
+                        Ok(local) => local,
+                        // A validated mapper can only reject in-scope paths here
+                        // because no mapping covers them. Keep them browsable,
+                        // but never query Git with their untranslated names.
+                        Err(_) if has_mappings => continue,
+                        Err(error) => return Err(error.into()),
+                    };
+                    let relative = Path::new(&local)
+                        .strip_prefix(base)
+                        .map_err(|_| Error::Invalid("mapped path is outside project".into()))?;
+                    if hard_excluded(relative, entry.directory) {
+                        visibility.excluded.insert(entry.path);
+                        continue;
+                    }
+                    local_entries.push(Entry {
+                        path: relative.into(),
+                        directory: entry.directory,
+                        symlink: entry.symlink,
+                        size: entry.size,
+                    });
+                    paths.push(entry.path);
+                }
+                if !local_entries.is_empty() {
+                    let ignored = classify_ignored(&cancel, base, &local_entries).await?;
+                    visibility.ignored.extend(
+                        paths
+                            .into_iter()
+                            .zip(ignored)
+                            .filter_map(|(path, ignored)| ignored.then_some(path)),
+                    );
+                }
+                if cancel.is_cancelled() {
+                    return Err(Error::Invalid("operation cancelled".into()));
+                }
+                Ok(visibility)
+            }
+            .await;
+            result.inspect_err(|error| {
+                browser.logger().failure(
+                    "remote.classification_failed",
+                    error,
+                    &[
+                        ("host", host.name.as_str()),
+                        ("remote_path", session.root.as_str()),
+                        ("project", &id.project.to_string()),
+                        ("operation", &id.operation.to_string()),
+                    ],
+                );
+            })
+        })
     }
     pub fn preview(
         &self,

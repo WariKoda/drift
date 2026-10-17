@@ -234,4 +234,28 @@ func TestCertificateTrustRoundtripAndSharedFlock(t *testing.T) {
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("trust permissions: %v", info.Mode())
 	}
+	lock, err = config.LockWrites()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, resetErr := exec.Command(binary, config.Dir(), "reset-trust", "rust.example").CombinedOutput()
+	if err = lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if resetErr == nil || !strings.Contains(string(output), "another drift process") {
+		t.Fatalf("Rust reset trust through Go lock: %v %s", resetErr, output)
+	}
+	if output, err = exec.Command(binary, config.Dir(), "reset-trust", "rust.example").CombinedOutput(); err != nil {
+		t.Fatalf("Rust trust reset: %v %s", err, output)
+	}
+	entries, err = config.LoadTrustedCertificates()
+	if err != nil || len(entries) != 1 || entries[0].Hostname != original.Hostname || !entries[0].TrustedAt.Equal(date) {
+		t.Fatalf("Rust trust reset lost unrelated Go record: %+v %v", entries, err)
+	}
+	if err = config.DeleteTrustedCertificate(original.Protocol, original.Hostname, original.Port); err != nil {
+		t.Fatal(err)
+	}
+	if output, err = exec.Command(binary, config.Dir(), "roundtrip").CombinedOutput(); err != nil {
+		t.Fatalf("Go trust reset → Rust: %v %s", err, output)
+	}
 }

@@ -205,6 +205,13 @@ pub struct Manager {
     session: Mutex<BTreeMap<Endpoint, TrustedCertificate>>,
     roots: Option<Arc<rustls::RootCertStore>>,
 }
+/// Immutable confirmation snapshot. A reset rejects changes at this endpoint.
+#[derive(Clone, Debug)]
+pub struct TrustSnapshot {
+    pub endpoint: Endpoint,
+    pub persistent: Option<TrustedCertificate>,
+    pub session: Option<TrustedCertificate>,
+}
 impl Manager {
     pub fn new(store: Store) -> Self {
         Self {
@@ -257,11 +264,40 @@ impl Manager {
             return Ok(());
         };
         entry.validate()?;
+        let mut session = self.session.lock().unwrap();
         if permanent {
             self.store
                 .save_trusted_certificate(challenge.expected.as_ref(), entry.clone())?;
         }
-        self.session.lock().unwrap().insert(entry.endpoint(), entry);
+        session.insert(entry.endpoint(), entry);
+        Ok(())
+    }
+    pub fn inspect(&self, endpoint: Endpoint) -> Result<TrustSnapshot> {
+        let session = self.session.lock().unwrap();
+        let persistent = self
+            .store
+            .trusted_certificates()?
+            .into_iter()
+            .find(|entry| entry.endpoint() == endpoint);
+        Ok(TrustSnapshot {
+            session: session.get(&endpoint).cloned(),
+            persistent,
+            endpoint,
+        })
+    }
+    /// Existing connections keep their immutable policy. New handshakes require
+    /// verification again; reset never reconnects or repeats a transfer.
+    pub fn reset(&self, expected: &TrustSnapshot) -> Result<()> {
+        let mut session = self.session.lock().unwrap();
+        if session.get(&expected.endpoint) != expected.session.as_ref() {
+            return Err(Error::Conflict(format!(
+                "session trust for {}",
+                expected.endpoint.address()
+            )));
+        }
+        self.store
+            .delete_trusted_certificate(&expected.endpoint, expected.persistent.as_ref())?;
+        session.remove(&expected.endpoint);
         Ok(())
     }
 }

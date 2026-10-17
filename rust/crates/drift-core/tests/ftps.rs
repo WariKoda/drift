@@ -212,3 +212,95 @@ async fn ftps_data_certificate_is_pinned_and_session_stops_without_retrying() {
     assert_eq!(server.commands("RETR"), 1);
     client.shutdown().await;
 }
+
+#[tokio::test]
+async fn trust_reset_is_conflict_checked_and_preserves_other_endpoints_and_open_connections() {
+    let server = Server::tls("valid");
+    fs::write(server.dir.path().join("files/file"), b"payload").unwrap();
+    let manager = manager(&server, false);
+    let inspected = challenge(&server, &manager).await;
+    manager.grant(&inspected, false).unwrap();
+    let snapshot = manager.inspect(inspected.endpoint.clone()).unwrap();
+    assert!(snapshot.persistent.is_none());
+    assert!(snapshot.session.is_some());
+    manager.reset(&snapshot).unwrap();
+    assert_eq!(
+        challenge(&server, &manager).await.fingerprint,
+        inspected.fingerprint
+    );
+    assert!(
+        !server
+            .dir
+            .path()
+            .join("config/trusted-certificates.toml")
+            .exists()
+    );
+
+    manager.grant(&inspected, true).unwrap();
+    let active = connect(&server, &manager, None).await.unwrap();
+    let snapshot = manager.inspect(inspected.endpoint.clone()).unwrap();
+    let store = Store::new(server.dir.path().join("config"));
+    let mut unrelated = snapshot.persistent.clone().unwrap();
+    unrelated.hostname = "other.example".into();
+    store
+        .save_trusted_certificate(None, unrelated.clone())
+        .unwrap();
+    let lock = fs::OpenOptions::new()
+        .write(true)
+        .open(store.dir().join("write.lock"))
+        .unwrap();
+    lock.lock_exclusive().unwrap();
+    assert!(matches!(manager.reset(&snapshot), Err(Error::Busy)));
+    lock.unlock().unwrap();
+    assert_eq!(
+        manager.inspect(inspected.endpoint.clone()).unwrap().session,
+        snapshot.session
+    );
+    manager.reset(&snapshot).unwrap();
+    assert_eq!(store.trusted_certificates().unwrap(), vec![unrelated]);
+    assert_eq!(active.read_limited("/file", 100).await.unwrap(), b"payload");
+    active.shutdown().await;
+    let fresh = self::manager(&server, false);
+    assert_eq!(
+        challenge(&server, &fresh).await.fingerprint,
+        inspected.fingerprint
+    );
+
+    manager.grant(&inspected, true).unwrap();
+    let stale = manager.inspect(inspected.endpoint.clone()).unwrap();
+    server.flag("rotate-cert", "");
+    let changed = challenge(&server, &fresh).await;
+    fresh.grant(&changed, true).unwrap();
+    assert!(matches!(manager.reset(&stale), Err(Error::Conflict(_))));
+    assert_eq!(
+        store
+            .trusted_certificates()
+            .unwrap()
+            .iter()
+            .find(|entry| entry.endpoint() == inspected.endpoint)
+            .unwrap()
+            .fingerprint,
+        changed.fingerprint
+    );
+    assert_eq!(
+        manager.inspect(inspected.endpoint.clone()).unwrap().session,
+        stale.session
+    );
+    let current = manager.inspect(inspected.endpoint.clone()).unwrap();
+    manager.grant(&changed, false).unwrap();
+    assert!(matches!(manager.reset(&current), Err(Error::Conflict(_))));
+    let current = manager.inspect(inspected.endpoint.clone()).unwrap();
+    manager.reset(&current).unwrap();
+    assert_eq!(
+        challenge(&server, &manager).await.fingerprint,
+        changed.fingerprint
+    );
+    assert_eq!(
+        fs::metadata(store.dir().join("trusted-certificates.toml"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}

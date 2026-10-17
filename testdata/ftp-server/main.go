@@ -310,6 +310,11 @@ func (s *server) serve(conn net.Conn) {
 					break
 				}
 			}
+			if command == "LIST" || command == "MLSD" {
+				for s.flag("hold-list") {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
 			err = reply(150, "opening data connection")
 			if err != nil {
 				if file != nil {

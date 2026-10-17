@@ -1,3 +1,7 @@
+#[path = "sync/rename_ack.rs"]
+mod rename_ack;
+#[path = "sync/replacement.rs"]
+mod replacement;
 #[path = "../../drift-core/tests/support/mod.rs"]
 mod support;
 use drift_app::{
@@ -284,12 +288,13 @@ fn go_sync(
             .unwrap()
             .to_path_buf();
         let dir = tempfile::tempdir().unwrap().keep();
+        let cache = tempfile::tempdir().unwrap();
         let binary = dir.join("sync-probe");
         let output = Command::new("go")
             .args(["build", "-o"])
             .arg(&binary)
             .arg("./testdata/comparison-probe")
-            .env("GOCACHE", dir.join("cache"))
+            .env("GOCACHE", cache.path())
             .current_dir(repo)
             .output()
             .unwrap();

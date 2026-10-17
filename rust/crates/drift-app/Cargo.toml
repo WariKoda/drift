@@ -13,10 +13,12 @@ tempfile.workspace = true
 sha2.workspace = true
 nix.workspace = true
 async-trait.workspace = true
+chrono.workspace = true
 
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+rustls.workspace = true
 serde_json = "1"

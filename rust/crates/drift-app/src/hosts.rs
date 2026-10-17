@@ -3,11 +3,23 @@ use drift_core::{
     config::{Auth, Host},
     error::{Error, Result},
     pathmap::Mapping,
-    store::HostCatalog,
+    store::{HostCatalog, LinkCatalog, LinkTarget, LinkedHostSave, Promotion},
 };
 
 pub enum HostCommand {
     Load,
+    LinkTargets,
+    OfferLink {
+        desired: Box<Host>,
+    },
+    SaveLink {
+        expected: Option<Box<Host>>,
+        desired: Box<Host>,
+        target: Box<LinkTarget>,
+    },
+    SelectLink {
+        expected: Box<LinkTarget>,
+    },
     Save {
         expected: Option<Box<Host>>,
         desired: Box<Host>,
@@ -18,6 +30,10 @@ pub enum HostCommand {
 }
 pub enum HostResponse {
     Loaded(Box<HostCatalog>),
+    LinkTargets(Box<LinkCatalog>),
+    LinkOffer(Box<LinkCatalog>),
+    LinkSaved(Box<LinkedHostSave>),
+    LinkSelected(Box<Promotion>),
     Saved,
     Deleted,
 }

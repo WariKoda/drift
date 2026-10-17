@@ -3,6 +3,7 @@
 use crate::{
     actions::*,
     diff::{DiffPane, DiffState},
+    pane_split::{PaneSplit, SplitCommand},
 };
 use drift_app::{
     browser::{BrowserService, OperationId},
@@ -14,10 +15,10 @@ use gpui_kit::base::Disableable;
 use gpui_kit::component::{
     ActiveTheme,
     button::Button,
-    input::{Input, InputEvent, InputState},
+    input::{InputEvent, InputState},
 };
 use gpui_kit::{
-    AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
+    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
     Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
 };
@@ -47,6 +48,7 @@ pub struct ComparisonPane {
     syncing: Option<CancellationToken>,
     stale: bool,
     sync_result: Option<SyncResult>,
+    show_errors: bool,
     confirm_sync: Option<Vec<Decision>>,
     progress_stop: Option<CancellationToken>,
     progress: Progress,
@@ -58,9 +60,15 @@ pub struct ComparisonPane {
     decisions: Vec<Decision>,
     states: BTreeMap<usize, DiffState>,
     diff: Entity<DiffPane>,
+    split: PaneSplit,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     _subscription: Subscription,
+}
+impl Focusable for ComparisonPane {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
 }
 impl Drop for ComparisonPane {
     fn drop(&mut self) {
@@ -121,6 +129,7 @@ impl ComparisonPane {
             syncing: None,
             stale: true,
             sync_result: None,
+            show_errors: false,
             confirm_sync: None,
             progress_stop: None,
             progress: Progress {
@@ -137,16 +146,35 @@ impl ComparisonPane {
             decisions: vec![],
             states: BTreeMap::new(),
             diff: cx.new(DiffPane::new),
+            split: PaneSplit::new(Some(px(350.)), cx),
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle().tab_stop(true),
             _subscription: subscription,
         }
+    }
+    pub fn configure_split_persistence(
+        &mut self,
+        preferred: Option<f32>,
+        writer: drift_app::gui_preferences::PreferencesWriter,
+    ) {
+        self.split.configure_persistence(preferred, move |value| {
+            writer.queue(drift_core::gui_preferences::GuiPreferenceChange::ComparisonSplit(value));
+        });
+    }
+
+    pub fn deactivate_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.split.deactivate(window, cx);
+        self.diff.update(cx, |diff, _| diff.deactivate());
     }
     pub fn visible(&self) -> bool {
         self.visible
     }
     pub fn is_loading(&self) -> bool {
         self.loading.is_some() || self.syncing.is_some()
+    }
+    #[cfg(test)]
+    pub(crate) fn diff_for_test(&self) -> &Entity<DiffPane> {
+        &self.diff
     }
     #[cfg(test)]
     pub(crate) fn sync_result_for_test(&self) -> Option<&SyncResult> {
@@ -192,6 +220,7 @@ impl ComparisonPane {
         self.states.clear();
         self.stale = true;
         self.sync_result = None;
+        self.show_errors = false;
         self.confirm_sync = None;
         self.visible = false;
         self.diff.update(cx, |diff, cx| {
@@ -206,6 +235,7 @@ impl ComparisonPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.split.deactivate(window, cx);
         self.invalidate(cx);
         self.id.project = project;
         self.visible = true;
@@ -259,14 +289,37 @@ impl ComparisonPane {
                 match result {
                     Ok(Ok(session)) => {
                         this.stale = false;
-                        let previous = this.selected.and_then(|i| this.session.as_ref()?.entries.get(i)).map(|e| e.local.clone());
+                        let previous = this.selected.and_then(|i| this.session.as_ref()?.entries.get(i)).map(|e| (e.local.clone(), e.remote.clone()));
+                        if let Some(index) = this.selected {
+                            this.states.insert(index, this.diff.read(cx).snapshot());
+                        }
                         this.decisions = session.entries.iter().map(|entry| if entry.error.is_some() { Decision::Skip } else { entry.result.as_ref().map_or(Decision::Skip,|r| r.suggestion()) }).collect();
+                        let mut states = BTreeMap::new();
+                        if let Some(old_session) = &this.session {
+                            let old_entries: BTreeMap<_, _> = old_session.entries.iter().enumerate()
+                                .map(|(index, entry)| ((&entry.local, &entry.remote), (index, entry))).collect();
+                            for (index, entry) in session.entries.iter().enumerate() {
+                                let Some((old_index, old_entry)) = old_entries.get(&(&entry.local, &entry.remote)) else { continue; };
+                                if old_entry.error.is_some() || entry.error.is_some() { continue; }
+                                let (Some(old_result), Some(result)) = (&old_entry.result, &entry.result) else { continue; };
+                                if old_result.lines != result.lines
+                                    || old_result.binary != result.binary
+                                    || old_result.content_diff != result.content_diff
+                                    || old_result.local.is_some() != result.local.is_some()
+                                    || old_result.remote.is_some() != result.remote.is_some()
+                                { continue; }
+                                if let Some(mut state) = this.states.get(old_index).cloned() {
+                                    state.direction = this.decisions[index];
+                                    states.insert(index, state);
+                                }
+                            }
+                        }
                         let errors = session.entries.iter().filter(|e| e.error.is_some()).count();
                         let message = format!("{} pairs; {} differences/errors; {errors} errors; {} ignored skipped; {} explicit ignored; {} hidden",session.scope.pairs,session.entries.len(),session.scope.ignored_skipped,session.scope.explicit_ignored,session.scope.hidden);
-                        this.session = Some(session); this.states.clear(); this.selected = None;
+                        this.session = Some(session); this.states = states; this.selected = None;
                         this.filter.update(cx,|input,cx| input.set_value("",window,cx));
                         this.files = (0..this.session.as_ref().unwrap().entries.len()).collect();
-                        let index = previous.and_then(|path| this.session.as_ref().unwrap().entries.iter().position(|e| e.local == path)).or_else(|| this.files.first().copied());
+                        let index = previous.and_then(|(local, remote)| this.session.as_ref().unwrap().entries.iter().position(|e| e.local == local && e.remote == remote)).or_else(|| this.files.first().copied());
                         this.choose(index,window,cx);
                         this.status(message,cx);
                     }
@@ -281,7 +334,7 @@ impl ComparisonPane {
     }
     fn choose(&mut self, index: Option<usize>, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(old) = self.selected {
-            self.states.insert(old, self.diff.read(cx).state.clone());
+            self.states.insert(old, self.diff.read(cx).snapshot());
         }
         self.selected = index;
         let (result, state, message) =
@@ -334,11 +387,64 @@ impl ComparisonPane {
             cx.notify();
         }
     }
+    fn direct_sync(&mut self, decision: Decision, cx: &mut Context<Self>) {
+        if !self.can_sync() {
+            return;
+        }
+        let Some(index) = self.selected else {
+            return;
+        };
+        let Some(entry) = self.session.as_ref().and_then(|s| s.entries.get(index)) else {
+            return;
+        };
+        if entry.error.is_some()
+            || entry.result.as_ref().is_none_or(|result| match decision {
+                Decision::Upload => result.local.is_none(),
+                Decision::Download => result.remote.is_none(),
+                _ => true,
+            })
+        {
+            return;
+        }
+        self.decisions[index] = decision;
+        self.diff
+            .update(cx, |diff, cx| diff.direction(decision, cx));
+        self.prepare_sync(false, cx);
+    }
+    fn cycle_all(&mut self, cx: &mut Context<Self>) {
+        if self.is_loading() || self.confirm_sync.is_some() {
+            return;
+        }
+        if let Some(session) = &self.session {
+            for (index, entry) in session.entries.iter().enumerate() {
+                self.decisions[index] = if entry.error.is_some() {
+                    Decision::Skip
+                } else {
+                    entry.result.as_ref().map_or(Decision::Skip, |result| {
+                        result.next_decision(self.decisions[index])
+                    })
+                };
+            }
+            for (index, state) in &mut self.states {
+                state.direction = self.decisions[*index];
+            }
+            if let Some(index) = self.selected {
+                self.diff
+                    .update(cx, |diff, cx| diff.direction(self.decisions[index], cx));
+            }
+            cx.notify();
+        }
+    }
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.load(window, cx);
     }
-    pub fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.confirm_sync.take().is_some() {
+            cx.notify();
+            return;
+        }
+        if self.show_errors {
+            self.show_errors = false;
             cx.notify();
             return;
         }
@@ -355,8 +461,47 @@ impl ComparisonPane {
         } else {
             self.visible = false;
         }
+        self.deactivate_layout(window, cx);
         cx.emit(ComparisonEvent::Closed);
         cx.notify();
+    }
+    pub(super) fn toggle_sync_errors(&mut self, cx: &mut Context<Self>) {
+        if self.confirm_sync.is_none()
+            && self.sync_result.as_ref().is_some_and(|report| {
+                report.outcomes.iter().any(|outcome| {
+                    matches!(
+                        outcome,
+                        drift_app::sync::ItemOutcome::Failed(_)
+                            | drift_app::sync::ItemOutcome::Unknown(_)
+                    )
+                })
+            })
+        {
+            self.show_errors = !self.show_errors;
+            cx.notify();
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn errors_visible_for_test(&self) -> bool {
+        self.show_errors
+    }
+    fn toggle_ignored(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_loading() || self.confirm_sync.is_some() {
+            return;
+        }
+        if let Some(request) = &mut self.request {
+            request.scope.include_ignored = !request.scope.include_ignored;
+        }
+        self.load(window, cx);
+    }
+    fn cursor_edge(&mut self, last: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let row = if last {
+            self.files.len().saturating_sub(1)
+        } else {
+            0
+        };
+        self.choose(self.files.get(row).copied(), window, cx);
+        self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
     }
     fn cursor(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) {
         let current = self
@@ -373,4 +518,6 @@ impl ComparisonPane {
     }
 }
 mod sync;
+#[cfg(test)]
+mod tests;
 mod view;

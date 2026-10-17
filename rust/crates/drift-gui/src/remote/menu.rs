@@ -15,6 +15,7 @@ pub(super) struct Snapshot {
     loading: bool,
     target: Option<String>,
     show_hidden: bool,
+    show_ignored: bool,
     comparison_ready: bool,
     expanded: bool,
 }
@@ -51,6 +52,7 @@ impl RemotePane {
             && snapshot.filter == self.filter.read(cx).value().as_str()
             && snapshot.loading == self.is_loading()
             && snapshot.show_hidden == self.show_hidden
+            && snapshot.show_ignored == self.show_ignored
             && snapshot.comparison_ready == self.comparison_ready
             && snapshot.expanded
                 == snapshot
@@ -100,7 +102,10 @@ impl RemotePane {
             MenuAction::Hidden => !self.is_loading(),
             MenuAction::Cancel => self.is_loading(),
             MenuAction::Disconnect => self.has_session() || self.is_loading(),
-            MenuAction::Ignored | MenuAction::Find => false,
+            MenuAction::Ignored => {
+                idle && self.selection_location.is_some() && self.visibility.is_some()
+            }
+            MenuAction::Find => false,
         }
     }
 
@@ -172,6 +177,14 @@ impl RemotePane {
                 )
                 .checked(self.show_hidden),
             ),
+            Some(
+                MenuEntry::new(
+                    MenuAction::Ignored,
+                    "Show ignored",
+                    self.menu_enabled(snapshot, MenuAction::Ignored),
+                )
+                .checked(self.show_ignored),
+            ),
             None,
             item(MenuAction::Cancel, "Cancel loading"),
             item(MenuAction::Disconnect, "Disconnect"),
@@ -220,6 +233,7 @@ impl RemotePane {
                 .is_some_and(|path| self.tree.node(path).is_some_and(|node| node.expanded)),
             target,
             show_hidden: self.show_hidden,
+            show_ignored: self.show_ignored,
             comparison_ready: self.comparison_ready,
         };
         if !self.menu_valid(&snapshot, cx) {
@@ -349,7 +363,8 @@ impl RemotePane {
                 self.disconnect(cx);
                 self.status("Disconnected".into(), cx);
             }
-            MenuAction::Ignored | MenuAction::Find => {}
+            MenuAction::Ignored => self.toggle_ignored(window, cx),
+            MenuAction::Find => {}
         }
         cx.notify();
     }

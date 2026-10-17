@@ -1,8 +1,10 @@
 //! One independently navigable pane. Finder uses the same virtualized rows.
+mod finder;
 mod menu;
 mod tree;
 use crate::actions::*;
 use crate::browser_menu::BrowserMenu;
+use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::{
     FileList,
     browser::{BrowserService, Directory, Location, OperationId},
@@ -10,10 +12,13 @@ use drift_app::{
     tree::FileTree,
 };
 use drift_core::{local::Entry, project::Registry, store::Store};
+use finder::FinderSnapshot;
 use gpui_kit::TestSupportExt;
+use gpui_kit::assets::IconName;
 use gpui_kit::base::ElementExt;
-use gpui_kit::component::ActiveTheme;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::Icon;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
     App, AppContext, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
@@ -38,6 +43,7 @@ pub enum BrowserCommand {
     Up,
     Refresh,
     Find,
+    ReturnFinder,
     Hidden,
     Ignored,
     Cancel,
@@ -88,6 +94,7 @@ pub struct BrowserPane {
     show_hidden: bool,
     show_ignored: bool,
     finder: bool,
+    finder_snapshot: Option<FinderSnapshot>,
     browser_focus: FocusHandle,
     history: History,
     navigation: Navigation,
@@ -124,7 +131,11 @@ impl BrowserPane {
             if matches!(event, InputEvent::Change) {
                 this.dismiss_context_menu(window, cx);
                 this.menu_revision += 1;
-                this.files.filter(&state.read(cx).value());
+                if this.finder {
+                    this.files.filter_finder(&state.read(cx).value());
+                } else {
+                    this.files.filter(&state.read(cx).value());
+                }
                 this.selection_changed(false, cx);
                 this.status(format!("{} entries", this.files.len()), cx);
                 cx.notify();
@@ -148,6 +159,7 @@ impl BrowserPane {
             show_hidden: false,
             show_ignored: false,
             finder: false,
+            finder_snapshot: None,
             browser_focus: cx.focus_handle().tab_stop(true),
             history: History::default(),
             navigation: Navigation::Reset,
@@ -181,8 +193,11 @@ impl BrowserPane {
     pub fn selected(&self) -> Option<&str> {
         self.files.selected()
     }
+    pub fn finder_active(&self) -> bool {
+        self.finder
+    }
     pub fn can_back(&self) -> bool {
-        self.history.previous().is_some()
+        self.finder || self.history.previous().is_some()
     }
     pub fn can_forward(&self) -> bool {
         self.history.next().is_some()
@@ -217,6 +232,7 @@ impl BrowserPane {
             BrowserCommand::Up => self.up(window, cx),
             BrowserCommand::Refresh => self.reload(window, cx),
             BrowserCommand::Find => self.find(window, cx),
+            BrowserCommand::ReturnFinder => self.return_finder(window, cx),
             BrowserCommand::Hidden => {
                 self.show_hidden = !self.show_hidden;
                 self.reload(window, cx);
@@ -251,6 +267,7 @@ impl BrowserPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.return_finder(window, cx);
         self.browser_focus.focus(window, cx);
         self.tree_restore.clear();
         self.tree_cursor = None;
@@ -311,6 +328,7 @@ impl BrowserPane {
             Navigation::Keep => {}
         }
         self.finder = false;
+        self.finder_snapshot = None;
         if !matches!(self.navigation, Navigation::Keep) {
             self.filter
                 .update(cx, |state, cx| state.set_value("", window, cx));
@@ -362,6 +380,7 @@ impl BrowserPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.return_finder(window, cx);
         self.tree_restore = if matches!(navigation, Navigation::Keep) {
             self.tree.expanded_paths().cloned().collect()
         } else {
@@ -476,6 +495,10 @@ impl BrowserPane {
         self.up(window, cx);
     }
     fn go_back(&mut self, _: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
+        if self.finder {
+            self.return_finder(window, cx);
+            return;
+        }
         if let Some((index, path)) = self.history.previous() {
             self.navigate(path, Navigation::Seek(index), window, cx);
         }
@@ -500,7 +523,11 @@ impl BrowserPane {
         self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
         cx.notify();
     }
-    fn cursor_up(&mut self, _: &CursorUp, _window: &mut Window, cx: &mut Context<Self>) {
+    fn cursor_up(&mut self, _: &CursorUp, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
         self.files
             .select(self.files.selected_row().unwrap_or(0).saturating_sub(1));
         self.selection_changed(false, cx);
@@ -510,7 +537,11 @@ impl BrowserPane {
         );
         cx.notify();
     }
-    fn cursor_down(&mut self, _: &CursorDown, _window: &mut Window, cx: &mut Context<Self>) {
+    fn cursor_down(&mut self, _: &CursorDown, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
         let index = self
             .files
             .selected_row()
@@ -579,7 +610,11 @@ impl BrowserPane {
             self.filter
                 .update(cx, |state, cx| state.set_value("", window, cx));
             // Programmatic input changes do not emit InputEvent::Change.
-            self.files.filter("");
+            if self.finder {
+                self.files.filter_finder("");
+            } else {
+                self.files.filter("");
+            }
             self.selection_changed(false, cx);
         } else {
             self.files.clear_marks();
@@ -622,9 +657,17 @@ impl BrowserPane {
         cx.notify();
     }
     fn open_directory(&mut self, _: &OpenDirectory, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
         self.choose(self.files.selected_row().unwrap_or(0), window, cx);
     }
     fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
         let index = self.files.selected_row().unwrap_or(0);
         self.files.select(index);
         let Some(path) = self.files.selected().map(str::to_owned) else {
@@ -649,44 +692,6 @@ impl BrowserPane {
         } else {
             self.choose(index, window, cx);
         }
-    }
-    fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.tree_restore.clear();
-        self.tree_cursor = None;
-        let Some(location) = self.location.clone() else {
-            return;
-        };
-        self.stop_listing(cx);
-        let id = OperationId {
-            project: self.generation,
-            operation: self.listing,
-        };
-        let operation = self
-            .service
-            .find(location, id, self.show_hidden, self.show_ignored);
-        self.listing_cancel = Some(operation.cancel);
-        self.focus_filter_input(window, cx);
-        self.status("Finding project files…".into(), cx);
-        cx.spawn_in(window, async move |this, cx| {
-            let result = operation.task.await;
-            let _ = this.update_in(cx, |this, _, cx| {
-                if this.generation != id.project || this.listing != id.operation {
-                    return;
-                }
-                this.listing_cancel = None;
-                match result {
-                    Ok(Ok(entries)) => {
-                        this.finder = true;
-                        this.set_entries(entries, false, cx);
-                    }
-                    Ok(Err(error)) => this.status(error.to_string(), cx),
-                    Err(error) => this.status(error.to_string(), cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
     }
     fn focus_filter(&mut self, _: &FocusFilter, window: &mut Window, cx: &mut Context<Self>) {
         self.filter.focus_handle(cx).focus(window, cx);
@@ -713,6 +718,8 @@ impl BrowserPane {
     }
     /// A moved/removed active registry entry invalidates its old capability root.
     pub fn invalidate_project(&mut self, cx: &mut Context<Self>) {
+        self.finder = false;
+        self.finder_snapshot = None;
         self.tree_restore.clear();
         self.tree_cursor = None;
         self.generation += 1;
@@ -740,7 +747,7 @@ impl BrowserPane {
         }
         cx.notify();
     }
-    pub fn header(&self) -> gpui_kit::AnyElement {
+    pub fn header(&self, cx: &App) -> gpui_kit::AnyElement {
         let path = self
             .location
             .as_ref()
@@ -749,14 +756,21 @@ impl BrowserPane {
         div()
             .flex()
             .min_w_0()
-            .gap_3()
-            .p_3()
+            .items_center()
+            .gap(metric(space::CONTROL, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .min_h(metric(size::HEADER, cx))
+            .flex_shrink_0()
+            .text_size(Text::Body.rems())
             .child(
-                Input::new(&self.filter)
-                    .id("filter")
-                    .w(px(300.))
+                div()
+                    .w(metric(size::FILTER, cx))
                     .min_w_0()
-                    .flex_shrink_1(),
+                    .flex_shrink_1()
+                    .child(crate::form_input::guard(&self.filter, |input| {
+                        input.id("filter").w_full().min_w_0().flex_shrink_1()
+                    })),
             )
             .child(div().flex_1().min_w_0().truncate().child(path))
             .into_any_element()
@@ -765,14 +779,18 @@ impl BrowserPane {
 impl Render for BrowserPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.validate_menu(window, cx);
-        let background = cx.theme().background;
-        let accent = cx.theme().accent;
-        let border = cx.theme().border;
+        let palette = Palette::current(cx);
+        let background = palette.canvas;
+        let accent = palette.selected;
+        let border = palette.border;
         let count = self.files.len();
         let entity = cx.entity();
         let context_stamp = (self.id(), self.menu_revision);
+        let empty_anchor_offset = metric(space::PANEL, cx);
+        let row_anchor_offset = metric(22., cx);
         div()
             .id("browser-pane")
+            .test_support()
             .key_context("DriftBrowser")
             .track_focus(&self.browser_focus)
             .on_action(cx.listener(Self::focus_filter))
@@ -807,9 +825,22 @@ impl Render for BrowserPane {
             .flex_1()
             .min_w_0()
             .min_h_0()
+            .text_size(Text::Body.rems())
+            .text_color(palette.text)
+            .bg(palette.canvas)
             .border_r_1()
+            .border_l(metric(2., cx))
             .border_color(border)
-            .child(div().p_3().border_b_1().border_color(border).child(format!(
+            .focus(move |style| style.border_color(palette.focus))
+            .child(div().flex().flex_wrap().min_w_0().items_center().gap(metric(space::CONTROL, cx)).px(metric(space::PANEL, cx)).py(metric(space::TIGHT, cx)).min_h(metric(size::HEADER, cx)).text_size(Text::Metadata.rems()).bg(palette.chrome).border_b_1().border_color(border).children(self.finder.then(|| {
+                control(Button::new("finder-return"), cx)
+                    .label("Return")
+                    .icon(IconName::ArrowLeft)
+                    .min_w_0()
+                    .max_w_full()
+                    .overflow_hidden()
+                    .on_click(cx.listener(|this, _, w, cx| this.return_finder(w, cx)))
+            })).child(format!(
                 "{} · {} marked{}",
                 if self.finder {
                     "Project files"
@@ -842,7 +873,7 @@ impl Render for BrowserPane {
                     move |bounds, _, cx| {
                         let _ = pane.update(cx, |this, _| {
                             if this.files.selected().is_none() {
-                                this.menu_anchor = point(bounds.origin.x + px(12.), bounds.origin.y + px(12.));
+                                this.menu_anchor = point(bounds.origin.x + empty_anchor_offset, bounds.origin.y + empty_anchor_offset);
                             }
                         });
                     }
@@ -866,16 +897,7 @@ impl Render for BrowserPane {
                                         .map(|n| n.to_string_lossy().into_owned())
                                         .unwrap_or(name.clone())
                                 };
-                                let label = format!(
-                                    "{} {}{}",
-                                    if this.files.is_marked(&name) {
-                                        "✓"
-                                    } else {
-                                        " "
-                                    },
-                                    display_name,
-                                    if directory { "/" } else { "" }
-                                );
+                                let marked = this.files.is_marked(&name);
                                 let depth = this.tree.node(&name).map_or(0, |n| n.depth);
                                 let expanded = this.tree.node(&name).is_some_and(|n| n.expanded);
                                 let pending = this.tree_pending.as_deref() == Some(name.as_str());
@@ -888,7 +910,7 @@ impl Render for BrowserPane {
                                 let is_directory = directory;
                                 let disclosure = div()
                                     .id(("local-tree-toggle", index))
-                                    .w(px(22.))
+                                    .w(metric(size::DISCLOSURE, cx))
                                     .flex_shrink_0()
                                     .child(if pending {
                                         "…"
@@ -913,14 +935,18 @@ impl Render for BrowserPane {
                                 let anchor_owner = cx.weak_entity();
                                 let row = div()
                                     .id(index)
-                                    .h(px(28.))
-                                    .pr_3()
-                                    .pl(px(12. + depth as f32 * 16.))
+                                    .h(metric(size::ROW, cx))
+                                    .pr(metric(space::PANEL, cx))
+                                    .pl(metric(space::PANEL + depth as f32 * space::INDENT, cx))
                                     .flex()
                                     .items_center()
+                                    .gap(metric(space::TIGHT, cx))
                                     .bg(if chosen { accent } else { background })
+                                    .hover(move |style| style.bg(if chosen { accent } else { palette.hover }))
                                     .child(disclosure)
-                                    .child(label)
+                                    .child(div().w(metric(size::ICON, cx)).flex_shrink_0().child(if marked { "✓" } else { "" }))
+                                    .child(Icon::new(if directory { if expanded { IconName::FolderOpen } else { IconName::FolderClosed } } else { IconName::File }).size(metric(size::ICON, cx)))
+                                    .child(div().min_w_0().truncate().child(if directory { format!("{display_name}/") } else { display_name }))
                                     .child(if descendants > 0 {
                                         format!(" · {descendants} marked")
                                     } else {
@@ -935,7 +961,7 @@ impl Render for BrowserPane {
                                     .on_prepaint(move |bounds, _, cx| {
                                         let _ = anchor_owner.update(cx, |this, _| {
                                             if this.files.selected() == Some(anchor_path.as_str()) {
-                                                this.menu_anchor = point(bounds.origin.x + px(22.), bounds.origin.y + bounds.size.height);
+                                                this.menu_anchor = point(bounds.origin.x + row_anchor_offset, bounds.origin.y + bounds.size.height);
                                             }
                                         });
                                     })
@@ -970,6 +996,8 @@ impl Render for BrowserPane {
     }
 }
 
+#[cfg(test)]
+mod finder_tests;
 #[cfg(test)]
 mod menu_tests;
 #[cfg(test)]

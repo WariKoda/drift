@@ -7,7 +7,8 @@ use gpui_kit::{
 #[derive(PartialEq, Eq)]
 struct HelpOwner {
     project: u64,
-    hosts: Option<EntityId>,
+    finder: bool,
+    hosts: Option<(EntityId, u64)>,
     certificate: Option<(u64, u64)>,
     projects: bool,
     comparison: bool,
@@ -44,7 +45,11 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "f · r / F5 · Alt+← / → / ↑",
-                "Find project files · Refresh · Back / forward / parent",
+                "Fuzzy-find project files · Refresh · Back / forward / parent",
+            ),
+            (
+                "Ctrl/Cmd+Alt+F · Finder Return button",
+                "Restore the previous local browser view; keep changed marks",
             ),
             (
                 "Space · v · Shift+↑ / ↓ · Shift+V · *",
@@ -52,7 +57,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "Esc · . · Shift+I",
-                "Cancel range, clear filter or marks · Hidden · Ignored local paths",
+                "Cancel range, clear filter or marks · Hidden · Ignored local/mapped remote paths",
             ),
             (
                 "Ctrl+Esc",
@@ -88,10 +93,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
                 "Esc in preview",
                 "Close preview and return to its originating browser",
             ),
-            (
-                "Ctrl+Alt+← / → / 0",
-                "Resize panes / reset sizes (session only)",
-            ),
+            ("Ctrl+Alt+← / → / 0", "Resize panes / reset saved sizes"),
             (
                 "Esc during resize",
                 "End only the resize gesture; file work continues",
@@ -168,7 +170,15 @@ impl Shell {
     fn help_owner(&self, cx: &gpui_kit::App) -> HelpOwner {
         HelpOwner {
             project: self.browser.read(cx).id().project,
-            hosts: self.hosts.as_ref().map(Entity::entity_id),
+            finder: self.browser.read(cx).finder_active()
+                && self.hosts.is_none()
+                && self.certificate.is_none()
+                && !self.projects.read(cx).visible()
+                && !self.comparison.read(cx).visible(),
+            hosts: self
+                .hosts
+                .as_ref()
+                .map(|hosts| (hosts.entity_id(), hosts.read(cx).operation())),
             certificate: self.certificate.as_ref().map(|(p, c, _)| (*p, *c)),
             projects: self.projects.read(cx).visible(),
             comparison: self.comparison.read(cx).visible(),
@@ -184,6 +194,11 @@ impl Shell {
         }
         if self.startup.is_some() || self.folder_prompt || self.split.is_resizing() {
             return;
+        }
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
+        if let Some(hosts) = &self.hosts {
+            hosts.update(cx, |hosts, _| hosts.deactivate());
         }
         let focus = cx.focus_handle();
         self.help = Some(ShortcutHelp {

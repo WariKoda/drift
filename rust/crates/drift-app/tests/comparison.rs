@@ -400,9 +400,14 @@ fn remote_marks_follow_effective_mappings_and_mapped_hard_exclusions() {
         "/deploy/outside".into(),
         "/deploy/public/.file.drift-tmp-0123456789abcdef0123456789abcdef".into(),
     ];
-    let allowed =
-        drift_app::comparison::remote_markable_paths(&location, &host, "/deploy", paths.clone())
-            .unwrap();
+    let allowed = drift_app::comparison::remote_markable_paths(
+        &location,
+        &host,
+        "/deploy",
+        paths.clone(),
+        &Default::default(),
+    )
+    .unwrap();
     assert_eq!(
         allowed,
         [
@@ -415,9 +420,14 @@ fn remote_marks_follow_effective_mappings_and_mapped_hard_exclusions() {
         local: "src".into(),
         remote: "outside".into(),
     }];
-    let allowed =
-        drift_app::comparison::remote_markable_paths(&location, &host, "/deploy", paths.clone())
-            .unwrap();
+    let allowed = drift_app::comparison::remote_markable_paths(
+        &location,
+        &host,
+        "/deploy",
+        paths.clone(),
+        &Default::default(),
+    )
+    .unwrap();
     assert_eq!(allowed, ["/deploy/outside".into()].into());
     host.mappings.clear();
     location.config.mappings = vec![Mapping {
@@ -425,8 +435,14 @@ fn remote_marks_follow_effective_mappings_and_mapped_hard_exclusions() {
         remote: "public".into(),
     }];
     assert!(
-        drift_app::comparison::remote_markable_paths(&location, &host, "/deploy", paths)
-            .unwrap()
-            .is_empty()
+        drift_app::comparison::remote_markable_paths(
+            &location,
+            &host,
+            "/deploy",
+            paths,
+            &Default::default()
+        )
+        .unwrap()
+        .is_empty()
     );
 }

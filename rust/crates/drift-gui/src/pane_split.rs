@@ -1,4 +1,4 @@
-//! Session-only two-pane sizing. The owners keep their child entities and focus.
+//! Two-pane sizing. The owners keep their child entities and focus.
 use std::{cell::RefCell, rc::Rc};
 
 use gpui_kit::base::TestSupportExt as _;
@@ -32,6 +32,8 @@ struct Session {
     height: Pixels,
     initial_first: Option<Pixels>,
     preferred: Option<f32>,
+    user_preferred: Option<f32>,
+    changed: Option<Rc<dyn Fn(Option<f32>)>>,
     active: bool,
     dragging: bool,
     pending_drag: bool,
@@ -74,7 +76,16 @@ impl Session {
             && second >= px(0.)
             && (total - self.width).abs() < px(0.1)
         {
-            self.preferred = Some((first / total).clamp(0., 1.));
+            let fraction = first / total;
+            if fraction > 0. && fraction < 1. {
+                self.preferred = Some(fraction);
+                if self.user_preferred != Some(fraction) {
+                    self.user_preferred = Some(fraction);
+                    if let Some(changed) = &self.changed {
+                        changed(Some(fraction));
+                    }
+                }
+            }
         }
     }
 
@@ -125,6 +136,8 @@ impl PaneSplit {
                 height: px(0.),
                 initial_first,
                 preferred: None,
+                user_preferred: None,
+                changed: None,
                 active: false,
                 dragging: false,
                 pending_drag: false,
@@ -133,6 +146,18 @@ impl PaneSplit {
                 gesture: 0,
             })),
         }
+    }
+
+    pub fn configure_persistence(
+        &mut self,
+        preferred: Option<f32>,
+        changed: impl Fn(Option<f32>) + 'static,
+    ) {
+        let mut session = self.session.borrow_mut();
+        session.preferred = preferred;
+        session.user_preferred = preferred;
+        session.changed = Some(Rc::new(changed));
+        session.visible = false;
     }
 
     pub fn view(
@@ -385,6 +410,8 @@ impl PaneSplit {
         session.remember_drag(cx);
         let [first, _] = session.sizes();
         let minimum = MIN_PANE.min(session.width / 2.);
+        let previous = session.preferred;
+        let reset = matches!(command, SplitCommand::Reset);
         session.preferred = match command {
             SplitCommand::Reset => None,
             SplitCommand::Left | SplitCommand::Right => {
@@ -400,6 +427,13 @@ impl PaneSplit {
                 }
             }
         };
+        let preference = session.preferred;
+        if (reset || preference != previous) && session.user_preferred != preference {
+            session.user_preferred = preference;
+            if let Some(changed) = &session.changed {
+                changed(preference);
+            }
+        }
         session.replace(window, cx);
     }
 

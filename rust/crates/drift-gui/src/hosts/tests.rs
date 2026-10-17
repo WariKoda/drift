@@ -10,6 +10,204 @@ async fn idle(handle: AnyWindowHandle, manager: &Entity<HostManager>, cx: &mut T
     .await;
 }
 
+pub(super) fn tab_to(window: &mut Window, target: &'static str, cx: &mut App) {
+    for _ in 0..96 {
+        window.press("tab", cx);
+        if window.find(target).focused() == Some(true) {
+            return;
+        }
+    }
+    panic!("Tab traversal did not reach {target}");
+}
+
+fn keyboard_window(
+    store: &Store,
+    slug: Option<&str>,
+    cx: &mut TestAppContext,
+) -> (AnyWindowHandle, Entity<HostManager>) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1400.), px(1200.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |w, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    HostManager::new(
+                        store.clone(),
+                        service.clone(),
+                        RemoteService::new(service),
+                        slug.map(str::to_owned),
+                        w,
+                        cx,
+                    )
+                })
+            },
+        )
+        .unwrap()
+    })
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_host_confirmation_tabs_activate_cancel_and_back(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let host = Host {
+        name: "keep".into(),
+        hostname: "example.test".into(),
+        ..Default::default()
+    };
+    store.save_host(None, None, host.clone()).unwrap();
+    let (handle, manager) = keyboard_window(&store, None, cx);
+    let closed = std::rc::Rc::new(std::cell::Cell::new(0));
+    let _subscription = cx.update(|cx| {
+        let closed = closed.clone();
+        cx.subscribe(&manager, move |_, event: &HostEvent, _| {
+            if matches!(event, HostEvent::Close) {
+                closed.set(closed.get() + 1);
+            }
+        })
+    });
+    idle(handle, &manager, cx).await;
+    for key in ["enter", "space"] {
+        cx.update_window(handle, |_, w, cx| {
+            w.press("down", cx);
+            w.press("d", cx);
+            assert!(manager.read(cx).focus.is_focused(w));
+            for _ in 0..32 {
+                w.press("tab", cx);
+                assert!(!manager.read(cx).focus.is_focused(w));
+            }
+            tab_to(w, "host-cancel-delete", cx);
+            w.press(key, cx);
+            assert!(manager.read(cx).delete.is_none());
+            assert!(manager.read(cx).list_focus.is_focused(w));
+            assert!(manager.read(cx).cancel.is_none());
+            w.press("d", cx);
+            tab_to(w, "hosts-close", cx);
+            w.press(key, cx);
+            assert!(manager.read(cx).delete.is_some());
+            assert!(manager.read(cx).cancel.is_none());
+            w.press("escape", cx);
+        })
+        .unwrap();
+        assert!(store.global().unwrap().hosts == vec![host.clone()]);
+    }
+    assert_eq!(closed.get(), 2);
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_global_empty_and_filtered_host_lists_allow_tab_traversal(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    for mode in ["empty", "global", "filtered"] {
+        let config = tempfile::tempdir().unwrap();
+        let store = Store::new(config.path().into());
+        if mode != "empty" {
+            store
+                .save_host(
+                    None,
+                    None,
+                    Host {
+                        name: "keep".into(),
+                        hostname: "example.test".into(),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        let (handle, manager) = keyboard_window(&store, None, cx);
+        idle(handle, &manager, cx).await;
+        cx.update_window(handle, |_, w, cx| {
+            if mode == "filtered" {
+                w.input("no-match", cx);
+            }
+            w.press("down", cx);
+            assert!(manager.read(cx).list_focus.is_focused(w));
+            let operation = manager.read(cx).operation;
+            w.press("tab", cx);
+            assert!(
+                !manager.read(cx).list_focus.is_focused(w),
+                "{mode}: Tab trapped in list"
+            );
+            assert_eq!(manager.read(cx).operation, operation);
+            if mode == "global" {
+                assert_eq!(w.find(("host-edit", 0usize)).focused(), Some(true));
+                w.press("enter", cx);
+                assert!(manager.read(cx).form.is_some());
+                w.press("escape", cx);
+            }
+            w.press("ctrl-f", cx);
+            w.press("down", cx);
+            w.press("shift-tab", cx);
+            assert!(w.find("hosts-reload").focused() == Some(true));
+            assert_eq!(manager.read(cx).operation, operation);
+            assert!(manager.read(cx).global);
+            assert!(manager.read(cx).cancel.is_none());
+        })
+        .unwrap();
+    }
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_host_edit_tabs_skip_inactive_list_and_preserve_draft(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let host = Host {
+        name: "keep".into(),
+        hostname: "example.test".into(),
+        root_path: "/srv".into(),
+        ..Default::default()
+    };
+    store
+        .save_host(Some("project"), None, host.clone())
+        .unwrap();
+    let (handle, manager) = keyboard_window(&store, Some("project"), cx);
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("e", cx);
+        w.input("unsaved", cx);
+        let operation = manager.read(cx).operation;
+        for key in ["tab", "shift-tab"] {
+            for _ in 0..64 {
+                w.press(key, cx);
+                assert!(
+                    !manager.read(cx).list_focus.is_focused(w),
+                    "inactive list is a Tab stop"
+                );
+                assert!(manager.read(cx).form.is_some());
+                assert_eq!(manager.read(cx).operation, operation);
+                assert!(!manager.read(cx).global);
+            }
+        }
+        assert!(
+            manager.read(cx).form.as_ref().unwrap().fields[NAME]
+                .read(cx)
+                .value()
+                .ends_with("unsaved")
+        );
+        tab_to(w, "host-cancel", cx);
+        w.press("enter", cx);
+        assert!(manager.read(cx).form.is_none());
+        assert!(manager.read(cx).list_focus.is_focused(w));
+    })
+    .unwrap();
+    assert!(store.project("project").unwrap().hosts == vec![host]);
+}
+
 #[gpui_kit::test]
 async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
@@ -80,7 +278,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
                 .presentation()
                 .is_masked()
         );
-        window.click("host-save", cx);
+        window.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -104,6 +302,16 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
             cx,
         );
         window.input("edited.example", cx);
+        window.click("host-name", cx);
+        window.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        window.input("unsaved-rename", cx);
     })
     .unwrap();
     let foreign = Host {
@@ -113,7 +321,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
     store
         .save_host(Some("project"), Some(&original), foreign.clone())
         .unwrap();
-    cx.update_window(handle, |_, window, cx| window.click("host-save", cx))
+    cx.update_window(handle, |_, window, cx| window.press("ctrl-s", cx))
         .unwrap();
     idle(handle, &manager, cx).await;
     manager.read_with(cx, |manager, cx| {
@@ -131,8 +339,10 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
         original.hostname
     );
     cx.update_window(handle, |_, window, cx| {
-        window.click("host-cancel", cx);
-        window.click("hosts-reload", cx);
+        window.press("escape", cx);
+        assert_eq!(manager.read(cx).cursor.as_deref(), Some("prod"));
+        assert!(manager.read(cx).list_focus.is_focused(window));
+        window.press("f5", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -148,7 +358,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
             cx,
         );
         window.input("edited.example", cx);
-        window.click("host-save", cx);
+        window.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -158,7 +368,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
     );
     cx.update_window(handle, |_, window, cx| {
         window.click(("host-duplicate", 0usize), cx);
-        window.click("host-save", cx);
+        window.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -168,7 +378,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
     assert_eq!(hosts[1].user, "other process");
     cx.update_window(handle, |_, window, cx| {
         window.click(("host-delete", 1usize), cx);
-        window.click("host-confirm-delete", cx);
+        window.press("enter", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -182,7 +392,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
         let form = manager.read(cx).form.as_ref().unwrap();
         assert!(form.fields[PORT].read(cx).value().is_empty());
         assert!(form.fields[USER].read(cx).value().is_empty());
-        window.click("host-save", cx);
+        window.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -198,7 +408,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
         window.click(("link", 0usize), cx);
         window.click("root-path", cx);
         window.input("/linked", cx);
-        window.click("host-save", cx);
+        window.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -212,7 +422,7 @@ async fn real_host_forms_crud_links_conflicts_and_defaults(cx: &mut TestAppConte
     idle(handle, &manager, cx).await;
     cx.update_window(handle, |_, window, cx| {
         window.click(("host-delete", 0usize), cx);
-        window.click("host-confirm-delete", cx);
+        window.press("enter", cx);
     })
     .unwrap();
     idle(handle, &manager, cx).await;
@@ -322,4 +532,214 @@ async fn testing_an_unsaved_form_preserves_inputs_focus_and_cancels_real_io(
     assert_eq!(fs::read(dir.path().join("config.toml")).unwrap(), original);
     assert!(store.global().unwrap().hosts.is_empty());
     assert!(!dir.path().join("projects.toml").exists());
+}
+
+#[gpui_kit::test]
+async fn keyboard_hosts_crud_scope_links_and_real_connection_test(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let server = crate::sftp_test_support::Server::new(false);
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    for name in ["alpha", "zulu"] {
+        let mut host = server.host();
+        host.name = name.into();
+        store.save_host(Some("project"), None, host).unwrap();
+    }
+    let mut global = server.host();
+    global.name = "shared".into();
+    store.save_host(None, None, global).unwrap();
+    let (handle, manager) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::actions::bind_keys(cx);
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: point(px(0.), px(0.)),
+                    size: size(px(1400.), px(1000.)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |w, cx| {
+                cx.new(|cx| {
+                    let service = BrowserService::new().unwrap();
+                    HostManager::new(
+                        store.clone(),
+                        service.clone(),
+                        RemoteService::with_options(service, server.options()),
+                        Some("project".into()),
+                        w,
+                        cx,
+                    )
+                })
+            },
+        )
+        .unwrap()
+    });
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        for (key, name) in [
+            ("end", "zulu"),
+            ("g", "alpha"),
+            ("j", "zulu"),
+            ("k", "alpha"),
+            ("shift-g", "zulu"),
+        ] {
+            w.press(key, cx);
+            assert_eq!(manager.read(cx).selected_host(cx).unwrap().name, name);
+        }
+        w.press("c", cx);
+        assert!(manager.read(cx).form.as_ref().unwrap().expected.is_none());
+        assert_eq!(
+            manager.read(cx).form.as_ref().unwrap().fields[NAME]
+                .read(cx)
+                .value()
+                .as_str(),
+            "zulu copy"
+        );
+        w.press("ctrl-f", cx);
+        assert!(
+            manager.read(cx).form.as_ref().unwrap().fields[NAME]
+                .focus_handle(cx)
+                .is_focused(w)
+        );
+        w.press("ctrl-s", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).offer.is_some());
+        w.press("n", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    assert_eq!(store.project("project").unwrap().hosts.len(), 3);
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).list_focus.is_focused(w));
+        assert_eq!(
+            manager.read(cx).selected_host(cx).unwrap().name,
+            "zulu copy"
+        );
+        w.press("e", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        w.input("edited", cx);
+        w.press("cmd-s", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).offer.is_some());
+        w.press("n", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        assert_eq!(manager.read(cx).selected_host(cx).unwrap().name, "edited");
+        w.press("d", cx);
+        assert_eq!(manager.read(cx).delete.as_ref().unwrap().name, "edited");
+        w.press("escape", cx);
+        assert!(manager.read(cx).list_focus.is_focused(w));
+        w.press("delete", cx);
+        w.press("y", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    assert_eq!(store.project("project").unwrap().hosts.len(), 2);
+    cx.update_window(handle, |_, w, cx| {
+        w.press("tab", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).global);
+        assert_eq!(manager.read(cx).selected_host(cx).unwrap().name, "shared");
+        w.press("shift-tab", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("l", cx);
+        assert!(manager.read(cx).links.is_some());
+        w.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).links.is_none());
+        assert!(manager.read(cx).list_focus.is_focused(w));
+        w.press("home", cx);
+        w.press("r", cx); // SFTP has no FTPS trust to reset.
+        assert!(manager.read(cx).tools.is_none());
+        w.press("t", cx);
+        assert!(manager.read(cx).tools.is_some());
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        manager
+            .read(cx)
+            .tools
+            .as_ref()
+            .is_some_and(|tools| tools.read(cx).cancel.is_none())
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        assert!(
+            manager
+                .read(cx)
+                .tools
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .status
+                .contains("Connection successful")
+        );
+        w.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert!(manager.read(cx).list_focus.is_focused(w));
+        w.press("/", cx);
+        w.input("ncedtrljkgGy", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert_eq!(
+            manager.read(cx).query.read(cx).value().as_str(),
+            "ncedtrljkgGy"
+        );
+        assert!(manager.read(cx).form.is_none());
+        assert!(manager.read(cx).delete.is_none());
+        assert!(manager.read(cx).visible_hosts(cx).is_empty());
+        w.press("enter", cx);
+        w.press("home", cx);
+        w.press("delete", cx);
+        assert!(manager.read(cx).delete.is_none());
+        w.press("n", cx);
+        w.input("new", cx);
+        w.click("hostname", cx);
+        w.input("example.test", cx);
+        w.press("ctrl-s", cx);
+        assert!(manager.read(cx).form.is_some());
+        assert!(manager.read(cx).status.contains("Root path is required"));
+        w.click("root-path", cx);
+        w.input("/srv", cx);
+        w.press("ctrl-s", cx);
+    })
+    .unwrap();
+    idle(handle, &manager, cx).await;
+    assert!(
+        store
+            .project("project")
+            .unwrap()
+            .hosts
+            .iter()
+            .any(|h| h.name == "new")
+    );
 }

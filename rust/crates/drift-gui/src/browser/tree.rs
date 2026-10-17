@@ -2,9 +2,14 @@ use super::*;
 
 impl BrowserPane {
     pub(super) fn rebuild_tree(&mut self, cx: &mut Context<Self>) {
+        self.menu_revision += 1;
         self.files
             .replace_entries(self.tree.nodes().iter().map(|n| n.path.clone()).collect());
-        self.files.filter(&self.filter.read(cx).value());
+        if self.finder {
+            self.files.filter_finder(&self.filter.read(cx).value());
+        } else {
+            self.files.filter(&self.filter.read(cx).value());
+        }
     }
     pub(super) fn restore_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         while let Some(path) = self.tree_restore.pop_front() {
@@ -139,6 +144,8 @@ impl BrowserPane {
             }
             return;
         }
-        self.up(window, cx);
+        if !self.finder {
+            self.up(window, cx);
+        }
     }
 }

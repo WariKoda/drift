@@ -1,7 +1,11 @@
 //! Server picker and explicit promotion confirmation, separate from host forms.
 use super::*;
+mod keyboard;
 use crate::actions::Cancel;
+use crate::actions::{CursorDown, CursorFirst, CursorLast, CursorUp};
 use drift_core::store::{LinkCatalog, LinkTarget};
+pub(super) use keyboard::bind_keys;
+use keyboard::{Choose, Confirm, DefaultConfirm, FocusList, Reload, Search};
 
 pub(super) enum LinkEvent {
     Close,
@@ -20,6 +24,11 @@ pub(super) struct LinkPicker {
     selected: Option<LinkTarget>,
     query: Entity<InputState>,
     focus: FocusHandle,
+    list_focus: FocusHandle,
+    cursor: Option<(Option<String>, String)>,
+    scroll: ScrollHandle,
+    reveal: FocusReveal,
+    list_reveal: FocusReveal,
     pub(super) previous_focus: Option<FocusHandle>,
     operation: u64,
     cancel: Option<CancellationToken>,
@@ -47,10 +56,16 @@ impl LinkPicker {
         let query = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Filter server, project or hostname…")
         });
-        let subscription =
-            cx.subscribe_in(&query, window, |_, _, _: &InputEvent, _, cx| cx.notify());
+        let subscription = cx.subscribe_in(&query, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.scroll.scroll_to_item(this.cursor_row(cx));
+            }
+            cx.notify();
+        });
         let focus = cx.focus_handle();
         query.focus_handle(cx).focus(window, cx);
+        let list_reveal = FocusReveal::default();
+        let scroll = list_reveal.scroll_handle().clone();
         let mut picker = Self {
             store,
             service,
@@ -59,6 +74,11 @@ impl LinkPicker {
             selected: None,
             query,
             focus,
+            list_focus: cx.focus_handle().tab_stop(true),
+            cursor: None,
+            list_reveal,
+            scroll,
+            reveal: FocusReveal::default(),
             previous_focus,
             operation: 0,
             cancel: None,
@@ -73,6 +93,7 @@ impl LinkPicker {
         if self.cancel.is_some() {
             return;
         }
+        let restore_list = self.selected.is_some() || self.list_focus.is_focused(window);
         self.operation += 1;
         self.writing = matches!(command, HostCommand::SelectLink { .. });
         self.status = if self.writing {
@@ -105,7 +126,12 @@ impl LinkPicker {
                         this.status = format!("{} link targets", catalog.targets.len());
                         this.catalog = Some(*catalog);
                         this.selected = None;
-                        this.query.focus_handle(cx).focus(window, cx);
+                        if restore_list {
+                            this.list_focus.focus(window, cx);
+                        } else {
+                            this.query.focus_handle(cx).focus(window, cx);
+                        }
+                        this.scroll.scroll_to_item(this.cursor_row(cx));
                     }
                     Ok(Ok(HostResponse::LinkSelected(promotion))) => {
                         if let Some(selected) = this.selected.take() {
@@ -128,13 +154,16 @@ impl LinkPicker {
         cx.notify();
     }
     fn choose(&mut self, target: LinkTarget, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cancel.is_some() {
+        if self.cancel.is_some() || self.selected.is_some() {
             return;
         }
+        self.cursor = Some((target.project.clone(), target.host.name.clone()));
         let promote = target.project.is_some();
+        self.reveal.scroll_handle().set_offset(Default::default());
         self.selected = Some(target.clone());
+        self.reveal.scroll_handle().set_offset(Default::default());
+        self.focus.focus(window, cx);
         if promote {
-            self.focus.focus(window, cx);
             cx.notify();
         } else {
             self.request(
@@ -152,7 +181,7 @@ impl LinkPicker {
         }
         if self.selected.take().is_some() {
             self.status.clear();
-            self.query.focus_handle(cx).focus(window, cx);
+            self.list_focus.focus(window, cx);
             cx.notify();
         } else {
             if let Some(cancel) = self.cancel.take() {
@@ -166,135 +195,79 @@ impl LinkPicker {
 impl Render for LinkPicker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.cancel.is_some();
-        let query = self.query.read(cx).value().to_lowercase();
-        let mut view = div()
-            .id("host-link-picker")
-            .key_context("Drift")
-            .track_focus(&self.focus)
-            .size_full()
-            .flex()
-            .flex_col()
-            .p_5()
-            .gap_3()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
-            .on_action(cx.listener(Self::close))
-            .child("Link a global server or a host from another project")
-            .child(self.status.clone());
-        if let Some(selected) = &self.selected {
-            let project = selected.project.as_deref().unwrap_or("Global servers");
-            view = view.child(if selected.project.is_some() { format!("Promote {:?} from project {project}?", selected.host.name) } else { format!("Use server {:?}?", selected.host.name) })
-                .child(format!("{}@{}:{} ({})", selected.host.user, selected.host.hostname, selected.host.port, if selected.host.protocol.is_empty() { "sftp" } else { &selected.host.protocol }))
-                .child(if selected.project.is_some() { "The connection and credentials become a global server. The source host becomes a link and keeps its root and mappings. Your new link is saved separately." } else { "Your link uses this server's connection. Save host to store the project link." })
-                .child(div().flex().gap_2()
-                    .child(Button::new("host-promote-confirm").label(if selected.project.is_some() { "Promote and use server" } else { "Use server" }).disabled(busy).on_click(cx.listener(|this, _, w, cx| {
-                        if let Some(target) = this.selected.clone() { this.request(HostCommand::SelectLink { expected: Box::new(target) }, w, cx); }
-                    })))
-                    .child(Button::new("host-link-reload").label("Reload targets").disabled(busy).on_click(cx.listener(|this, _, w, cx| this.request(HostCommand::LinkTargets, w, cx)))));
-        } else {
-            view = view
-                .child(
-                    Input::new(&self.query)
-                        .id("host-link-filter")
-                        .disabled(busy),
-                )
-                .child(
-                    div()
-                        .id("host-link-list")
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .children(
-                            self.catalog
-                                .as_ref()
-                                .into_iter()
-                                .flat_map(|catalog| {
-                                    catalog
-                                        .targets
-                                        .iter()
-                                        .enumerate()
-                                        .map(move |(index, target)| (index, target, catalog))
-                                })
-                                .filter(|(_, target, catalog)| {
-                                    format!(
-                                        "{} {} {} {}",
-                                        target.host.name,
-                                        target.host.hostname,
-                                        target.project.as_deref().unwrap_or("global"),
-                                        target
-                                            .project
-                                            .as_ref()
-                                            .and_then(|slug| catalog.project_names.get(slug))
-                                            .map_or("", String::as_str)
-                                    )
-                                    .to_lowercase()
-                                    .contains(&query)
-                                })
-                                .map(|(index, target, catalog)| {
-                                    let chosen = target.clone();
-                                    let project = target
-                                        .project
-                                        .as_ref()
-                                        .map(|slug| {
-                                            catalog.project_names.get(slug).unwrap_or(slug).clone()
-                                        })
-                                        .unwrap_or_else(|| "Global servers".into());
-                                    let users = target
-                                        .used_by
-                                        .iter()
-                                        .map(|slug| {
-                                            catalog.project_names.get(slug).unwrap_or(slug).as_str()
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join(", ");
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .child(format!(
-                                            "{project}: {} — {}@{}:{}",
-                                            target.host.name,
-                                            target.host.user,
-                                            target.host.hostname,
-                                            target.host.port
-                                        ))
-                                        .child(if users.is_empty() {
-                                            String::new()
-                                        } else {
-                                            format!("Used by: {users}")
-                                        })
-                                        .child(
-                                            Button::new(("host-link-target", index))
-                                                .label(if target.project.is_some() {
-                                                    "Review promotion"
-                                                } else {
-                                                    "Use server"
-                                                })
-                                                .disabled(busy)
-                                                .on_click(cx.listener(move |this, _, w, cx| {
-                                                    this.choose(chosen.clone(), w, cx)
-                                                })),
-                                        )
-                                }),
-                        )
-                        .when(
-                            self.catalog.as_ref().is_some_and(|c| c.targets.is_empty()),
-                            |view| view.child("No global servers or hosts in other projects yet."),
-                        ),
-                )
-                .child(
-                    Button::new("host-link-reload")
-                        .label("Reload targets")
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, w, cx| {
-                            this.request(HostCommand::LinkTargets, w, cx)
-                        })),
-                );
-        }
-        view.child(
+        let cursor_index = self
+            .visible_targets(cx)
+            .get(self.cursor_row(cx))
+            .map(|(index, _)| *index);
+        let mut view =
+            div()
+                .id("host-link-picker")
+                .key_context(if self.selected.is_some() {
+                    "Drift DriftLinkPicker DriftLinkConfirm"
+                } else {
+                    "Drift DriftLinkPicker"
+                })
+                .track_focus(&self.focus)
+                .size_full()
+                .min_h_0()
+                .min_w_0()
+                .overflow_hidden()
+                .flex()
+                .flex_col()
+                .p_3()
+                .gap_2()
+                .whitespace_normal()
+                .bg(cx.theme().background)
+                .text_color(cx.theme().foreground)
+                .on_action(cx.listener(Self::close))
+                .on_action(cx.listener(|this, _: &FocusList, w, cx| {
+                    this.select_row(this.cursor_row(cx), w, cx)
+                }))
+                .on_action(cx.listener(|this, _: &Search, w, cx| {
+                    if this.selected.is_none() {
+                        this.query.focus_handle(cx).focus(w, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &Confirm, w, cx| this.confirm(w, cx)))
+                .on_action(cx.listener(|this, _: &DefaultConfirm, w, cx| {
+                    if this.focus.is_focused(w) {
+                        this.confirm(w, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &Reload, w, cx| {
+                    this.request(HostCommand::LinkTargets, w, cx)
+                }));
+        // Only the auxiliary controls scroll here. The target list keeps its own
+        // viewport and direct-child row indices for keyboard cursor navigation.
+        let mut details =
+            div()
+                .id("host-link-details")
+                .map(|view| {
+                    #[cfg(test)]
+                    {
+                        view.test_support()
+                    }
+                    #[cfg(not(test))]
+                    {
+                        view
+                    }
+                })
+                .track_scroll(self.reveal.scroll_handle())
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .overflow_y_scroll()
+                .gap_2()
+                .child(div().flex_shrink_0().min_w_0().child(
+                    "Link a server · ↓ from filter · j/k navigate · Enter choose · r reload",
+                ))
+                .child(div().flex_shrink_0().min_w_0().child(self.status.clone()));
+        let close = self.reveal.wrap(
+            "host-link-close-reveal",
             Button::new("host-link-close")
                 .label(if self.selected.is_some() {
                     "Back to targets"
@@ -303,9 +276,213 @@ impl Render for LinkPicker {
                 })
                 .disabled(self.writing)
                 .on_click(cx.listener(|this, _, w, cx| this.close(&Cancel, w, cx))),
-        )
+        );
+        let reload = self.reveal.wrap(
+            "host-link-reload-reveal",
+            Button::new("host-link-reload")
+                .label("Reload targets")
+                .disabled(busy)
+                .on_click(
+                    cx.listener(|this, _, w, cx| this.request(HostCommand::LinkTargets, w, cx)),
+                ),
+        );
+        if let Some(selected) = &self.selected {
+            let project = selected.project.as_deref().unwrap_or("Global servers");
+            let heading = if selected.project.is_some() {
+                format!("Promote {:?} from project {project}?", selected.host.name)
+            } else {
+                format!("Use server {:?}?", selected.host.name)
+            };
+            let endpoint = format!(
+                "{}@{}:{} ({})",
+                selected.host.user,
+                selected.host.hostname,
+                selected.host.port,
+                if selected.host.protocol.is_empty() {
+                    "sftp"
+                } else {
+                    &selected.host.protocol
+                },
+            );
+            let explanation = if selected.project.is_some() {
+                "The connection and credentials become a global server. The source host becomes a link and keeps its root and mappings. Your new link is saved separately."
+            } else {
+                "Your link uses this server's connection. Save host to store the project link."
+            };
+            details = details
+                .child(div().flex_shrink_0().min_w_0().child(heading))
+                .child(div().flex_shrink_0().min_w_0().child(endpoint))
+                .child(div().flex_shrink_0().min_w_0().child(explanation))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .flex_shrink_0()
+                        .min_w_0()
+                        .gap_2()
+                        .child(
+                            self.reveal.wrap(
+                                "host-promote-confirm-reveal",
+                                Button::new("host-promote-confirm")
+                                    .label(if selected.project.is_some() {
+                                        "Promote and use server"
+                                    } else {
+                                        "Use server"
+                                    })
+                                    .disabled(busy)
+                                    .on_click(cx.listener(|this, _, w, cx| this.confirm(w, cx))),
+                            ),
+                        )
+                        .child(reload)
+                        .child(close),
+                );
+            view = view.child(details);
+        } else {
+            details = details
+                .max_h(px(180.))
+                .child(form_input::guard(&self.query, |input| {
+                    self.reveal.wrap(
+                        "host-link-filter-reveal",
+                        div()
+                            .key_context("DriftLinkFilter")
+                            .min_w_0()
+                            .child(input.id("host-link-filter").disabled(busy)),
+                    )
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .flex_shrink_0()
+                        .min_w_0()
+                        .gap_2()
+                        .child(reload)
+                        .child(close),
+                );
+            view = view.child(details).child(
+                div()
+                    .id("host-link-list")
+                    .map(|view| {
+                        #[cfg(test)]
+                        {
+                            view.test_support()
+                        }
+                        #[cfg(not(test))]
+                        {
+                            view
+                        }
+                    })
+                    .key_context("DriftLinkList")
+                    .track_focus(&self.list_focus)
+                    .track_scroll(&self.scroll)
+                    .on_action(cx.listener(|this, _: &CursorUp, w, cx| {
+                        this.select_row(this.cursor_row(cx).saturating_sub(1), w, cx)
+                    }))
+                    .on_action(cx.listener(|this, _: &CursorDown, w, cx| {
+                        this.select_row(this.cursor_row(cx) + 1, w, cx)
+                    }))
+                    .on_action(
+                        cx.listener(|this, _: &CursorFirst, w, cx| this.select_row(0, w, cx)),
+                    )
+                    .on_action(
+                        cx.listener(|this, _: &CursorLast, w, cx| {
+                            this.select_row(usize::MAX, w, cx)
+                        }),
+                    )
+                    .on_action(cx.listener(|this, _: &Choose, w, cx| {
+                        if this.list_focus.is_focused(w) {
+                            this.choose_cursor(w, cx);
+                        } else {
+                            cx.propagate();
+                        }
+                    }))
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .overflow_y_scroll()
+                    .children(self.visible_targets(cx).into_iter().enumerate().map(
+                        |(row, (index, target))| {
+                            let catalog = self.catalog.as_ref().unwrap();
+                            let chosen = target.clone();
+                            let project = target
+                                .project
+                                .as_ref()
+                                .map(|slug| catalog.project_names.get(slug).unwrap_or(slug).clone())
+                                .unwrap_or_else(|| "Global servers".into());
+                            let users = target
+                                .used_by
+                                .iter()
+                                .map(|slug| {
+                                    catalog.project_names.get(slug).unwrap_or(slug).as_str()
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            div()
+                                .id(("host-link-row", index))
+                                .on_click(
+                                    cx.listener(move |this, _, w, cx| this.select_row(row, w, cx)),
+                                )
+                                .when(cursor_index == Some(index), |view| {
+                                    view.bg(cx.theme().accent)
+                                })
+                                .map(|view| {
+                                    #[cfg(test)]
+                                    {
+                                        view.test_support()
+                                    }
+                                    #[cfg(not(test))]
+                                    {
+                                        view
+                                    }
+                                })
+                                .flex()
+                                .flex_col()
+                                .flex_shrink_0()
+                                .min_w_0()
+                                .gap_1()
+                                .child(format!(
+                                    "{project}: {} — {}@{}:{}",
+                                    target.host.name,
+                                    target.host.user,
+                                    target.host.hostname,
+                                    target.host.port
+                                ))
+                                .child(if users.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("Used by: {users}")
+                                })
+                                .child(
+                                    self.list_reveal.wrap(
+                                        ("host-link-target-reveal", index),
+                                        Button::new(("host-link-target", index))
+                                            .label(if target.project.is_some() {
+                                                "Review promotion"
+                                            } else {
+                                                "Use server"
+                                            })
+                                            .disabled(busy)
+                                            .on_click(cx.listener(move |this, _, w, cx| {
+                                                this.choose(chosen.clone(), w, cx)
+                                            })),
+                                    ),
+                                )
+                        },
+                    ))
+                    .when(
+                        self.catalog.as_ref().is_some_and(|c| c.targets.is_empty()),
+                        |view| view.child("No global servers or hosts in other projects yet."),
+                    ),
+            );
+        }
+        view
     }
 }
 
+#[cfg(test)]
+mod scroll_tests;
 #[cfg(test)]
 mod tests;

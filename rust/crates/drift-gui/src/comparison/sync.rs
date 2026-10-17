@@ -31,10 +31,19 @@ impl ComparisonPane {
         if decisions.iter().all(|d| *d == Decision::Skip) {
             return;
         }
+        self.show_errors = false;
         self.confirm_sync = Some(decisions);
         cx.notify();
     }
     pub(super) fn start_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.confirm_sync.is_some()
+            && self.filter.focus_handle(cx).is_focused(window)
+            && crate::form_input::validate_inputs([&self.filter], window, cx).is_err()
+        {
+            self.status("Finish text composition before confirming sync.".into(), cx);
+            cx.notify();
+            return;
+        }
         let Some(decisions) = self.confirm_sync.take() else {
             return;
         };
@@ -56,6 +65,7 @@ impl ComparisonPane {
         };
         self.stale = true;
         self.sync_result = None;
+        self.show_errors = false;
         self.syncing = Some(operation.operation.cancel);
         self.progress = operation.progress.borrow().clone();
         let stop = CancellationToken::new();

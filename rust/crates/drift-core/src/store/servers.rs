@@ -21,7 +21,193 @@ pub struct Promotion {
     /// Callers must show this warning and must not automatically repeat promotion.
     pub warning: Option<String>,
 }
+/// A successful selection may have committed a server even when a later write
+/// failed. Callers must retain that server and must not repeat promotion.
+pub struct LinkedHostSave {
+    pub server: Host,
+    pub warning: Option<String>,
+    pub destination_error: Option<Error>,
+}
+
+fn same_endpoint(a: &Host, b: &Host) -> bool {
+    let a_protocol = if a.protocol.is_empty() {
+        "sftp"
+    } else {
+        &a.protocol
+    };
+    let b_protocol = if b.protocol.is_empty() {
+        "sftp"
+    } else {
+        &b.protocol
+    };
+    let port = |h: &Host| {
+        if h.port != 0 {
+            h.port
+        } else if matches!(h.protocol.as_str(), "ftp" | "ftps") {
+            21
+        } else {
+            22
+        }
+    };
+    !a.hostname.is_empty()
+        && a.hostname.eq_ignore_ascii_case(&b.hostname)
+        && port(a) == port(b)
+        && a.user == b.user
+        && a_protocol == b_protocol
+}
+
 impl Store {
+    /// Offer discovery never saves the draft or promotes a source host.
+    pub fn matching_link_targets(&self, current: &str, desired: &Host) -> Result<LinkCatalog> {
+        if !desired.server.is_empty() {
+            return Err(Error::Invalid(
+                "link offers require a direct project host".into(),
+            ));
+        }
+        let effective = self.preview_host(Some(current), desired.clone())?;
+        let mut catalog = self.link_targets(current)?;
+        catalog
+            .targets
+            .retain(|target| same_endpoint(&effective, &target.host));
+        Ok(catalog)
+    }
+
+    /// Validate the entire transaction before committing global → source →
+    /// destination. After promotion commits, later failures are result fields,
+    /// not an ordinary error that could prompt another promotion.
+    pub fn save_linked_host(
+        &self,
+        current: &str,
+        expected: Option<&Host>,
+        desired: Host,
+        target: &LinkTarget,
+    ) -> Result<LinkedHostSave> {
+        let lock = self.lock()?;
+        let result = (|| {
+            desired.validate(false)?;
+            if !desired.server.is_empty() {
+                return Err(Error::Invalid(
+                    "link acceptance requires a direct project host".into(),
+                ));
+            }
+            let destination_path = project_store_path(&self.dir, current)?;
+            let mut global = self.global()?;
+            let mut destination = self.project(current)?;
+            replace_host(&mut destination.hosts, expected, Some(desired.clone()))?;
+            RuntimeConfig::resolve(&global, Some(&destination))?;
+            let effective = desired.with_defaults(&destination.defaults);
+
+            let Some(slug) = &target.project else {
+                let stored = global.hosts.iter().find(|h| h.name == target.stored.name);
+                if stored != Some(&target.stored) || global.defaults != target.defaults {
+                    return Err(Error::Conflict("selected server".into()));
+                }
+                let server = target.stored.with_defaults(&global.defaults);
+                if !same_endpoint(&effective, &server) {
+                    return Err(Error::Conflict("destination endpoint".into()));
+                }
+                let link = Host {
+                    name: desired.name.clone(),
+                    server: server.name.clone(),
+                    root_path: desired.root_path.clone(),
+                    mappings: desired.mappings.clone(),
+                    ..Host::default()
+                };
+                replace_host(&mut destination.hosts, Some(&desired), Some(link))?;
+                RuntimeConfig::resolve(&global, Some(&destination))?;
+                self.write(&destination_path, &destination)?;
+                return Ok(LinkedHostSave {
+                    server,
+                    warning: None,
+                    destination_error: None,
+                });
+            };
+            if slug == current {
+                return Err(Error::Invalid(
+                    "the host belongs to the open project".into(),
+                ));
+            }
+            let source_path = project_store_path(&self.dir, slug)?;
+            let mut source = self.project(slug)?;
+            let index = source
+                .hosts
+                .iter()
+                .position(|h| h.name == target.stored.name)
+                .ok_or_else(|| Error::Conflict("selected source host".into()))?;
+            if source.hosts[index] != target.stored || source.defaults != target.defaults {
+                return Err(Error::Conflict("selected source host".into()));
+            }
+            if !source.hosts[index].server.is_empty() {
+                return Err(Error::Invalid("source host already links a server".into()));
+            }
+            let mut server = source.hosts[index].with_defaults(&source.defaults);
+            if !same_endpoint(&effective, &server) {
+                return Err(Error::Conflict("destination endpoint".into()));
+            }
+            let name = server.name.clone();
+            if global.hosts.iter().any(|h| h.name == server.name) {
+                server.name = format!("{slug}-{name}");
+                let mut suffix = 2;
+                while global.hosts.iter().any(|h| h.name == server.name) {
+                    server.name = format!("{slug}-{name}-{suffix}");
+                    suffix += 1;
+                }
+            }
+            server.mappings.clear();
+            source.hosts[index] = Host {
+                name: target.stored.name.clone(),
+                server: server.name.clone(),
+                root_path: target.stored.root_path.clone(),
+                mappings: target.stored.mappings.clone(),
+                ..Host::default()
+            };
+            let link = Host {
+                name: desired.name.clone(),
+                server: server.name.clone(),
+                root_path: desired.root_path.clone(),
+                mappings: desired.mappings.clone(),
+                ..Host::default()
+            };
+            replace_host(&mut destination.hosts, Some(&desired), Some(link))?;
+            global.hosts.push(server.clone());
+            RuntimeConfig::resolve(&global, Some(&source))?;
+            RuntimeConfig::resolve(&global, Some(&destination))?;
+            let server = server.with_defaults(&global.defaults);
+            // An empty source user cannot be materialized against a nonempty
+            // global default. Do not accept a promotion that changes accounts.
+            if !same_endpoint(&effective, &server) {
+                return Err(Error::Conflict("promoted server endpoint".into()));
+            }
+            self.write(&self.dir.join("config.toml"), &global)?;
+            let warning = self.write(&source_path, &source).err().map(|error| {
+                format!("Server was added, but the source project keeps its own copy of the host: {error}")
+            });
+            let destination_error = self.write(&destination_path, &destination).err();
+            Ok(LinkedHostSave {
+                server,
+                warning,
+                destination_error,
+            })
+        })();
+        // Preserve committed outcomes even if releasing the lock fails.
+        match (result, FileExt::unlock(&lock)) {
+            (result, Ok(())) => result,
+            (Ok(mut saved), Err(error)) => {
+                let warning = saved.warning.get_or_insert_with(String::new);
+                if !warning.is_empty() {
+                    warning.push_str("; ");
+                }
+                warning.push_str(&format!(
+                    "Releasing the configuration lock failed after saving: {error}"
+                ));
+                Ok(saved)
+            }
+            (Err(error), Err(release)) => Err(Error::Invalid(format!(
+                "{error}; releasing configuration lock failed: {release}"
+            ))),
+        }
+    }
+
     pub(super) fn project_stores(&self) -> Result<BTreeMap<String, ProjectConfig>> {
         let entries = match fs::read_dir(self.dir.join("projects")) {
             Ok(entries) => entries,

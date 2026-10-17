@@ -1,4 +1,6 @@
 use super::*;
+#[path = "tests/persistence.rs"]
+mod persistence;
 use gpui_kit::component::{
     button::Button,
     input::{Input, InputState},

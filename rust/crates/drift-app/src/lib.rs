@@ -3,6 +3,7 @@ pub mod browser;
 pub mod cli;
 pub mod comparison;
 mod finder;
+pub mod gui_preferences;
 pub mod hosts;
 pub mod logging;
 pub mod navigation;

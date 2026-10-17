@@ -36,7 +36,7 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.left.read(cx).header())
+                    .child(self.left.read(cx).header(cx))
                     .child(self.left.clone()),
             )
             .child(
@@ -46,7 +46,7 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.right.read(cx).header())
+                    .child(self.right.read(cx).header(cx))
                     .child(self.right.clone()),
             )
             .children(self.retained_popup.as_ref().map(|popup| {

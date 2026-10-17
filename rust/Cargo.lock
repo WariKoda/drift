@@ -1911,9 +1911,11 @@ dependencies = [
  "fs2",
  "gpui-kit",
  "rustls",
+ "semver",
  "tempfile",
  "tokio",
  "tokio-util",
+ "unicode-segmentation",
 ]
 
 [[package]]

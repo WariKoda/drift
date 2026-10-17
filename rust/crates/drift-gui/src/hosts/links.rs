@@ -340,16 +340,15 @@ impl Render for LinkPicker {
         } else {
             details = details
                 .max_h(px(180.))
-                .child(
+                .child(form_input::guard(&self.query, |input| {
                     self.reveal.wrap(
                         "host-link-filter-reveal",
-                        div().key_context("DriftLinkFilter").min_w_0().child(
-                            Input::new(&self.query)
-                                .id("host-link-filter")
-                                .disabled(busy),
-                        ),
-                    ),
-                )
+                        div()
+                            .key_context("DriftLinkFilter")
+                            .min_w_0()
+                            .child(input.id("host-link-filter").disabled(busy)),
+                    )
+                }))
                 .child(
                     div()
                         .flex()

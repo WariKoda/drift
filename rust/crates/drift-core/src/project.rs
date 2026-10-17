@@ -25,14 +25,27 @@ impl Registry {
         self.projects.iter().find(|p| p.slug == slug)
     }
     pub fn find_by_path(&self, path: &Path) -> Option<&Project> {
-        let path = path.components().collect::<PathBuf>();
+        let path = clean_path(path);
         self.projects
             .iter()
-            .filter(|p| path.starts_with(&p.path))
-            .max_by_key(|p| p.path.as_os_str().len())
+            .filter(|p| path.starts_with(clean_path(&p.path)))
+            .max_by_key(|p| clean_path(&p.path).as_os_str().len())
     }
     pub fn active(&self) -> Vec<&Project> {
-        let mut entries: Vec<_> = self.projects.iter().filter(|p| !p.archived).collect();
+        self.sorted(false)
+    }
+    pub fn all(&self) -> Vec<&Project> {
+        self.sorted(true)
+    }
+    pub fn most_recently_opened(&self) -> Option<&Project> {
+        self.active().into_iter().find(|p| p.opened_at.is_some())
+    }
+    fn sorted(&self, archived: bool) -> Vec<&Project> {
+        let mut entries: Vec<_> = self
+            .projects
+            .iter()
+            .filter(|p| archived || !p.archived)
+            .collect();
         entries.sort_by(|a, b| {
             let timestamp = |p: &Project| {
                 p.opened_at
@@ -107,7 +120,7 @@ impl Registry {
             if p.name.trim().is_empty()
                 || !p.path.is_absolute()
                 || !slugs.insert(&p.slug)
-                || !paths.insert(&p.path)
+                || !paths.insert(clean_path(&p.path))
             {
                 return Err(Error::Invalid(format!(
                     "invalid or duplicate project {:?}",
@@ -116,6 +129,48 @@ impl Registry {
             }
         }
         Ok(())
+    }
+}
+/// Match Go's lexical path expansion without requiring the directory to exist.
+pub fn expand_path(input: &str) -> Result<PathBuf> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(Error::Invalid("path must not be empty".into()));
+    }
+    let path = if input == "~" || input.starts_with("~/") {
+        let home = std::env::var_os("HOME")
+            .ok_or_else(|| Error::Invalid("cannot determine home directory".into()))?;
+        PathBuf::from(home).join(input.strip_prefix("~/").unwrap_or(""))
+    } else {
+        PathBuf::from(input)
+    };
+    Ok(clean_path(&std::path::absolute(path)?))
+}
+pub fn clean_path(path: &Path) -> PathBuf {
+    let mut clean = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                clean.pop();
+            }
+            std::path::Component::CurDir => {}
+            component => clean.push(component.as_os_str()),
+        }
+    }
+    clean
+}
+pub fn git_root(directory: &Path) -> Result<Option<PathBuf>> {
+    let mut current = directory;
+    loop {
+        match std::fs::symlink_metadata(current.join(".git")) {
+            Ok(_) => return Ok(Some(current.into())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let Some(parent) = current.parent() else {
+            return Ok(None);
+        };
+        current = parent;
     }
 }
 pub fn now() -> Datetime {

@@ -2,9 +2,15 @@ use crate::{
     config::{Defaults, GlobalConfig, Host, ProjectConfig, RuntimeConfig, project_store_path},
     error::{Error, Result},
     project::{Project, Registry, now},
+    tlstrust::{Endpoint, TrustedCertificate},
 };
+mod gui_preferences;
+mod projects;
+mod servers;
 use fs2::FileExt;
+pub use projects::ProjectRemoval;
 use serde::{Serialize, de::DeserializeOwned};
+pub use servers::{LinkCatalog, LinkTarget, LinkedHostSave, Promotion};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
@@ -23,6 +29,11 @@ pub struct HostCatalog {
     pub defaults: Defaults,
     pub runtime: RuntimeConfig,
 }
+#[derive(Default, serde::Deserialize, Serialize)]
+struct CertificateFile {
+    #[serde(default)]
+    certificates: Vec<TrustedCertificate>,
+}
 impl Store {
     pub fn new(dir: PathBuf) -> Self {
         Self { dir }
@@ -30,8 +41,96 @@ impl Store {
     pub fn dir(&self) -> &Path {
         &self.dir
     }
+    pub fn trusted_certificates(&self) -> Result<Vec<TrustedCertificate>> {
+        let file: CertificateFile = self.read(&self.dir.join("trusted-certificates.toml"))?;
+        let mut endpoints = std::collections::BTreeSet::new();
+        for entry in &file.certificates {
+            entry.validate()?;
+            if !endpoints.insert(entry.endpoint()) {
+                return Err(Error::Invalid(
+                    "duplicate trusted certificate endpoint".into(),
+                ));
+            }
+        }
+        Ok(file.certificates)
+    }
+    pub fn save_trusted_certificate(
+        &self,
+        expected: Option<&TrustedCertificate>,
+        desired: TrustedCertificate,
+    ) -> Result<()> {
+        self.with_lock(|| {
+            desired.validate()?;
+            let mut certificates = self.trusted_certificates()?;
+            let endpoint = desired.endpoint();
+            if certificates
+                .iter()
+                .find(|entry| entry.endpoint() == endpoint)
+                != expected
+            {
+                return Err(Error::Conflict(format!(
+                    "certificate trust for {}",
+                    endpoint.address()
+                )));
+            }
+            certificates.retain(|entry| entry.endpoint() != endpoint);
+            certificates.push(desired);
+            certificates.sort_by_key(TrustedCertificate::endpoint);
+            self.write(
+                &self.dir.join("trusted-certificates.toml"),
+                &CertificateFile { certificates },
+            )
+        })
+    }
     pub fn global(&self) -> Result<GlobalConfig> {
         self.read(&self.dir.join("config.toml"))
+    }
+    pub fn delete_trusted_certificate(
+        &self,
+        endpoint: &Endpoint,
+        expected: Option<&TrustedCertificate>,
+    ) -> Result<()> {
+        self.with_lock(|| {
+            let mut certificates = self.trusted_certificates()?;
+            let current = certificates
+                .iter()
+                .find(|entry| entry.endpoint() == *endpoint);
+            if current != expected {
+                return Err(Error::Conflict(format!(
+                    "certificate trust for {}",
+                    endpoint.address()
+                )));
+            }
+            if current.is_none() {
+                return Ok(());
+            }
+            certificates.retain(|entry| entry.endpoint() != *endpoint);
+            self.write(
+                &self.dir.join("trusted-certificates.toml"),
+                &CertificateFile { certificates },
+            )
+        })
+    }
+    /// Resolve an unsaved form against freshly loaded defaults/server links.
+    /// No host record is written, including when its name already exists.
+    pub fn preview_host(&self, slug: Option<&str>, desired: Host) -> Result<Host> {
+        self.with_lock(|| {
+            desired.validate(slug.is_none())?;
+            let name = desired.name.clone();
+            let mut global = self.global()?;
+            let mut project = slug.map(|slug| self.project(slug)).transpose()?;
+            let hosts = match &mut project {
+                Some(project) => &mut project.hosts,
+                None => &mut global.hosts,
+            };
+            hosts.retain(|host| host.name != name);
+            hosts.push(desired);
+            RuntimeConfig::resolve(&global, project.as_ref())?
+                .hosts
+                .into_iter()
+                .find(|host| host.name == name)
+                .ok_or_else(|| Error::Invalid("host preview was not resolved".into()))
+        })
     }
     pub fn project(&self, slug: &str) -> Result<ProjectConfig> {
         self.read(&project_store_path(&self.dir, slug)?)
@@ -164,26 +263,10 @@ impl Store {
         })
     }
     fn ensure_server_unused(&self, name: &str) -> Result<()> {
-        let entries = match fs::read_dir(self.dir.join("projects")) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let filename = entry.file_name();
-            let filename = filename.to_string_lossy();
-            if filename.starts_with('.')
-                || !filename.ends_with(".toml")
-                || entry.file_type()?.is_dir()
-            {
-                continue;
-            }
-            let project: ProjectConfig = self.read(&entry.path())?;
+        for (slug, project) in self.project_stores()? {
             if project.hosts.iter().any(|h| h.server == name) {
                 return Err(Error::Invalid(format!(
-                    "server {name:?} is linked by {}",
-                    filename.trim_end_matches(".toml")
+                    "server {name:?} is linked by {slug}"
                 )));
             }
         }
@@ -226,8 +309,11 @@ impl Store {
             let date = now();
             let project = Project {
                 slug: registry.unique_slug(name),
-                name: name.into(),
-                path,
+                name: name.trim().into(),
+                path: crate::project::expand_path(
+                    path.to_str()
+                        .ok_or_else(|| Error::Invalid("project path is not UTF-8".into()))?,
+                )?,
                 archived: false,
                 created_at: date,
                 updated_at: date,

@@ -1,5 +1,11 @@
 # drift — Implementation Plan
 
+The current Rust/GPUI port plan is maintained in
+[docs/rust-port-plan.md](docs/rust-port-plan.md), including standalone product
+boundaries and the Monokai Pro Light Sun / Monokai Pro Dark theme requirements.
+The original Go implementation sketch below is historical; current code and tests
+remain the behavioral reference.
+
 Terminal-based remote file sync tool. Run `drift` in any directory to browse, diff, and sync files with a remote host over SFTP/SSH.
 
 ---

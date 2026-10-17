@@ -35,6 +35,9 @@ impl ProjectRoot {
     pub fn base(&self) -> &Path {
         &self.base
     }
+    pub fn metadata(&self, path: &Path) -> Result<cap_std::fs::Metadata> {
+        Ok(self.dir.metadata(self.relative(path)?)?)
+    }
     fn relative<'a>(&self, path: &'a Path) -> Result<&'a Path> {
         let relative = if path.is_absolute() {
             path.strip_prefix(&self.base)
@@ -74,7 +77,11 @@ impl ProjectRoot {
             {
                 continue;
             }
-            let path = relative.join(name);
+            let path = relative
+                .join(name)
+                .components()
+                .filter(|c| !matches!(c, Component::CurDir))
+                .collect::<PathBuf>();
             let metadata = self.dir.symlink_metadata(&path)?;
             if !metadata.is_file() && !metadata.is_dir() && !metadata.file_type().is_symlink() {
                 continue;
@@ -132,29 +139,38 @@ impl ProjectRoot {
         mut source: R,
         complete: impl FnOnce(R) -> Result<()>,
     ) -> Result<()> {
-        let relative = self.relative(path)?;
-        let parent = relative
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        self.dir.create_dir_all(parent)?;
-        let parent = self.dir.open_dir(parent)?;
-        let name = relative
-            .file_name()
-            .ok_or_else(|| Error::Invalid("target must name a file".into()))?;
-        let permissions = match parent.symlink_metadata(name) {
-            Ok(metadata) if metadata.is_file() => Some(metadata.permissions()),
-            Ok(_) => return Err(Error::Invalid("local target is not a regular file".into())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error.into()),
+        let prepared = (|| {
+            let relative = self.relative(path)?;
+            let parent = relative
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            self.dir.create_dir_all(parent)?;
+            let parent = self.dir.open_dir(parent)?;
+            let name = relative
+                .file_name()
+                .ok_or_else(|| Error::Invalid("target must name a file".into()))?
+                .to_owned();
+            let permissions = match parent.symlink_metadata(&name) {
+                Ok(metadata) if metadata.is_file() => Some(metadata.permissions()),
+                Ok(_) => return Err(Error::Invalid("local target is not a regular file".into())),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error.into()),
+            };
+            let stage_name = crate::staging::staging_name(&name.to_string_lossy())?;
+            let stage =
+                parent.open_with(&stage_name, OpenOptions::new().write(true).create_new(true))?;
+            Ok::<_, Error>((parent, name, permissions, stage_name, stage))
+        })();
+        let (parent, name, permissions, stage_name, mut stage) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return match complete(source) {
+                    Ok(()) => Err(error),
+                    Err(close) => Err(Error::join(error, [close])),
+                };
+            }
         };
-        let mut bytes = [0u8; 16];
-        getrandom::fill(&mut bytes)
-            .map_err(|e| Error::Invalid(format!("generate staging name: {e}")))?;
-        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        let stage_name = format!(".{}.drift-tmp-{token}", name.to_string_lossy());
-        let mut stage =
-            parent.open_with(&stage_name, OpenOptions::new().write(true).create_new(true))?;
         let result = (|| {
             let mut errors = Vec::new();
             if let Some(permissions) = permissions
@@ -181,27 +197,19 @@ impl ProjectRoot {
             if let Err(error) = nix::unistd::close(stage.into_std()) {
                 errors.push(Error::Io(std::io::Error::from_raw_os_error(error as i32)));
             }
-            if errors.len() == 1 {
-                return Err(errors.pop().unwrap());
-            }
             if !errors.is_empty() {
-                return Err(Error::Invalid(
-                    errors
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join("; "),
-                ));
+                return Err(Error::join(errors.remove(0), errors));
             }
-            parent.rename(&stage_name, &parent, name)?;
+            parent.rename(&stage_name, &parent, &name)?;
             Ok(())
         })();
         if result.is_err()
             && let Err(cleanup) = parent.remove_file(&stage_name)
         {
-            return Err(Error::Invalid(format!(
-                "{result:?}; remove staging file: {cleanup}"
-            )));
+            return Err(Error::join(
+                result.unwrap_err(),
+                [Error::Invalid(format!("remove staging file: {cleanup}"))],
+            ));
         }
         result
     }

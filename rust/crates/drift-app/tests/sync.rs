@@ -1,3 +1,7 @@
+#[path = "sync/rename_ack.rs"]
+mod rename_ack;
+#[path = "sync/replacement.rs"]
+mod replacement;
 #[path = "../../drift-core/tests/support/mod.rs"]
 mod support;
 use drift_app::{

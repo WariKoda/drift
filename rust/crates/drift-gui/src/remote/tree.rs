@@ -4,6 +4,13 @@ impl RemotePane {
     pub(super) fn restore_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         while let Some(path) = self.tree_restore.pop_front() {
             if self
+                .visibility
+                .as_ref()
+                .is_some_and(|visibility| visibility.excluded.contains(&path))
+            {
+                continue;
+            }
+            if self
                 .tree
                 .node(&path)
                 .is_some_and(|n| n.directory && !n.expanded)
@@ -22,6 +29,10 @@ impl RemotePane {
     }
     pub(super) fn expand(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         if self.is_loading()
+            || self
+                .visibility
+                .as_ref()
+                .is_some_and(|visibility| visibility.excluded.contains(&path))
             || self
                 .tree
                 .node(&path)
@@ -68,8 +79,7 @@ impl RemotePane {
                                 .map(|e| (e.path.clone(), e.directory)),
                         ) {
                             this.entries.extend(directory.entries);
-                            this.set_entries(cx);
-                            this.status(format!("{} remote entries", this.files.len()), cx);
+                            this.start_visibility(window, cx);
                         }
                     }
                     Ok(Err(error)) => {
@@ -83,7 +93,9 @@ impl RemotePane {
                         this.status(format!("Background task failed: {error}"), cx);
                     }
                 }
-                this.restore_tree(window, cx);
+                if !this.is_loading() {
+                    this.restore_tree(window, cx);
+                }
                 cx.notify();
             });
         })

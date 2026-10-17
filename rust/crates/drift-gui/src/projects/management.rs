@@ -44,10 +44,12 @@ impl ProjectsPanel {
                         this.status = response.warning.clone().unwrap_or_else(|| {
                             format!("{} projects", this.registry.projects.len())
                         });
-                        if response.changed.is_some() {
+                        if let Some(project) = &response.changed {
+                            this.cursor = Some(project.slug.clone());
                             this.form = None;
                             this.delete = None;
-                            this.query.focus_handle(cx).focus(window, cx);
+                            this.list_focus.focus(window, cx);
+                            this.scroll.scroll_to_item(this.cursor_row(cx));
                             cx.emit(ProjectEvent::Changed(Box::new(response)));
                         }
                     }

@@ -89,3 +89,23 @@ fn atomic_write_preserves_previous_file_on_completion_error_and_keeps_permission
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), "complete");
 }
+
+#[test]
+fn rejected_atomic_destinations_still_finish_the_owned_source() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("source"), b"source").unwrap();
+    fs::write(dir.path().join("parent-file"), b"parent").unwrap();
+    symlink("source", dir.path().join("target-link")).unwrap();
+    let root = ProjectRoot::open(dir.path()).unwrap();
+    for target in ["../escape", "target-link", "parent-file/target"] {
+        let source = fs::File::open(dir.path().join("source")).unwrap();
+        let mut finished = false;
+        let result = root.write_atomic(Path::new(target), source, |source| {
+            nix::unistd::close(source).unwrap();
+            finished = true;
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert!(finished, "source was abandoned for {target}");
+    }
+}

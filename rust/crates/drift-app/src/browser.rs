@@ -1,5 +1,6 @@
 //! Background-only local browsing. GPUI receives values and operation handles;
 //! capability roots and blocking work remain in this application layer.
+use crate::hosts::{HostCommand, HostResponse};
 use drift_core::{
     config::RuntimeConfig,
     error::{Error, Result},
@@ -9,6 +10,7 @@ use drift_core::{
     store::Store,
 };
 use std::{
+    future::Future,
     ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
@@ -17,7 +19,7 @@ use tokio::{
     runtime::{Builder, Runtime},
     sync::Semaphore,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OperationId {
@@ -26,19 +28,41 @@ pub struct OperationId {
 }
 #[derive(Clone)]
 pub struct BrowserService {
-    runtime: Arc<BackgroundRuntime>,
+    pub(crate) runtime: Arc<BackgroundRuntime>,
     permits: Arc<Semaphore>,
+    logger: crate::logging::Logger,
 }
-struct BackgroundRuntime(Option<Runtime>);
+pub(crate) struct BackgroundRuntime {
+    runtime: Option<Runtime>,
+    pub(crate) tasks: TaskTracker,
+}
 impl Deref for BackgroundRuntime {
     type Target = Runtime;
     fn deref(&self) -> &Runtime {
-        self.0.as_ref().expect("runtime exists until shutdown")
+        self.runtime
+            .as_ref()
+            .expect("runtime exists until shutdown")
+    }
+}
+impl BackgroundRuntime {
+    pub(crate) fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.tasks.spawn_on(future, self.handle())
+    }
+    pub(crate) fn spawn_blocking<F, T>(&self, action: F) -> tokio::task::JoinHandle<T>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        self.tasks.spawn_blocking_on(action, self.handle())
     }
 }
 impl Drop for BackgroundRuntime {
     fn drop(&mut self) {
-        if let Some(runtime) = self.0.take() {
+        if let Some(runtime) = self.runtime.take() {
             runtime.shutdown_background();
         }
     }
@@ -73,17 +97,130 @@ pub struct Operation<T> {
     pub task: tokio::task::JoinHandle<Result<T>>,
 }
 impl BrowserService {
+    pub fn manage_hosts(
+        &self,
+        store: Store,
+        slug: Option<String>,
+        command: HostCommand,
+        id: OperationId,
+    ) -> Operation<HostResponse> {
+        let service = self.clone();
+        let cancel = CancellationToken::new();
+        let token = cancel.clone();
+        let task = self.runtime.spawn(async move {
+            let mutating = !matches!(
+                command,
+                HostCommand::Load | HostCommand::LinkTargets | HostCommand::OfferLink { .. }
+            );
+            let action = move || match command {
+                HostCommand::Load => store
+                    .host_catalog(slug.as_deref())
+                    .map(Box::new)
+                    .map(HostResponse::Loaded),
+                HostCommand::Save { expected, desired } => {
+                    store.save_host(slug.as_deref(), expected.as_deref(), *desired)?;
+                    Ok(HostResponse::Saved)
+                }
+                HostCommand::Delete { expected } => {
+                    store.delete_host(slug.as_deref(), &expected)?;
+                    Ok(HostResponse::Deleted)
+                }
+                HostCommand::LinkTargets => store
+                    .link_targets(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkTargets),
+                HostCommand::OfferLink { desired } => store
+                    .matching_link_targets(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                        &desired,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkOffer),
+                HostCommand::SaveLink {
+                    expected,
+                    desired,
+                    target,
+                } => store
+                    .save_linked_host(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                        expected.as_deref(),
+                        *desired,
+                        &target,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkSaved),
+                HostCommand::SelectLink { expected } => store
+                    .select_link_target(
+                        slug.as_deref()
+                            .ok_or_else(|| Error::Invalid("open a project to link hosts".into()))?,
+                        &expected,
+                    )
+                    .map(Box::new)
+                    .map(HostResponse::LinkSelected),
+            };
+            let result = if mutating {
+                service.blocking_mutation(&token, action).await
+            } else {
+                service.blocking(&token, action).await
+            };
+            match &result {
+                Err(error) => service.logger.failure("host management failed", error, &[]),
+                Ok(HostResponse::LinkSaved(saved)) => {
+                    if saved.warning.is_some() {
+                        service
+                            .logger
+                            .error("host link save partially completed", &[]);
+                    }
+                    if let Some(error) = &saved.destination_error {
+                        service
+                            .logger
+                            .failure("host link destination save failed", error, &[]);
+                    }
+                }
+                Ok(HostResponse::LinkSelected(promotion)) if promotion.warning.is_some() => {
+                    service
+                        .logger
+                        .error("host link selection partially completed", &[]);
+                }
+                _ => {}
+            }
+            result
+        });
+        Operation { id, cancel, task }
+    }
     pub fn new() -> Result<Self> {
         Ok(Self {
-            runtime: Arc::new(BackgroundRuntime(Some(
-                Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .max_blocking_threads(4)
-                    .enable_all()
-                    .build()?,
-            ))),
+            runtime: Arc::new(BackgroundRuntime {
+                runtime: Some(
+                    Builder::new_multi_thread()
+                        .worker_threads(2)
+                        .max_blocking_threads(4)
+                        .enable_all()
+                        .build()?,
+                ),
+                tasks: TaskTracker::new(),
+            }),
             permits: Arc::new(Semaphore::new(4)),
+            logger: crate::logging::Logger::default(),
         })
+    }
+    pub fn with_logger(mut self, logger: crate::logging::Logger) -> Self {
+        self.logger = logger;
+        self
+    }
+    pub fn logger(&self) -> &crate::logging::Logger {
+        &self.logger
+    }
+    /// Call after views have cancelled/dropped their operations and the GUI loop has ended.
+    /// Terminal outcomes and transport cleanup must precede closing the diagnostic writer.
+    pub fn wait_for_shutdown(&self) {
+        self.runtime.tasks.close();
+        self.runtime.block_on(self.runtime.tasks.wait());
     }
     pub fn open(
         &self,
@@ -100,9 +237,12 @@ impl BrowserService {
             let prepare_store = store.clone();
             let mut result = service
                 .blocking(&token, move || {
+                    let directory = drift_core::project::clean_path(&directory);
                     let registry = prepare_store.registry()?;
                     let project = registry.find_by_path(&directory);
-                    let base = project.map_or(directory.clone(), |p| p.path.clone());
+                    let base = project.map_or(directory.clone(), |p| {
+                        drift_core::project::clean_path(&p.path)
+                    });
                     let slug = project.map(|p| p.slug.clone());
                     let config = prepare_store.runtime(slug.as_deref())?;
                     let root = Arc::new(ProjectRoot::open(&base)?);
@@ -124,7 +264,7 @@ impl BrowserService {
                 .await?;
             if let Some(slug) = result.location.slug.clone() {
                 result.registry = service
-                    .blocking(&token, move || {
+                    .blocking_mutation(&token, move || {
                         store.mark_opened(&slug)?;
                         store.registry()
                     })
@@ -149,12 +289,18 @@ impl BrowserService {
             let entries = service
                 .list(&token, &location, show_hidden, show_ignored)
                 .await?;
-            let registry = service.blocking(&token, move || store.registry()).await?;
-            Ok(Directory {
-                location,
-                entries,
-                registry,
-            })
+            service
+                .blocking(&token, move || {
+                    let mut location = location;
+                    location.config = store.host_catalog(location.slug.as_deref())?.runtime;
+                    let registry = store.registry()?;
+                    Ok(Directory {
+                        location,
+                        entries,
+                        registry,
+                    })
+                })
+                .await
         });
         Operation { id, cancel, task }
     }
@@ -181,7 +327,8 @@ impl BrowserService {
         let token = cancel.clone();
         let task = self.runtime.spawn(async move {
             service
-                .blocking(&token, move || {
+                .blocking_mutation(&token, move || {
+                    let path = drift_core::project::git_root(&path)?.unwrap_or(path);
                     store.register(&name, path.clone())?;
                     Ok(path)
                 })
@@ -189,7 +336,7 @@ impl BrowserService {
         });
         Operation { id, cancel, task }
     }
-    async fn blocking<T: Send + 'static>(
+    pub(crate) async fn blocking<T: Send + 'static>(
         &self,
         cancel: &CancellationToken,
         action: impl FnOnce() -> Result<T> + Send + 'static,
@@ -210,6 +357,30 @@ impl BrowserService {
             _ = cancel.cancelled() => Err(Error::Invalid("operation cancelled".into())),
             result = task => result.map_err(|e| Error::Invalid(format!("background operation failed: {e}")))?,
         }
+    }
+    /// Mutations must finish before a sync reports their outcome. Cancellation
+    /// can stop admission, but cannot detach an already-running commit/delete.
+    pub(crate) async fn blocking_mutation<T: Send + 'static>(
+        &self,
+        cancel: &CancellationToken,
+        action: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let permit = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Error::Invalid("operation cancelled".into())),
+            permit = self.permits.clone().acquire_owned() => permit.map_err(|_| Error::Invalid("background worker closed".into()))?,
+        };
+        let token = cancel.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                let _permit = permit;
+                if token.is_cancelled() {
+                    return Err(Error::Invalid("operation cancelled".into()));
+                }
+                action()
+            })
+            .await
+            .map_err(|e| Error::Invalid(format!("background mutation failed: {e}")))?
     }
     async fn list(
         &self,
@@ -271,7 +442,7 @@ impl BrowserService {
 
 /// Git owns ignore semantics (including tracked files, worktrees and global
 /// excludes). One NUL-delimited query per scan also supports remote-only paths.
-async fn classify_ignored(
+pub(crate) async fn classify_ignored(
     cancel: &CancellationToken,
     root: &Path,
     entries: &[Entry],
@@ -340,7 +511,11 @@ async fn classify_ignored(
         if relative.contains('\0') {
             return Err(Error::Invalid("ignore path contains NUL".into()));
         }
-        input.extend_from_slice(relative.as_bytes());
+        input.extend_from_slice(if relative.is_empty() {
+            b"."
+        } else {
+            relative.as_bytes()
+        });
         if entry.directory {
             input.push(b'/');
         }
@@ -354,20 +529,23 @@ async fn classify_ignored(
     use tokio::io::AsyncWriteExt;
     // Read output concurrently: a large finder query must not deadlock on full
     // stdout/stderr pipes while its stdin is still being written.
-    let output = tokio::select! {
+    let (written, output) = tokio::select! {
         _ = cancel.cancelled() => return Err(Error::Invalid("operation cancelled".into())),
         result = async {
             let write = async { stdin.write_all(&input).await?; drop(stdin); Ok::<(), std::io::Error>(()) };
-            let (written, output) = tokio::join!(write, child.wait_with_output());
-            written?; output
-        } => result?,
+            tokio::join!(write, child.wait_with_output())
+        } => result,
     };
+    let output = output?;
+    // Git may reject its index before consuming stdin. Prefer that failure to
+    // its secondary broken pipe; a successful process still requires a full write.
     if !output.status.success() && output.status.code() != Some(1) {
         return Err(Error::Invalid(format!(
             "Git ignore classification: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
     }
+    written?;
     let fields: Vec<_> = output.stdout.split(|b| *b == 0).collect();
     if fields.len() != entries.len() * 4 + 1 || fields.last() != Some(&&b""[..]) {
         return Err(Error::Invalid("malformed Git ignore output".into()));
@@ -377,6 +555,9 @@ async fn classify_ignored(
         .map(|record| !record[0].is_empty() && !record[2].starts_with(b"!"))
         .collect())
 }
+
+#[cfg(test)]
+mod tests;
 
 pub fn hard_excluded(path: &Path, directory: bool) -> bool {
     let parts: Vec<_> = path.components().collect();

@@ -103,3 +103,63 @@ async fn tracked_files_and_parent_worktree_rules_survive_subdirectory_browsing()
         assert_eq!(names, ["tracked.txt", "visible.txt"]);
     }
 }
+
+#[tokio::test]
+async fn directory_refresh_reloads_hosts_without_reopening_the_capability_root() {
+    use drift_core::config::Host;
+    use std::sync::Arc;
+    let tree = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let project = store.register("Project", tree.path().into()).unwrap();
+    let before = Host {
+        name: "prod".into(),
+        hostname: "before.example".into(),
+        root_path: "/srv".into(),
+        ..Host::default()
+    };
+    store
+        .save_host(Some(&project.slug), None, before.clone())
+        .unwrap();
+    let service = BrowserService::new().unwrap();
+    let directory = service
+        .open(
+            store.clone(),
+            tree.path().into(),
+            OperationId {
+                project: 1,
+                operation: 1,
+            },
+            false,
+            false,
+        )
+        .task
+        .await
+        .unwrap()
+        .unwrap();
+    let root = directory.location.root.clone();
+    let after = Host {
+        hostname: "after.example".into(),
+        ..before.clone()
+    };
+    store
+        .save_host(Some(&project.slug), Some(&before), after)
+        .unwrap();
+    let refreshed = service
+        .read_directory(
+            store,
+            directory.location,
+            OperationId {
+                project: 1,
+                operation: 2,
+            },
+            false,
+            false,
+        )
+        .task
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(refreshed.location.config.hosts[0].hostname, "after.example");
+    assert!(Arc::ptr_eq(&root, &refreshed.location.root));
+}

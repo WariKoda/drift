@@ -150,7 +150,7 @@ func registerCandidate(workDir string, cfg *config.MergedConfig, reg *project.Re
 func (a *App) registerPending() error {
 	now := time.Now().UTC()
 	var p project.Project
-	if err := a.persist(func(reg *project.Registry) error {
+	if err := a.persist(nil, func(reg *project.Registry) error {
 		p = project.Project{
 			Slug:      reg.UniqueSlug(project.Slugify(a.state.PendingRegisterName)),
 			Name:      a.state.PendingRegisterName,
@@ -379,7 +379,7 @@ func (a *App) recordOpened(slug string) {
 	if a.registry == nil || a.store == nil || slug == "" {
 		return
 	}
-	if err := a.persist(func(reg *project.Registry) error {
+	if err := a.persist(nil, func(reg *project.Registry) error {
 		existing := reg.Find(slug)
 		if existing == nil {
 			return fmt.Errorf("project %q not found", slug)
@@ -444,7 +444,7 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	now := time.Now().UTC()
 
 	if msg.OldSlug == "" {
-		return a.persist(func(reg *project.Registry) error {
+		return a.persist(nil, func(reg *project.Registry) error {
 			return reg.Add(project.Project{
 				Slug:      reg.UniqueSlug(project.Slugify(msg.Name)),
 				Name:      msg.Name,
@@ -463,7 +463,7 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	updated.Name = msg.Name
 	updated.Path = path
 	updated.UpdatedAt = now
-	return a.persist(func(reg *project.Registry) error {
+	return a.persist(nil, func(reg *project.Registry) error {
 		return reg.Update(msg.OldSlug, updated)
 	})
 }
@@ -471,14 +471,20 @@ func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 // persist applies a mutation to a private registry snapshot, writes it, then
 // publishes it to the running app. A failed write cannot leak the mutation into
 // a later successful save.
-func (a *App) persist(mutate func(*project.Registry) error) error {
+func (a *App) persist(lock *config.WriteLock, mutate func(*project.Registry) error) error {
 	candidate := *a.registry
 	candidate.Projects = append([]project.Project(nil), a.registry.Projects...)
 	if err := mutate(&candidate); err != nil {
 		return err
 	}
-	if err := a.store.Save(&candidate); err != nil {
-		return err
+	var saveErr error
+	if lock == nil {
+		saveErr = a.store.Save(&candidate)
+	} else {
+		saveErr = a.store.SaveLocked(lock, &candidate)
+	}
+	if saveErr != nil {
+		return saveErr
 	}
 	a.registry = &candidate
 	a.dashboard.Refresh(a.registry)
@@ -592,8 +598,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case dashboard.MsgDeleteProject:
-		if err := config.RemoveProjectStore(msg.Slug, func() error {
-			return a.persist(func(reg *project.Registry) error { return reg.Remove(msg.Slug) })
+		if err := config.RemoveProjectStore(msg.Slug, func(lock *config.WriteLock) error {
+			return a.persist(lock, func(reg *project.Registry) error { return reg.Remove(msg.Slug) })
 		}); err != nil {
 			a.dashboard.SetStatus("Delete failed: " + err.Error())
 			a.state.Screen = ScreenDashboard
@@ -637,7 +643,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			updated := *p
 			updated.Archived = !updated.Archived
 			updated.UpdatedAt = time.Now().UTC()
-			if err := a.persist(func(reg *project.Registry) error { return reg.Update(msg.Slug, updated) }); err != nil {
+			if err := a.persist(nil, func(reg *project.Registry) error { return reg.Update(msg.Slug, updated) }); err != nil {
 				a.dashboard.SetStatus("Archive failed: " + err.Error())
 			}
 		}

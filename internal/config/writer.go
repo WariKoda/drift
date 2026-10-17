@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/BurntSushi/toml"
 )
@@ -17,6 +18,16 @@ import (
 // therefore leaves the running session exactly as it was, instead of showing a
 // host that does not exist on disk or hiding one that does.
 func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
+	if err := validateWriteHosts(cfg.GlobalHosts); err != nil {
+		return err
+	}
+	if err := validateWriteHosts([]Host{h}); err != nil {
+		return err
+	}
+	return WithWriteLock(func(_ *WriteLock) error { return saveGlobalHost(cfg, h, oldName) })
+}
+
+func saveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 	if h.IsLink() {
 		return fmt.Errorf("host %q: a global host cannot link a server", h.Name)
 	}
@@ -47,12 +58,15 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 		return err
 	}
 
+	if err := checkHostConflict(base.Hosts, cfg.GlobalHosts, base.Defaults, oldName); err != nil {
+		return err
+	}
 	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
 	if err := writeGlobal(base); err != nil {
 		return err
 	}
 
-	cfg.GlobalHosts = replaceOrAppend(cfg.GlobalHosts, h, oldName)
+	cfg.GlobalHosts = hostsWithDefaults(base.Hosts, base.Defaults)
 	rebuildMerged(cfg)
 	return nil
 }
@@ -60,6 +74,13 @@ func SaveGlobalHost(cfg *MergedConfig, h Host, oldName string) error {
 // DeleteGlobalHost removes a host by name from the global config file. A server
 // that project hosts still link cannot be deleted.
 func DeleteGlobalHost(cfg *MergedConfig, name string) error {
+	if err := validateWriteHosts(cfg.GlobalHosts); err != nil {
+		return err
+	}
+	return WithWriteLock(func(_ *WriteLock) error { return deleteGlobalHost(cfg, name) })
+}
+
+func deleteGlobalHost(cfg *MergedConfig, name string) error {
 	users, err := serverUsers(name)
 	if err != nil {
 		return err
@@ -71,21 +92,38 @@ func DeleteGlobalHost(cfg *MergedConfig, name string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkHostConflict(base.Hosts, cfg.GlobalHosts, base.Defaults, name); err != nil {
+		return err
+	}
 	base.Hosts = removeHost(base.Hosts, name)
 	if err := writeGlobal(base); err != nil {
 		return err
 	}
 
-	cfg.GlobalHosts = removeHost(cfg.GlobalHosts, name)
+	cfg.GlobalHosts = hostsWithDefaults(base.Hosts, base.Defaults)
 	rebuildMerged(cfg)
 	return nil
 }
 
 // SaveProjectHost adds or replaces a host in the project's store.
 func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
+	if err := validateWriteHosts(cfg.ProjectHosts); err != nil {
+		return err
+	}
+	if err := validateWriteHosts([]Host{h}); err != nil {
+		return err
+	}
+	return WithWriteLock(func(_ *WriteLock) error { return saveProjectHost(cfg, h, oldName) })
+}
+
+func saveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
+	global, err := globalConfigBase(cfg)
+	if err != nil {
+		return err
+	}
 	if h.IsLink() {
 		h = linkFields(h)
-		if err := validateLinks([]Host{h}, cfg.GlobalHosts); err != nil {
+		if err := validateLinks([]Host{h}, global.Hosts); err != nil {
 			return err
 		}
 	}
@@ -111,20 +149,36 @@ func SaveProjectHost(cfg *MergedConfig, h Host, oldName string) error {
 		return err
 	}
 
+	if err := checkHostConflict(base.Hosts, cfg.ProjectHosts, base.Defaults, oldName); err != nil {
+		return err
+	}
 	base.Hosts = replaceOrAppend(base.Hosts, h, oldName)
 	if err := writeProjectStore(cfg.ProjectSlug, base); err != nil {
 		return err
 	}
 
-	cfg.ProjectHosts = replaceOrAppend(cfg.ProjectHosts, h, oldName)
+	cfg.ProjectHosts = hostsWithDefaults(base.Hosts, base.Defaults)
+	cfg.ProjectDefaults = base.Defaults
+	cfg.Mappings = base.Mappings
+	cfg.GlobalHosts = hostsWithDefaults(global.Hosts, global.Defaults)
 	rebuildMerged(cfg)
 	return nil
 }
 
 // DeleteProjectHost removes a host by name from the project's store.
 func DeleteProjectHost(cfg *MergedConfig, name string) error {
+	if err := validateWriteHosts(cfg.ProjectHosts); err != nil {
+		return err
+	}
+	return WithWriteLock(func(_ *WriteLock) error { return deleteProjectHost(cfg, name) })
+}
+
+func deleteProjectHost(cfg *MergedConfig, name string) error {
 	base, err := projectStoreBase(cfg)
 	if err != nil {
+		return err
+	}
+	if err := checkHostConflict(base.Hosts, cfg.ProjectHosts, base.Defaults, name); err != nil {
 		return err
 	}
 	base.Hosts = removeHost(base.Hosts, name)
@@ -132,7 +186,9 @@ func DeleteProjectHost(cfg *MergedConfig, name string) error {
 		return err
 	}
 
-	cfg.ProjectHosts = removeHost(cfg.ProjectHosts, name)
+	cfg.ProjectHosts = hostsWithDefaults(base.Hosts, base.Defaults)
+	cfg.ProjectDefaults = base.Defaults
+	cfg.Mappings = base.Mappings
 	rebuildMerged(cfg)
 	return nil
 }
@@ -339,8 +395,8 @@ func hostsOut(hosts []Host) []hostOut {
 // that project's credentials and the registry holds every project, so half of
 // either file is worse than none.
 //
-// It also makes two drift instances writing the same file lose one of the two
-// writes instead of interleaving into a broken one.
+// This is the encoding primitive; callers must hold WriteLock across the
+// complete read/validate/mutate/write operation.
 func WriteTOML(path string, v any) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(v); err != nil {
@@ -369,4 +425,57 @@ func WriteTOML(path string, v any) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+func checkHostConflict(fresh, expected []Host, defaults Defaults, name string) error {
+	if name == "" {
+		return nil
+	}
+	var current, original *Host
+	for _, h := range fresh {
+		if h.Name == name {
+			value := withDefaults(h, defaults)
+			if h.IsLink() {
+				value = linkFields(h)
+			}
+			current = &value
+		}
+	}
+	for _, h := range expected {
+		if h.Name == name {
+			value := withDefaults(h, defaults)
+			if h.IsLink() {
+				value = linkFields(h)
+			}
+			original = &value
+		}
+	}
+	if !reflect.DeepEqual(current, original) {
+		return &ConflictError{Record: "host " + name}
+	}
+	return nil
+}
+
+func validateWriteHosts(hosts []Host) error {
+	for _, h := range hosts {
+		if err := ValidateKeepAliveInterval(h.KeepAliveInterval); err != nil {
+			return err
+		}
+		if err := ValidateMappings(h.Mappings); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hostsWithDefaults(hosts []Host, defaults Defaults) []Host {
+	out := make([]Host, len(hosts))
+	for i, h := range hosts {
+		if h.IsLink() {
+			out[i] = h
+		} else {
+			out[i] = withDefaults(h, defaults)
+		}
+	}
+	return out
 }

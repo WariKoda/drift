@@ -1,0 +1,27 @@
+[package]
+name = "drift-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+drift-app.workspace = true
+drift-core.workspace = true
+tokio-util.workspace = true
+tokio.workspace = true
+gpui-kit.workspace = true
+unicode-segmentation.workspace = true
+
+[build-dependencies]
+semver.workspace = true
+
+[dev-dependencies]
+semver.workspace = true
+fs2.workspace = true
+rustls.workspace = true
+tempfile.workspace = true
+gpui-kit = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

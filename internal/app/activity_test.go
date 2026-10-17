@@ -98,7 +98,7 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 			server.SetSendData(func(c net.Conn, data string) error {
 				chunk := len(data) / 12
 				for len(data) > 0 {
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(500 * time.Millisecond)
 					n := min(chunk, len(data))
 					if _, err := io.WriteString(c, data[:n]); err != nil {
 						return err
@@ -115,10 +115,10 @@ func TestLoadCmdActiveTransferOutlivesIdleWindow(t *testing.T) {
 			host := server.Host(t)
 			host.RootPath = "/"
 			conn := connectTestHost(t, host)
-			// The window has to cover the Git processes that classify the
-			// selection before any byte moves; a busy CI runner needed more than
-			// 150ms for them. The transfer itself still takes three windows.
-			const idle = 400 * time.Millisecond
+			// Include Git classification and connection setup on shared CI
+			// runners. The transfer still lasts three idle windows, so missing
+			// byte-activity notifications fail this test rather than passing.
+			const idle = 2 * time.Second
 			tracker := progress.NewTracker("Connecting…")
 			start := time.Now()
 			loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
@@ -166,14 +166,15 @@ func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 			conn := connectTestHost(t, host)
 			tracker := progress.NewTracker("Connecting…")
 			result := make(chan error, 1)
+			const idle = 2 * time.Second // allow real Git preflight before the stalled transfer
 			go func() {
 				_, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
-					Remote: &fs.SelectionState{Marked: map[string]struct{}{"/file": {}}}, Conn: conn, IdleTimeout: 100 * time.Millisecond}, tracker)
+					Remote: &fs.SelectionState{Marked: map[string]struct{}{"/file": {}}}, Conn: conn, IdleTimeout: idle}, tracker)
 				result <- err
 			}()
 			select {
 			case <-started:
-			case <-time.After(time.Second):
+			case <-time.After(5 * time.Second):
 				t.Fatal("transfer did not start")
 			}
 			if userCancel {
@@ -191,7 +192,7 @@ func TestLoadCmdStalledTransferStopsOnIdleOrCancel(t *testing.T) {
 				} else if !errors.Is(err, ErrIdleTimeout) || progress.IsCanceled(err) {
 					t.Fatalf("idle: %v", err)
 				}
-			case <-time.After(2 * time.Second):
+			case <-time.After(2*idle + time.Second):
 				t.Fatal("stalled transfer not interrupted")
 			}
 			if _, err := os.Stat(local); !errors.Is(err, os.ErrNotExist) {

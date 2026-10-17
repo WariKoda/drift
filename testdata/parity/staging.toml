@@ -1,0 +1,18 @@
+[[cases]]
+name = ".main.go.drift-tmp-0123456789abcdef0123456789ABCDEF"
+staging = true
+[[cases]]
+name = "main.go.drift-tmp-0123456789abcdef0123456789abcdef"
+staging = false
+[[cases]]
+name = ".drift-tmp-0123456789abcdef0123456789abcdef"
+staging = false
+[[cases]]
+name = ".main.go.drift-tmp-short"
+staging = false
+[[cases]]
+name = ".main.go.drift-tmp-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+staging = false
+[[cases]]
+name = ".a.drift-tmp-b.drift-tmp-0123456789abcdef0123456789abcdef"
+staging = true

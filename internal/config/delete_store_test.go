@@ -19,7 +19,7 @@ func TestRemoveProjectStoreRemovesProjectSettingsAfterCommit(t *testing.T) {
 	}
 
 	committed := false
-	if err := RemoveProjectStore("shop", func() error {
+	if err := RemoveProjectStore("shop", func(_ *WriteLock) error {
 		committed = true
 		return nil
 	}); err != nil {
@@ -31,7 +31,7 @@ func TestRemoveProjectStoreRemovesProjectSettingsAfterCommit(t *testing.T) {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("project store still exists: %v", err)
 	}
-	if err := RemoveProjectStore("shop", func() error { return nil }); err != nil {
+	if err := RemoveProjectStore("shop", func(_ *WriteLock) error { return nil }); err != nil {
 		t.Fatalf("deleting a missing store: %v", err)
 	}
 }
@@ -43,7 +43,7 @@ func TestRemoveProjectStoreRestoresSettingsAfterFailedCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitErr := errors.New("registry write failed")
-	if err := RemoveProjectStore("shop", func() error { return commitErr }); !errors.Is(err, commitErr) {
+	if err := RemoveProjectStore("shop", func(_ *WriteLock) error { return commitErr }); !errors.Is(err, commitErr) {
 		t.Fatalf("RemoveProjectStore error = %v, want commit error", err)
 	}
 	stored, err := loadProjectStore("shop")

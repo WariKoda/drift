@@ -62,7 +62,7 @@ func TestFailedPersistLeavesRegistryUnchanged(t *testing.T) {
 	}}}
 	a := App{store: project.NewStore(), registry: reg}
 
-	err := a.persist(func(candidate *project.Registry) error {
+	err := a.persist(nil, func(candidate *project.Registry) error {
 		return candidate.Add(project.Project{Slug: "staging", Name: "Staging", Path: "/work/staging"})
 	})
 	if err == nil {

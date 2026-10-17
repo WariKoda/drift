@@ -66,6 +66,21 @@ go env -w GOBIN="$HOME/.local/bin"
 make update
 ```
 
+### Rust desktop port (in development)
+
+The native `drift-gui` application lives in [`rust/`](rust/README.md) alongside
+the Go TUI. Both are standalone applications in this repository, with independent
+builds, installation and release cycles. The TUI remains a maintained product;
+the GUI implements its own Rust core and requires no Go executable at runtime.
+Both applications use the existing project and host files with coordinated
+writes when the TUI is built from this branch. Certificate-trust persistence in
+Rust is still pending.
+
+The GUI now browses local folders, finds and filters project files, previews
+text and opens or registers projects. Remote browsing and sync are not
+implemented yet. See the Rust README for platform dependencies, build targets,
+shared-store requirements and the remaining milestones.
+
 ---
 
 ## Usage

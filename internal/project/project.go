@@ -26,9 +26,18 @@ type Project struct {
 	OpenedAt  time.Time `toml:"opened_at,omitempty"`
 }
 
+// Equal compares persisted values. TOML does not retain a clock's monotonic
+// reading or time zone object, so timestamps compare by their actual instant.
+func (p Project) Equal(other Project) bool {
+	return p.Slug == other.Slug && p.Name == other.Name && p.Path == other.Path &&
+		p.Archived == other.Archived && p.CreatedAt.Equal(other.CreatedAt) &&
+		p.UpdatedAt.Equal(other.UpdatedAt) && p.OpenedAt.Equal(other.OpenedAt)
+}
+
 // Registry is the structure of projects.toml.
 type Registry struct {
 	Projects []Project `toml:"projects"`
+	original []Project // last loaded/successfully written snapshot; never encoded
 }
 
 // Find returns a pointer to the project with the given slug, or nil.

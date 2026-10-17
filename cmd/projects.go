@@ -132,8 +132,8 @@ var projectsRemoveCmd = &cobra.Command{
 		if err := reg.Remove(slug); err != nil {
 			return err
 		}
-		if err := config.RemoveProjectStore(slug, func() error {
-			return store.Save(reg)
+		if err := config.RemoveProjectStore(slug, func(lock *config.WriteLock) error {
+			return store.SaveLocked(lock, reg)
 		}); err != nil {
 			return err
 		}

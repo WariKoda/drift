@@ -38,6 +38,129 @@ fn open(store: &Store, cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Proj
     })
 }
 #[gpui_kit::test]
+async fn keyboard_safety_project_confirmation_tabs_activate_cancel_not_remove(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let project = store.register("Keep", root.path().into()).unwrap();
+    store
+        .save_host(
+            Some(&project.slug),
+            None,
+            drift_core::config::Host {
+                name: "prod".into(),
+                hostname: "example.test".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let host_store = fs::read(config.path().join("projects/keep.toml")).unwrap();
+    let (handle, panel) = open(&store, cx);
+    idle(handle, &panel, cx).await;
+    for key in ["enter", "space"] {
+        cx.update_window(handle, |_, w, cx| {
+            w.press("down", cx);
+            w.press("d", cx);
+            assert!(panel.read(cx).focus.is_focused(w));
+            // Traverse the real confirm button, then Cancel; never assign target focus.
+            w.press("tab", cx);
+            assert_eq!(w.find("project-delete-confirm").focused(), Some(true));
+            w.press("tab", cx);
+            assert_eq!(w.find("project-close").focused(), Some(true));
+            w.press(key, cx);
+            assert!(panel.read(cx).delete.is_none());
+            assert!(panel.read(cx).visible());
+            assert!(panel.read(cx).list_focus.is_focused(w));
+            assert!(panel.read(cx).cancel.is_none());
+        })
+        .unwrap();
+        assert!(store.registry().unwrap().find("keep").unwrap() == &project);
+        assert_eq!(
+            fs::read(config.path().join("projects/keep.toml")).unwrap(),
+            host_store
+        );
+    }
+    // Enter on a traversed affirmative button still confirms exactly that button.
+    cx.update_window(handle, |_, w, cx| {
+        w.press("d", cx);
+        w.press("tab", cx);
+        assert_eq!(w.find("project-delete-confirm").focused(), Some(true));
+        w.press("enter", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert!(store.registry().unwrap().find("keep").is_none());
+    assert!(root.path().exists());
+}
+
+#[gpui_kit::test]
+async fn keyboard_safety_project_edit_tab_navigation_keeps_input_and_cancel_native(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    let project = store.register("Keep", root.path().into()).unwrap();
+    let (handle, panel) = open(&store, cx);
+    idle(handle, &panel, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("e", cx);
+        w.input("unsaved", cx);
+        w.press("tab", cx);
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .path
+                .focus_handle(cx)
+                .is_focused(w)
+        );
+        w.press("shift-tab", cx);
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .focus_handle(cx)
+                .is_focused(w)
+        );
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .read(cx)
+                .value()
+                .ends_with("unsaved")
+        );
+        w.press("tab", cx);
+        w.press("tab", cx);
+        assert_eq!(w.find("project-close").focused(), Some(true));
+        w.press("tab", cx);
+        assert_eq!(w.find("project-save").focused(), Some(true));
+        w.press("shift-tab", cx);
+        assert_eq!(w.find("project-close").focused(), Some(true));
+        w.press("enter", cx);
+        assert!(panel.read(cx).form.is_none());
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        assert!(panel.read(cx).cancel.is_none());
+    })
+    .unwrap();
+    assert!(store.registry().unwrap().find("keep").unwrap() == &project);
+}
+
+#[gpui_kit::test]
 async fn create_edit_archive_and_confirmed_remove_keep_local_files(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     let config = tempfile::tempdir().unwrap();
@@ -52,7 +175,7 @@ async fn create_edit_archive_and_confirmed_remove_keep_local_files(cx: &mut Test
         w.input("Shop", cx);
         w.click("project-edit-path", cx);
         w.input(root.path().to_str().unwrap(), cx);
-        w.click("project-save", cx);
+        w.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &panel, cx).await;
@@ -77,7 +200,7 @@ async fn create_edit_archive_and_confirmed_remove_keep_local_files(cx: &mut Test
                 .name
                 .update(cx, |input, cx| input.set_value("Renamed", w, cx))
         });
-        w.click("project-save", cx);
+        w.press("ctrl-s", cx);
     })
     .unwrap();
     idle(handle, &panel, cx).await;
@@ -105,7 +228,7 @@ async fn create_edit_archive_and_confirmed_remove_keep_local_files(cx: &mut Test
     assert!(store.registry().unwrap().find("shop").is_some());
     cx.update_window(handle, |_, w, cx| {
         w.click("project-delete-shop", cx);
-        w.click("project-delete-confirm", cx);
+        w.press("enter", cx);
     })
     .unwrap();
     idle(handle, &panel, cx).await;
@@ -139,7 +262,7 @@ async fn stale_edit_and_delete_preserve_inputs_and_confirmation(cx: &mut TestApp
     store
         .edit_project(&project, "Concurrent", root.path().to_str().unwrap())
         .unwrap();
-    cx.update_window(handle, |_, w, cx| w.click("project-save", cx))
+    cx.update_window(handle, |_, w, cx| w.press("ctrl-s", cx))
         .unwrap();
     idle(handle, &panel, cx).await;
     cx.update_window(handle, |_, w, cx| {
@@ -164,7 +287,7 @@ async fn stale_edit_and_delete_preserve_inputs_and_confirmation(cx: &mut TestApp
     cx.update_window(handle, |_, w, cx| w.click("project-delete-shop", cx))
         .unwrap();
     store.mark_opened("shop").unwrap();
-    cx.update_window(handle, |_, w, cx| w.click("project-delete-confirm", cx))
+    cx.update_window(handle, |_, w, cx| w.press("enter", cx))
         .unwrap();
     idle(handle, &panel, cx).await;
     assert!(panel.read_with(cx, |p, _| p.delete.is_some()
@@ -172,5 +295,267 @@ async fn stale_edit_and_delete_preserve_inputs_and_confirmation(cx: &mut TestApp
     assert_eq!(
         store.registry().unwrap().find("shop").unwrap().name,
         "Concurrent"
+    );
+}
+
+#[gpui_kit::test]
+async fn keyboard_projects_keep_cursor_filter_forms_and_confirmation_separate(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let roots = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    for i in 0..12 {
+        let path = roots.path().join(format!("project-{i:02}"));
+        fs::create_dir(&path).unwrap();
+        store.register(&format!("Project {i:02}"), path).unwrap();
+    }
+    let (handle, panel) = open(&store, cx);
+    idle(handle, &panel, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        for (key, expected) in [
+            ("end", "project-11"),
+            ("home", "project-00"),
+            ("j", "project-01"),
+            ("k", "project-00"),
+            ("shift-g", "project-11"),
+            ("g", "project-00"),
+        ] {
+            w.press(key, cx);
+            assert_eq!(panel.read(cx).selected_project(cx).unwrap().slug, expected);
+        }
+        w.press("end", cx);
+        assert!(panel.read(cx).scroll.offset().y < px(0.));
+        w.press("e", cx);
+        assert_eq!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .expected
+                .as_ref()
+                .unwrap()
+                .slug,
+            "project-11"
+        );
+        w.press("ctrl-f", cx); // Search must not steal focus from the active form.
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .focus_handle(cx)
+                .is_focused(w)
+        );
+        w.input("nde", cx);
+        w.press("escape", cx);
+        assert!(panel.read(cx).form.is_none());
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        assert_eq!(
+            panel.read(cx).selected_project(cx).unwrap().slug,
+            "project-11"
+        );
+        w.press("n", cx);
+        w.press("escape", cx);
+        assert_eq!(
+            panel.read(cx).selected_project(cx).unwrap().slug,
+            "project-11"
+        );
+        w.press("/", cx);
+        w.input("Project 05", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        w.press("enter", cx); // Filter -> list, without opening a project.
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        assert_eq!(
+            panel.read(cx).selected_project(cx).unwrap().slug,
+            "project-05"
+        );
+        w.press("a", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert!(
+        store
+            .registry()
+            .unwrap()
+            .find("project-05")
+            .unwrap()
+            .archived
+    );
+    cx.update_window(handle, |_, w, cx| {
+        assert!(panel.read(cx).visible_projects(cx).is_empty());
+        w.press("home", cx);
+        w.press("end", cx);
+        w.press("delete", cx);
+        assert!(panel.read(cx).delete.is_none());
+        w.press(".", cx);
+        assert_eq!(
+            panel.read(cx).selected_project(cx).unwrap().slug,
+            "project-05"
+        );
+        w.press("a", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert!(
+        !store
+            .registry()
+            .unwrap()
+            .find("project-05")
+            .unwrap()
+            .archived
+    );
+    cx.update_window(handle, |_, w, cx| {
+        w.press("d", cx);
+        assert!(panel.read(cx).delete.is_some());
+        w.press("escape", cx);
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        w.press("delete", cx);
+        w.press("enter", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert!(store.registry().unwrap().find("project-05").is_none());
+    assert!(roots.path().join("project-05").exists());
+
+    let new_path = roots.path().join("new");
+    fs::create_dir(&new_path).unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        w.press("n", cx); // Creating works even with no matching rows.
+        w.input("New", cx);
+        w.click("project-edit-path", cx);
+        w.input(new_path.to_str().unwrap(), cx);
+        w.press("cmd-s", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert!(store.registry().unwrap().find("new").is_some());
+    cx.update_window(handle, |_, w, cx| {
+        assert!(panel.read(cx).list_focus.is_focused(w));
+        w.press("ctrl-f", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        w.input("ndeajkgGy", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        assert!(panel.read(cx).form.is_none());
+        assert!(panel.read(cx).delete.is_none());
+        assert_eq!(panel.read(cx).query.read(cx).value().as_str(), "ndeajkgGy");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+async fn numeric_project_shortcuts_follow_visible_rows_and_preserve_text_input(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
+    let roots = tempfile::tempdir().unwrap();
+    let store = Store::new(config.path().into());
+    for i in 0..12 {
+        let path = roots.path().join(format!("project-{i:02}"));
+        fs::create_dir(&path).unwrap();
+        store.register(&format!("Project {i:02}"), path).unwrap();
+    }
+    let (handle, panel) = open(&store, cx);
+    let opened = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let _subscription = cx.update(|cx| {
+        let opened = opened.clone();
+        cx.subscribe(&panel, move |_, event: &ProjectEvent, _| {
+            if let ProjectEvent::Open(path) = event {
+                opened.borrow_mut().push(path.clone());
+            }
+        })
+    });
+    idle(handle, &panel, cx).await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("end", cx); // Numeric choice is independent of the cursor.
+        for n in 1..=9 {
+            w.press(&n.to_string(), cx);
+        }
+        w.press("0", cx);
+        w.press("ctrl-f", cx);
+        w.input("Project 05", cx);
+    })
+    .unwrap();
+    assert_eq!(
+        *opened.borrow(),
+        (0..9)
+            .map(|i| roots.path().join(format!("project-{i:02}")))
+            .collect::<Vec<_>>()
+    );
+    opened.borrow_mut().clear();
+    cx.update_window(handle, |_, w, cx| {
+        w.press("down", cx);
+        w.press("9", cx); // Out-of-range must not open the last matching row.
+        w.press("1", cx);
+        w.press("a", cx);
+    })
+    .unwrap();
+    idle(handle, &panel, cx).await;
+    assert_eq!(*opened.borrow(), vec![roots.path().join("project-05")]);
+    opened.borrow_mut().clear();
+    cx.update_window(handle, |_, w, cx| {
+        w.press("1", cx); // Empty filtered list after archiving.
+        w.press(".", cx);
+        w.press("1", cx); // Visible archived row.
+        w.press("d", cx);
+        w.press("1", cx); // A delete confirmation cannot open a project.
+        w.press("escape", cx);
+        w.press("e", cx);
+        w.input("123456789", cx); // Numbers remain input in the form.
+        assert!(
+            panel
+                .read(cx)
+                .form
+                .as_ref()
+                .unwrap()
+                .name
+                .read(cx)
+                .value()
+                .ends_with("123456789")
+        );
+        w.press("escape", cx);
+        w.press("ctrl-f", cx);
+        w.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        w.input("123456789", cx);
+    })
+    .unwrap();
+    assert_eq!(*opened.borrow(), vec![roots.path().join("project-05")]);
+    assert_eq!(
+        panel.read_with(cx, |p, cx| p.query.read(cx).value().to_string()),
+        "123456789"
+    );
+    assert!(
+        store
+            .registry()
+            .unwrap()
+            .find("project-05")
+            .unwrap()
+            .archived
     );
 }

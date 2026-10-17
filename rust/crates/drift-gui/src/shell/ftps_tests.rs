@@ -219,8 +219,15 @@ async fn ftps_reject_conflict_and_project_switch_preserve_certificate_dialog_ide
                     b"old local"
                 );
                 assert!(!local.path().join("a-confirmed").exists());
-                cx.update_window(handle, |_, w, cx| w.press("escape", cx))
-                    .unwrap();
+                cx.update_window(handle, |_, w, cx| {
+                    w.press("e", cx); // Retained failures are inspectable after reconnect.
+                    assert!(shell.read(cx).comparison.read(cx).errors_visible_for_test());
+                    w.press("escape", cx);
+                    assert!(shell.read(cx).comparison.read(cx).visible());
+                    assert!(!shell.read(cx).comparison.read(cx).errors_visible_for_test());
+                    w.press("escape", cx);
+                })
+                .unwrap();
                 assert!(!shell.read_with(cx, |s, cx| s.comparison.read(cx).visible())); // Focus returned to the visible report.
             }
             _ => unreachable!(),

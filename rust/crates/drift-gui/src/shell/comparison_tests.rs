@@ -100,6 +100,36 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         2
     );
     cx.update_window(handle, |_, w, cx| {
+        w.press("shift-a", cx); // Cycle every valid decision, including other files.
+        w.press("end", cx);
+        w.click("copy-diff", cx);
+        assert!(
+            cx.read_from_clipboard()
+                .unwrap()
+                .text()
+                .unwrap()
+                .contains("- local only")
+        );
+        w.press("shift-a", cx);
+        w.press("shift-a", cx); // Three steps restore both two-sided and local-only decisions.
+        w.press("home", cx);
+        for key in ["end", "shift-g", "n"] {
+            w.press(key, cx);
+            w.click("copy-diff", cx);
+            assert!(
+                cx.read_from_clipboard()
+                    .unwrap()
+                    .text()
+                    .unwrap()
+                    .contains("local only")
+            );
+        }
+        w.press("tab", cx); // List -> diff; file navigation bubbles to the comparison.
+        w.press("p", cx);
+        w.press("shift-tab", cx);
+        assert!(shell.read(cx).comparison.focus_handle(cx).is_focused(w));
+        w.press("home", cx);
+        w.press("g", cx);
         w.click("copy-diff", cx);
         let copy = cx.read_from_clipboard().unwrap().text().unwrap();
         assert!(copy.contains("- local") && copy.contains("+ remote"));
@@ -117,7 +147,7 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         w.press("ctrl-c", cx);
         let copy = cx.read_from_clipboard().unwrap().text().unwrap();
         assert!(copy.contains("before") && !copy.contains("@@") && !copy.contains("local"));
-        w.click("comparison-ignored", cx);
+        w.press("i", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -138,7 +168,7 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
     fs::write(server.dir.path().join("files/new.txt"), "new remote").unwrap();
     cx.update_window(handle, |_, w, cx| {
         w.click("comparison-filter", cx);
-        w.input("jk", cx); // Letter navigation must leave this text input alone.
+        w.input("jknprudissgGA", cx); // Navigation, refresh and sync leave text inputs alone.
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {
@@ -177,14 +207,18 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
         4
     );
     cx.update_window(handle, |_, w, cx| {
-        w.click("sync-all", cx);
-        w.click("sync-dismiss", cx);
+        shell.read(cx).comparison.focus_handle(cx).focus(w, cx);
+        w.press("shift-s", cx);
+        w.press("escape", cx);
+        w.press("ctrl-enter", cx); // Cancelled confirmation must never start sync.
+        assert!(shell.read(cx).comparison.read(cx).visible());
+        assert!(!shell.read(cx).comparison.read(cx).is_loading());
     })
     .unwrap();
     assert!(!local.path().join("ignored.txt").exists());
     cx.update_window(handle, |_, w, cx| {
-        w.click("sync-all", cx);
-        w.click("sync-confirm", cx);
+        w.press("shift-s", cx);
+        w.press("ctrl-enter", cx);
         w.click("comparison-progress", cx); // Keep transfers running while hidden.
     })
     .unwrap();
@@ -346,11 +380,22 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
         shell.read(cx).browser.focus_handle(cx).focus(w, cx);
         w.press("down", cx);
         w.press("space", cx);
+        w.press("right", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).browser.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        w.press("right", cx);
+        w.press("space", cx);
+        w.press("left", cx); // The marked child remains in comparison scope while collapsed.
         w.press("down", cx);
         w.press("space", cx);
         assert_eq!(
             shell.read(cx).browser.read(cx).marked(),
-            ["folder", "ignored.txt"]
+            ["folder", "folder/child.txt", "ignored.txt"]
         );
         w.click("remote", cx);
         w.press("down", cx);
@@ -371,7 +416,11 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
         let session = comparison.session.as_ref().unwrap();
         assert_eq!(
             session.request.local,
-            [PathBuf::from("folder"), PathBuf::from("ignored.txt")]
+            [
+                PathBuf::from("folder"),
+                PathBuf::from("folder/child.txt"),
+                PathBuf::from("ignored.txt")
+            ]
         );
         assert_eq!(session.request.remote.len(), 1);
         let names: Vec<_> = session
@@ -414,9 +463,12 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
     shell.read_with(cx, |s, cx| {
         let session = s.comparison.read(cx).session.as_ref().unwrap();
         assert!(session.entries.is_empty());
-        assert_eq!(session.request.local.len(), 2);
+        assert_eq!(session.request.local.len(), 3);
         assert_eq!(session.request.remote.len(), 1);
-        assert_eq!(s.browser.read(cx).marked(), ["folder", "ignored.txt"]);
+        assert_eq!(
+            s.browser.read(cx).marked(),
+            ["folder", "folder/child.txt", "ignored.txt"]
+        );
         assert_eq!(s.remote.read(cx).marked().len(), 1);
     });
     assert_eq!(

@@ -20,6 +20,10 @@ async fn ftp_and_ftps_connect_preview_compare_sync_and_project_switch_use_existi
         let config = tempfile::tempdir().unwrap();
         fs::write(server.dir.path().join("files/a-remote"), "remote contents").unwrap();
         fs::write(local.path().join("b-local"), "local contents").unwrap();
+        fs::create_dir(server.dir.path().join("files/tree")).unwrap();
+        fs::create_dir(local.path().join("tree")).unwrap();
+        fs::write(server.dir.path().join("files/tree/inside"), "same").unwrap();
+        fs::write(local.path().join("tree/inside"), "same").unwrap();
         let store = Store::new(config.path().into());
         store.save_host(None, None, server.host()).unwrap();
         let (handle, shell) = cx.update(|cx| {
@@ -83,8 +87,32 @@ async fn ftp_and_ftps_connect_preview_compare_sync_and_project_switch_use_existi
             assert!(!config.path().join("trusted-certificates.toml").exists());
         }
         assert!(shell.read_with(cx, |s, cx| s.remote.read(cx).has_session()));
-        cx.update_window(handle, |_, w, cx| w.within("remote-pane").click(0usize, cx))
-            .unwrap();
+        cx.update_window(handle, |_, w, cx| {
+            w.within("remote-pane")
+                .click(("remote-tree-toggle", 0usize), cx)
+        })
+        .unwrap();
+        cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
+            !shell.read(cx).remote.read(cx).is_loading()
+        })
+        .await;
+        cx.update_window(handle, |_, w, cx| {
+            w.press("right", cx);
+            assert!(
+                shell
+                    .read(cx)
+                    .remote
+                    .read(cx)
+                    .selected()
+                    .unwrap()
+                    .ends_with("/tree/inside")
+            );
+            w.press("space", cx);
+            w.press("left", cx);
+            assert_eq!(shell.read(cx).remote.read(cx).marked().len(), 1);
+            w.within("remote-pane").click(1usize, cx);
+        })
+        .unwrap();
         cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
             shell.read(cx).remote_preview && !shell.read(cx).preview.read(cx).is_loading()
         })

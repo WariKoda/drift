@@ -380,6 +380,49 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     assert!(shell.read_with(cx, |shell, cx| shell.remote.read(cx).has_session()));
     cx.update_window(handle, |_, window, cx| {
         window.within("remote-pane").click(0usize, cx);
+        for (key, expected) in [
+            ("end", "second.txt"),
+            ("home", "remote.txt"),
+            ("shift-g", "second.txt"),
+            ("g", "remote.txt"),
+        ] {
+            window.press(key, cx);
+            assert_eq!(
+                shell.read(cx).remote.read(cx).selected(),
+                server.dir.path().join("files").join(expected).to_str()
+            );
+        }
+        window.press("/", cx);
+        window.input("second", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        shell.read(cx).remote.focus_handle(cx).focus(window, cx);
+        window.press("home", cx);
+        assert!(
+            shell
+                .read(cx)
+                .remote
+                .read(cx)
+                .selected()
+                .unwrap()
+                .ends_with("/second.txt")
+        );
+        window.press("escape", cx);
+        window.press("home", cx);
+        assert!(
+            shell
+                .read(cx)
+                .remote
+                .read(cx)
+                .selected()
+                .unwrap()
+                .ends_with("/remote.txt")
+        );
+        window.press("tab", cx);
+        assert!(shell.read(cx).browser.focus_handle(cx).is_focused(window));
+        window.press("shift-tab", cx);
+        assert!(shell.read(cx).remote.focus_handle(cx).is_focused(window));
         window.within("remote-pane").click(1usize, cx);
     })
     .unwrap();
@@ -430,4 +473,120 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     assert!(!shell.read_with(cx, |shell, cx| shell.remote.read(cx).has_session()));
     assert!(shell.read_with(cx, |shell, cx| shell.browser.read(cx).marked().is_empty()));
     assert!(shell.read_with(cx, |shell, cx| shell.remote.read(cx).marked().is_empty()));
+}
+
+#[gpui_kit::test]
+async fn keyboard_boundaries_panes_and_management_preserve_input_and_marks(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let dir = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    for name in ["a.txt", "b.txt", "z.txt", ".hidden"] {
+        fs::write(dir.path().join(name), name).unwrap();
+    }
+    let (handle, shell) = cx.update(|cx| {
+        gpui_kit::init(cx);
+        bind_keys(cx);
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let service = BrowserService::new().unwrap();
+                Shell::new(
+                    window,
+                    cx,
+                    Store::new(config.path().into()),
+                    service.clone(),
+                    RemoteService::new(service),
+                    dir.path().to_path_buf(),
+                )
+            })
+        })
+        .unwrap()
+    });
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        shell.read(cx).browser.read(cx).location().is_some()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        shell.read(cx).browser.focus_handle(cx).focus(w, cx);
+        for (key, expected) in [
+            ("end", "z.txt"),
+            ("home", "a.txt"),
+            ("shift-g", "z.txt"),
+            ("g", "a.txt"),
+        ] {
+            w.press(key, cx);
+            assert_eq!(shell.read(cx).browser.read(cx).selected(), Some(expected));
+        }
+        w.press("space", cx);
+        w.press("tab", cx);
+        assert!(shell.read(cx).show_remote);
+        assert!(shell.read(cx).remote.focus_handle(cx).is_focused(w));
+        // Empty/disconnected lists must also accept boundary keys.
+        w.press("end", cx);
+        w.press("home", cx);
+        assert!(shell.read(cx).remote.read(cx).selected().is_none());
+        w.press("shift-tab", cx);
+        assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
+        assert_eq!(shell.read(cx).browser.read(cx).marked(), ["a.txt"]);
+        w.press("shift-p", cx);
+        assert!(shell.read(cx).projects.read(cx).visible());
+        w.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
+        w.press("shift-h", cx);
+        assert!(shell.read(cx).hosts.is_some());
+        w.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert!(shell.read(cx).hosts.is_none());
+        assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
+        w.press(".", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).browser.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        assert_eq!(shell.read(cx).browser.read(cx).len(), 4);
+        w.press("/", cx);
+        w.input("gGfPH@.Irs", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert_eq!(shell.read(cx).browser.read(cx).len(), 0);
+        assert!(!shell.read(cx).projects.read(cx).visible());
+        assert!(shell.read(cx).hosts.is_none());
+        assert!(!shell.read(cx).comparison.read(cx).visible());
+        assert!(!shell.read(cx).browser.read(cx).is_loading());
+        assert_eq!(shell.read(cx).browser.read(cx).marked(), ["a.txt"]);
+        // Escape is pane-scoped; return focus to clear the filter.
+        shell.read(cx).browser.focus_handle(cx).focus(w, cx);
+        w.press("escape", cx);
+    })
+    .unwrap();
+
+    cx.update_window(handle, |_, w, cx| {
+        assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
+        w.press("end", cx);
+        assert_eq!(shell.read(cx).browser.read(cx).selected(), Some("z.txt"));
+        w.press("f", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+        !shell.read(cx).browser.read(cx).is_loading()
+    })
+    .await;
+    cx.update_window(handle, |_, w, cx| {
+        shell.read(cx).browser.focus_handle(cx).focus(w, cx);
+        w.press("home", cx);
+        assert_eq!(shell.read(cx).browser.read(cx).selected(), Some(".hidden"));
+        w.press("end", cx);
+        assert_eq!(shell.read(cx).browser.read(cx).selected(), Some("z.txt"));
+    })
+    .unwrap();
 }

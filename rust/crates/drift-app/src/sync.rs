@@ -65,35 +65,74 @@ impl SyncService {
         decisions: &[Decision],
         id: OperationId,
     ) -> Result<SyncOperation> {
+        let logger = self.browser.logger();
+        let project = id.project.to_string();
+        let operation = id.operation.to_string();
+        let local_path = session.request.location.root.base().to_string_lossy();
+        let fields = [
+            ("host", session.request.host.name.as_str()),
+            ("local_path", local_path.as_ref()),
+            ("remote_path", session.request.connection.root.as_str()),
+            ("project", project.as_str()),
+            ("operation", operation.as_str()),
+        ];
+        let fail = |error: Error| {
+            logger.failure("sync.validation_failed", &error, &fields);
+            error
+        };
         if session.request.connection.state() != ConnectionState::Connected {
-            return Err(Error::Invalid(
+            return Err(fail(Error::Invalid(
                 "reconnect and compare again before syncing".into(),
-            ));
+            )));
         }
         if decisions.len() != session.entries.len() {
-            return Err(Error::Invalid(
+            return Err(fail(Error::Invalid(
                 "sync decisions do not match the comparison".into(),
-            ));
+            )));
         }
         let request = session.request.clone();
         let root = request.location.root.base();
         let mapper = Mapper::new(
             root.to_str()
-                .ok_or_else(|| Error::Invalid("project path is not UTF-8".into()))?,
+                .ok_or_else(|| Error::Invalid("project path is not UTF-8".into()))
+                .map_err(fail)?,
             &request.connection.root,
             &request.location.config.mappings,
             &request.host.mappings,
-        )?;
+        )
+        .map_err(|error| fail(error.into()))?;
         let mut items = Vec::new();
         for (entry, &decision) in session.entries.iter().zip(decisions) {
             if decision != Decision::Skip {
+                let local_path = entry.local.to_string_lossy();
+                let decision_name = match decision {
+                    Decision::Upload => "upload",
+                    Decision::Download => "download",
+                    Decision::DeleteLocal => "delete_local",
+                    Decision::DeleteRemote => "delete_remote",
+                    Decision::Skip => "skip",
+                };
+                let fail = |error: Error| {
+                    logger.failure(
+                        "sync.validation_failed",
+                        &error,
+                        &[
+                            ("host", request.host.name.as_str()),
+                            ("local_path", local_path.as_ref()),
+                            ("remote_path", entry.remote.as_str()),
+                            ("project", project.as_str()),
+                            ("operation", operation.as_str()),
+                            ("decision", decision_name),
+                        ],
+                    );
+                    error
+                };
                 let result = entry
                     .result
                     .as_ref()
                     .filter(|_| entry.error.is_none())
-                    .ok_or_else(|| {
-                        Error::Invalid("cannot sync a failed comparison entry".into())
-                    })?;
+                    .ok_or_else(|| Error::Invalid("cannot sync a failed comparison entry".into()))
+                    .map_err(fail)?;
                 let valid = match decision {
                     Decision::Upload => result.local.is_some(),
                     Decision::Download => result.remote.is_some(),
@@ -104,7 +143,8 @@ impl SyncService {
                 let relative = entry
                     .local
                     .strip_prefix(root)
-                    .map_err(|_| Error::Invalid("sync path is outside project".into()))?;
+                    .map_err(|_| Error::Invalid("sync path is outside project".into()))
+                    .map_err(fail)?;
                 let remote_relative = std::path::Path::new(
                     entry
                         .remote
@@ -116,16 +156,20 @@ impl SyncService {
                     || hard_excluded(relative, false)
                     || hard_excluded(remote_relative, false)
                     || !request.connection.contains(&entry.remote)
-                    || mapper.local_to_remote(
-                        entry
-                            .local
-                            .to_str()
-                            .ok_or_else(|| Error::Invalid("sync path is not UTF-8".into()))?,
-                    )? != entry.remote
+                    || mapper
+                        .local_to_remote(
+                            entry
+                                .local
+                                .to_str()
+                                .ok_or_else(|| Error::Invalid("sync path is not UTF-8".into()))
+                                .map_err(fail)?,
+                        )
+                        .map_err(|error| fail(error.into()))?
+                        != entry.remote
                 {
-                    return Err(Error::Invalid(
+                    return Err(fail(Error::Invalid(
                         "sync action or path is outside the comparison scope".into(),
-                    ));
+                    )));
                 }
             }
             items.push(SyncItem {
@@ -146,7 +190,7 @@ impl SyncService {
         let task = self
             .browser
             .runtime
-            .spawn(async move { Ok(service.execute(request, items, token, progress).await) });
+            .spawn(async move { Ok(service.execute(request, items, token, progress, id).await) });
         Ok(SyncOperation {
             operation: Operation { id, cancel, task },
             progress: receiver,
@@ -158,7 +202,24 @@ impl SyncService {
         items: Vec<SyncItem>,
         cancel: CancellationToken,
         progress: watch::Sender<Progress>,
+        id: OperationId,
     ) -> SyncResult {
+        let logger = self.browser.logger();
+        let project = id.project.to_string();
+        let operation_id = id.operation.to_string();
+        let port = request.host.port.to_string();
+        let local_path = request.location.root.base().to_string_lossy();
+        let fields = [
+            ("host", request.host.name.as_str()),
+            ("endpoint", request.host.hostname.as_str()),
+            ("port", port.as_str()),
+            ("protocol", request.host.protocol.as_str()),
+            ("local_path", local_path.as_ref()),
+            ("remote_path", request.connection.root.as_str()),
+            ("project", project.as_str()),
+            ("operation", operation_id.as_str()),
+        ];
+        logger.info("sync.start", &fields);
         let mut report = SyncResult {
             outcomes: vec![ItemOutcome::Pending; items.len()],
             items,
@@ -178,11 +239,27 @@ impl SyncService {
                 break;
             }
             let item = &report.items[i];
+            let decision = match item.decision {
+                Decision::Upload => "upload",
+                Decision::Download => "download",
+                Decision::DeleteLocal => "delete_local",
+                Decision::DeleteRemote => "delete_remote",
+                Decision::Skip => "skip",
+            };
+            let item_fields = [
+                ("host", request.host.name.as_str()),
+                ("local_path", &item.local.to_string_lossy()),
+                ("remote_path", item.remote.as_str()),
+                ("project", project.as_str()),
+                ("operation", operation_id.as_str()),
+                ("decision", decision),
+            ];
             if item.decision == Decision::Skip {
                 report.outcomes[i] = ItemOutcome::Skipped;
                 progress.send_modify(|p| p.completed += 1);
                 continue;
             }
+            logger.debug("sync.item_start", &item_fields);
             let mut activity = progress.subscribe();
             let idle = async {
                 while let Ok(Ok(())) =
@@ -241,9 +318,13 @@ impl SyncService {
                     if report.stopped.is_some()
                         && matches!(item.decision, Decision::Upload | Decision::DeleteRemote) =>
                 {
+                    logger.failure("sync.item_unknown", &e, &item_fields);
                     ItemOutcome::Unknown(format!("{e}; compare again before syncing"))
                 }
-                Err(e) => ItemOutcome::Failed(e.to_string()),
+                Err(e) => {
+                    logger.failure("sync.item_failed", &e, &item_fields);
+                    ItemOutcome::Failed(e.to_string())
+                }
             };
             progress.send_modify(|p| p.completed += 1);
             if report.stopped.is_some() {
@@ -253,6 +334,46 @@ impl SyncService {
         if report.stopped.is_some() {
             request.connection.shutdown().await;
         }
+        let reason = match &report.stopped {
+            Some(StopReason::Cancelled) => "cancelled",
+            Some(StopReason::ConnectionLost(_)) => "connection_lost",
+            Some(StopReason::TimedOut) => "timed_out",
+            None => "none",
+        };
+        if report.stopped.is_some() {
+            let mut stopped_fields = fields.to_vec();
+            stopped_fields.push(("reason", reason));
+            if reason == "cancelled" {
+                logger.info("sync.stopped", &stopped_fields);
+            } else {
+                logger.error("sync.stopped", &stopped_fields);
+            }
+        }
+        let mut completed = 0usize;
+        let mut failed = 0usize;
+        let mut unknown = 0usize;
+        let mut skipped = 0usize;
+        let mut pending = 0usize;
+        for outcome in &report.outcomes {
+            match outcome {
+                ItemOutcome::Completed => completed += 1,
+                ItemOutcome::Failed(_) => failed += 1,
+                ItemOutcome::Unknown(_) => unknown += 1,
+                ItemOutcome::Skipped => skipped += 1,
+                ItemOutcome::Pending => pending += 1,
+            }
+        }
+        let counts = [
+            ("completed", completed.to_string()),
+            ("failed", failed.to_string()),
+            ("unknown", unknown.to_string()),
+            ("skipped", skipped.to_string()),
+            ("pending", pending.to_string()),
+        ];
+        let mut finished_fields = fields.to_vec();
+        finished_fields.extend(counts.iter().map(|(name, count)| (*name, count.as_str())));
+        finished_fields.push(("reason", reason));
+        logger.info("sync.finished", &finished_fields);
         report
     }
     async fn item(

@@ -1861,6 +1861,7 @@ name = "drift-app"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "drift-core",
  "nix",
  "rustls",
@@ -1907,11 +1908,14 @@ version = "0.1.0"
 dependencies = [
  "drift-app",
  "drift-core",
+ "fs2",
  "gpui-kit",
  "rustls",
+ "semver",
  "tempfile",
  "tokio",
  "tokio-util",
+ "unicode-segmentation",
 ]
 
 [[package]]

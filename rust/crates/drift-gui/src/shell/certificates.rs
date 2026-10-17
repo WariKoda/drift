@@ -17,6 +17,11 @@ impl Shell {
         }
         self.close_help(window, cx);
         self.close_certificate(window, cx);
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
+        if let Some(hosts) = &self.hosts {
+            hosts.update(cx, |hosts, _| hosts.deactivate());
+        }
         let prompt = cx.new(|cx| CertificatePrompt::new(challenge, window, cx));
         self.certificate_subscription =
             Some(

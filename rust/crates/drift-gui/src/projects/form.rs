@@ -1,3 +1,4 @@
+mod view;
 use super::*;
 pub(super) struct ProjectForm {
     pub expected: Option<Project>,
@@ -25,6 +26,14 @@ impl ProjectsPanel {
         cx: &mut Context<Self>,
     ) {
         if let Some(project) = &expected {
+            if let Err(error) = form_input::validate_values([
+                project.name.as_str(),
+                &project.path.to_string_lossy(),
+            ]) {
+                self.status = error.into();
+                cx.notify();
+                return;
+            }
             self.cursor = Some(project.slug.clone());
         }
         let name = cx.new(|cx| {
@@ -53,6 +62,9 @@ impl ProjectsPanel {
             input
         });
         name.focus_handle(cx).focus(window, cx);
+        self.details_reveal
+            .scroll_handle()
+            .set_offset(Default::default());
         self.form = Some(ProjectForm {
             expected,
             name,
@@ -65,6 +77,11 @@ impl ProjectsPanel {
         let Some(form) = &self.form else {
             return;
         };
+        if let Err(error) = form_input::validate_inputs([&form.name, &form.path], window, cx) {
+            self.status = error.into();
+            cx.notify();
+            return;
+        }
         let name = form.name.read(cx).value().to_string();
         let path = form.path.read(cx).value().to_string();
         let command = match &form.expected {

@@ -40,7 +40,7 @@ impl Render for TwoPanes {
                                     this.left.update(cx, |pane, cx| pane.focus(w, cx));
                                 },
                             ))
-                            .child(self.left.read(cx).header()),
+                            .child(self.left.read(cx).header(cx)),
                     )
                     .child(self.left.clone()),
             )
@@ -51,7 +51,7 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.right.read(cx).header())
+                    .child(self.right.read(cx).header(cx))
                     .child(self.right.clone()),
             )
     }

@@ -4,6 +4,7 @@ mod tree;
 mod visibility;
 use crate::actions::*;
 use crate::browser_menu::BrowserMenu;
+use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::{
     FileList,
     browser::{Location, OperationId},
@@ -18,9 +19,10 @@ use drift_core::{
     tlstrust::Challenge,
 };
 use gpui_kit::TestSupportExt;
+use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, ElementExt};
+use gpui_kit::component::Icon;
 use gpui_kit::component::{
-    ActiveTheme,
     button::Button,
     input::{InputEvent, InputState},
 };
@@ -837,11 +839,16 @@ impl Render for RemotePane {
             self.operation,
             self.menu_revision,
         );
-        let border = cx.theme().border;
-        let background = cx.theme().background;
-        let accent = cx.theme().accent;
+        let palette = Palette::current(cx);
+        let border = palette.border;
+        let background = palette.canvas;
+        let accent = palette.selected;
+        let empty_anchor_offset = metric(space::CONTROL, cx);
         div()
             .id("remote-pane")
+            .text_size(Text::Body.rems())
+            .text_color(palette.text)
+            .bg(palette.canvas)
             .on_action(cx.listener(Self::focus_filter))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::refresh))
@@ -854,10 +861,14 @@ impl Render for RemotePane {
                 div()
                     .flex()
                     .flex_wrap()
-                    .gap_2()
-                    .p_2()
+                    .gap(metric(space::TIGHT, cx))
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .min_h(metric(size::HEADER, cx))
+                    .bg(palette.chrome)
                     .child(
-                        Button::new("disconnect")
+                        control(Button::new("disconnect"), cx)
+                            .icon(IconName::Close)
                             .label("Disconnect")
                             .disabled(!self.has_session() && !self.is_loading())
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -866,14 +877,19 @@ impl Render for RemotePane {
                             })),
                     )
                     .child(
-                        Button::new("local-preview")
+                        control(Button::new("local-preview"), cx)
+                            .icon(IconName::FileText)
                             .label("Local preview")
                             .on_click(
                                 cx.listener(|_, _, _, cx| cx.emit(RemoteEvent::ShowLocalPreview)),
                             ),
                     )
                     .children(self.hosts.iter().cloned().enumerate().map(|(index, host)| {
-                        Button::new(("connect-host", index))
+                        control(Button::new(("connect-host", index)), cx)
+                            .min_w_0()
+                            .max_w_full()
+                            .overflow_hidden()
+                            .icon(IconName::Network)
                             .label(format!("Connect {}", host.name))
                             .disabled(self.is_loading())
                             .on_click(cx.listener(move |this, _, window, cx| {
@@ -885,16 +901,20 @@ impl Render for RemotePane {
                 div()
                     .flex()
                     .flex_wrap()
-                    .gap_2()
-                    .p_2()
+                    .gap(metric(space::TIGHT, cx))
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .bg(palette.chrome)
                     .child(
-                        Button::new("remote-back")
+                        control(Button::new("remote-back"), cx)
+                            .icon(IconName::ArrowLeft)
                             .label("Back")
                             .disabled(self.history.previous().is_none() || self.is_loading())
                             .on_click(cx.listener(|this, _, w, cx| this.back(&GoBack, w, cx))),
                     )
                     .child(
-                        Button::new("remote-forward")
+                        control(Button::new("remote-forward"), cx)
+                            .icon(IconName::ArrowRight)
                             .label("Forward")
                             .disabled(self.history.next().is_none() || self.is_loading())
                             .on_click(
@@ -902,7 +922,8 @@ impl Render for RemotePane {
                             ),
                     )
                     .child(
-                        Button::new("remote-up")
+                        control(Button::new("remote-up"), cx)
+                            .icon(IconName::ArrowUp)
                             .label("Up")
                             .disabled(
                                 self.session.as_ref().is_none_or(|s| s.root == self.path)
@@ -911,19 +932,22 @@ impl Render for RemotePane {
                             .on_click(cx.listener(|this, _, w, cx| this.up(&GoUp, w, cx))),
                     )
                     .child(
-                        Button::new("remote-refresh")
+                        control(Button::new("remote-refresh"), cx)
+                            .icon(IconName::RefreshCw)
                             .label("Refresh")
                             .disabled(!self.has_session() || self.is_loading())
                             .on_click(cx.listener(|this, _, w, cx| this.refresh(&Refresh, w, cx))),
                     )
                     .child(
-                        Button::new("remote-ignored")
+                        control(Button::new("remote-ignored"), cx)
+                            .icon(IconName::EyeOff)
                             .label(if self.show_ignored { "Hide ignored" } else { "Show ignored" })
                             .disabled(self.is_loading() || !self.has_session() || self.selection_location.is_none() || self.visibility.is_none())
                             .on_click(cx.listener(|this, _, window, cx| this.toggle_ignored(window, cx))),
                     )
                     .child(
-                        Button::new("remote-hidden")
+                        control(Button::new("remote-hidden"), cx)
+                            .icon(IconName::Eye)
                             .disabled(self.is_loading())
                             .label(if self.show_hidden {
                                 "Hide hidden"
@@ -943,6 +967,8 @@ impl Render for RemotePane {
             .child(
                 div()
                     .key_context("DriftRemoteFilter")
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
                     .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
                         this.focus.focus(w, cx);
                     }))
@@ -956,7 +982,10 @@ impl Render for RemotePane {
             )
             .child(
                 div()
-                    .p_2()
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .text_size(Text::Metadata.rems())
+                    .bg(palette.chrome)
                     .border_b_1()
                     .border_color(border)
                     .child(if self.path.is_empty() {
@@ -980,10 +1009,13 @@ impl Render for RemotePane {
                     .test_support()
                     .key_context("DriftBrowser")
                     .track_focus(&self.focus)
+                    .border_l(metric(2., cx))
+                    .border_color(palette.canvas)
+                    .focus(move |style| style.border_color(palette.focus))
                     .on_prepaint(move |bounds, _, cx| {
                         anchor_entity.update(cx, |this, _| {
                             if this.files.selected_row().is_none() {
-                                this.menu_anchor = bounds.origin + point(px(8.), px(8.));
+                                this.menu_anchor = bounds.origin + point(empty_anchor_offset, empty_anchor_offset);
                             }
                         });
                     })
@@ -1059,7 +1091,7 @@ impl Render for RemotePane {
                                         let is_directory = entry.directory;
                                         let disclosure = div()
                                             .id(("remote-tree-toggle", index))
-                                            .w(px(22.))
+                                            .w(metric(size::DISCLOSURE, cx))
                                             .flex_shrink_0()
                                             .child(if pending {
                                                 "…"
@@ -1080,14 +1112,79 @@ impl Render for RemotePane {
                                             }));
                                         #[cfg(test)]
                                         let disclosure = disclosure.test_support();
+                                        let name = div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .child(format!("{}{}", entry.name, if entry.directory { "/" } else { "" }));
+                                        #[cfg(test)]
+                                        let name = name.id(("remote-row-name", index)).test_support();
+                                        // Indentation belongs inside the clipped region, not in the
+                                        // row's padding: deep trees must not displace semantic hints.
+                                        let name_group = div()
+                                            .flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .items_center()
+                                                    .gap(metric(space::TIGHT, cx))
+                                                    .pl(metric(depth as f32 * space::INDENT, cx))
+                                                    .child(disclosure)
+                                                    .child(if descendants > 0 {
+                                                        format!("· {descendants} marked ")
+                                                    } else {
+                                                        String::new()
+                                                    })
+                                                    .child(div().w(metric(size::ICON, cx)).flex_shrink_0().child(if this.files.is_marked(&path) { "✓" } else { "" }))
+                                                    .child(Icon::new(if entry.directory { if expanded { IconName::FolderOpen } else { IconName::FolderClosed } } else { IconName::File }).size(metric(size::ICON, cx)))
+                                                    .child(name),
+                                            );
+                                        #[cfg(test)]
+                                        let name_group = name_group.id(("remote-row-name-group", index)).test_support();
+                                        let symlink_text = gpui_kit::StyledText::new("→");
+                                        #[cfg(test)]
+                                        let symlink_layout = symlink_text.layout().clone();
+                                        let symlink = div()
+                                            .flex_shrink_0()
+                                            .whitespace_nowrap()
+                                            .child(symlink_text);
+                                        #[cfg(test)]
+                                        let symlink = symlink
+                                            .on_prepaint(move |_, _, _| assert_eq!(symlink_layout.text(), "→"))
+                                            .id(("remote-row-symlink", index)).test_support();
+                                        let unmapped_text = gpui_kit::StyledText::new("Unmapped");
+                                        #[cfg(test)]
+                                        let unmapped_layout = unmapped_text.layout().clone();
+                                        let unmapped = div()
+                                            .flex_shrink_0()
+                                            .whitespace_nowrap()
+                                            .text_size(Text::Metadata.rems())
+                                            .text_color(palette.muted)
+                                            .bg(palette.chrome)
+                                            .rounded(metric(size::RADIUS, cx))
+                                            .px(metric(space::TIGHT, cx))
+                                            .child(unmapped_text);
+                                        #[cfg(test)]
+                                        let unmapped = unmapped
+                                            .on_prepaint(move |_, _, _| assert_eq!(unmapped_layout.text(), "Unmapped"))
+                                            .id(("remote-row-unmapped", index)).test_support();
                                         let row = div()
                                             .id(index)
-                                            .h(px(28.))
-                                            .pr_3()
-                                            .pl(px(12. + depth as f32 * 16.))
+                                            .w_full()
+                                            .min_w_0()
+                                            .h(metric(size::ROW, cx))
+                                            .px(metric(space::PANEL, cx))
                                             .flex()
                                             .items_center()
+                                            .gap(metric(space::TIGHT, cx))
                                             .bg(if chosen { accent } else { background })
+                                            .hover(move |style| style.bg(if chosen { accent } else { palette.hover }))
                                             .on_prepaint(move |bounds, _, cx| {
                                                 row_entity.update(cx, |this, _| {
                                                     if this.files.selected()
@@ -1111,33 +1208,9 @@ impl Render for RemotePane {
                                                     }
                                                 }),
                                             )
-                                            .child(disclosure)
-                                            .child(if descendants > 0 {
-                                                format!("· {descendants} marked ")
-                                            } else {
-                                                String::new()
-                                            })
-                                            .child(format!(
-                                                "{} {}{}{}",
-                                                if this.files.is_marked(&path) {
-                                                    "✓"
-                                                } else {
-                                                    " "
-                                                },
-                                                entry.name,
-                                                if entry.directory {
-                                                    "/"
-                                                } else if entry.symlink {
-                                                    " →"
-                                                } else {
-                                                    ""
-                                                },
-                                                if this.files.can_mark(&path) {
-                                                    ""
-                                                } else {
-                                                    " (outside mappings)"
-                                                }
-                                            ))
+                                            .child(name_group)
+                                            .when(entry.symlink, |row| row.child(symlink))
+                                            .when(!this.files.can_mark(&path), |row| row.child(unmapped))
                                             .on_click(cx.listener(
                                                 move |this, event: &gpui_kit::ClickEvent, w, cx| {
                                                     if this.is_loading() || (this.project, this.connection, this.operation, this.menu_revision) != row_stamp

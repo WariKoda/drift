@@ -1,5 +1,6 @@
 //! Window/session coordination. Child views own their interaction and load state.
 use crate::certificates::CertificatePrompt;
+use crate::design::{Palette, Text, metric, space};
 use crate::{
     actions::*,
     browser::{BrowserCommand, BrowserEvent, BrowserPane},
@@ -28,6 +29,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 pub struct Shell {
+    preferences: Option<Entity<crate::preferences::Preferences>>,
     help: Option<keyboard::ShortcutHelp>,
     certificate: Option<(u64, u64, Entity<CertificatePrompt>)>,
     certificate_subscription: Option<Subscription>,
@@ -307,6 +309,7 @@ impl Shell {
         })
         .detach();
         let mut shell = Self {
+            preferences: None,
             help: None,
             certificate: None,
             certificate_subscription: None,
@@ -526,6 +529,8 @@ impl Shell {
         cx.notify();
     }
     fn open_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.comparison
+            .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         let slug = self
             .browser
             .read(cx)
@@ -713,6 +718,8 @@ impl Shell {
                     .update(cx, |browser, cx| browser.focus(window, cx));
             }
             ToolbarEvent::Projects => {
+                self.comparison
+                    .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
                 self.projects
                     .update(cx, |projects, cx| projects.toggle(window, cx));
                 if !self.projects.read(cx).visible() {
@@ -847,7 +854,8 @@ impl Shell {
                 .size_full()
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
-                .child(self.comparison.clone())
+                .child(div().flex_1().min_h_0().child(self.comparison.clone()))
+                .child(self.preference_controls(cx))
                 .child(div().p_2().child(self.status.clone()))
                 .into_any_element();
         }
@@ -871,7 +879,8 @@ impl Shell {
             },
             cx.listener(Self::toolbar_event),
         );
-        let header = browser.header();
+        let header = browser.header(cx);
+        let palette = Palette::current(cx);
         let hosts = browser
             .location()
             .map(|location| {
@@ -1022,11 +1031,16 @@ impl Shell {
                 window,
                 cx,
             )))
+            .child(self.preference_controls(cx))
             .child(
                 div()
-                    .p_3()
+                    .id("workspace-status")
+                    .text_size(Text::Metadata.rems())
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .bg(palette.chrome)
                     .border_t_1()
-                    .border_color(cx.theme().border)
+                    .border_color(palette.border)
                     .child(self.status.clone()),
             )
             .into_any_element()
@@ -1037,6 +1051,8 @@ mod certificates;
 mod comparison;
 #[cfg(test)]
 mod comparison_tests;
+#[cfg(test)]
+mod design_tests;
 #[cfg(test)]
 mod finder_tests;
 #[cfg(test)]
@@ -1052,6 +1068,7 @@ mod keyboard_tests;
 mod logging_tests;
 #[cfg(test)]
 mod menu_tests;
+mod preferences;
 #[cfg(test)]
 mod project_tests;
 mod projects;
@@ -1061,6 +1078,8 @@ mod remote_visibility_tests;
 mod resize_focus_tests;
 #[cfg(test)]
 mod resize_tests;
+#[cfg(test)]
+mod serverlink_tests;
 #[cfg(test)]
 mod shutdown_logging_tests;
 #[cfg(test)]

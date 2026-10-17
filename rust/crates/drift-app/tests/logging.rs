@@ -209,8 +209,10 @@ async fn real_sftp_ftp_and_ftps_log_successful_lifecycles_without_credentials_or
             let logger = open_logger(&path, debug);
             let browser = BrowserService::new().unwrap().with_logger(logger.clone());
             let (remote, host, files) = if let Some(server) = &sftp {
+                let mut options = server.options();
+                options.timeout = Duration::from_secs(15);
                 (
-                    RemoteService::with_options(browser.clone(), server.options()),
+                    RemoteService::with_options(browser.clone(), options),
                     server.key_host(true),
                     server.dir.path().join("files"),
                 )

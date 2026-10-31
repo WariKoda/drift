@@ -39,6 +39,7 @@ impl Store {
                     ThemePreference::System => "system",
                     ThemePreference::Dark => "dark",
                     ThemePreference::Light => "light",
+                    ThemePreference::Omarchy => "omarchy",
                 };
                 document.insert("theme".into(), Value::String(theme.into()));
             }

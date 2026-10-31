@@ -131,9 +131,9 @@ func MatchingTargets(targets []LinkTarget, h Host) []LinkTarget {
 // that host into a link to it, so the open project can link to it too. It
 // returns the new server.
 //
-// The global config is written first. If the project store cannot be written
-// afterwards, the server exists as a copy of the host, which is harmless; the
-// opposite order could leave a link to a server that does not exist.
+// The global config is written first so a link never names a missing server.
+// If the project write fails, the global change is rolled back under the same
+// write lock. The running config changes only after both writes succeed.
 func PromoteProjectHost(cfg *MergedConfig, slug, name string) (Host, error) {
 	var host Host
 	err := WithWriteLock(func(_ *WriteLock) error {
@@ -172,23 +172,40 @@ func promoteProjectHost(cfg *MergedConfig, slug, name string) (Host, error) {
 	if err != nil {
 		return Host{}, err
 	}
+	_, statErr := os.Stat(globalConfigPath())
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return Host{}, fmt.Errorf("stat global config: %w", statErr)
+	}
+	original := base
 	// The project's defaults would not reach the host once it is global, so
 	// they become part of the server.
 	server := withDefaults(source, store.Defaults)
 	server.Name = freeServerName(base.Hosts, slug, name)
 	server.Mappings = nil // relative to the source project, meaningless elsewhere
-	base.Hosts = append(base.Hosts, server)
+	base.Hosts = append(append([]Host(nil), base.Hosts...), server)
 	if err := writeGlobal(base); err != nil {
 		return Host{}, err
 	}
-	resolved := withDefaults(server, cfg.GlobalDefaults)
-	cfg.GlobalHosts = append(cfg.GlobalHosts, resolved)
-	rebuildMerged(cfg)
 
 	store.Hosts[idx] = Host{Name: source.Name, Server: server.Name, RootPath: source.RootPath, Mappings: source.Mappings}
 	if err := writeProjectStore(slug, *store); err != nil {
-		return resolved, fmt.Errorf("server %q was added, but project %s keeps its own copy of the host: %w", server.Name, slug, err)
+		var rollbackErr error
+		if statErr == nil {
+			rollbackErr = writeGlobal(original)
+		} else {
+			rollbackErr = os.Remove(globalConfigPath())
+			if errors.Is(rollbackErr, os.ErrNotExist) {
+				rollbackErr = nil
+			}
+		}
+		if rollbackErr != nil {
+			rollbackErr = fmt.Errorf("roll back server %q in global config: %w", server.Name, rollbackErr)
+		}
+		return Host{}, errors.Join(fmt.Errorf("promote host %q of project %s: %w", name, slug, err), rollbackErr)
 	}
+	resolved := withDefaults(server, base.Defaults)
+	cfg.GlobalHosts = hostsWithDefaults(base.Hosts, base.Defaults)
+	rebuildMerged(cfg)
 	return resolved, nil
 }
 

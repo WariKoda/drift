@@ -111,6 +111,8 @@ pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("p", TogglePreview, Some("DriftBrowser && !PopupMenu")),
         KeyBinding::new("c", CopyPreview, Some("DriftBrowser && !PopupMenu")),
+        KeyBinding::new("p", TogglePreview, Some("DriftPreview && !PopupMenu")),
+        KeyBinding::new("c", CopyPreview, Some("DriftPreview && !PopupMenu")),
         KeyBinding::new("ctrl-alt-f", ReturnFromFinder, Some("Drift && !PopupMenu")),
         KeyBinding::new("cmd-alt-f", ReturnFromFinder, Some("Drift && !PopupMenu")),
         KeyBinding::new("ctrl-alt-p", FocusPreview, Some("Drift && !PopupMenu")),
@@ -120,6 +122,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("?", ShowHelp, Some("DriftComparisonFiles")),
         KeyBinding::new("?", ShowHelp, Some("DriftDiff")),
         KeyBinding::new("escape", Cancel, Some("DriftHelp")),
+        KeyBinding::new("escape", Cancel, Some("DriftSettings")),
         KeyBinding::new("?", ShowHelp, Some("DriftHelp")),
         KeyBinding::new(
             "ctrl-enter",

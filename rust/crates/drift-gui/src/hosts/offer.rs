@@ -321,8 +321,8 @@ impl HostManager {
                     .child(self.status.clone())
                     .child(div().flex().flex_wrap().gap_2()
                         .child(offer.reveal.wrap("offer-back-reveal",Button::new("host-link-offer-back").label("Back to form").disabled(committing).on_click(cx.listener(|this,_,w,cx|this.back_offer(w,cx)))))
-                        .child(offer.reveal.wrap("offer-own-reveal",Button::new("host-link-offer-own").label("Save own connection (n)").disabled(busy||committing).on_click(cx.listener(|this,_,w,cx|this.keep_own_offer(w,cx)))))
-                        .when(offer.target.is_some(),|view|view.child(offer.reveal.wrap("offer-link-reveal",Button::new("host-link-offer-use").label("Use server link (y)").disabled(busy||offer.phase!=Phase::Ready).on_click(cx.listener(|this,_,w,cx|this.use_link_offer(w,cx)))))))))
+                        .child(offer.reveal.wrap("offer-own-reveal",Button::new("host-link-offer-own").label("Save own connection").disabled(busy||committing).on_click(cx.listener(|this,_,w,cx|this.keep_own_offer(w,cx)))))
+                        .when(offer.target.is_some(),|view|view.child(offer.reveal.wrap("offer-link-reveal",Button::new("host-link-offer-use").label("Use server link").disabled(busy||offer.phase!=Phase::Ready).on_click(cx.listener(|this,_,w,cx|this.use_link_offer(w,cx)))))))))
             .into_any_element()
     }
 }

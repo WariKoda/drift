@@ -24,23 +24,20 @@ impl Shell {
             ToolbarEvent::CompareLocal => {
                 let mut paths = self.browser.read(cx).marked();
                 if paths.is_empty() {
-                    paths.push(self.browser.read(cx).selected().map_or_else(
-                        || location.directory.to_string_lossy().into_owned(),
-                        str::to_owned,
-                    ));
+                    paths = self.browser.read(cx).selection();
+                }
+                if paths.is_empty() {
+                    paths.push(location.directory.to_string_lossy().into_owned());
                 }
                 (paths.into_iter().map(PathBuf::from).collect(), vec![])
             }
             ToolbarEvent::CompareRemote => {
                 let mut paths = self.remote.read(cx).marked();
                 if paths.is_empty() {
-                    paths.push(
-                        self.remote
-                            .read(cx)
-                            .selected()
-                            .unwrap_or(self.remote.read(cx).directory())
-                            .to_owned(),
-                    );
+                    paths = self.remote.read(cx).selection();
+                }
+                if paths.is_empty() {
+                    paths.push(self.remote.read(cx).directory().to_owned());
                 }
                 (vec![], paths)
             }
@@ -54,7 +51,7 @@ impl Shell {
                     .collect();
                 let remote = self.remote.read(cx).marked();
                 if local.is_empty() && remote.is_empty() {
-                    self.status = "No files marked — use Space to mark files first".into();
+                    self.status = "No files marked".into();
                     cx.notify();
                     return;
                 }
@@ -92,8 +89,7 @@ impl Shell {
         {
             return;
         }
-        self.preview
-            .update(cx, |pane, cx| pane.select(None, project, window, cx));
+        self.deactivate_browser_navigation(cx);
         self.comparison.update(cx, |pane, cx| {
             pane.open(
                 LoadRequest {

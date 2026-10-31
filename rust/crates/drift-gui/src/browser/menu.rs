@@ -86,7 +86,7 @@ impl BrowserPane {
             if !(0..self.files.len()).any(|row| self.files.row(row) == Some(path.as_str())) {
                 return;
             }
-            self.files.select_path(path);
+            self.files.context_select_path(path);
         }
         self.dismiss_context_menu(window, cx);
         self.focus(window, cx);
@@ -166,14 +166,14 @@ impl BrowserPane {
             entries.push(Some(
                 MenuEntry::new(
                     Mark,
-                    if self.files.is_marked(path) {
+                    if self.files.mark_will_clear() {
                         "Unmark"
                     } else {
                         "Mark"
                     },
                     ready,
                 )
-                .checked(self.files.is_marked(path)),
+                .checked(self.files.mark_will_clear()),
             ));
         }
         entries.extend([
@@ -257,7 +257,7 @@ impl BrowserPane {
         self.dismiss_context_menu(window, cx);
         self.focus(window, cx);
         if let Some(path) = &snapshot.target {
-            self.files.select_path(path);
+            self.files.context_select_path(path);
         }
         use MenuAction::*;
         match action {

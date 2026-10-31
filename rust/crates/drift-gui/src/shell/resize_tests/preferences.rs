@@ -1,5 +1,7 @@
 use super::*;
 mod covered;
+mod settings;
+mod warnings;
 use drift_core::gui_preferences::{
     GuiPreferences, PanePreferences, ThemePreference, WindowPreference,
 };
@@ -11,7 +13,7 @@ async fn native_theme_controls_preserve_browser_session_range_filter_and_preview
 ) {
     let f = Fixture::build(cx, Some(GuiPreferences::default())).await;
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("local-browser", cx);
+        w.click("local-files-tab", cx);
         w.click("filter", cx);
         w.input("keep", cx);
         f.shell.read(cx).browser.focus_handle(cx).focus(w, cx);
@@ -27,46 +29,73 @@ async fn native_theme_controls_preserve_browser_session_range_filter_and_preview
     })
     .unwrap();
     f.idle(cx).await;
-    cx.update_window(f.handle, |_, w, cx| {
-        let preview = f.shell.read(cx).preview.clone();
-        assert!(
-            preview.update(cx, |preview, cx| preview.copy_text(cx)),
-            "the real preview must be loaded before changing themes: {}",
-            f.shell.read(cx).status
-        );
-        let before = browser_state(f.shell.read(cx), cx);
-        let rows = row_positions(w, "local-files");
-        for (id, mode) in [
-            ("theme-dark", ThemeMode::Dark),
-            ("theme-light", ThemeMode::Light),
-        ] {
-            w.click(id, cx);
+    let (before, rows) = cx
+        .update_window(f.handle, |_, w, cx| {
+            let preview = f.shell.read(cx).local_preview.clone();
+            assert!(
+                preview.update(cx, |preview, cx| preview.copy_text(cx)),
+                "the real preview must be loaded before changing themes: {}",
+                f.shell.read(cx).status
+            );
+            w.click("local-files-tab", cx);
+            // The measured header slot shrinks from the preview controls one frame later.
+            crate::test_support::settle(w, cx);
+            let before = browser_state(f.shell.read(cx), cx);
+            let rows = row_positions(w, "local-files");
+            assert!(w.try_find("gui-preferences").is_none());
+            (before, rows)
+        })
+        .unwrap();
+    for (choice, mode) in [("Dark", ThemeMode::Dark), ("Light", ThemeMode::Light)] {
+        cx.update_window(f.handle, |_, w, cx| {
+            w.click("settings", cx);
+            assert!(w.within("settings-view").find("gui-preferences").visible());
+        })
+        .unwrap();
+        crate::test_support::theme(f.handle, choice, cx);
+        cx.update_window(f.handle, |_, w, cx| {
+            w.click("settings-close", cx);
             w.render_frame(cx);
+            assert!(w.try_find("gui-preferences").is_none());
             assert_eq!(cx.theme().mode, mode);
             assert_eq!(browser_state(f.shell.read(cx), cx), before);
             assert_eq!(row_positions(w, "local-files"), rows);
             assert_eq!(w.find("filter").value(), Some("keep"));
-        }
-        // Enter/Space on the native theme control cannot activate a file or sync.
-        w.click("theme-dark", cx);
-        w.click("filter", cx);
+        })
+        .unwrap();
+    }
+    cx.update_window(f.handle, |_, w, cx| {
+        // Enter/Space on the native theme control cannot activate a hidden file or sync.
+        w.click("settings", cx);
         for _ in 0..64 {
-            w.press("shift-tab", cx);
-            if w.find("theme-dark").focused() == Some(true) {
+            w.press("tab", cx);
+            if w.find("theme-select").focused() == Some(true) {
                 break;
             }
         }
-        assert_eq!(w.find("theme-dark").focused(), Some(true));
+        assert_eq!(w.find("theme-select").focused(), Some(true));
         w.press("enter", cx);
+        assert_eq!(w.find("theme-select").expanded(), Some(true));
         w.press("space", cx);
+        assert_eq!(cx.theme().mode, ThemeMode::Light);
+        w.press("up", cx);
+        w.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(f.handle, |_, w, cx| {
+        w.render_frame(cx);
+        assert_eq!(w.find("theme-select").value(), Some("Dark"));
         assert_eq!(cx.theme().mode, ThemeMode::Dark);
         assert_eq!(browser_state(f.shell.read(cx), cx), before);
-        w.click("copy-preview", cx);
+        w.click("settings-close", cx);
+        assert!(w.try_find("theme-select").is_none());
+        w.click("local-preview-tab", cx);
+        w.within("local-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("local 58\n")
         );
-        f.shell.read(cx).browser.focus_handle(cx).focus(w, cx);
+        w.click("local-files-tab", cx);
         w.press("v", cx);
         assert_eq!(
             f.shell.read(cx).browser.read(cx).marked(),
@@ -165,60 +194,58 @@ async fn restored_splits_and_window_resize_save_independent_preferences_without_
 }
 
 #[gpui_kit::test]
-async fn theme_changes_preserve_diff_copy_and_pending_confirmation_and_old_help_scene_cannot_choose(
+async fn settings_theme_change_preserves_diff_and_pending_confirmation_blocks_settings(
     cx: &mut TestAppContext,
 ) {
     let f = Fixture::build(cx, Some(GuiPreferences::default())).await;
     cx.update_window(f.handle, |_, w, cx| w.click("compare-project", cx))
         .unwrap();
     f.idle(cx).await;
+    let (pane, copy, entity) = cx
+        .update_window(f.handle, |_, w, cx| {
+            let pane = f.shell.read(cx).comparison.clone();
+            pane.focus_handle(cx).focus(w, cx);
+            w.press("home", cx);
+            w.click("comparison-action", cx);
+            w.click(("diff-row", 0usize), cx);
+            w.press("ctrl-c", cx);
+            let copy = cx.read_from_clipboard().unwrap().text();
+            let entity = pane.entity_id();
+            w.click("settings", cx);
+            (pane, copy, entity)
+        })
+        .unwrap();
+    crate::test_support::theme(f.handle, "Dark", cx);
     cx.update_window(f.handle, |_, w, cx| {
-        let pane = f.shell.read(cx).comparison.clone();
-        pane.focus_handle(cx).focus(w, cx);
-        w.press("home", cx);
-        w.click("comparison-action", cx);
-        w.click(("diff-row", 0usize), cx);
-        w.press("ctrl-c", cx);
-        let copy = cx.read_from_clipboard().unwrap().text();
+        w.click("settings-close", cx);
+        w.render_frame(cx);
+        assert_eq!(cx.theme().mode, ThemeMode::Dark);
+        assert_eq!(pane.entity_id(), entity);
+        assert!(w.try_find("gui-preferences").is_none());
         pane.focus_handle(cx).focus(w, cx);
         w.press("shift-s", cx);
         w.render_frame(cx);
         assert!(w.find("sync-confirm").visible());
-        let entity = pane.entity_id();
-        w.click("theme-dark", cx);
-        w.render_frame(cx);
-        assert_eq!(cx.theme().mode, ThemeMode::Dark);
-        assert_eq!(pane.entity_id(), entity);
-        assert!(w.find("sync-confirm").visible());
+        assert!(
+            !f.shell
+                .read(cx)
+                .toolbar_state(cx)
+                .allows(&ToolbarEvent::Settings)
+        );
+        w.click("settings", cx);
+        assert!(f.shell.read(cx).settings.is_none());
+        assert!(w.try_find("theme-select").is_none());
         assert!(!pane.read(cx).is_loading());
         assert!(pane.read(cx).sync_result_for_test().is_none());
         w.click("copy-diff", cx);
         assert_eq!(cx.read_from_clipboard().unwrap().text(), copy);
-        let light_position = w.find("theme-light").bounds().center();
-        f.shell.update(cx, |s, cx| s.show_help(&ShowHelp, w, cx));
-        let focus = w.focused(cx);
-        for input in [
-            MouseDownEvent {
-                button: MouseButton::Left,
-                position: light_position,
-                modifiers: Default::default(),
-                click_count: 1,
-                first_mouse: false,
-            }
-            .to_platform_input(),
-            MouseUpEvent {
-                button: MouseButton::Left,
-                position: light_position,
-                modifiers: Default::default(),
-                click_count: 1,
-            }
-            .to_platform_input(),
-        ] {
-            w.dispatch_event(input, cx);
-        }
-        assert_eq!(cx.theme().mode, ThemeMode::Dark);
-        assert_eq!(w.focused(cx), focus);
+        w.press("f1", cx);
         assert!(f.shell.read(cx).help.is_some());
+        assert!(w.try_find("gui-preferences").is_none());
+        w.press("escape", cx);
+        assert!(f.shell.read(cx).help.is_none());
+        assert!(w.find("sync-confirm").visible());
+        assert_eq!(cx.theme().mode, ThemeMode::Dark);
         assert!(!pane.read(cx).is_loading());
         assert!(pane.read(cx).sync_result_for_test().is_none());
         assert_eq!(

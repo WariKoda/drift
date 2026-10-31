@@ -241,31 +241,28 @@ impl Render for LinkPicker {
                 }));
         // Only the auxiliary controls scroll here. The target list keeps its own
         // viewport and direct-child row indices for keyboard cursor navigation.
-        let mut details =
-            div()
-                .id("host-link-details")
-                .map(|view| {
-                    #[cfg(test)]
-                    {
-                        view.test_support()
-                    }
-                    #[cfg(not(test))]
-                    {
-                        view
-                    }
-                })
-                .track_scroll(self.reveal.scroll_handle())
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .overflow_y_scroll()
-                .gap_2()
-                .child(div().flex_shrink_0().min_w_0().child(
-                    "Link a server · ↓ from filter · j/k navigate · Enter choose · r reload",
-                ))
-                .child(div().flex_shrink_0().min_w_0().child(self.status.clone()));
+        let mut details = div()
+            .id("host-link-details")
+            .map(|view| {
+                #[cfg(test)]
+                {
+                    view.test_support()
+                }
+                #[cfg(not(test))]
+                {
+                    view
+                }
+            })
+            .track_scroll(self.reveal.scroll_handle())
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_y_scroll()
+            .gap_2()
+            .child(div().flex_shrink_0().min_w_0().child("Link a server"))
+            .child(div().flex_shrink_0().min_w_0().child(self.status.clone()));
         let close = self.reveal.wrap(
             "host-link-close-reveal",
             Button::new("host-link-close")

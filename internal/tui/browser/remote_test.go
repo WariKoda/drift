@@ -10,18 +10,9 @@ import (
 )
 
 func TestRemoteBrowserQueuesOnlyOneDirectoryRead(t *testing.T) {
-	host := config.Host{Name: "test"}
-	model := Model{
-		activePane: PaneRemote,
-		remoteHost: &host,
-		remoteConn: &driftftp.Client{},
-		remoteEntries: []*fs.FileEntry{
-			{Name: "one", Path: "/one", Kind: fs.EntryDir},
-			{Name: "two", Path: "/two", Kind: fs.EntryDir},
-		},
-	}
-
+	model, _ := newRemoteDirectoryBrowser(t)
 	model, cmd := model.updateRemoteOpen()
+	readCmd := cmd
 	if cmd == nil {
 		t.Fatal("first directory read did not start")
 	}
@@ -38,7 +29,11 @@ func TestRemoteBrowserQueuesOnlyOneDirectoryRead(t *testing.T) {
 		t.Fatal("blocked directory read changed the second directory state")
 	}
 
-	model.applyRemoteChildrenLoaded(MsgRemoteChildrenLoaded{Host: host, ParentPath: "/one"})
+	result := runBrowserConnectionCmd(t, readCmd).(MsgRemoteChildrenLoaded)
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	model.applyRemoteChildrenLoaded(result)
 	if model.remoteReading {
 		t.Fatal("completed directory read did not release the connection")
 	}

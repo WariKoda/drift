@@ -1,5 +1,13 @@
 # Rust-/GPUI-Port von drift
 
+## Status: vorerst pausiert
+
+Der Rust-/GPUI-Port liegt bis auf Weiteres auf Eis. Der bisherige Arbeitsstand
+wird auf `feature/rust-workspace-design` gesichert; der Fokus liegt wieder auf
+der Optimierung der Go-basierten `drift`-TUI. Die folgenden Planungen und offenen
+Abnahme-/Release-Gates bleiben als Referenz für eine mögliche Wiederaufnahme
+erhalten und sind keine aktuellen Arbeitsaufträge.
+
 ## Ziel und Produktgrenzen
 
 Die Rust-Anwendung wird neben der Go-TUI im bestehenden Repository entwickelt.
@@ -45,7 +53,8 @@ Auswahl/Faltung/Scrollposition für unveränderte Refresh-Ergebnisse ergänzt.
 Automatische Serverlink-Angebote beim Speichern gleicher Endpunkte sind ergänzt,
 mit ausdrücklicher Link-/Eigenverbindungswahl und sichtbaren Commit-Teilerfolgen.
 GUI-Präferenzen in `gui.toml`, getrennte Pane-Verhältnisse, logische Fenstergröße
-und Maximierung sowie System/Dark/Light sind mit vorläufigen Kit-Themes ergänzt.
+und Maximierung sowie System/Omarchy/Dark/Light sind ergänzt: native Dropdown-
+Auswahl, Kit-Modi und aktive Omarchy-Palette mit Live-Updates und System-Fallback.
 Monokai Pro Dark/Light Sun bleibt bis zur Klärung der Weitergabe gesperrt; der
 Nutzer hat Präferenzen zuerst gewählt. Native OS-/Fensterabnahme bleibt offen.
 Der Nutzer hat nun Zed als visuelle Referenz und **Design-Tokens plus Browser-/Toolbar-Pilot**
@@ -57,9 +66,83 @@ Native Eingaben/IME/History, Validierung und Busy-/Speicherbedingungen bleiben;
 Listen/Löschen/Registrierung unverändert. Weitere Dialoge sind weiterhin Entwurf.
 Keine Zed-Assets oder Paletten übernommen.
 
+Aktueller UI-Folgeblock auf `feature/rust-workspace-design`: Vorschau-/Diff-Chrome,
+Vergleichs-Toolbar/-Dateiliste und Shell-Status nutzen die vorhandenen Tokens.
+Aufgaben-/Navigationsband priorisieren die Browser-Toolbar, Vergleich trennt
+Ansichtsoptionen von Aktionsplanung. Tatsächlich gemessene schmale Dateipanes
+stapeln Metadaten und messen deren benötigte Row-Höhe; Dateizähler umbrechen
+separat. Native Entities, Codezeilen-Geometrie, Scroll-Anker und Transferfreigaben
+bleiben erhalten, auch bei vorgemerkter Nearest-Navigation im Resize-Frame.
+Nach Nutzerfeedback bleibt die Toolbar jetzt in der äußeren Shell über Projects,
+Hosts und anderen Ansichten sichtbar. Die acht Browser-Navigations-/Sichtbarkeits-
+und Cancel-Aktionen sind reine Icons mit Tooltips/A11y-Labels; Remote folgt derselben
+Regel. Lokale/entfernte Breadcrumbs und pane-eigene Maus-Zurück/Vorwärts ergänzen
+die bestehenden Historien, mit Root-/Busy-/Modal-/Stale-Guards. Sicheres Listen-
+Umschalten erhält Sitzung und Auswahl; Formulare, Writes und Bestätigungen erlauben
+keinen verdeckten Browserzugriff. Browserkürzel funktionieren auch bei Toolbarfokus. Nach weiterem Screenshot-
+Feedback sitzt die lokale Pfadzeile im Pane-Kopf unter Local,
+nicht mehr rechts neben dem globalen Filter. Ein Home-Icon ersetzt die Drift-
+Kennung und kehrt ohne Verzeichnis-/Markierungsreset zum normalen Browser zurück;
+Draft-/Transfer-/Bestätigungssperren bleiben verbindlich. Das einzelne House-SVG
+wird aus dem vorhandenen Kit-Assets-Paket zusätzlich zum Standardbestand eingebettet.
+Inline-Tastaturhinweise sind entfernt, Bindings und explizite Tastaturhilfe bleiben.
+Eine per Zahnrad erreichbare Settings-Grundansicht nutzt die vorhandene Theme-
+Auswahl samt Preferences-Writer und erklärt automatische Fenster-/Pane-Speicherung;
+Die untere Theme-Zeile ist entfernt, Theme-Auswahl gibt es nur noch in Settings;
+Speicherfehler bleiben außerhalb davon als Warnung sichtbar. Sie erhält die vorherige Ansicht/Sitzung,
+prüft Fokus-/Frame-Identitäten und bleibt unterhalb der festen Toolbar.
+Remote-bezogene Knöpfe stehen auf weiteren Nutzerwunsch ausschließlich rechts:
+Hosts und alle vier Vergleichsscopes plus eigener Remote-Abbruch sitzen im
+festen Kopf rechts. Die früheren Buttons Remote/Local files/Local preview sind
+entfernt. Local-Dateien und lokale Vorschau bleiben links, Remote-Dateien und
+Remote-Vorschau rechts; je eigene beschriftete Dateien/Vorschau-Tabs wechseln nur
+diese Seite. Zwei native Preview-Entities erlauben gleichzeitige Vorschauen ohne
+gegenseitiges Überschreiben. Tabwechsel erhalten Text, Fokuskontext, Verzeichnis,
+Marks und Sitzung; sie verbinden/trennen nie und geben keinen Transfer frei.
+Filter ohne Treffer erhalten die Dokumente; der Pfad-Kopierweg nimmt bei sichtbarer
+Vorschau deren Pfad statt der Listen-Auswahl. Refresh invalidiert den zuständigen
+Cache auch über native Listen-/Navigations-Handler. Verbindungsknöpfe bleiben
+rechts im Kopf verfügbar, auch bei Remote-Vorschau. Auf späteren Nutzerwunsch steht Hosts in der oberen
+Leiste (fünf allgemeine Aktionen), Host-Dropdown und Trennen rechts in der Remote-
+Tabzeile, Remote-Abbruch am Ende der Remote-Navigation und die vier Compare-
+Scopes zentriert in einer Fußleiste unter beiden Panes. Die acht lokalen Navigations-/Sichtbarkeits-/Cancel-Icons stehen links
+auf exakt derselben Höhe wie die Remote-Navigation rechts; beide Filterzeilen
+folgen direkt darunter. Schmale Navigationszeilen scrollen horizontal statt
+unterschiedlich umzubrechen. Auf korrigierten Nutzerwunsch selektiert einfacher
+Linksklick Dateien/Ordner nur; es gibt keine automatische Klick-Vorschau.
+Doppelklick auf die Ordnerzeile klappt den Zweig auf/zu, wechselt aber nicht hinein.
+Die ganze Pane-breite Zeile einschließlich freier rechter Fläche ist anklickbar.
+Ctrl/Cmd-Klick und Shift-Klick bilden eine Mehrfachauswahl wie im Dateimanager,
+getrennt von Marks; Space/Mark, Pfad-Kopie und Compare selection nutzen sie.
+Tastatur-Bereichsmarkierung bleibt erhalten.
+Tastatur, explizite Vorschau-Tabs und Disclosure-/Markierungsaktionen bleiben
+bestehen, ohne Sitzung oder Transfers zu verändern. Maus-Abbruch wirkt jeweils lokal bzw. remote; das bisherige Ctrl+Esc
+bleibt unverändert. Verdeckte Remote-Header und Verbindungsbuttons sind auch vor
+dem nächsten Frame gesperrt. Markierungszahl und Bereichsauswahl-Status stehen
+nun als feste Fußzeilen unter der jeweiligen Local-/Remote-Dateiliste, statt im
+Pane-Kopf; Filter und Scrollen verstecken die Zähler nicht.
+Theme-Auswahl und Host-Connect sind native Dropdowns. Die aktive Omarchy-Palette
+wird ausschließlich gelesen, asynchron validiert und ungefähr sekündlich aktualisiert;
+fehlende/ungültige Dateien zeigen einen System-Fallback ohne Verlust anderer Warnungen.
+Ein anderes Remote-Ziel zu bestätigen verbindet sofort, dieselbe aktive Verbindung
+bleibt dagegen erhalten. Beide Pane-Köpfe teilen die größere nativ gemessene Höhe;
+auch einseitige Filterwarnungen halten folgende Zeilen ausgerichtet. Pfadzeilen,
+Datei-/Vorschaubodies und Statusfußleisten liegen dadurch auf gleicher Höhe.
+Native Picker-Scope-/Fokusregressionen nach Modal-/Projektwechseln sind abgesichert.
+Erweiterte Regressionen mit echten Dateien/SFTP/FTP ergänzen den Gesamtstand auf
+**557 bestandene Rust-Tests** (0 Fehler/Ignore); Rustfmt, striktes All-target-Clippy
+und Debug-Build bestanden. Eine begrenzte native Wayland-/Scale-1-Prüfung
+von Vorschau, FTP-Vergleich und ausstehender Bestätigung in Dark/Light betrifft
+nur den ersten Durchgang. Die erneute Sichtprüfung des Toolbar-/Schmalpane-Fixes
+wurde ohne Eingaben/Aufnahmen beendet, weil der Compositor keinen sicheren
+Ziel-Fensterfokus herstellte. [Native Befunde und Grenzen](rust-workspace-native-check.md).
+Keine neue CI- oder vollständige Plattformfreigabe.
+Siehe [Workspace-Details](rust-gui-design-system.md#hauptarbeitsfläche--vorschau-und-vergleich).
+
 ### Ausgangspunkt und Git
 
-- Aktueller Arbeitsbranch: `feature/rust-project-dialog-design`, aufgebaut auf
+- Vorheriger Arbeitsbranch: `docs/rust-project-dialog-native-check`, aufgebaut auf
+  `feature/rust-project-dialog-design` (Draft #98), dieser auf
   `feature/rust-zed-design-system` (Draft #97). Der SSH-Prototyp
   bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
   Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
@@ -70,7 +153,13 @@ Keine Zed-Assets oder Paletten übernommen.
   Parent an; Header/Footer fest, Body allein scrollbar. Parent 320×120/Inset 8/Kit16
   bietet einen ganzen Input plus Footer; Kit24 lässt bei 104 nutzbarer Höhe nur 21
   für den 42er-Input, also keine volle Lesbarkeitsabnahme. Keine neue Font-Preference.
-  Frische Child-CI und native GUI-Abnahme offen.
+  Alle sechs Child-CI-Checks für `e4fc6c0` bestanden:
+  [37627684353](https://github.com/WariKoda/drift/actions/runs/37627684353) und
+  [37627674302](https://github.com/WariKoda/drift/actions/runs/37627674302).
+  Begrenzte native Wayland-/Scale-1-Prüfung von Create/Edit mit Kit Dark/Light,
+  Tab, Cancel, Save, Validierung, History und 320×120-Fokus-Reveal bestanden;
+  [Befunde, Aufnahmen und Grenzen](rust-project-dialog-native-check.md).
+  Echte IME/Accessibility, X11/macOS und vollständige Plattformabnahme offen.
 - Basisstand: Commit `94972c8`,
   [Draft-PR #97](https://github.com/WariKoda/drift/pull/97), aufgebaut auf #96.
   Design-Tokens und Browser-/Toolbar-Pilot sind lokal vollständig geprüft.
@@ -201,7 +290,7 @@ Keine Zed-Assets oder Paletten übernommen.
 | Vergleich und Sync | Unified-Diff, graphemsichere Textauswahl über Zeilen, Faltung/Hunks, bestätigte Upload-/Download-/Delete-Aktionen, Zustandserhalt bei unverändertem Refresh, Abbruch/Verlust und Fehlerdetails | Native Plattformabnahme |
 | Transporte | Native SFTP-/FTP-/FTPS-Verbindungen, Auth/Keep-alive, FTPS-Zertifikatsvertrauen und atomarer SFTP-Zielersatz über eine einzige primäre Session | SSH-Stack-/Hostzertifikatsblocker, native I/O-/Performanceabnahme |
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes, optionales Datei-Logging und getrennte GUI-Build-Version | Öffentliche Release-Freigabe bleibt gesperrt |
-| Oberfläche und Veröffentlichung | Kit-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
+| Oberfläche und Veröffentlichung | Kit-/Omarchy-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Omarchy/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
 
 Letzte lokale Gesamtprüfung: **460 Rust-Tests, davon 238 Headless-GPUI-Tests
 (GUI-Binärsuite 271); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
@@ -238,7 +327,11 @@ verbleibenden Arbeitsblöcke stehen unten.
   Tab/Reverse-Tab und Cancel ohne Writes, Save erst nach Absicht am echten Store,
   Busy-Regeln, Theme-/Font-/Resize-erhaltene IME/History/Fokus/Operationen und Wrap.
   Registry-/Delete-/Registrierungsansichten unberührt. Scope-Review ohne neue
-  Blocker, getrennt von Tests. Die 104er-Höhe/24er-Font-Grenze ist keine volle
+  Blocker, getrennt von Tests. Ergänzend begrenzte native Wayland-Prüfung bei
+  Scale 1 mit Create/Edit, Kit Dark/Light und 320×120; kein neuer Formularblocker
+  im geprüften Ablauf, keine gesamte Plattformfreigabe. Siehe
+  [native Prüfbefunde](rust-project-dialog-native-check.md).
+  Die 104er-Höhe/24er-Font-Grenze ist keine volle
   Input-Lesbarkeitsabnahme. Aktualisierte HTML-Vorschau ist schematisch, nicht GPUI.
 - Zed-inspirierter Designsystem-/Browser-Pilot: eigene zentrale 14/12/16-Typografie,
   4/8/12/16-Abstände, skalierte 24er-Zeilen/28er-Kontrollen, semantische Kit-Flächen,
@@ -442,7 +535,7 @@ verbleibenden Arbeitsblöcke stehen unten.
   Upload/Download/Delete, Fortschritt, Abbruch und Verbindungsverlust. Refresh und
   regulär beendeter Sync bauen den Vergleich mit erhaltenem Scope neu auf.
 - Unabhängige Markierungen pro Browser, getrennt von Cursor/Vorschau: Space,
-  v/V, Invertieren, Shift-Pfeile und Ctrl/Cmd-/Shift-Klick. Filterwechsel,
+  v/V, Invertieren und Shift-Pfeile; Ctrl/Cmd- und Shift-Klick wählen nur aus. Filterwechsel,
   Verzeichnisnavigation und Refresh erhalten Markierungen; Projekt-/Hostwechsel
   setzen sie zurück. `s` vergleicht alle Markierungen beider Panes; die beiden
   Auswahl-Buttons verwenden sämtliche Markierungen der jeweiligen Seite.
@@ -681,15 +774,17 @@ Native Buttons bedienen bereits Protokoll/Auth und Mapping-CRUD; fehlende
 Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
 
 1. **Native Formularabnahme:** Host-/Mapping-Reveal und begrenzte Tools/Links/
-   Projektform-Details/Aktionen sind headless umgesetzt. Reale Wayland/X11/macOS-
-   Fenster, lange Inhalte und kleine Viewports bleiben praktisch abzunehmen;
-   Sichtbarkeit statt nur FocusHandles prüfen. Keine optische Neugestaltung.
+   Projektform-Details/Aktionen sind headless umgesetzt. Create/Edit ist nun
+   begrenzt in echten Wayland-Fenstern bei Scale 1/Kit Dark und Light bis 320×120
+   geprüft; [Umfang und offene Fälle](rust-project-dialog-native-check.md).
+   X11/macOS, native Pointer-/Wheel-/Busy-Fälle und weitere Viewports bleiben
+   abzunehmen; Sichtbarkeit statt nur FocusHandles prüfen.
 2. **Native Eingabeabnahme:** Whole-insertion-Ablehnung und IME-Escape/Enter sind
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten
    Einfügungen bleiben praktisch zu prüfen. Keine Secret-/Pfadbereinigung.
-3. **GUI-Präferenzen:** `gui.toml`, Fenster/Pane und System/Dark/Light mit
-   vorläufigen Kit-Themes sind implementiert. Monokai-Paletten bleiben nach
+3. **GUI-Präferenzen:** `gui.toml`, Fenster/Pane und native System/Omarchy/Dark/
+   Light-Auswahl mit Kit-Modi und read-only Live-Omarchy sind implementiert. Monokai-Paletten bleiben nach
    Nutzerentscheidung bis zur Weitergabe-Klärung gesperrt; siehe
    [Theme-Gate](rust-gui-theme-blockers.md). Der Paketierungsblock
    bereitet nur getrennte manuelle Prüfartefakte vor; er ersetzt keine native Abnahme.
@@ -704,7 +799,8 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    Sync-Bestätigung. Keine Buchstabenbefehle in Texteingaben oder hinter Popups.
 5. Pane-/Fensterpersistenz liegt ausschließlich in `gui.toml`, nicht in Go-Konfiguration.
    Native Plattformabnahme bleibt offen. Ein Zed-inspirierter Browser-/Toolbar-Pilot
-   mit zentralen Tokens ist ausgewählt; die Dialogumstellung bleibt ein späterer Block.
+   mit zentralen Tokens und der Create/Edit-Projektformular-Pilot sind umgesetzt;
+   weitere Dialogumstellungen bleiben ein späterer Block.
 
 ### Weitere offene Arbeit bis zur Veröffentlichung
 
@@ -719,7 +815,7 @@ stehen oben.
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
 | 1 | SSH-Hostzertifikate/CA | Blockiert: separater lokaler Prototyp mit 42 gezielten Tests; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Regulärer Stand weist Zertifikate weiterhin ab; keine Release-Freigabe. |
-| 2 | GUI-Präferenzen und Themes | Teilweise umgesetzt: `gui.toml`, normale logische Inhaltsgröße/Maximierung, unabhängige Pane-Verhältnisse und System/Dark/Light mit Kit-Themes. Monokai Dark/Light Sun wegen Weitergabe-Klärung gesperrt; native laufende OS-/Fensterwechsel bleiben abzunehmen. |
+| 2 | GUI-Präferenzen und Themes | Teilweise umgesetzt: `gui.toml`, normale logische Inhaltsgröße/Maximierung, unabhängige Pane-Verhältnisse und System/Omarchy/Dark/Light im nativen Dropdown, Omarchy live/read-only und Kit-Fallback. Monokai Dark/Light Sun wegen Weitergabe-Klärung gesperrt; native laufende OS-/Fensterwechsel bleiben abzunehmen. |
 | 3 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O einschließlich WAN-Durchsatz des begrenzten SFTP-Adapters. Headless-Tests ersetzen diese Abnahme nicht. |
 | 4 | Pakete und GUI-Releases | Prüfartefakte vorbereitet: native Linux-Tarball/Desktop-Datei, getrennte Intel-/ARM-.app-Archive, SemVer-Einbettung und manuelle Actions-Matrix ohne Publishing/Tags. Native Mac-Bundles/Installation, Signierung/Notarisierung und öffentliche Release-Regeln bleiben offen. |
 
@@ -772,7 +868,8 @@ weiter und prüft deshalb den Start mit explizitem Ordner.
 
 [Designsystem und Zed-Referenzen](rust-gui-design-system.md) definieren die neue
 kompakte Richtung; [HTML-Skizze](design/drift-design-system.html) zeigt Tokens und
-Dialogentwurf, nicht native Abnahme. Bestehende Kit-Paletten bleiben vorläufig.
+Dialogentwurf, nicht native Abnahme. Kit-Paletten und die aktive Omarchy-
+Benutzerpalette stehen ohne mitgelieferte Monokai-Assets zur Verfügung.
 
 Zwei unabhängig navigierbare Dateibäume, veränderbare Bereichsgrößen, Toolbar,
 Kontextmenüs und Dialoge bilden die Oberfläche. Zeilen werden virtualisiert.
@@ -783,24 +880,37 @@ Abgebrochene oder fehlgeschlagene Navigation erhält den bisherigen Ordner.
 Registrierte Projekt-Roots begrenzen den Sync; die freie Ordnerauswahl kann
 ausdrücklich einen neuen Projekt-Root öffnen.
 
-Die geplanten Standard-Themes bleiben das Ziel, sind aber noch nicht mitgeliefert:
+Die Theme-Auswahl steht ausschließlich als natives Dropdown in Settings:
 
 | Einstellung | Verwendetes Theme |
 | --- | --- |
-| **System** (Voreinstellung) | Betriebssystem hell: **Monokai Pro Light Sun**; dunkel: **Monokai Pro Dark** |
-| **Light** | **Monokai Pro Light Sun** |
-| **Dark** | **Monokai Pro Dark** |
+| **System** (Voreinstellung) | Kit Light/Dark entsprechend laufender OS-Darstellung |
+| **Omarchy** | Aktive Omarchy-Palette mit laufender Aktualisierung |
+| **Light** | Kit Light, unabhängig vom OS |
+| **Dark** | Kit Dark, unabhängig vom OS |
 
 Die Einstellung wird in `<config.Dir()>/gui.toml` gespeichert. System beobachtet
 `Window.appearance()` auch während der Sitzung; Light und Dark bleiben fest.
-Die Plattform-API bekommt eine feste Darstellung bzw. `None` für System, soweit
-vom Backend unterstützt. Kit-/Base-Tokens ändern Browser, Vorschau und Diff ohne
-neue Entities, Sitzungswechsel oder Auswahlreset. Die sichtbaren Controls heißen
-vorläufig **Theme (Kit)**; das ist keine Umsetzung der Monokai-Vorgabe.
-Farbzuordnung, Fokus, Auswahl, Fehler und Additions-/Deletionsmarkierungen bleiben
-für die endgültigen Paletten und native Darstellung abzunehmen. Die offiziellen
-CE-Bedingungen erlauben nur den Standardfilter als Monokai Pro (CE), nicht Light
-Sun; siehe [Weitergabe-Gate](rust-gui-theme-blockers.md).
+Omarchy liest nur `$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (sonst
+`~/.local/state/omarchy/current/theme/colors.toml`) und den optionalen Light-Marker.
+Ein Hintergrundmonitor prüft ungefähr sekündlich Inhalte und atomare Verzeichnis-/
+Symlinkwechsel. Ungültige/fehlende Dateien verwenden System mit sichtbarer Warnung;
+Reparatur stellt die Palette automatisch wieder her. Benutzerkonfiguration wird
+weder verändert noch ausgeführt, die Palette ist auf 64 KiB begrenzt. Laufende
+Farbwechsel schreiben keine Präferenzen.
+
+Kit-/Base-/Editor-Tokens ändern Browser, Vorschau und Diff ohne neue Entities,
+Sitzungswechsel, Schrift- oder Auswahlreset. Native Darstellung, laufende OS-/
+Omarchy-Wechsel und Kontrast bleiben abzunehmen. Monokai Pro Dark und Light Sun
+sind davon getrennte, nicht mitgelieferte Optionen. Die offiziellen CE-Bedingungen
+erlauben nur den Standardfilter als Monokai Pro (CE), nicht Light Sun; siehe
+[Weitergabe-Gate](rust-gui-theme-blockers.md).
+
+Remote-Ziele stehen ebenfalls in einem nativen Dropdown: Bestätigung eines anderen
+Hosts verbindet unmittelbar, die aktive Verbindung erneut zu wählen verbindet nicht
+neu. Disconnect bleibt ausdrücklich getrennt. Beide Pane-Köpfe teilen die größere
+nativ gemessene Höhe; darunter bleiben Pfadzeilen, Datei-/Vorschaubodies und
+Statusfußleisten auch bei ungleichen Breiten und umgebrochenen Aktionen ausgerichtet.
 
 Vorschau: höchstens 1 MiB, reguläre Textdateien, Zeilennummern, Umbruch,
 Textauswahl und native Zwischenablage. Finder/Vorschau laufen im Hintergrund;

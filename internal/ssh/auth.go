@@ -27,8 +27,7 @@ func AuthMethods(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, io.
 	case "agent", "":
 		return agentAuth(ctx)
 	case "keyfile":
-		methods, err := keyfileAuth(ctx, auth)
-		return methods, nil, err
+		return keyfileAuth(ctx, auth)
 	case "password":
 		pass := os.ExpandEnv(auth.Password)
 		return []gossh.AuthMethod{gossh.Password(pass)}, nil, nil
@@ -37,17 +36,16 @@ func AuthMethods(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, io.
 	}
 }
 
-func keyfileAuth(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, error) {
+func keyfileAuth(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, io.Closer, error) {
 	path := expandHome(os.ExpandEnv(auth.KeyFile))
 	if path == "" {
 		// fall back to agent if no key file configured
-		methods, _, err := agentAuth(ctx)
-		return methods, err
+		return agentAuth(ctx)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read key file %s: %w", path, err)
+		return nil, nil, fmt.Errorf("read key file %s: %w", path, err)
 	}
 
 	passphrase := os.ExpandEnv(auth.Passphrase)
@@ -58,10 +56,10 @@ func keyfileAuth(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, err
 		signer, err = gossh.ParsePrivateKey(data)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("parse private key %s: %w", path, err)
+		return nil, nil, fmt.Errorf("parse private key %s: %w", path, err)
 	}
 
-	return []gossh.AuthMethod{gossh.PublicKeys(signer)}, nil
+	return []gossh.AuthMethod{gossh.PublicKeys(signer)}, nil, nil
 }
 
 // agentTimeout bounds agent requests when the caller passed a context without a

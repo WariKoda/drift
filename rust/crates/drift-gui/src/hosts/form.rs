@@ -392,7 +392,7 @@ impl HostManager {
                         form.reveal.wrap(
                             "reveal-host-save",
                             Button::new("host-save")
-                                .label("Save host (Ctrl/Cmd+S)")
+                                .label("Save host")
                                 .disabled(self.cancel.is_some())
                                 .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
                         ),

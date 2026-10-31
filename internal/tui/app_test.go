@@ -301,7 +301,9 @@ func TestDiffResultOfLeftProjectIsDiscarded(t *testing.T) {
 	pending := app.diffRequest
 
 	// The user opens another project while the diff load is still running.
-	model, _ := app.Update(dashboard.MsgProjectChosen{Project: reg.Projects[0]})
+	model, prepare := app.Update(dashboard.MsgProjectChosen{Project: reg.Projects[0]})
+	app = model.(App)
+	model, _ = app.Update(prepare())
 	app = model.(App)
 	if app.state.WorkingDir != dirB {
 		t.Fatalf("working dir = %q, want %q", app.state.WorkingDir, dirB)

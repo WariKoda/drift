@@ -1,7 +1,12 @@
 # drift-gui
 
+> **Status: paused.** Rust/GPUI development is on hold until further notice.
+> Current work focuses on optimizing the Go-based `drift` TUI. This workspace
+> and its design notes are retained for a possible future return; existing
+> native acceptance and release gates remain open.
+
 See the [Rust/GPUI port plan](../docs/rust-port-plan.md) for milestones and the
-System/Dark/Light preference and the still-blocked Monokai palettes
+System/Omarchy/Dark/Light preference and the still-blocked Monokai palettes
 ([theme gate](../docs/rust-gui-theme-blockers.md)).
 
 The Rust desktop application develops alongside the Go TUI. It currently provides
@@ -37,7 +42,7 @@ lock. GUI window/theme/pane preferences live separately in `gui.toml`; the Go
 configuration schema is unchanged. Shared file format changes still require
 coordination despite independent application versions.
 
-## Browser and project-dialog design pilots
+## Workspace and project-dialog design
 
 The browser/toolbar pilot follows Zed's compact visual hierarchy: semantic
 14/12/16 UI typography, 4/8/12/16 spacing, separate marks/disclosure/file glyphs,
@@ -45,7 +50,81 @@ and labelled native actions grouped by project, session, comparison, navigation
 and visibility. Presentation tokens live in `drift-gui/src/design.rs`, still using
 the active Kit theme and existing bundled icons. No Zed fonts, SVGs, palettes or
 UI implementation are copied. Native input entities and transfer approvals remain
-unchanged; this is not a whole-app restyle.
+unchanged; this is not a whole-app restyle. Preview and unified-diff chrome now
+use the same compact controls and metadata hierarchy. Comparison rows separate
+paths from status/actions, scale with Kit typography and retain full path tooltips.
+Sync confirmation places its summary above wrapping native actions; it still
+requires explicit consent. Native editor entities, code-row geometry, diff
+selection/folding and transfer semantics are unchanged. The toolbar now separates
+tasks from quieter navigation/visibility actions, preserving native controls
+and explicit action routing. Comparison separates view controls from sync planning.
+Measured narrow file panes stack full status/action text, use native text metrics
+for uniform row height and wrap shown/total counts separately. Scroll anchors
+survive density changes even with same-frame pending navigation. Four additional
+headless regressions cover layout, state preservation and no-transfer consent.
+A limited [Wayland/scale-1 native check](../docs/rust-workspace-native-check.md)
+covers the first chrome increment. Native rechecking of the toolbar/narrow-pane
+follow-up was blocked by compositor focus ownership; it remains open, along
+with full native platform acceptance.
+
+Following user feedback, the upper toolbar now belongs to the persistent Shell:
+Projects, Hosts, comparison and prompts replace content beneath it rather than
+removing it. The global toolbar now contains only Home, Projects, Open folder
+and Settings (4 actions). Local navigation/visibility/cancellation (8 icons) lives
+inside the left pane. Local and remote navigation share the same horizontal row,
+with their independent full-width native filters aligned directly beneath them.
+Navigation remains single-line and horizontally scrollable in narrow panes, so
+unequal split widths cannot move one filter below the other. **Hosts** sits in the top toolbar next to Projects.
+The remote host dropdown and **Disconnect** sit in the right pane's tab row;
+remote cancellation ends the right navigation row. In a narrow pane the picker
+and Disconnect wrap below the tabs instead of leaving the pane; both tab rows
+share the taller measured height, so the rows below stay aligned. The four comparison scopes
+live in a footer below both panes, centred, with icon and label, because a
+comparison always involves both sides. Local files/local preview stay strictly on the left;
+remote files/remote preview stay strictly on the right. Each pane has its own
+labelled **Dateien / Vorschau** tabs above the aligned navigation/filter rows.
+The old **Remote**, **Local files** and cross-pane **Local preview** buttons are
+removed. Connection controls stay available in the right tab row, separate from the
+Files/Preview view selection. Both sides start in Files and can show previews simultaneously,
+using independent native editors and request IDs. Tab switches retain the loaded
+text, cursor/selection, directory, marks, split ratio and connection; they never
+connect, disconnect or transfer. A preview is requested only for a regular selected
+file or restored from that side's valid cache. Filters, marking and cursor changes
+retain the document even with no matching selection. Explicit file opens read
+fresh content; refresh and directory/project/session changes invalidate the
+appropriate cache. Copy path targets the visible document in Preview, rather
+than a different or filtered-out list selection. Disconnect and
+connection targets remain inside the remote pane. Mouse cancellation is pane-local; Ctrl+Esc retains its existing
+keyboard behavior. Remote-header callbacks and pointer/key events reject old or
+covered scenes, including hidden connection buttons. Safe management-list routes
+preserve browser/remote sessions;
+forms, writes, pending sync plans, help and certificate decisions block unrelated
+routes. Browser shortcuts also work with toolbar-button focus, without reaching
+hidden views. Back/Forward/Up/Refresh/Find/Hidden/Ignored/Cancel are icon-only with
+full tooltips/accessibility labels, including analogous remote controls. Local
+and remote breadcrumb ancestors are clickable, long paths scroll horizontally,
+and native mouse Back/Forward navigate the originating pane's existing history.
+Original path targets, project/session boundaries, busy and stale-frame guards
+remain intact. A plain single left click selects a file or directory only, with
+no automatic preview. A directory-row double click expands/collapses its branch,
+never enters it; a file double click still only selects. Rows span the pane width,
+including trailing blank space. Disclosure/mark controls and keyboard navigation
+retain their behavior; preview is explicit through its tab or keyboard. The local breadcrumb row now lives inside the local browser pane,
+below its Local heading and above its file list, rather than beside the outer
+filter. Marked-item counts and range status now sit in fixed footers below each
+file list, remaining visible while the rows scroll. A Home icon replaces the app-name label and returns from management,
+Finder or an idle comparison without resetting directory/marks or bypassing draft,
+transfer and confirmation guards. Only the selected House icon is added to the
+existing default Kit asset source; the complete catalog is not embedded.
+A Settings gear opens a fixed-header/footer, scrollable preferences view beneath
+the toolbar. It reuses the existing theme controls/writer and explains automatic
+window/pane persistence. Theme selection is now available only in Settings; the
+browser/comparison footer row is removed. Preference persistence failures remain
+visible as a warning in the application frame, even outside Settings. Closing restores the underlying view/focus without replacing
+sessions. Old or covered Settings frames cannot act on the new view. Inline keymap
+hints and shortcut suffixes have been removed, but bindings and explicitly opened
+shortcut help remain. All 557 Rust tests, strict Clippy, formatting and debug build pass;
+these changes have not received a new native visual acceptance.
 
 See the [design system and pinned references](../docs/rust-gui-design-system.md)
 and [schematic HTML preview](../docs/design/drift-design-system.html). The Create/Edit
@@ -62,9 +141,18 @@ is not a native screenshot or accessibility/platform acceptance.
 
 ## GUI preferences
 
-The browser and comparison footer provides native **System**, **Dark** and
-**Light** buttons, currently labelled **Theme (Kit)**. System is the default and
-observes window appearance changes while running; fixed modes remain fixed.
+Settings provides a native **Theme** dropdown: **System**, **Omarchy**, **Dark**
+and **Light**. System is the default and observes window appearance changes while
+running; fixed Kit modes remain fixed.
+
+Omarchy reads the active `$XDG_STATE_HOME/omarchy/current/theme/colors.toml`, falling
+back to `~/.local/state/omarchy/current/theme/colors.toml`. It checks data and atomic
+directory/symlink replacements on a background executor approximately once a second.
+Semantic and ANSI colors map onto Kit/Base, editor syntax and diff tokens; palette
+mode/light marker/background determine light/dark appearance. Missing, malformed,
+non-regular or oversized palettes fall back to System with a visible warning and
+recover automatically after repair. Files are limited to 64 KiB, never executed,
+and desktop configuration is never modified. Palette changes do not save preferences.
 Kit/Base tokens change without rebuilding browser, form, preview or Diff entities,
 clearing selection, cancelling I/O or approving a transfer. Monokai Pro Dark and
 Light Sun are not included: [permission and native acceptance remain open](../docs/rust-gui-theme-blockers.md).
@@ -73,7 +161,7 @@ Preferences are stored in `<config.Dir()>/gui.toml`, outside working trees and
 separate from the shared host/project configuration. Example:
 
 ```toml
-theme = "system" # system, dark, light
+theme = "system" # system, omarchy, dark, light
 
 [window]
 width = 1100.0
@@ -121,8 +209,9 @@ load nor rewrite `gui.toml`. Logging remains off by default.
 
 Save failures remain visible per changed field; an unrelated successful change
 cannot hide them. There is no automatic retry or rollback claim. A later explicit
-change retries only that field; clicking the already selected theme also retries
-that explicit choice. An unresolved failure is reported on shutdown, even if a
+change retries only that field; confirming the current theme after a save failure
+also retries that explicit choice. Merely opening, cancelling or synchronizing a
+dropdown never queues a write. An unresolved failure is reported on shutdown, even if a
 write may already have committed before a lock-release error.
 
 ## Build and run
@@ -230,10 +319,22 @@ shows how many marked descendants it contains. Children load through the existin
 background services, and failed loads leave the directory collapsed. Refresh
 restores expanded paths and the cursor. Visibility changes retain expansion state,
 including directories that are temporarily hidden.
-Click a directory's name to enter it or a file to preview it in the opposite pane.
-Ctrl-click/Cmd-click toggles a mark without opening the entry; Shift-click adds a
-visible range. Marks have a checkmark separate from the cursor highlight and a
-count in each pane. They survive navigation, filters, visibility changes and
+Single-click anywhere across a file/folder row to select it. Double-click a
+folder row to expand/collapse it without entering. File clicks never open a
+preview automatically: use **Vorschau** or the keyboard. Alt+Enter/context Open
+enters a folder; the disclosure arrow remains an explicit single-click expander.
+**Dateien** returns to that side's list.
+Selection works as in a desktop file browser and is separate from marks.
+Ctrl-click/Cmd-click adds a file or folder to the selection or removes it.
+Shift-click selects every visible row between the last plain or Ctrl-clicked row
+and the clicked one; Shift+Ctrl/Cmd-click adds that range. None of these clicks
+mark or expand anything, and the disclosure arrow keeps the selection. Space or
+the context menu's **Mark** marks the whole selection (or unmarks it when it is
+already fully marked). Copy path copies all selected paths, and **Local/Remote
+selection** compares the selection when nothing is marked. Keyboard cursor moves
+select a single row; Shift+Arrow still extends marks. Marks have a checkmark
+separate from the selection highlight and a count in each pane; the footer also
+shows the selection size when more than one row is selected. They survive navigation, filters, visibility changes and
 refresh, and clear when the project or remote connection changes.
 The finder searches the entire project; the filter narrows the
 returned paths. Hidden and ignored entries have separate visibility toggles.
@@ -344,12 +445,22 @@ Underlying operations continue, but commands do not run behind help or menus.
 Directory and preview responses carry separate generations;
 stale responses are discarded and their root handles released.
 
-Use **Remote** in the toolbar, then **Connect <host>**, to open an SFTP, FTP or FTPS target
-beside the local browser. Each side keeps its own path, filter, selection, history,
-scroll and focus. Remote Back/Forward/Up and the browser keys navigate within the
-configured host root. Remote text preview opens in the left pane; **Local files**
-restores the local browser. Selecting a local file restores the right preview;
-**Remote** returns to the connected remote tree. **Disconnect** closes it.
+Choose a configured host from the native dropdown inside the right Remote pane
+to connect immediately over SFTP, FTP or FTPS beside Local. Selecting the already
+connected target does not reconnect; opening/cancelling or refreshing the dropdown
+never initiates a connection. Each side keeps its own path, filter, selection, history,
+scroll and focus. Remote Back/Forward/Up and the browser keys stay within the
+configured host root. **Dateien / Vorschau** switches only its own side: Local
+never replaces Remote and Remote never replaces Local. Escape returns the focused
+preview to its own files; p toggles and c copies that side's preview, while native
+Ctrl/Cmd+C keeps editor selection-copy behavior. **Disconnect** explicitly closes
+the remote connection; switching tabs never does.
+
+Both panes share the larger measured chrome height, followed by equal-height path
+rows and aligned list/editor bodies and marking footers. Native typography and
+actual pane widths determine the measurement, including wrapped remote actions;
+preview controls and document paths occupy these same slots instead of shifting
+the editor below the neighboring file list.
 
 After connecting, **Compare project** compares the project (or all effective mapping
 roots). **Compare local selection** and **Compare remote selection** compare the
@@ -771,7 +882,8 @@ DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test ./i
 All test stores use temporary directories. Native Wayland, X11, macOS Intel and
 Apple Silicon rendering/OS clipboard checks remain manual: navigate a temporary
 project, use the native folder chooser, navigate back and forward, filter and find
-files, mark files/folders with Space, Ctrl/Cmd-click, Shift-click, v/V and *,
+files, mark files/folders with Space, v/V and *; verify Ctrl/Cmd-click and Shift-click
+select multiple rows without marking,
 expand/collapse nested directories, refresh and verify cursor/expansion restoration,
 change filters/visibility/folders and confirm both panes retain their own marks,
 compare with s and confirm refresh/sync keep only that scope, exercise host forms
@@ -806,7 +918,7 @@ rewrite the configuration or secrets automatically.
 ## Remaining port work
 
 The planned Monokai palettes remain blocked by permission and native acceptance.
-GUI preferences with provisional Kit themes and automatic endpoint-link offers
+GUI preferences with Kit themes, live read-only Omarchy colors and automatic endpoint-link offers
 are implemented. SSH certificates remain blocked separately by dependencies. Project CRUD/archive, dashboard and startup
 restoration and core project/host keyboard flows are available, including numeric
 project shortcuts and the sync-error display shortcut. CLI project management and open/dash/version are

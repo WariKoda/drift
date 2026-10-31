@@ -1,4 +1,5 @@
 mod actions;
+mod assets;
 mod browser;
 mod browser_menu;
 mod certificates;
@@ -12,6 +13,7 @@ mod focus_reveal;
 mod form_input;
 mod hosts;
 mod pane_split;
+mod pane_tabs;
 mod preferences;
 mod preview;
 mod projects;
@@ -20,6 +22,8 @@ mod remote;
 #[path = "../../drift-core/tests/support/mod.rs"]
 mod sftp_test_support;
 mod shell;
+#[cfg(test)]
+mod test_support;
 mod toolbar;
 
 use gpui_kit::{AppContext, QuitMode, WindowOptions};
@@ -164,7 +168,7 @@ fn run_command(
     let service = drift_app::browser::BrowserService::new()?.with_logger(logger.clone());
     let background = service.clone();
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::Assets)
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx| {
             gpui_kit::init(cx);

@@ -1,4 +1,5 @@
 use super::*;
+mod dropdown;
 use crate::sftp_test_support as support;
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};
 use gpui_kit::{Bounds, TestAppContext, WindowBounds, WindowOptions, point, size};
@@ -58,7 +59,7 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
     });
     let pane = view.read_with(cx, |view, _| view.pane.clone());
     cx.update_window(handle, |_, window, cx| {
-        window.click(("connect-host", 0usize), cx)
+        crate::test_support::connect_first(window, cx)
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -76,6 +77,47 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
         })
     });
     cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let header = window
+            .within("remote-pane")
+            .find("remote-path-header")
+            .bounds();
+        let files = window.find("remote-files-pane").bounds();
+        let footer = window
+            .within("remote-pane")
+            .find("remote-selection-status")
+            .bounds();
+        assert_eq!(header.bottom(), files.top());
+        assert_eq!(files.bottom(), footer.top());
+        assert_eq!(
+            window.find("remote-selection-status").label(),
+            Some("0 marked")
+        );
+        assert!(
+            window
+                .within("remote-pane")
+                .find("remote-host-select")
+                .visible()
+        );
+        let select = window
+            .within("remote-connection-controls")
+            .find("remote-host-select")
+            .bounds();
+        let disconnect = window
+            .within("remote-connection-controls")
+            .find("disconnect")
+            .bounds();
+        assert!(
+            select.right() <= disconnect.left(),
+            "standalone picker precedes disconnect: {select:?}, {disconnect:?}"
+        );
+        // Only the shell adds the cancel slot to the standalone navigation row.
+        assert!(
+            window
+                .within("remote-navigation-toolbar")
+                .try_find("remote-cancel")
+                .is_none()
+        );
         assert_eq!(pane.read(cx).path, root.to_string_lossy());
         window.press("down", cx);
         window.press("space", cx);
@@ -92,6 +134,7 @@ async fn real_remote_navigation_filter_keyboard_and_project_switch(cx: &mut Test
                 .expanded
         );
         window.click(0usize, cx);
+        window.press("alt-enter", cx);
         pane.update(cx, |pane, cx| pane.preview_selected(window, cx));
     })
     .unwrap();
@@ -238,7 +281,7 @@ async fn lazy_remote_tree_refresh_collapse_and_stale_results_preserve_session(
     });
     let pane = view.read_with(cx, |view, _| view.pane.clone());
     cx.update_window(handle, |_, window, cx| {
-        window.click(("connect-host", 0usize), cx)
+        crate::test_support::connect_first(window, cx)
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {

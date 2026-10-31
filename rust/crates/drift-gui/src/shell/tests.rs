@@ -62,7 +62,10 @@ async fn real_nested_navigation_buttons_history_and_input_focus(cx: &mut TestApp
             cx.update_window(handle, |_, w, cx| {
                 w.render_frame(cx);
                 match control {
-                    "row" => w.click(0usize, cx),
+                    "row" => {
+                        w.within("local-files").click(0usize, cx);
+                        w.press("alt-enter", cx);
+                    }
                     "up" | "back" => w.click(control, cx),
                     key => w.press(key, cx),
                 }
@@ -142,7 +145,8 @@ async fn real_nested_navigation_buttons_history_and_input_focus(cx: &mut TestApp
             })
             .await;
             cx.update_window(handle, |_, w, cx| {
-                w.click(0usize, cx);
+                w.within("local-files").click(0usize, cx);
+                w.press("alt-enter", cx);
             })
             .unwrap();
             cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -207,7 +211,8 @@ async fn vanished_directory_keeps_the_previous_location_and_history(cx: &mut Tes
     fs::remove_dir(vanished).unwrap();
     cx.update_window(handle, |_, w, cx| {
         w.render_frame(cx);
-        w.click(0usize, cx);
+        w.within("local-files").click(0usize, cx);
+        w.press("alt-enter", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -272,11 +277,16 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
         window.click("projects", cx);
         window.press("escape", cx);
         assert!(!shell.read(cx).projects.read(cx).visible());
-        window.click(0usize, cx);
+        shell.read(cx).browser.focus_handle(cx).focus(window, cx);
+        window.press("home", cx);
+        window.press("space", cx);
+        window.within("local-files").click(0usize, cx);
+        assert_eq!(shell.read(cx).local_view, crate::pane_tabs::PaneView::Files);
+        window.click("local-preview-tab", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        !shell.read(cx).preview.read(cx).is_loading()
+        !shell.read(cx).local_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(handle, |_, window, cx| {
@@ -284,14 +294,13 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
             shell.read(cx).browser.read(cx).selected(),
             Some("first.txt")
         );
-        window.press("space", cx); // Marking must preserve the loaded preview.
         assert_eq!(shell.read(cx).browser.read(cx).marked(), ["first.txt"]);
-        window.click("copy-preview", cx);
+        window.within("local-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("first\nsecond")
         );
-        window.click("copy-selection", cx);
+        window.within("local-workspace").click("copy-selection", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("first.txt")
@@ -307,7 +316,21 @@ async fn filtering_preview_clipboard_and_panels_preserve_the_browser(cx: &mut Te
             shell.read(cx).browser.read(cx).selected(),
             Some("first.txt")
         );
-        assert!(shell.read(cx).browser.focus_handle(cx).is_focused(window));
+        // Hosts lives in the global toolbar, so closing it returns to the active local preview.
+        assert!(shell.read(cx).local_focus.contains_focused(window, cx));
+        assert!(!shell.read(cx).remote.focus_handle(cx).is_focused(window));
+        assert!(
+            window
+                .within("remote-workspace")
+                .find("remote-pane")
+                .visible()
+        );
+        assert!(
+            window
+                .within("local-workspace")
+                .find("preview-header")
+                .visible()
+        );
     })
     .unwrap();
 }
@@ -369,8 +392,8 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     })
     .await;
     cx.update_window(handle, |_, window, cx| {
-        window.click("remote", cx);
-        window.click(("connect-host", 0usize), cx);
+        window.click("remote-files-tab", cx);
+        crate::test_support::connect_first(window, cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -379,7 +402,7 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
     .await;
     assert!(shell.read_with(cx, |shell, cx| shell.remote.read(cx).has_session()));
     cx.update_window(handle, |_, window, cx| {
-        window.within("remote-pane").click(0usize, cx);
+        shell.read(cx).remote.focus_handle(cx).focus(window, cx);
         for (key, expected) in [
             ("end", "second.txt"),
             ("home", "remote.txt"),
@@ -423,35 +446,48 @@ async fn real_sftp_connection_preview_and_project_switch_cross_view_boundaries(
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(window));
         window.press("shift-tab", cx);
         assert!(shell.read(cx).remote.focus_handle(cx).is_focused(window));
+        window.press("end", cx);
+        window.press("space", cx);
         window.within("remote-pane").click(1usize, cx);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Files
+        );
+        window.press("p", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        shell.read(cx).remote_preview && !shell.read(cx).preview.read(cx).is_loading()
+        shell.read(cx).remote_view == crate::pane_tabs::PaneView::Preview
+            && !shell.read(cx).remote_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(handle, |_, window, cx| {
-        window.press("space", cx);
         assert_eq!(shell.read(cx).remote.read(cx).marked().len(), 1);
-        assert!(shell.read(cx).remote_preview);
-        window.click("copy-preview", cx);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Preview
+        );
+        window.within("remote-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("latest remote contents")
         );
         assert!(shell.read(cx).remote.read(cx).has_session());
-        window.click("local-browser", cx);
+        window.click("local-files-tab", cx);
+        window.press("home", cx);
+        window.press("space", cx);
         window.within("browser-pane").click(0usize, cx);
+        assert_eq!(shell.read(cx).local_view, crate::pane_tabs::PaneView::Files);
+        window.click("local-preview-tab", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        !shell.read(cx).preview.read(cx).is_loading()
+        !shell.read(cx).local_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(handle, |_, window, cx| {
-        window.press("space", cx);
         assert_eq!(shell.read(cx).browser.read(cx).marked(), ["local.txt"]);
-        window.click("copy-preview", cx);
+        window.within("local-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("local contents")
@@ -520,7 +556,10 @@ async fn keyboard_boundaries_panes_and_management_preserve_input_and_marks(
         }
         w.press("space", cx);
         w.press("tab", cx);
-        assert!(shell.read(cx).show_remote);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Files
+        );
         assert!(shell.read(cx).remote.focus_handle(cx).is_focused(w));
         // Empty/disconnected lists must also accept boundary keys.
         w.press("end", cx);

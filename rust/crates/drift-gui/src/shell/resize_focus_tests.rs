@@ -60,7 +60,7 @@ async fn escape_from_the_header_filter_cancels_resize_not_the_live_preview(
         let marks = shell.read(cx).browser.read(cx).marked();
         let status = shell.read(cx).status.clone();
         let location = shell.read(cx).browser.read(cx).location().unwrap().clone();
-        let preview = shell.read(cx).preview.clone();
+        let preview = shell.read(cx).local_preview.clone();
         preview.update(cx, |pane, cx| {
             pane.show(location, "a.txt".into(), browser_id.project, w, cx)
         });
@@ -109,7 +109,7 @@ async fn escape_from_the_header_filter_cancels_resize_not_the_live_preview(
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        !shell.read(cx).preview.read(cx).is_loading()
+        !shell.read(cx).local_preview.read(cx).is_loading()
     })
     .await;
 }

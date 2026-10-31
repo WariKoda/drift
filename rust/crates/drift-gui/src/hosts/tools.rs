@@ -478,7 +478,7 @@ impl Render for HostTools {
             content = content
                 .child(detail(
                     "host-tools-guidance",
-                    "Reset removes both exceptions for this endpoint. Existing connections remain open. Enter/y confirms; r reloads; Escape returns.".into(),
+                    "Reset removes both exceptions for this endpoint. Existing connections remain open.".into(),
                 ))
                 .child(
                     div()

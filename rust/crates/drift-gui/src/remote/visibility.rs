@@ -105,6 +105,7 @@ impl RemotePane {
             return;
         }
         self.dismiss_context_menu(window, cx);
+        self.navigation_revision += 1;
         self.show_ignored = !self.show_ignored;
         self.set_entries(cx);
         self.selection_changed(cx);

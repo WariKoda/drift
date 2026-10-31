@@ -45,8 +45,8 @@ async fn open_browser(
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     wait_idle(handle, &shell, cx).await;
@@ -64,7 +64,8 @@ async fn wait_idle(
         !s.browser.read(cx).is_loading()
             && !s.remote.read(cx).is_loading()
             && !s.comparison.read(cx).is_loading()
-            && !s.preview.read(cx).is_loading()
+            && !s.local_preview.read(cx).is_loading()
+            && !s.remote_preview.read(cx).is_loading()
     })
     .await;
 }
@@ -117,19 +118,21 @@ async fn context_compare_uses_only_its_path_preserves_marks_and_requires_sync_co
         w.press("end", cx);
         w.press("space", cx);
         w.within("local-files").click(1usize, cx);
+        w.press("p", cx);
     })
     .unwrap();
     wait_idle(handle, &shell, cx).await;
     cx.update_window(handle, |_, w, cx| {
-        let preview = shell.read(cx).preview.read(cx).id();
-        w.click("copy-preview", cx);
+        let preview = shell.read(cx).local_preview.read(cx).id();
+        w.within("local-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().unwrap(),
             "leave local mark"
         );
+        w.click("local-files-tab", cx);
         w.within("local-files").right_click(0usize, cx);
         assert_eq!(shell.read(cx).browser.read(cx).selected(), Some("a-local"));
-        assert_eq!(shell.read(cx).preview.read(cx).id(), preview);
+        assert_eq!(shell.read(cx).local_preview.read(cx).id(), preview);
         assert_eq!(shell.read(cx).browser.read(cx).marked(), ["b-mark"]);
         assert_eq!(
             shell.read(cx).remote.read(cx).marked(),
@@ -173,25 +176,27 @@ async fn context_compare_uses_only_its_path_preserves_marks_and_requires_sync_co
     );
     cx.update_window(handle, |_, w, cx| {
         w.click("comparison-back", cx);
-        w.click("remote", cx);
+        w.click("remote-files-tab", cx);
         // The uploaded path is now row zero; b-mark remains the marked preview source.
         w.within("remote-files").click(1usize, cx);
+        w.press("p", cx);
     })
     .unwrap();
     wait_idle(handle, &shell, cx).await;
     cx.update_window(handle, |_, w, cx| {
-        let preview = shell.read(cx).preview.read(cx).id();
-        w.click("copy-preview", cx);
+        let preview = shell.read(cx).remote_preview.read(cx).id();
+        w.within("remote-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().unwrap(),
             "leave remote mark"
         );
+        w.click("remote-files-tab", cx);
         w.within("remote-files").right_click(2usize, cx);
         assert_eq!(
             shell.read(cx).remote.read(cx).selected(),
             Some(remote.join("c-remote").to_string_lossy().as_ref())
         );
-        assert_eq!(shell.read(cx).preview.read(cx).id(), preview);
+        assert_eq!(shell.read(cx).remote_preview.read(cx).id(), preview);
         click_menu(w, "Compare this ", cx);
     })
     .unwrap();
@@ -552,10 +557,10 @@ async fn busy_panes_reject_comparison_even_for_queued_menu_events(cx: &mut TestA
     cx.update_window(handle, |_, w, cx| {
         shell.update(cx, |s, cx| {
             s.remote.update(cx, |pane, cx| pane.disconnect(cx));
-            let preview_id = s.preview.read(cx).id();
+            let preview_id = s.local_preview.read(cx).id();
             s.open_comparison(vec!["a".into()], vec![], w, cx);
             assert!(!s.comparison.read(cx).visible());
-            assert_eq!(s.preview.read(cx).id(), preview_id);
+            assert_eq!(s.local_preview.read(cx).id(), preview_id);
             s.browser.update(cx, |pane, cx| pane.invalidate_project(cx));
             s.open_comparison(vec!["a".into()], vec![], w, cx);
             assert!(!s.comparison.read(cx).visible());
@@ -644,9 +649,10 @@ async fn stale_path_operation_project_and_connection_events_are_rejected(cx: &mu
     cx.update_window(handle, |_, w, cx| {
         assert!(!shell.read(cx).comparison.read(cx).visible());
         w.click("disconnect", cx);
-        w.click(("connect-host", 0usize), cx);
     })
     .unwrap();
+    cx.update_window(handle, |_, w, cx| crate::test_support::connect_first(w, cx))
+        .unwrap();
     wait_idle(handle, &shell, cx).await;
     cx.update_window(handle, |_, w, cx| {
         let pane = shell.read(cx).remote.clone();
@@ -700,7 +706,7 @@ async fn stale_path_operation_project_and_connection_events_are_rejected(cx: &mu
     })
     .unwrap();
     wait_idle(handle, &shell, cx).await;
-    cx.update_window(handle, |_, w, cx| w.click(("connect-host", 0usize), cx))
+    cx.update_window(handle, |_, w, cx| crate::test_support::connect_first(w, cx))
         .unwrap();
     wait_idle(handle, &shell, cx).await;
     cx.update_window(handle, |_, w, cx| {
@@ -793,7 +799,26 @@ async fn hidden_pane_menus_close_without_taking_modal_focus(cx: &mut TestAppCont
             .unwrap();
             cx.update_window(handle, |_, w, cx| {
                 assert!(shell.read(cx).browser_screen_active(cx));
-                assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
+                let s = shell.read(cx);
+                let local_focused = s.browser.focus_handle(cx).is_focused(w);
+                let remote_focused = s.remote.focus_handle(cx).is_focused(w);
+                assert!(
+                    local_focused || remote_focused,
+                    "management must restore a visible file pane"
+                );
+                assert!(
+                    w.within(if local_focused {
+                        "local-workspace"
+                    } else {
+                        "remote-workspace"
+                    })
+                    .find(if local_focused {
+                        "browser-pane"
+                    } else {
+                        "remote-pane"
+                    })
+                    .visible()
+                );
                 w.press("shift-f10", cx);
                 assert!(w.find("popup-menu").visible());
                 w.press("escape", cx);
@@ -804,31 +829,50 @@ async fn hidden_pane_menus_close_without_taking_modal_focus(cx: &mut TestAppCont
     let session_id = shell.read_with(cx, |s, cx| s.remote.read(cx).session_id());
     cx.update_window(handle, |_, w, cx| {
         w.within("local-files").right_click(0usize, cx);
-        shell.read(cx).remote.focus_handle(cx).focus(w, cx);
+        shell.read(cx).browser.focus_handle(cx).focus(w, cx);
         w.press("enter", cx);
     })
     .unwrap();
     wait_idle(handle, &shell, cx).await;
     cx.update_window(handle, |_, w, cx| {
         w.render_frame(cx);
-        assert!(shell.read(cx).remote_preview);
+        assert_eq!(
+            shell.read(cx).local_view,
+            crate::pane_tabs::PaneView::Preview
+        );
         assert!(w.try_find("popup-menu").is_none());
-        assert!(shell.read(cx).remote.focus_handle(cx).is_focused(w));
+        assert!(shell.read(cx).local_focus.contains_focused(w, cx));
+        assert!(w.within("local-workspace").find("preview-header").visible());
+        assert!(w.within("remote-workspace").find("remote-pane").visible());
+        w.click("remote-files-tab", cx);
         w.press("shift-f10", cx);
         assert!(w.find("popup-menu").visible());
-        shell
-            .read(cx)
-            .remote
-            .clone()
-            .update(cx, |_, cx| cx.emit(RemoteEvent::ShowLocalPreview));
+        shell.update(cx, |s, cx| {
+            s.set_pane_view(
+                crate::pane_tabs::PaneSide::Remote,
+                crate::pane_tabs::PaneView::Preview,
+                w,
+                cx,
+            )
+        });
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {
         w.render_frame(cx);
-        assert!(!shell.read(cx).show_remote);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Preview
+        );
         assert!(w.try_find("popup-menu").is_none());
+        assert!(shell.read(cx).remote_focus.contains_focused(w, cx));
+        assert!(
+            w.within("remote-workspace")
+                .find("preview-header")
+                .visible()
+        );
+        w.click("local-files-tab", cx);
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
-        w.click("remote", cx);
+        w.click("remote-files-tab", cx);
         assert!(w.try_find("popup-menu").is_none());
         assert_eq!(shell.read(cx).remote.read(cx).session_id(), session_id);
         w.within("local-files").right_click(0usize, cx);

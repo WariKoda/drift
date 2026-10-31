@@ -4,10 +4,12 @@ Stand: 6. Oktober 2026.
 
 ## Entscheidung
 
-`gui.toml`, Fenster-/Pane-Präferenzen und System/Dark/Light werden zuerst
-umgesetzt. Die Oberfläche bezeichnet die aktuellen Farben ausdrücklich als
-**Kit-Themes**. Monokai Pro Dark und Monokai Pro Light Sun bleiben das geplante
-Ziel; ihre Paletten und Assets werden nicht ungeklärt mitgeliefert.
+`gui.toml`, Fenster-/Pane-Präferenzen und das native Theme-Dropdown mit
+System/Omarchy/Dark/Light sind umgesetzt. System/Dark/Light verwenden **Kit-Themes**;
+Omarchy übernimmt ausschließlich die aktive Benutzerpalette read-only mit laufender
+Aktualisierung und System-Fallback. Es werden dafür keine Drittanbieterpaletten
+mitgeliefert. Monokai Pro Dark und Monokai Pro Light Sun bleiben ein getrenntes
+geplantes Ziel; ihre Paletten und Assets werden nicht ungeklärt mitgeliefert.
 
 Diese Begrenzung wurde vom Nutzer ausdrücklich gewählt. Sie ist weder eine
 Umbenennung der Kit-Themes in Monokai noch eine Freigabe der GUI-Veröffentlichung.
@@ -38,9 +40,14 @@ juristische Bewertung des Urheberrechtsschutzes einzelner Farbwerte.
 
 ## Bereits vorhandener Mechanismus, noch keine native Abnahme
 
-Die GUI speichert nur den Modus `system`, `dark` oder `light`. System verwendet
-`Window.appearance()` und dessen laufende Beobachtung; feste Modi ändern die
-Kit-/Base-Tokens unabhängig vom OS. Die Plattform-API erhält die entsprechende
+Die GUI speichert den Modus `system`, `omarchy`, `dark` oder `light`. System
+verwendet `Window.appearance()` und dessen laufende Beobachtung; feste Modi ändern
+die Kit-/Base-Tokens unabhängig vom OS. Omarchy liest die aktive Palette unter
+`$XDG_STATE_HOME/omarchy/current/theme` (sonst `~/.local/state`) im Hintergrund,
+projiziert validierte Farben auf Kit/Base/Editor und folgt atomaren Theme-Wechseln.
+Fehlende/ungültige Paletten verwenden System mit sichtbarer Warnung; Reparatur
+stellt Omarchy automatisch wieder her. Weder Desktop-Dateien noch Präferenzen
+werden durch solche Farbänderungen geschrieben. Die Plattform-API erhält die entsprechende
 Darstellungspräferenz bzw. `None` für System. Native Titelbalken folgen nur dort,
 wo das SDK/Backend die API unterstützt; serverseitige Linux-Dekorationen bleiben
 vom Window Manager abhängig.
@@ -58,3 +65,5 @@ Sitzungen, Pane-/Fensterzustandsmodelle und ausdrückliche Sync-Bestätigung.
 Das gepinnte SDK stellt die native OS-Darstellungsinjektion nicht als öffentliche
 Test-API bereit. Diese Tests ersetzen deshalb keinen echten laufenden OS-Wechsel,
 keine native Maximierung/Dekoration und keine Fokus-/IME-/Accessibility-Abnahme.
+Auch Live-Omarchy-Wechsel samt Kontrast und nativen Dropdowns sind gesondert
+abzunehmen; temporäre Dateifixtures ersetzen keinen Desktop-Test.

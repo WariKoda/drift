@@ -1,4 +1,7 @@
 use super::*;
+
+#[path = "row_click_tests.rs"]
+mod row_click_tests;
 use gpui_kit::InputEvent as _;
 use gpui_kit::base::test_support::{ElementSnapshot, snapshots};
 use gpui_kit::component::menu::PopupMenu;
@@ -36,7 +39,7 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.left.read(cx).header(cx))
+                    .child(self.left.update(cx, |pane, cx| pane.header(cx)))
                     .child(self.left.clone()),
             )
             .child(
@@ -46,7 +49,7 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.right.read(cx).header(cx))
+                    .child(self.right.update(cx, |pane, cx| pane.header(cx)))
                     .child(self.right.clone()),
             )
             .children(self.retained_popup.as_ref().map(|popup| {

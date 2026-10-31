@@ -94,9 +94,13 @@ impl Fixture {
             preferences_writer,
         };
         fixture.idle(cx).await;
+        cx.wait_for(handle, Duration::from_secs(60), |w, _| {
+            w.try_find("remote-host-select").is_some()
+        })
+        .await;
         cx.update_window(handle, |_, w, cx| {
-            w.click("remote", cx);
-            w.click(("connect-host", 0usize), cx);
+            w.click("remote-files-tab", cx);
+            crate::test_support::connect_first(w, cx);
         })
         .unwrap();
         fixture.idle(cx).await;
@@ -113,7 +117,8 @@ impl Fixture {
             s.browser.read(cx).location().is_some()
                 && !s.browser.read(cx).is_loading()
                 && !s.remote.read(cx).is_loading()
-                && !s.preview.read(cx).is_loading()
+                && !s.local_preview.read(cx).is_loading()
+                && !s.remote_preview.read(cx).is_loading()
                 && !s.comparison.read(cx).is_loading()
         })
         .await;
@@ -123,13 +128,14 @@ impl Fixture {
 fn browser_state(s: &Shell, cx: &gpui_kit::App) -> String {
     let browser = s.browser.read(cx);
     let remote = s.remote.read(cx);
-    let preview = s.preview.read(cx);
+    let local_preview = s.local_preview.read(cx);
+    let remote_preview = s.remote_preview.read(cx);
     format!(
         "entities={:?}; local={:?}; remote={:?}; preview={:?}",
         (
             s.browser.entity_id(),
             s.remote.entity_id(),
-            s.preview.entity_id()
+            (s.local_preview.entity_id(), s.remote_preview.entity_id())
         ),
         (
             browser.id(),
@@ -154,9 +160,12 @@ fn browser_state(s: &Shell, cx: &gpui_kit::App) -> String {
             remote.has_session()
         ),
         (
-            preview.id(),
-            preview.is_loading(),
-            preview.is_loading_remote()
+            (local_preview.id(), local_preview.is_loading(), s.local_view),
+            (
+                remote_preview.id(),
+                remote_preview.is_loading(),
+                s.remote_view
+            )
         )
     )
 }
@@ -231,8 +240,9 @@ async fn resize_browser_modes_retains_entities_navigation_range_scroll_and_previ
     let f = Fixture::new(cx).await;
     let s = &f.shell;
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("local-browser", cx);
-        w.within("local-files").click(0usize, cx); // Real directory navigation.
+        w.click("local-files-tab", cx);
+        w.within("local-files").click(0usize, cx);
+        w.press("alt-enter", cx); // Real directory navigation.
     })
     .unwrap();
     f.idle(cx).await;
@@ -241,11 +251,12 @@ async fn resize_browser_modes_retains_entities_navigation_range_scroll_and_previ
     f.idle(cx).await;
     for mode in ["local", "listing", "remote-preview"] {
         cx.update_window(f.handle, |_, w, cx| {
+            w.click("local-files-tab", cx);
             if mode == "local" {
                 w.click("filter", cx);
                 w.input("keep", cx);
             } else {
-                w.click("remote", cx);
+                w.click("remote-files-tab", cx);
                 if mode == "listing" {
                     w.click("remote-filter", cx);
                     w.input("keep", cx);
@@ -253,33 +264,46 @@ async fn resize_browser_modes_retains_entities_navigation_range_scroll_and_previ
             }
         })
         .unwrap();
-        cx.update_window(f.handle, |_, w, cx| {
-            if mode == "local" {
-                s.read(cx).browser.focus_handle(cx).focus(w, cx);
-            } else {
-                s.read(cx).remote.focus_handle(cx).focus(w, cx);
-            }
-            if mode != "remote-preview" {
-                w.press("end", cx);
-                w.press("space", cx);
-                w.press("v", cx);
-                w.press("up", cx);
-            }
-            if mode != "listing" {
-                w.press("enter", cx);
-            }
-        })
-        .unwrap();
+        let selected_rows = cx
+            .update_window(f.handle, |_, w, cx| {
+                if mode == "local" {
+                    s.read(cx).browser.focus_handle(cx).focus(w, cx);
+                } else {
+                    s.read(cx).remote.focus_handle(cx).focus(w, cx);
+                }
+                if mode != "remote-preview" {
+                    w.press("end", cx);
+                    w.press("space", cx);
+                    w.press("v", cx);
+                    w.press("up", cx);
+                }
+                crate::test_support::settle(w, cx);
+                let rows = row_positions(
+                    w,
+                    if mode == "local" {
+                        "local-files"
+                    } else {
+                        "remote-files"
+                    },
+                );
+                if mode != "listing" {
+                    w.press("enter", cx);
+                }
+                rows
+            })
+            .unwrap();
         f.idle(cx).await;
         cx.update_window(f.handle, |_, w, cx| {
             let state = browser_state(s.read(cx), cx);
             let focus = w.focused(cx);
             let list = if mode == "local" {
+                "remote-files"
+            } else if mode == "remote-preview" {
                 "local-files"
             } else {
                 "remote-files"
             };
-            w.render_frame(cx);
+            crate::test_support::settle(w, cx);
             let rows = row_positions(w, list);
             let initial = first_width(w, "browser-split");
             drag(w, "browser-split", 100., cx);
@@ -305,16 +329,16 @@ async fn resize_browser_modes_retains_entities_navigation_range_scroll_and_previ
                 Some("keep")
             );
             if mode == "local" {
-                assert!(shell.browser.focus_handle(cx).is_focused(w));
-                w.click("copy-preview", cx);
+                assert!(shell.local_focus.contains_focused(w, cx));
+                w.within("local-workspace").click("copy-preview", cx);
                 assert_eq!(
                     cx.read_from_clipboard().unwrap().text().as_deref(),
                     Some("local 58\n")
                 );
             } else {
-                assert!(shell.remote.focus_handle(cx).is_focused(w));
+                assert!(shell.remote_focus.contains_focused(w, cx));
                 if mode == "remote-preview" {
-                    w.click("copy-preview", cx);
+                    w.within("remote-workspace").click("copy-preview", cx);
                     assert_eq!(
                         cx.read_from_clipboard().unwrap().text().as_deref(),
                         Some("remote 58\n")
@@ -322,6 +346,27 @@ async fn resize_browser_modes_retains_entities_navigation_range_scroll_and_previ
                 }
             }
             if mode != "listing" {
+                w.click(
+                    if mode == "local" {
+                        "local-files-tab"
+                    } else {
+                        "remote-files-tab"
+                    },
+                    cx,
+                );
+                crate::test_support::settle(w, cx);
+                assert_eq!(
+                    row_positions(
+                        w,
+                        if mode == "local" {
+                            "local-files"
+                        } else {
+                            "remote-files"
+                        }
+                    ),
+                    selected_rows,
+                    "tab return must retain the hidden file list's scroll"
+                );
                 w.press("v", cx); // Complete the interval begun before any resize.
                 if mode == "local" {
                     assert_eq!(
@@ -405,27 +450,27 @@ async fn resize_menu_dismissal_and_pending_io_do_not_change_rows_or_restart_oper
                 .read_with(cx, |s, cx| s.remote.read(cx).has_session())
         );
     }
-    cx.update_window(f.handle, |_, w, cx| w.click("local-preview", cx))
+    cx.update_window(f.handle, |_, w, cx| w.click("local-preview-tab", cx))
         .unwrap();
     cx.update_window(f.handle, |_, w, cx| {
         let s = f.shell.read(cx);
         let location = s.browser.read(cx).location().unwrap().clone();
         let project = s.browser.read(cx).id().project;
-        let preview = s.preview.clone();
+        let preview = s.local_preview.clone();
         preview.update(cx, |pane, cx| {
             pane.show(location, "keep-00.txt".into(), project, w, cx)
         });
-        let id = f.shell.read(cx).preview.read(cx).id();
-        assert!(f.shell.read(cx).preview.read(cx).is_loading());
+        let id = f.shell.read(cx).local_preview.read(cx).id();
+        assert!(f.shell.read(cx).local_preview.read(cx).is_loading());
         drag(w, "browser-split", -60., cx);
         w.press("ctrl-alt-left", cx);
-        assert_eq!(f.shell.read(cx).preview.read(cx).id(), id);
-        assert!(f.shell.read(cx).preview.read(cx).is_loading());
+        assert_eq!(f.shell.read(cx).local_preview.read(cx).id(), id);
+        assert!(f.shell.read(cx).local_preview.read(cx).is_loading());
     })
     .unwrap();
     f.idle(cx).await;
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("copy-preview", cx);
+        w.within("local-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("local 0\n")
@@ -683,7 +728,10 @@ async fn resize_active_real_sync_does_not_cancel_or_schedule_another_transfer(
             .clone();
         let connection = f.shell.read(cx).remote.read(cx).session_id();
         let browser_id = f.shell.read(cx).browser.read(cx).id();
-        let preview_id = f.shell.read(cx).preview.read(cx).id();
+        let preview_id = (
+            f.shell.read(cx).local_preview.read(cx).id(),
+            f.shell.read(cx).remote_preview.read(cx).id(),
+        );
         drag(w, "comparison-split", 90., cx);
         w.press("ctrl-alt-left", cx);
         w.press("ctrl-alt-right", cx);
@@ -705,7 +753,13 @@ async fn resize_active_real_sync_does_not_cancel_or_schedule_another_transfer(
         ));
         assert_eq!(f.shell.read(cx).remote.read(cx).session_id(), connection);
         assert_eq!(f.shell.read(cx).browser.read(cx).id(), browser_id);
-        assert_eq!(f.shell.read(cx).preview.read(cx).id(), preview_id);
+        assert_eq!(
+            (
+                f.shell.read(cx).local_preview.read(cx).id(),
+                f.shell.read(cx).remote_preview.read(cx).id()
+            ),
+            preview_id
+        );
         fs::remove_file(f.server.dir.path().join("slow-data")).unwrap();
     })
     .unwrap();

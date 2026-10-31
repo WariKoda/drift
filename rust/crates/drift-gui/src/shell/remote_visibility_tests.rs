@@ -124,8 +124,11 @@ async fn native_remote_filter_menu_and_shell_help_do_not_dispatch_uppercase_i_as
     cx.update_window(handle, |_, window, cx| window.press("@", cx))
         .unwrap();
     cx.update_window(handle, |_, window, cx| {
-        assert!(shell.read(cx).show_remote);
-        window.click(("connect-host", 0usize), cx);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Files
+        );
+        crate::test_support::connect_first(window, cx);
     })
     .unwrap();
     // Readiness includes both the real connection and local Git classification.
@@ -203,8 +206,8 @@ async fn native_remote_filter_menu_and_shell_help_do_not_dispatch_uppercase_i_as
         assert!(remote.marked().is_empty());
         assert!(!s.comparison.read(cx).visible());
         assert!(!s.comparison.read(cx).is_loading());
-        assert!(!s.preview.read(cx).is_loading());
-        assert!(!s.remote_preview);
+        assert!(!s.remote_preview.read(cx).is_loading());
+        assert_eq!(s.remote_view, crate::pane_tabs::PaneView::Files);
     })
     .unwrap();
     assert_eq!(session.state(), ConnectionState::Connected);

@@ -1,4 +1,9 @@
 use super::*;
+
+#[path = "classifying_click_tests.rs"]
+mod classifying_click_tests;
+#[path = "row_click_tests.rs"]
+mod row_click_tests;
 use crate::{browser_menu::MenuAction, sftp_test_support as support};
 use drift_core::{
     config::RuntimeConfig, local::ProjectRoot, pathmap::Mapping, remote::ConnectOptions,
@@ -103,7 +108,7 @@ fn open(
 }
 
 async fn connected(cx: &mut TestAppContext, handle: AnyWindowHandle, pane: &Entity<RemotePane>) {
-    cx.update_window(handle, |_, w, cx| w.click(("connect-host", 0usize), cx))
+    cx.update_window(handle, |_, w, cx| crate::test_support::connect_first(w, cx))
         .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
         !pane.read(cx).is_loading()

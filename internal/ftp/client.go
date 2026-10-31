@@ -177,7 +177,21 @@ func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
 		_ = entries
 		return &ftpFileInfo{name: path.Base(remotePath), isDir: true}, nil
 	}
-	t, _ := c.conn.GetTime(remotePath) // MDTM — may return zero on unsupported servers
+	var t time.Time
+	if c.conn.IsGetTimeSupported() {
+		var timeErr error
+		t, timeErr = c.conn.GetTime(remotePath)
+		if timeErr != nil {
+			var reply *textproto.Error
+			// Only explicit not-implemented replies permit an unknown mtime.
+			// RFC 3659 also permits 500/501 for parse errors and 550 for
+			// unavailable metadata, neither of which proves lack of support.
+			if !errors.As(timeErr, &reply) ||
+				(reply.Code != ftplib.StatusNotImplemented && reply.Code != ftplib.StatusNotImplementedParameter) {
+				return nil, fmt.Errorf("mdtm %s: %w", remotePath, c.classifyMissing(remotePath, timeErr))
+			}
+		}
+	}
 	return &ftpFileInfo{
 		name:    path.Base(remotePath),
 		size:    size,

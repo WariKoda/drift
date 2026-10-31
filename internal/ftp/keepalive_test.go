@@ -514,6 +514,7 @@ type keepAliveServerOptions struct {
 	listings         map[string]string
 	listingErrors    map[string]string
 	sizeError        string
+	mdtm             string
 	blockWorkerLogin bool
 }
 
@@ -724,7 +725,11 @@ func (s *keepAliveServer) serve(raw net.Conn) {
 		case "PASS":
 			reply("230 logged in")
 		case "FEAT":
-			reply("211-Features:\r\n MLST type*;size*;modify*;\r\n211 End")
+			features := "211-Features:\r\n MLST type*;size*;modify*;"
+			if s.options.mdtm != "" {
+				features += "\r\n MDTM"
+			}
+			reply(features + "\r\n211 End")
 		case "TYPE", "PBSZ", "PROT":
 			reply("200 ok")
 		case "DELE", "RNTO":
@@ -737,6 +742,11 @@ func (s *keepAliveServer) serve(raw net.Conn) {
 			} else {
 				reply("213 7")
 			}
+		case "MDTM":
+			if s.options.mdtm == "eof" {
+				return
+			}
+			reply(s.options.mdtm)
 		case "MKD":
 			reply("257 created")
 		case "RNFR":

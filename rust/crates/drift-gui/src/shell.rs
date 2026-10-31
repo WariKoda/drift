@@ -7,6 +7,7 @@ use crate::{
     comparison::{ComparisonEvent, ComparisonPane},
     hosts::{HostEvent, HostManager},
     pane_split::{PaneSplit, SplitCommand},
+    pane_tabs::{PaneSide, PaneTabs, PaneView},
     preview::{PreviewEvent, PreviewPane},
     projects::{ProjectEvent, ProjectsPanel},
     remote::{RemoteEvent, RemotePane},
@@ -31,18 +32,29 @@ use tokio_util::sync::CancellationToken;
 pub struct Shell {
     preferences: Option<Entity<crate::preferences::Preferences>>,
     help: Option<keyboard::ShortcutHelp>,
+    settings: Option<settings::SettingsScreen>,
+    settings_serial: u64,
     certificate: Option<(u64, u64, Entity<CertificatePrompt>)>,
     certificate_subscription: Option<Subscription>,
     certificate_cancel: Option<CancellationToken>,
     comparison: Entity<ComparisonPane>,
     browser: Entity<BrowserPane>,
-    preview: Entity<PreviewPane>,
+    local_preview: Entity<PreviewPane>,
+    remote_preview: Entity<PreviewPane>,
+    remote_preview_session: Option<OperationId>,
     projects: Entity<ProjectsPanel>,
     remote: Entity<RemotePane>,
-    show_remote: bool,
-    remote_preview: bool,
+    local_view: PaneView,
+    remote_view: PaneView,
+    local_focus: gpui_kit::FocusHandle,
+    remote_focus: gpui_kit::FocusHandle,
+    active_pane: PaneSide,
     split: PaneSplit,
-    split_context: Option<(u64, bool, bool)>,
+    split_context: Option<(u64, PaneView, PaneView)>,
+    navigation_epoch: u64,
+    aligned_headers: aligned_header::AlignedHeaders,
+    aligned_filters: aligned_header::AlignedHeaders,
+    aligned_tabs: aligned_header::AlignedHeaders,
     hosts: Option<Entity<HostManager>>,
     store: Store,
     service: BrowserService,
@@ -92,19 +104,29 @@ impl Shell {
             .trust_manager()
             .unwrap_or_else(|| Arc::new(Manager::new(store.clone())));
         let remote_service = remote_service.with_trust(trust);
-        let browser = cx
-            .new(|cx| BrowserPane::new(store.clone(), service.clone(), start.clone(), window, cx));
-        let preview = cx.new(|cx| PreviewPane::new(service.clone(), window, cx));
+        let browser = cx.new(|cx| {
+            BrowserPane::new(store.clone(), service.clone(), start.clone(), window, cx)
+                .with_external_chrome()
+        });
+        let local_preview =
+            cx.new(|cx| PreviewPane::new(service.clone(), window, cx).with_external_chrome());
+        let remote_preview =
+            cx.new(|cx| PreviewPane::new(service.clone(), window, cx).with_external_chrome());
         let projects = cx.new(|cx| ProjectsPanel::new(store.clone(), service.clone(), window, cx));
-        let remote = cx.new(|cx| RemotePane::new(remote_service.clone(), window, cx));
+        let remote =
+            cx.new(|cx| RemotePane::new(remote_service.clone(), window, cx).with_external_chrome());
         let comparison = cx.new(|cx| ComparisonPane::new(service.clone(), window, cx));
-        let subscriptions = vec![
+        let mut subscriptions = vec![
+            cx.observe(&browser, |_, _, cx| cx.notify()),
+            cx.observe(&remote, |_, _, cx| cx.notify()),
             cx.subscribe_in(&comparison, window, |this, _, event, window, cx| {
                 match event {
                     ComparisonEvent::FilesChanged {
                         project,
                         connection,
                     } if *project == this.browser.read(cx).id().project => {
+                        this.clear_local_preview(window, cx);
+                        this.clear_remote_preview(window, cx);
                         this.browser
                             .update(cx, |browser, cx| browser.refresh(&Refresh, window, cx));
                         if Some(*connection) == this.remote.read(cx).session_id() {
@@ -121,9 +143,7 @@ impl Shell {
                     {
                         this.status.clone_from(message)
                     }
-                    ComparisonEvent::Closed => this
-                        .browser
-                        .update(cx, |browser, cx| browser.focus(window, cx)),
+                    ComparisonEvent::Closed => this.focus_workspace(window, cx),
                     _ => {}
                 }
                 cx.notify();
@@ -141,6 +161,18 @@ impl Shell {
                         window,
                         cx,
                     ),
+                    RemoteEvent::ListingChanged { id, connection } => {
+                        let (project, current_connection, operation, ..) =
+                            this.remote.read(cx).navigation_stamp();
+                        if id.project != this.browser.read(cx).id().project
+                            || id.project != project
+                            || *connection != current_connection
+                            || id.operation != operation
+                        {
+                            return;
+                        }
+                        this.clear_remote_preview(window, cx);
+                    }
                     RemoteEvent::SelectionChanged {
                         project,
                         connection,
@@ -160,11 +192,10 @@ impl Shell {
                         let session = this.remote.read(cx).session_id();
                         this.comparison
                             .update(cx, |pane, cx| pane.context(*project, session, cx));
-                        if this.remote_preview || this.preview.read(cx).is_loading_remote() {
-                            this.remote_preview = false;
-                            this.preview.update(cx, |preview, cx| {
-                                preview.select(None, *project, window, cx)
-                            });
+                        if this.remote_preview_session.is_some()
+                            && this.remote_preview_session != session
+                        {
+                            this.clear_remote_preview(window, cx);
                         }
                     }
                     RemoteEvent::Status {
@@ -188,7 +219,7 @@ impl Shell {
                             || *project != this.remote.read(cx).project()
                             || *connection != this.remote.read(cx).connection()
                             || this.remote.read(cx).selected() != Some(path.as_str())
-                            || !this.show_remote
+                            || this.remote_view != PaneView::Files
                             || !this.browser_screen_active(cx)
                         {
                             return;
@@ -203,21 +234,12 @@ impl Shell {
                         if *project != this.browser.read(cx).id().project
                             || *project != this.remote.read(cx).project()
                             || *connection != this.remote.read(cx).connection()
-                            || !this.show_remote
+                            || this.remote_view != PaneView::Files
                             || !this.browser_screen_active(cx)
                         {
                             return;
                         }
                         this.toolbar_event(event, window, cx);
-                    }
-                    RemoteEvent::ShowLocalPreview => {
-                        this.show_remote = false;
-                        this.remote_preview = false;
-                        this.preview.update(cx, |preview, cx| {
-                            preview.select(None, this.browser.read(cx).id().project, window, cx)
-                        });
-                        this.browser
-                            .update(cx, |browser, cx| browser.focus(window, cx));
                     }
                     RemoteEvent::Preview {
                         session,
@@ -227,58 +249,22 @@ impl Shell {
                         if *project != this.browser.read(cx).id().project
                             || Some(session.id) != this.remote.read(cx).session_id()
                             || this.remote.read(cx).selected() != Some(path.as_str())
+                            || !this.browser_screen_active(cx)
                         {
                             return;
                         }
-                        this.show_remote = true;
-                        this.remote_preview = true;
-                        this.preview.update(cx, |preview, cx| {
+                        this.remote_preview_session = Some(session.id);
+                        this.remote_preview.update(cx, |preview, cx| {
                             preview.show_remote(session.clone(), path.clone(), *project, window, cx)
                         });
                         this.status = "Loading remote preview…".into();
+                        this.reveal_preview(PaneSide::Remote, window, cx);
                     }
                 }
                 cx.notify();
             }),
             cx.subscribe_in(&browser, window, |this, _, event, window, cx| {
                 this.browser_event(event, window, cx)
-            }),
-            cx.subscribe_in(&preview, window, |this, _, event, window, cx| {
-                match event {
-                    PreviewEvent::Loaded(id)
-                        if *id == this.preview.read(cx).id()
-                            && id.project == this.browser.read(cx).id().project =>
-                    {
-                        this.status = if this.remote_preview {
-                            "Remote preview loaded".into()
-                        } else {
-                            format!("{} entries", this.browser.read(cx).len())
-                        }
-                    }
-                    PreviewEvent::Failed(id, error)
-                        if *id == this.preview.read(cx).id()
-                            && id.project == this.browser.read(cx).id().project =>
-                    {
-                        this.status = error.clone()
-                    }
-                    PreviewEvent::Copied(path) => this.status = format!("Copied {path}"),
-                    PreviewEvent::TextCopied(id)
-                        if *id == this.preview.read(cx).id()
-                            && id.project == this.browser.read(cx).id().project =>
-                    {
-                        this.status = "Preview text copied".into();
-                    }
-                    PreviewEvent::Close(id)
-                        if *id == this.preview.read(cx).id()
-                            && id.project == this.browser.read(cx).id().project
-                            && this.browser_screen_active(cx)
-                            && (this.remote_preview || !this.show_remote) =>
-                    {
-                        this.close_preview(window, cx);
-                    }
-                    _ => return,
-                }
-                cx.notify();
             }),
             cx.subscribe_in(
                 &projects,
@@ -291,6 +277,18 @@ impl Shell {
                 },
             ),
         ];
+        for (side, preview) in [
+            (PaneSide::Local, &local_preview),
+            (PaneSide::Remote, &remote_preview),
+        ] {
+            subscriptions.push(cx.subscribe_in(
+                preview,
+                window,
+                move |this, _, event, window, cx| {
+                    this.preview_event(side, event, window, cx);
+                },
+            ));
+        }
         let mut logging_failures = service.logger().failures();
         let logging_warning = logging_failures.borrow_and_update().clone();
         cx.spawn(async move |this, cx| {
@@ -311,18 +309,29 @@ impl Shell {
         let mut shell = Self {
             preferences: None,
             help: None,
+            settings: None,
+            settings_serial: 0,
             certificate: None,
             certificate_subscription: None,
             certificate_cancel: None,
             comparison,
             browser,
-            preview,
+            local_preview,
+            remote_preview,
+            remote_preview_session: None,
             projects,
             remote,
-            show_remote: false,
-            remote_preview: false,
+            local_view: PaneView::Files,
+            remote_view: PaneView::Files,
+            local_focus: cx.focus_handle(),
+            remote_focus: cx.focus_handle(),
+            active_pane: PaneSide::Local,
             split: PaneSplit::new(None, cx),
             split_context: None,
+            navigation_epoch: 0,
+            aligned_headers: aligned_header::AlignedHeaders::new("header", 3.),
+            aligned_filters: aligned_header::AlignedHeaders::new("filter", 1.),
+            aligned_tabs: aligned_header::AlignedHeaders::bordered("tabs", 1.),
             hosts: None,
             store,
             service,
@@ -360,6 +369,7 @@ impl Shell {
         }
         match event {
             BrowserEvent::Changed(_) => {
+                self.clear_local_preview(window, cx);
                 if self
                     .certificate
                     .as_ref()
@@ -375,7 +385,11 @@ impl Shell {
                     self.host_subscription = None;
                     self.remote
                         .update(cx, |remote, cx| remote.set_context(id.project, vec![], cx));
-                    self.remote_preview = false;
+                    self.local_view = PaneView::Files;
+                    self.local_preview.update(cx, |preview, cx| {
+                        preview.select(None, id.project, window, cx)
+                    });
+                    self.clear_remote_preview(window, cx);
                 }
                 if self
                     .registration
@@ -423,23 +437,18 @@ impl Shell {
                 }
                 let location = self.browser.read(cx).location().cloned();
                 if *preview && let (Some(location), Some(path)) = (location, path) {
-                    self.show_remote = false;
-                    self.remote_preview = false;
-                    self.preview.update(cx, |preview, cx| {
+                    self.local_preview.update(cx, |preview, cx| {
                         preview.show(location, path.clone(), id.project, window, cx)
                     });
                     self.status = "Loading preview…".into();
-                } else {
-                    self.preview.update(cx, |preview, cx| {
-                        preview.select(path.clone(), id.project, window, cx)
-                    });
+                    self.reveal_preview(PaneSide::Local, window, cx);
                 }
             }
             BrowserEvent::Compare {
                 path, connection, ..
             } => {
                 if Some(*connection) != self.remote.read(cx).session_id()
-                    || self.remote_preview
+                    || self.local_view != PaneView::Files
                     || self.browser.read(cx).selected().map(std::path::Path::new)
                         != Some(path.as_path())
                     || !self.browser_screen_active(cx)
@@ -452,7 +461,7 @@ impl Shell {
                 event, connection, ..
             } => {
                 if Some(*connection) != self.remote.read(cx).session_id()
-                    || self.remote_preview
+                    || self.local_view != PaneView::Files
                     || !self.browser_screen_active(cx)
                 {
                     return;
@@ -472,8 +481,7 @@ impl Shell {
             .location()
             .is_some_and(|location| location.slug.is_some() && location.root.base() == path)
         {
-            self.browser
-                .update(cx, |browser, cx| browser.focus(window, cx));
+            self.focus_workspace(window, cx);
             cx.notify();
             return;
         }
@@ -529,6 +537,7 @@ impl Shell {
         cx.notify();
     }
     fn open_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.deactivate_browser_navigation(cx);
         self.comparison
             .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         let slug = self
@@ -550,18 +559,21 @@ impl Shell {
             Some(
                 cx.subscribe_in(&hosts, window, |this, _, event: &HostEvent, window, cx| {
                     match event {
-                        HostEvent::Close => {
-                            this.hosts = None;
-                            this.host_subscription = None;
-                            this.browser
-                                .update(cx, |browser, cx| browser.focus(window, cx));
-                        }
+                        HostEvent::Close => this.close_hosts(window, cx),
                         HostEvent::Changed => this.refresh_config(window, cx),
                     }
                     cx.notify();
                 }),
             );
         self.hosts = Some(hosts);
+        cx.notify();
+    }
+    fn close_hosts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(hosts) = self.hosts.take() {
+            hosts.update(cx, |hosts, _| hosts.deactivate());
+        }
+        self.host_subscription = None;
+        self.focus_workspace(window, cx);
         cx.notify();
     }
     fn refresh_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -620,6 +632,7 @@ impl Shell {
             multiple: false,
             prompt: Some("Open folder".into()),
         });
+        self.deactivate_browser_navigation(cx);
         self.folder_prompt = true;
         let project = self.browser.read(cx).id().project;
         cx.spawn_in(window, async move |this, cx| {
@@ -645,14 +658,19 @@ impl Shell {
         cx.notify();
     }
     fn focus_filter(&mut self, _: &FocusFilter, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_preview {
-            self.remote.update(cx, |remote, cx| {
-                remote.focus_filter(&FocusFilter, window, cx)
-            });
+        if !self.browser_screen_active(cx) {
             return;
         }
-        self.browser
-            .update(cx, |browser, cx| browser.focus_filter_input(window, cx));
+        let side = self.focused_side(window, cx);
+        self.set_pane_view(side, PaneView::Files, window, cx);
+        match side {
+            PaneSide::Local => self
+                .browser
+                .update(cx, |pane, cx| pane.focus_filter_input(window, cx)),
+            PaneSide::Remote => self
+                .remote
+                .update(cx, |pane, cx| pane.focus_filter(&FocusFilter, window, cx)),
+        }
     }
     fn copy_selection(
         &mut self,
@@ -660,83 +678,152 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.remote_preview {
-            self.remote
-                .update(cx, |remote, cx| remote.copy(action, window, cx));
+        if !self.browser_screen_active(cx) {
             return;
         }
-        self.browser
-            .update(cx, |browser, cx| browser.copy_selection(action, window, cx));
+        let side = self.focused_side(window, cx);
+        if self.pane_view(side) == PaneView::Preview {
+            self.preview_pane(side)
+                .update(cx, |pane, cx| pane.copy_path(cx));
+        } else {
+            match side {
+                PaneSide::Local => self
+                    .browser
+                    .update(cx, |pane, cx| pane.copy_selection(action, window, cx)),
+                PaneSide::Remote => self
+                    .remote
+                    .update(cx, |pane, cx| pane.copy(action, window, cx)),
+            }
+        }
     }
     fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
-        if self.remote_preview {
-            self.remote
-                .update(cx, |remote, cx| remote.refresh(&Refresh, window, cx));
+        if !self.browser_screen_active(cx) {
             return;
         }
-        self.browser.update(cx, |browser, cx| {
-            browser.command(BrowserCommand::Refresh, window, cx)
-        });
+        self.refresh_side(self.focused_side(window, cx), window, cx);
     }
     fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.projects.read(cx).visible() {
             self.projects
                 .update(cx, |projects, cx| projects.cancel_view(&Cancel, window, cx));
         } else {
-            self.cancel_registration(cx);
-            if self.remote.read(cx).is_loading() || self.preview.read(cx).is_loading_remote() {
-                self.remote.update(cx, |remote, cx| remote.cancel(cx));
+            let local = self.browser.read(cx).is_loading()
+                || self.local_preview.read(cx).is_loading()
+                || self.registration.is_some();
+            let remote =
+                self.remote.read(cx).is_loading() || self.remote_preview.read(cx).is_loading();
+            if local {
+                self.cancel_side(PaneSide::Local, window, cx);
             }
-            self.browser.update(cx, |browser, cx| {
-                browser.command(BrowserCommand::Cancel, window, cx)
-            });
-            self.preview.update(cx, |preview, cx| {
-                preview.select(None, self.browser.read(cx).id().project, window, cx)
-            });
+            if remote {
+                self.cancel_side(PaneSide::Remote, window, cx);
+            }
+            if !local && !remote {
+                self.set_pane_view(self.focused_side(window, cx), PaneView::Files, window, cx);
+            }
         }
         cx.notify();
     }
     fn cancel_work(&mut self, _: &CancelWork, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.browser_screen_active(cx) {
+            return;
+        }
         if self.browser.read(cx).is_loading()
             || self.remote.read(cx).is_loading()
-            || self.preview.read(cx).is_loading()
+            || self.local_preview.read(cx).is_loading()
+            || self.remote_preview.read(cx).is_loading()
             || self.registration.is_some()
         {
             self.cancel(&Cancel, window, cx);
         }
     }
     fn toolbar_event(&mut self, event: &ToolbarEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.toolbar_state(cx).allows(event) {
+            return;
+        }
         match event {
-            ToolbarEvent::Remote => {
-                self.show_remote = true;
-                self.remote_preview = false;
-                self.remote.focus_handle(cx).focus(window, cx);
-            }
-            ToolbarEvent::LocalBrowser => {
-                self.remote_preview = false;
-                self.browser
-                    .update(cx, |browser, cx| browser.focus(window, cx));
+            ToolbarEvent::Home => {
+                self.settings = None;
+                self.deactivate_browser_navigation(cx);
+                if self.projects.read(cx).visible() {
+                    self.projects.update(cx, |projects, cx| projects.close(cx));
+                }
+                if let Some(hosts) = self.hosts.take() {
+                    hosts.update(cx, |hosts, _| hosts.deactivate());
+                    self.host_subscription = None;
+                }
+                if self.comparison.read(cx).visible() {
+                    self.comparison
+                        .update(cx, |pane, cx| pane.close_idle(window, cx));
+                }
+                self.local_view = PaneView::Files;
+                self.remote_view = PaneView::Files;
+                self.active_pane = PaneSide::Local;
+                if self.browser.read(cx).finder_active() {
+                    self.browser.update(cx, |pane, cx| {
+                        pane.command(BrowserCommand::ReturnFinder, window, cx)
+                    });
+                }
+                if self.browser.read(cx).location().is_none() && !self.browser.read(cx).is_loading()
+                {
+                    self.open_project(self.start_directory.clone(), window, cx);
+                } else {
+                    self.browser.update(cx, |pane, cx| pane.focus(window, cx));
+                }
             }
             ToolbarEvent::Projects => {
+                let from_settings = self.settings.take().is_some();
+                self.deactivate_browser_navigation(cx);
+                if let Some(hosts) = self.hosts.take() {
+                    hosts.update(cx, |hosts, _| hosts.deactivate());
+                    self.host_subscription = None;
+                }
                 self.comparison
                     .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
-                self.projects
-                    .update(cx, |projects, cx| projects.toggle(window, cx));
+                self.projects.update(cx, |projects, cx| {
+                    if from_settings && projects.visible() {
+                        projects.focus(window, cx);
+                    } else {
+                        projects.toggle(window, cx);
+                    }
+                });
                 if !self.projects.read(cx).visible() {
                     self.close_projects(window, cx);
                 }
             }
-            ToolbarEvent::Hosts => self.open_hosts(window, cx),
+            ToolbarEvent::Hosts => {
+                // From Settings, Hosts returns to an open manager instead of closing it.
+                let from_settings = self.settings.take().is_some();
+                match &self.hosts {
+                    Some(hosts) if from_settings => {
+                        hosts.update(cx, |hosts, cx| hosts.focus(window, cx));
+                    }
+                    Some(_) => self.close_hosts(window, cx),
+                    None => self.open_hosts(window, cx),
+                }
+            }
+            ToolbarEvent::Settings => {
+                if self.settings.is_some() {
+                    self.close_settings(window, cx);
+                } else {
+                    self.open_settings(window, cx);
+                }
+            }
             ToolbarEvent::OpenFolder => self.open_folder(window, cx),
-            ToolbarEvent::Cancel => self.cancel(&Cancel, window, cx),
+            ToolbarEvent::Cancel => self.cancel_side(PaneSide::Local, window, cx),
+            ToolbarEvent::CancelRemote => self.cancel_side(PaneSide::Remote, window, cx),
             ToolbarEvent::CompareProject
             | ToolbarEvent::CompareLocal
             | ToolbarEvent::CompareRemote
             | ToolbarEvent::CompareMarked => self.compare(event, window, cx),
             ToolbarEvent::Browser(command) => {
-                self.remote_preview = false;
-                self.browser
-                    .update(cx, |browser, cx| browser.command(*command, window, cx));
+                if matches!(command, BrowserCommand::Refresh) {
+                    self.refresh_side(PaneSide::Local, window, cx);
+                } else {
+                    self.set_pane_view(PaneSide::Local, PaneView::Files, window, cx);
+                    self.browser
+                        .update(cx, |browser, cx| browser.command(*command, window, cx));
+                }
             }
         }
         cx.notify();
@@ -745,13 +832,99 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = self.render_content(window, cx);
+        let identity = (
+            self.browser.read(cx).id().project,
+            self.remote.read(cx).connection(),
+        );
+        let toolbar = Toolbar::new(
+            self.toolbar_state(cx),
+            cx.listener(move |this, event, window, cx| {
+                if identity
+                    == (
+                        this.browser.read(cx).id().project,
+                        this.remote.read(cx).connection(),
+                    )
+                {
+                    this.toolbar_event(event, window, cx);
+                }
+            }),
+        );
+        let toolbar = div()
+            .flex_shrink_0()
+            .min_w_0()
+            .key_context(if self.browser_screen_active(cx) {
+                "Drift"
+            } else {
+                "DriftToolbar"
+            })
+            .capture_action(cx.listener(|this, _: &Cancel, w, cx| {
+                if this.browser_screen_active(cx) {
+                    this.split.cancel_resize(w, cx);
+                } else {
+                    cx.propagate();
+                }
+            }))
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::base::actions::Cancel, w, cx| {
+                    if this.browser_screen_active(cx) {
+                        this.split.cancel_resize(w, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }),
+            )
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                    if this.browser_screen_active(cx) {
+                        this.split.cancel_resize(w, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }),
+            )
+            .on_action(cx.listener(Self::focus_filter))
+            .on_action(cx.listener(Self::copy_selection))
+            .on_action(cx.listener(Self::refresh))
+            .on_action(cx.listener(Self::cancel_work))
+            .on_action(cx.listener(Self::focus_preview))
+            .on_action(cx.listener(Self::copy_preview))
+            .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                if this.browser_screen_active(cx) {
+                    this.cancel(&Cancel, w, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ReturnFromFinder, w, cx| {
+                if this.browser_screen_active(cx) && this.browser.read(cx).finder_active() {
+                    this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::ReturnFinder), w, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneLeft, w, cx| {
+                if this.browser_screen_active(cx) {
+                    this.split.command(SplitCommand::Left, w, cx);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ResizePaneRight, w, cx| {
+                if this.browser_screen_active(cx) {
+                    this.split.command(SplitCommand::Right, w, cx);
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ResetPaneSizes, w, cx| {
+                if this.browser_screen_active(cx) {
+                    this.split.command(SplitCommand::Reset, w, cx);
+                    cx.notify();
+                }
+            }))
+            .child(toolbar);
         let mut view = div()
             .on_action(cx.listener(Self::show_help))
             .flex()
             .flex_col()
             .size_full()
             .bg(cx.theme().background)
-            .text_color(cx.theme().foreground);
+            .text_color(cx.theme().foreground)
+            .child(toolbar);
         if let Some(warning) = &self.logging_warning {
             view = view.child(
                 div()
@@ -763,15 +936,89 @@ impl Render for Shell {
                     .child(warning.clone()),
             );
         }
+        if let Some(warning) = self
+            .preferences
+            .as_ref()
+            .and_then(|p| p.read(cx).warning.clone())
+        {
+            view = view.child(
+                div()
+                    .id("preferences-warning")
+                    .test_support()
+                    .flex_shrink_0()
+                    .p_2()
+                    .text_color(cx.theme().danger)
+                    .child(warning),
+            );
+        }
         view.child(div().flex().flex_col().flex_1().min_h_0().child(content))
     }
 }
 impl Shell {
+    fn toolbar_state(&self, cx: &gpui_kit::App) -> ToolbarState {
+        let browser = self.browser.read(cx);
+        let projects = self.projects.read(cx);
+        let comparison = self.comparison.read(cx);
+        let management_enabled = self.help.is_none()
+            && self.certificate.is_none()
+            && self.startup.is_none()
+            && !self.folder_prompt
+            && (!projects.visible() || projects.can_leave())
+            && self
+                .hosts
+                .as_ref()
+                .is_none_or(|hosts| hosts.read(cx).can_leave())
+            && (!comparison.visible() || comparison.can_leave());
+        ToolbarState {
+            management_enabled,
+            browser_enabled: self.browser_screen_active(cx),
+            projects_open: projects.visible() && self.settings.is_none(),
+            hosts_open: self.hosts.is_some() && self.settings.is_none(),
+            settings_open: self.settings.is_some(),
+            can_compare: self.remote.read(cx).has_session()
+                && !self.remote.read(cx).is_loading()
+                && !browser.is_loading(),
+            has_location: browser.location().is_some(),
+            listing: browser.is_loading(),
+            cancellable: browser.is_loading()
+                || self.local_preview.read(cx).is_loading()
+                || self.registration.is_some(),
+            remote_cancellable: self.remote.read(cx).is_loading()
+                || self.remote_preview.read(cx).is_loading(),
+            folder_prompt: self.folder_prompt,
+            can_back: browser.can_back(),
+            can_forward: browser.can_forward(),
+            can_up: browser.can_up(),
+            show_hidden: browser.shows_hidden(),
+            show_ignored: browser.shows_ignored(),
+        }
+    }
+
+    pub(super) fn deactivate_browser_navigation(&mut self, cx: &mut Context<Self>) {
+        self.navigation_epoch += 1;
+        self.browser
+            .update(cx, |pane, cx| pane.set_navigation_active(false, cx));
+        self.remote
+            .update(cx, |pane, cx| pane.set_workspace_active(false, false, cx));
+    }
+
+    fn local_toolbar_active(&self, identity: (u64, u64), cx: &gpui_kit::App) -> bool {
+        self.browser_screen_active(cx)
+            && identity == (self.browser.read(cx).id().project, self.navigation_epoch)
+    }
+
+    fn remote_toolbar_active(&self, identity: (u64, u64, u64), cx: &gpui_kit::App) -> bool {
+        self.local_toolbar_active((identity.0, identity.2), cx)
+            && identity.1 == self.remote.read(cx).connection()
+    }
+
     fn browser_screen_active(&self, cx: &gpui_kit::App) -> bool {
         self.help.is_none()
             && self.certificate.is_none()
+            && self.settings.is_none()
             && self.hosts.is_none()
             && self.startup.is_none()
+            && !self.folder_prompt
             && !self.projects.read(cx).visible()
             && !self.comparison.read(cx).visible()
     }
@@ -784,14 +1031,16 @@ impl Shell {
         let browser_active = self.browser_screen_active(cx);
         let split_context = browser_active.then_some((
             self.browser.read(cx).id().project,
-            self.show_remote,
-            self.remote_preview,
+            self.local_view,
+            self.remote_view,
         ));
         if self.split_context != split_context {
+            self.navigation_epoch += 1;
             self.split.deactivate(window, cx);
             self.split_context = split_context;
         }
         let comparison_active = self.help.is_none()
+            && self.settings.is_none()
             && self.certificate.is_none()
             && self.hosts.is_none()
             && self.startup.is_none()
@@ -806,30 +1055,37 @@ impl Shell {
             && !self.browser.read(cx).is_loading();
         let comparison_ready =
             browser_active && can_compare && self.browser.read(cx).location().is_some();
-        let local_visible = browser_active && !self.remote_preview;
-        let remote_visible = browser_active && self.show_remote;
+        let local_visible = browser_active && self.local_view == PaneView::Files;
+        let remote_visible = browser_active && self.remote_view == PaneView::Files;
         let comparison_connection = if comparison_ready && local_visible {
             self.remote.read(cx).session_id()
         } else {
             None
         };
         self.browser.update(cx, |pane, cx| {
+            pane.set_navigation_active(local_visible, cx);
             pane.set_comparison_context(comparison_connection, window, cx);
             if !local_visible {
                 pane.dismiss_context_menu(window, cx);
             }
         });
         self.remote.update(cx, |pane, cx| {
+            pane.set_workspace_active(browser_active, remote_visible, cx);
             pane.set_comparison_ready(comparison_ready && remote_visible, window, cx);
             if !remote_visible {
                 pane.dismiss_context_menu(window, cx);
             }
+            // Capture the new workspace scope, not the observer's previous-frame picker.
+            pane.sync_host_select(window, cx);
         });
         if self.help.is_some() {
             return self.render_help(window, cx);
         }
         if let Some((_, _, prompt)) = &self.certificate {
             return div().size_full().child(prompt.clone()).into_any_element();
+        }
+        if self.settings.is_some() {
+            return self.render_settings(cx);
         }
         if let Some(hosts) = &self.hosts {
             return div().size_full().child(hosts.clone()).into_any_element();
@@ -848,6 +1104,7 @@ impl Shell {
                 .into_any_element();
         }
         if self.comparison.read(cx).visible() {
+            let palette = Palette::current(cx);
             return div()
                 .flex()
                 .flex_col()
@@ -855,54 +1112,506 @@ impl Shell {
                 .bg(cx.theme().background)
                 .text_color(cx.theme().foreground)
                 .child(div().flex_1().min_h_0().child(self.comparison.clone()))
-                .child(self.preference_controls(cx))
-                .child(div().p_2().child(self.status.clone()))
+                .child(
+                    div()
+                        .id("workspace-status")
+                        .text_size(Text::Metadata.rems())
+                        .px(metric(space::PANEL, cx))
+                        .py(metric(space::TIGHT, cx))
+                        .bg(palette.chrome)
+                        .border_t_1()
+                        .border_color(palette.border)
+                        .child(self.status.clone()),
+                )
                 .into_any_element();
         }
+        let header = self.browser.update(cx, |browser, cx| browser.header(cx));
         let browser = self.browser.read(cx);
-        let toolbar = Toolbar::new(
-            ToolbarState {
-                remote_preview: self.remote_preview,
-                can_compare,
-                has_location: browser.location().is_some(),
-                listing: browser.is_loading(),
-                cancellable: browser.is_loading()
-                    || self.preview.read(cx).is_loading()
-                    || self.registration.is_some()
-                    || self.remote.read(cx).is_loading(),
-                folder_prompt: self.folder_prompt,
-                can_back: browser.can_back(),
-                can_forward: browser.can_forward(),
-                can_up: browser.can_up(),
-                show_hidden: browser.shows_hidden(),
-                show_ignored: browser.shows_ignored(),
-            },
-            cx.listener(Self::toolbar_event),
+        let identity = (
+            browser.id().project,
+            self.remote.read(cx).connection(),
+            self.navigation_epoch,
         );
-        let header = browser.header(cx);
-        let palette = Palette::current(cx);
-        let hosts = browser
-            .location()
-            .map(|location| {
-                location
-                    .config
-                    .hosts
-                    .iter()
-                    .map(|host| {
-                        format!(
-                            "{} ({})",
-                            host.name,
-                            if host.protocol.is_empty() {
-                                "sftp"
-                            } else {
-                                &host.protocol
-                            }
+        let local_identity = (identity.0, identity.2);
+        let local_navigation_stamp = self.browser.read(cx).navigation_stamp();
+        let remote_navigation_stamp = self.remote.read(cx).navigation_stamp();
+        let local_tab_event = cx.listener(move |this, view: &PaneView, w, cx| {
+            if this.local_toolbar_active(local_identity, cx) {
+                this.set_pane_view(PaneSide::Local, *view, w, cx);
+            }
+        });
+        let local_tabs = PaneTabs::new(
+            PaneSide::Local,
+            self.local_view,
+            self.browser.read(cx).can_preview() || self.local_preview.read(cx).can_show(identity.0),
+            "Local",
+            move |view, w, cx| local_tab_event(&view, w, cx),
+        );
+        let remote_tab_event = cx.listener(move |this, view: &PaneView, w, cx| {
+            if this.remote_toolbar_active(identity, cx) {
+                this.set_pane_view(PaneSide::Remote, *view, w, cx);
+            }
+        });
+        let remote_tabs = PaneTabs::new(
+            PaneSide::Remote,
+            self.remote_view,
+            self.remote.read(cx).can_preview() || self.remote_preview.read(cx).can_show(identity.0),
+            "Remote",
+            move |view, w, cx| remote_tab_event(&view, w, cx),
+        );
+        // The pane title already says Local; only Finder needs its Return row.
+        let local_actions = if self.local_view == PaneView::Preview {
+            Some(
+                self.local_preview
+                    .update(cx, |pane, cx| pane.controls_header(cx)),
+            )
+        } else if self.browser.read(cx).finder_active() {
+            Some(self.browser.update(cx, |pane, cx| pane.actions_header(cx)))
+        } else {
+            None
+        };
+        let local_path = if self.local_view == PaneView::Files {
+            self.browser.update(cx, |pane, cx| pane.path_header(cx))
+        } else {
+            div()
+                .id("local-path-header")
+                .test_support()
+                .flex()
+                .flex_col()
+                .flex_shrink_0()
+                .min_w_0()
+                .h(metric(crate::design::size::HEADER, cx))
+                .child(
+                    self.local_preview
+                        .update(cx, |pane, cx| pane.path_header(cx)),
+                )
+                .into_any_element()
+        };
+        let local_footer = self
+            .browser
+            .update(cx, |pane, cx| pane.selection_footer(cx));
+        let remote_path = if self.remote_view == PaneView::Files {
+            self.remote.update(cx, |pane, cx| pane.path_header(cx))
+        } else {
+            div()
+                .id("remote-path-header")
+                .test_support()
+                .flex()
+                .flex_col()
+                .flex_shrink_0()
+                .min_w_0()
+                .h(metric(crate::design::size::HEADER, cx))
+                .child(
+                    self.remote_preview
+                        .update(cx, |pane, cx| pane.path_header(cx)),
+                )
+                .into_any_element()
+        };
+        let remote_preview_controls = (self.remote_view == PaneView::Preview).then(|| {
+            self.remote_preview
+                .update(cx, |pane, cx| pane.controls_header(cx))
+        });
+        let remote_footer = self.remote.update(cx, |pane, cx| pane.selection_footer(cx));
+        let local_workspace = div()
+            .id("local-workspace")
+            .track_focus(&self.local_focus)
+            .test_support()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    if this.local_toolbar_active(local_identity, cx) {
+                        this.browser.update(cx, |pane, cx| {
+                            pane.mouse_navigation(
+                                local_navigation_stamp,
+                                gpui_kit::NavigationDirection::Back,
+                                w,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+            )
+            .on_mouse_down(
+                gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    if this.local_toolbar_active(local_identity, cx) {
+                        this.browser.update(cx, |pane, cx| {
+                            pane.mouse_navigation(
+                                local_navigation_stamp,
+                                gpui_kit::NavigationDirection::Forward,
+                                w,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+            )
+            .capture_any_mouse_down(cx.listener(
+                move |this, _: &gpui_kit::MouseDownEvent, w, cx| {
+                    if this.local_toolbar_active(local_identity, cx) {
+                        this.active_pane = PaneSide::Local;
+                    } else {
+                        w.prevent_default();
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .capture_any_mouse_up(cx.listener(move |this, _: &gpui_kit::MouseUpEvent, w, cx| {
+                if !this.local_toolbar_active(local_identity, cx) {
+                    w.prevent_default();
+                    cx.stop_propagation();
+                }
+            }))
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(
+                self.aligned_headers.view(
+                    PaneSide::Local,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_shrink_0()
+                        .min_w_0()
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                            cx.listener(move |this, _, w, cx| {
+                                cx.stop_propagation();
+                                if this.local_toolbar_active(local_identity, cx) {
+                                    this.browser.update(cx, |pane, cx| {
+                                        pane.mouse_navigation(
+                                            local_navigation_stamp,
+                                            gpui_kit::NavigationDirection::Back,
+                                            w,
+                                            cx,
+                                        )
+                                    });
+                                }
+                            }),
                         )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                            cx.listener(move |this, _, w, cx| {
+                                cx.stop_propagation();
+                                if this.local_toolbar_active(local_identity, cx) {
+                                    this.browser.update(cx, |pane, cx| {
+                                        pane.mouse_navigation(
+                                            local_navigation_stamp,
+                                            gpui_kit::NavigationDirection::Forward,
+                                            w,
+                                            cx,
+                                        )
+                                    });
+                                }
+                            }),
+                        )
+                        .capture_any_mouse_down(cx.listener(
+                            move |this, _: &gpui_kit::MouseDownEvent, w, cx| {
+                                if !this.local_toolbar_active(local_identity, cx) {
+                                    w.prevent_default();
+                                    cx.stop_propagation();
+                                }
+                            },
+                        ))
+                        .capture_any_mouse_up(cx.listener(
+                            move |this, _: &gpui_kit::MouseUpEvent, w, cx| {
+                                if !this.local_toolbar_active(local_identity, cx) {
+                                    w.prevent_default();
+                                    cx.stop_propagation();
+                                }
+                            },
+                        ))
+                        .capture_key_down(cx.listener(
+                            move |this, _: &gpui_kit::KeyDownEvent, w, cx| {
+                                if !this.local_toolbar_active(local_identity, cx) {
+                                    w.prevent_default();
+                                    cx.stop_propagation();
+                                }
+                            },
+                        ))
+                        .capture_key_up(cx.listener(
+                            move |this, _: &gpui_kit::KeyUpEvent, w, cx| {
+                                if !this.local_toolbar_active(local_identity, cx) {
+                                    w.prevent_default();
+                                    cx.stop_propagation();
+                                }
+                            },
+                        ))
+                        .on_action(cx.listener(move |this, _: &FocusFilter, w, cx| {
+                            if this.local_toolbar_active(local_identity, cx) {
+                                this.set_pane_view(PaneSide::Local, PaneView::Files, w, cx);
+                                this.browser
+                                    .update(cx, |pane, cx| pane.focus_filter_input(w, cx));
+                                cx.notify();
+                            }
+                        }))
+                        .on_action(cx.listener(move |this, _: &Refresh, w, cx| {
+                            if this.local_toolbar_active(local_identity, cx) {
+                                this.refresh_side(PaneSide::Local, w, cx);
+                                cx.notify();
+                            }
+                        }))
+                        .on_action(cx.listener(move |this, action: &CopySelection, w, cx| {
+                            if this.local_toolbar_active(local_identity, cx) {
+                                if this.local_view == PaneView::Preview {
+                                    this.local_preview.update(cx, |pane, cx| pane.copy_path(cx));
+                                } else {
+                                    this.browser
+                                        .update(cx, |pane, cx| pane.copy_selection(action, w, cx));
+                                }
+                            }
+                        }))
+                        .child(self.aligned_tabs.view(
+                            PaneSide::Local,
+                            local_tabs.into_any_element(),
+                            cx,
+                        ))
+                        .child(Toolbar::local(
+                            self.toolbar_state(cx),
+                            cx.listener(move |this, event, w, cx| {
+                                if this.local_toolbar_active(local_identity, cx) {
+                                    this.toolbar_event(event, w, cx);
+                                }
+                            }),
+                        ))
+                        .child(
+                            self.aligned_filters.view(
+                                PaneSide::Local,
+                                div()
+                                    .key_context("DriftLocalFilter")
+                                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                                        this.browser.update(cx, |pane, cx| pane.focus(w, cx));
+                                    }))
+                                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                                        this.browser.update(cx, |pane, cx| pane.focus(w, cx));
+                                    }))
+                                    .on_action(cx.listener(
+                                        |this, _: &gpui_kit::component::input::Escape, w, cx| {
+                                            this.browser.update(cx, |pane, cx| pane.focus(w, cx));
+                                        },
+                                    ))
+                                    .child(header)
+                                    .into_any_element(),
+                                cx,
+                            ),
+                        )
+                        .children(local_actions)
+                        .into_any_element(),
+                    cx,
+                ),
+            )
+            .child(local_path)
+            .child(div().flex().flex_col().flex_1().min_h_0().min_w_0().child(
+                if self.local_view == PaneView::Preview {
+                    self.local_preview.clone().into_any_element()
+                } else {
+                    self.browser.clone().into_any_element()
+                },
+            ))
+            .child(local_footer);
+        let remote_cancel = Toolbar::remote_cancel(
+            self.toolbar_state(cx),
+            cx.listener(move |this, event, window, cx| {
+                if this.remote_toolbar_active(identity, cx) {
+                    this.toolbar_event(event, window, cx);
+                }
+            }),
+        )
+        .into_any_element();
+        let remote_navigation = self.remote.update(cx, |pane, cx| {
+            pane.navigation_controls(Some(remote_cancel), cx)
+        });
+        let remote_filter = self.remote.update(cx, |pane, cx| pane.filter_header(cx));
+        let connection_controls = self
+            .remote
+            .update(cx, |pane, cx| pane.connection_controls(cx));
+        let remote_toolbar = div()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .min_w_0()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    if this.remote_toolbar_active(identity, cx) {
+                        this.remote.update(cx, |pane, cx| {
+                            pane.mouse_navigation(
+                                remote_navigation_stamp,
+                                gpui_kit::NavigationDirection::Back,
+                                w,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+            )
+            .on_mouse_down(
+                gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    if this.remote_toolbar_active(identity, cx) {
+                        this.remote.update(cx, |pane, cx| {
+                            pane.mouse_navigation(
+                                remote_navigation_stamp,
+                                gpui_kit::NavigationDirection::Forward,
+                                w,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+            )
+            .on_action(cx.listener(move |this, action: &FocusFilter, window, cx| {
+                if !this.remote_toolbar_active(identity, cx) {
+                    return;
+                }
+                this.set_pane_view(PaneSide::Remote, PaneView::Files, window, cx);
+                this.remote
+                    .update(cx, |remote, cx| remote.focus_filter(action, window, cx));
+            }))
+            .on_action(cx.listener(move |this, _: &Refresh, window, cx| {
+                if !this.remote_toolbar_active(identity, cx) {
+                    return;
+                }
+                this.refresh_side(PaneSide::Remote, window, cx);
+            }))
+            .on_action(
+                cx.listener(move |this, action: &CopySelection, window, cx| {
+                    if !this.remote_toolbar_active(identity, cx) {
+                        return;
+                    }
+                    if this.remote_view == PaneView::Preview {
+                        this.remote_preview
+                            .update(cx, |pane, cx| pane.copy_path(cx));
+                    } else {
+                        this.remote
+                            .update(cx, |remote, cx| remote.copy(action, window, cx));
+                    }
+                }),
+            )
+            .capture_any_mouse_down(cx.listener(
+                move |this, _: &gpui_kit::MouseDownEvent, window, cx| {
+                    if !this.remote_toolbar_active(identity, cx) {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .capture_any_mouse_up(cx.listener(
+                move |this, _: &gpui_kit::MouseUpEvent, window, cx| {
+                    if !this.remote_toolbar_active(identity, cx) {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .capture_key_down(
+                cx.listener(move |this, _: &gpui_kit::KeyDownEvent, window, cx| {
+                    if !this.remote_toolbar_active(identity, cx) {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .capture_key_up(
+                cx.listener(move |this, _: &gpui_kit::KeyUpEvent, window, cx| {
+                    if !this.remote_toolbar_active(identity, cx) {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .child(
+                self.aligned_tabs.view(
+                    PaneSide::Remote,
+                    remote_tabs
+                        .with_trailing(connection_controls)
+                        .into_any_element(),
+                    cx,
+                ),
+            )
+            .child(remote_navigation)
+            .child(
+                self.aligned_filters
+                    .view(PaneSide::Remote, remote_filter, cx),
+            )
+            .children(remote_preview_controls);
+        let remote_workspace = div()
+            .id("remote-workspace")
+            .track_focus(&self.remote_focus)
+            .test_support()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    if this.remote_toolbar_active(identity, cx) {
+                        this.remote.update(cx, |pane, cx| {
+                            pane.mouse_navigation(
+                                remote_navigation_stamp,
+                                gpui_kit::NavigationDirection::Back,
+                                w,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+            )
+            .on_mouse_down(
+                gpui_kit::MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    if this.remote_toolbar_active(identity, cx) {
+                        this.remote.update(cx, |pane, cx| {
+                            pane.mouse_navigation(
+                                remote_navigation_stamp,
+                                gpui_kit::NavigationDirection::Forward,
+                                w,
+                                cx,
+                            )
+                        });
+                    }
+                }),
+            )
+            .capture_any_mouse_down(cx.listener(
+                move |this, _: &gpui_kit::MouseDownEvent, w, cx| {
+                    if this.remote_toolbar_active(identity, cx) {
+                        this.active_pane = PaneSide::Remote;
+                    } else {
+                        w.prevent_default();
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .capture_any_mouse_up(cx.listener(move |this, _: &gpui_kit::MouseUpEvent, w, cx| {
+                if !this.remote_toolbar_active(identity, cx) {
+                    w.prevent_default();
+                    cx.stop_propagation();
+                }
+            }))
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(self.aligned_headers.view(
+                PaneSide::Remote,
+                remote_toolbar.into_any_element(),
+                cx,
+            ))
+            .child(remote_path)
+            .child(div().flex().flex_col().flex_1().min_w_0().min_h_0().child(
+                if self.remote_view == PaneView::Files {
+                    self.remote.clone().into_any_element()
+                } else {
+                    self.remote_preview.clone().into_any_element()
+                },
+            ))
+            .child(remote_footer);
         div()
             .key_context("Drift")
             .flex()
@@ -961,15 +1670,14 @@ impl Shell {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SwitchPane, w, cx| {
-                let event = if this.remote.focus_handle(cx).is_focused(w) {
-                    ToolbarEvent::LocalBrowser
-                } else {
-                    ToolbarEvent::Remote
+                let side = match this.focused_side(w, cx) {
+                    PaneSide::Local => PaneSide::Remote,
+                    PaneSide::Remote => PaneSide::Local,
                 };
-                this.toolbar_event(&event, w, cx);
+                this.set_pane_view(side, this.pane_view(side), w, cx);
             }))
             .on_action(cx.listener(|this, _: &ShowRemote, w, cx| {
-                this.toolbar_event(&ToolbarEvent::Remote, w, cx)
+                this.set_pane_view(PaneSide::Remote, PaneView::Files, w, cx)
             }))
             .on_action(cx.listener(|this, _: &ShowProjects, w, cx| {
                 this.toolbar_event(&ToolbarEvent::Projects, w, cx)
@@ -983,70 +1691,85 @@ impl Shell {
                 }
             }))
             .on_action(cx.listener(|this, _: &FindFiles, w, cx| {
-                this.toolbar_event(&ToolbarEvent::LocalBrowser, w, cx);
+                this.set_pane_view(PaneSide::Local, PaneView::Files, w, cx);
                 this.toolbar_event(&ToolbarEvent::Browser(BrowserCommand::Find), w, cx);
             }))
             .on_action(cx.listener(Self::cancel))
-            .child(toolbar)
-            .child(
-                div()
-                    .key_context("DriftLocalFilter")
-                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
-                        this.browser.update(cx, |pane, cx| pane.focus(w, cx));
-                    }))
-                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
-                        this.browser.update(cx, |pane, cx| pane.focus(w, cx));
-                    }))
-                    .on_action(cx.listener(
-                        |this, _: &gpui_kit::component::input::Escape, w, cx| {
-                            this.browser.update(cx, |pane, cx| pane.focus(w, cx));
-                        },
-                    ))
-                    .child(header),
-            )
             .child(div().flex_1().min_h_0().min_w_0().child(self.split.view(
                 "browser-split",
-                if self.remote_preview {
-                    self.preview.clone().into_any_element()
-                } else {
-                    self.browser.clone().into_any_element()
-                },
-                if self.show_remote {
-                    self.remote.clone().into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .min_h_0()
-                        .child(self.preview.clone())
-                        .child(div().p_2().child(if hosts.is_empty() {
-                            "No hosts configured".into()
-                        } else {
-                            format!("Hosts: {hosts}")
-                        }))
-                        .into_any_element()
-                },
+                local_workspace.into_any_element(),
+                remote_workspace.into_any_element(),
                 window,
                 cx,
             )))
-            .child(self.preference_controls(cx))
+            .child(self.workspace_footer(identity, cx))
+            .into_any_element()
+    }
+
+    /// Status on the left, compare scopes centred: comparing spans both panes.
+    fn workspace_footer(
+        &self,
+        identity: (u64, u64, u64),
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        let guard = move |this: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+            if !this.remote_toolbar_active(identity, cx) {
+                window.prevent_default();
+                cx.stop_propagation();
+            }
+        };
+        div()
+            .id("workspace-footer")
+            .test_support()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .flex_shrink_0()
+            .min_w_0()
+            .min_h(metric(crate::design::size::HEADER, cx))
+            .gap(metric(space::CONTROL, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .bg(palette.chrome)
+            .border_t_1()
+            .border_color(palette.border)
+            .capture_any_mouse_down(
+                cx.listener(move |this, _: &gpui_kit::MouseDownEvent, w, cx| guard(this, w, cx)),
+            )
+            .capture_any_mouse_up(
+                cx.listener(move |this, _: &gpui_kit::MouseUpEvent, w, cx| guard(this, w, cx)),
+            )
+            .capture_key_down(
+                cx.listener(move |this, _: &gpui_kit::KeyDownEvent, w, cx| guard(this, w, cx)),
+            )
+            .capture_key_up(
+                cx.listener(move |this, _: &gpui_kit::KeyUpEvent, w, cx| guard(this, w, cx)),
+            )
             .child(
                 div()
                     .id("workspace-status")
+                    .test_support()
+                    .flex_1()
+                    .min_w(metric(crate::design::size::FILTER / 2., cx))
+                    .truncate()
                     .text_size(Text::Metadata.rems())
-                    .px(metric(space::PANEL, cx))
-                    .py(metric(space::TIGHT, cx))
-                    .bg(palette.chrome)
-                    .border_t_1()
-                    .border_color(palette.border)
                     .child(self.status.clone()),
             )
+            .child(Toolbar::compare(
+                self.toolbar_state(cx),
+                cx.listener(move |this, event, window, cx| {
+                    if this.remote_toolbar_active(identity, cx) {
+                        this.toolbar_event(event, window, cx);
+                    }
+                }),
+            ))
+            .child(div().flex_1().min_w_0())
             .into_any_element()
     }
 }
 
+mod aligned_header;
 mod certificates;
 mod comparison;
 #[cfg(test)]
@@ -1068,6 +1791,7 @@ mod keyboard_tests;
 mod logging_tests;
 #[cfg(test)]
 mod menu_tests;
+mod panes;
 mod preferences;
 #[cfg(test)]
 mod project_tests;
@@ -1080,6 +1804,7 @@ mod resize_focus_tests;
 mod resize_tests;
 #[cfg(test)]
 mod serverlink_tests;
+mod settings;
 #[cfg(test)]
 mod shutdown_logging_tests;
 #[cfg(test)]

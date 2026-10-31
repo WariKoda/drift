@@ -17,6 +17,7 @@ impl Shell {
         }
         self.close_help(window, cx);
         self.close_certificate(window, cx);
+        self.deactivate_browser_navigation(cx);
         self.comparison
             .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         if let Some(hosts) = &self.hosts {
@@ -38,14 +39,14 @@ impl Shell {
         }
         if let Some((project, _, prompt)) = self.certificate.take() {
             let focus = prompt.read(cx).previous_focus();
-            if project != self.browser.read(cx).id().project {
-                self.browser.update(cx, |pane, cx| pane.focus(window, cx));
-            } else if self.comparison.read(cx).visible() && self.hosts.is_none() {
-                self.comparison.focus_handle(cx).focus(window, cx);
-            } else if let Some(focus) = focus {
+            if project == self.browser.read(cx).id().project
+                && self.settings.is_none()
+                && self.hosts.is_some()
+                && let Some(focus) = focus
+            {
                 focus.focus(window, cx);
             } else {
-                self.browser.update(cx, |pane, cx| pane.focus(window, cx));
+                self.focus_workspace(window, cx);
             }
         }
         self.certificate_subscription = None;
@@ -116,12 +117,13 @@ impl Shell {
                         // A detached comparison keeps its report; host forms keep
                         // their inputs. Reconnect must not move focus into a pane
                         // hidden behind either view.
-                        if this.comparison.read(cx).visible() && this.hosts.is_none() {
-                            this.comparison.focus_handle(cx).focus(window, cx);
-                        } else if this.hosts.is_some()
+                        if this.settings.is_none()
+                            && this.hosts.is_some()
                             && let Some(focus) = focus
                         {
                             focus.focus(window, cx);
+                        } else {
+                            this.focus_workspace(window, cx);
                         }
                     }
                     failed => {

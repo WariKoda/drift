@@ -78,7 +78,7 @@ func TestConnectionResultsRejectOldBrowserGenerations(t *testing.T) {
 			}
 			current.remoteReading = true
 			children := MsgRemoteChildrenLoaded{
-				Host: host, ID: stale.ID, session: stale.session, ParentPath: parent.Path,
+				Host: host, ID: stale.ID, session: stale.session, ParentPath: parent.Path, conn: fresh.Conn,
 				Children: []*fs.FileEntry{{Name: "child", Path: "/folder/child", Kind: fs.EntryFile}},
 			}
 			if current.AcceptsRemoteChildrenResult(children) {
@@ -274,7 +274,8 @@ func TestConnectionLateSuccessReturnsCloseCommand(t *testing.T) {
 			// Both the command's deferred cancel and this explicit parent cancel
 			// must be detached after ReadDir hands ownership to the result.
 			tracker.Cancel()
-			children := runBrowserConnectionCmd(t, readRemoteDirCmd(msg.Conn, msg.Host, msg.ID, msg.session, "/folder", nil, nil, "")).(MsgRemoteChildrenLoaded)
+			request := MsgRemoteChildrenLoaded{Host: msg.Host, ID: msg.ID, session: msg.session, ParentPath: "/folder", conn: msg.Conn}
+			children := runBrowserConnectionCmd(t, readRemoteDirCmd(context.Background(), request, nil, nil, "")).(MsgRemoteChildrenLoaded)
 			if children.Err != nil || children.session != msg.session || children.ID != msg.ID || len(children.Children) != 1 {
 				t.Fatalf("directory read after load-context cancellation = %#v", children)
 			}

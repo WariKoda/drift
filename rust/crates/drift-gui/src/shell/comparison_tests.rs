@@ -73,8 +73,8 @@ async fn real_comparison_direction_folding_refresh_and_scope_keep_the_browser(
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -357,8 +357,8 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -397,7 +397,7 @@ async fn marked_local_and_remote_scope_survives_refresh_and_sync(cx: &mut TestAp
             shell.read(cx).browser.read(cx).marked(),
             ["folder", "folder/child.txt", "ignored.txt"]
         );
-        w.click("remote", cx);
+        w.click("remote-files-tab", cx);
         w.press("down", cx);
         w.press("space", cx);
         assert_eq!(

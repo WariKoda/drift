@@ -1,8 +1,9 @@
-//! Window-owned presentation preferences; file work belongs to the app writer.
-use drift_app::gui_preferences::PreferencesWriter;
+//! Window-owned presentation preferences; file work belongs to app services.
+use drift_app::{gui_preferences::PreferencesWriter, omarchy::PaletteSource};
 use drift_core::gui_preferences::{
     GuiPreferenceChange, GuiPreferences, ThemePreference, WindowPreference,
 };
+use drift_core::omarchy::Palette;
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::{
     App, Bounds, Context, Pixels, Size, Subscription, Task, Window, WindowAppearance, WindowBounds,
@@ -10,9 +11,17 @@ use gpui_kit::{
 };
 use std::time::{Duration, Instant};
 
+mod omarchy;
+
 pub(crate) struct Preferences {
     pub mode: ThemePreference,
     pub warning: Option<String>,
+    initial_warning: Option<String>,
+    writer_warning: Option<String>,
+    theme_warning: Option<String>,
+    theme_source: PaletteSource,
+    theme_snapshot: Option<Result<Palette, String>>,
+    theme_monitor: Option<Task<()>>,
     window: WindowState,
     writer: PreferencesWriter,
     geometry_changed: Option<Instant>,
@@ -27,8 +36,26 @@ impl Preferences {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::with_source(
+            preferences,
+            writer,
+            warning,
+            PaletteSource::from_env(),
+            window,
+            cx,
+        )
+    }
+
+    fn with_source(
+        preferences: &GuiPreferences,
+        writer: PreferencesWriter,
+        warning: Option<String>,
+        theme_source: PaletteSource,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.set_window_appearance(match preferences.theme {
-            ThemePreference::System => None,
+            ThemePreference::System | ThemePreference::Omarchy => None,
             ThemePreference::Dark => Some(WindowAppearance::Dark),
             ThemePreference::Light => Some(WindowAppearance::Light),
         });
@@ -59,7 +86,9 @@ impl Preferences {
         };
         let subscriptions = vec![
             cx.observe_window_appearance(window, |this, window, cx| {
-                if this.mode == ThemePreference::System {
+                if this.mode == ThemePreference::System
+                    || (this.mode == ThemePreference::Omarchy && this.theme_warning.is_some())
+                {
                     apply_theme(this.mode, window, cx);
                 }
             }),
@@ -112,7 +141,8 @@ impl Preferences {
                 let warning = failures.borrow_and_update().clone();
                 if this
                     .update(cx, |this, cx| {
-                        this.warning = warning;
+                        this.writer_warning = warning;
+                        this.compose_warning();
                         cx.notify();
                     })
                     .is_err()
@@ -122,15 +152,81 @@ impl Preferences {
             }
         })
         .detach();
-        Self {
+        let mut this = Self {
             mode: preferences.theme,
-            warning: writer_warning.or(warning),
+            warning: None,
+            initial_warning: warning,
+            writer_warning,
+            theme_warning: None,
+            theme_source,
+            theme_snapshot: None,
+            theme_monitor: None,
             window: window_state,
             writer,
             geometry_changed: None,
             _window_monitor: monitor,
             _subscriptions: subscriptions,
+        };
+        this.watch_theme(window, cx);
+        this.compose_warning();
+        this
+    }
+
+    fn compose_warning(&mut self) {
+        let warnings: Vec<_> = [
+            self.initial_warning.as_deref(),
+            self.writer_warning.as_deref(),
+            self.theme_warning.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        self.warning = (!warnings.is_empty()).then(|| warnings.join("\n"));
+    }
+
+    fn watch_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.theme_monitor = None;
+        self.theme_snapshot = None;
+        self.theme_warning = None;
+        if self.mode != ThemePreference::Omarchy {
+            return;
         }
+        self.theme_warning =
+            Some("Loading Omarchy theme. Using System appearance until available.".into());
+        let source = self.theme_source.clone();
+        self.theme_monitor = Some(cx.spawn_in(window, async move |this, cx| {
+            loop {
+                let source = source.clone();
+                let snapshot = cx
+                    .background_executor()
+                    .spawn(async move { source.load() })
+                    .await;
+                if this
+                    .update_in(cx, |this, window, cx| {
+                        if this.mode != ThemePreference::Omarchy
+                            || this.theme_snapshot.as_ref() == Some(&snapshot)
+                        {
+                            return;
+                        }
+                        this.theme_warning = match &snapshot {
+                            Ok(palette) => omarchy::apply(palette, window, cx).err(),
+                            Err(warning) => Some(warning.clone()),
+                        };
+                        if this.theme_warning.is_some() {
+                            cx.set_window_appearance(None);
+                            apply_theme(ThemePreference::System, window, cx);
+                        }
+                        this.theme_snapshot = Some(snapshot);
+                        this.compose_warning();
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+            }
+        }));
     }
 
     fn sample_window(&mut self, window: &Window, closing: bool, now: Instant) -> bool {
@@ -183,17 +279,23 @@ impl Preferences {
     }
 
     pub fn select(&mut self, mode: ThemePreference, window: &mut Window, cx: &mut Context<Self>) {
-        if self.mode != mode {
-            self.mode = mode;
-            cx.set_window_appearance(match mode {
-                ThemePreference::System => None,
-                ThemePreference::Dark => Some(WindowAppearance::Dark),
-                ThemePreference::Light => Some(WindowAppearance::Light),
-            });
-            apply_theme(mode, window, cx);
-            cx.notify();
+        if self.mode == mode {
+            if self.writer_warning.is_some() {
+                self.writer.queue(GuiPreferenceChange::Theme(mode));
+            }
+            return;
         }
+        self.mode = mode;
+        cx.set_window_appearance(match mode {
+            ThemePreference::System | ThemePreference::Omarchy => None,
+            ThemePreference::Dark => Some(WindowAppearance::Dark),
+            ThemePreference::Light => Some(WindowAppearance::Light),
+        });
+        apply_theme(mode, window, cx);
+        self.watch_theme(window, cx);
+        self.compose_warning();
         self.writer.queue(GuiPreferenceChange::Theme(mode));
+        cx.notify();
     }
 }
 
@@ -296,13 +398,43 @@ impl WindowState {
 }
 
 fn apply_theme(mode: ThemePreference, window: &mut Window, cx: &mut App) {
-    Theme::change(effective_theme(mode, window.appearance()), Some(window), cx);
+    change_theme(effective_theme(mode, window.appearance()), window, cx);
 }
 fn effective_theme(mode: ThemePreference, appearance: WindowAppearance) -> ThemeMode {
     match mode {
         ThemePreference::Dark => ThemeMode::Dark,
         ThemePreference::Light => ThemeMode::Light,
-        ThemePreference::System => appearance.into(),
+        ThemePreference::System | ThemePreference::Omarchy => appearance.into(),
+    }
+}
+
+// Theme files may carry typography. Changing a palette must not reset user zoom
+// or the fonts used by existing native editor entities.
+fn change_theme(mode: ThemeMode, window: &mut Window, cx: &mut App) {
+    let theme = Theme::global(cx);
+    let fonts = (
+        theme.font_family.clone(),
+        theme.font_size,
+        theme.mono_font_family.clone(),
+        theme.mono_font_size,
+    );
+    Theme::change(mode, Some(window), cx);
+    let theme = Theme::global(cx);
+    if (
+        theme.font_family.clone(),
+        theme.font_size,
+        theme.mono_font_family.clone(),
+        theme.mono_font_size,
+    ) != fonts
+    {
+        Theme::update(cx, |theme| {
+            (
+                theme.font_family,
+                theme.font_size,
+                theme.mono_font_family,
+                theme.mono_font_size,
+            ) = fonts;
+        });
     }
 }
 

@@ -183,6 +183,7 @@ func loadDiffItems(ctx context.Context, root *fs.Root, host config.Host, conn re
 			if errors.As(item.Err, &verificationErr) {
 				return nil, fmt.Errorf("scan selected paths: %w", item.Err)
 			}
+			log.Error("diff scan failed", "local", item.LocalPath, "remote", item.RemotePath, "err", item.Err)
 			results[i] = &diff.Session{
 				LocalPath:  item.LocalPath,
 				RemotePath: item.RemotePath,

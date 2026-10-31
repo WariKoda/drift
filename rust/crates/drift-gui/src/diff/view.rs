@@ -1,4 +1,5 @@
 use super::*;
+use crate::design::{Palette, Text, control, metric, size, space};
 
 impl Render for DiffPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -11,6 +12,7 @@ impl Render for DiffPane {
         let caret = self.focus.is_focused(window);
         let revision = self.revision;
         let entity = cx.entity().downgrade();
+        let palette = Palette::current(cx);
         div()
             .id("unified-diff")
             .flex()
@@ -18,6 +20,10 @@ impl Render for DiffPane {
             .flex_1()
             .min_w_0()
             .min_h_0()
+            .bg(palette.canvas)
+            .border_l(metric(2., cx))
+            .border_color(palette.border)
+            .focus(move |style| style.border_color(palette.focus))
             .key_context("DriftDiff")
             .track_focus(&self.focus)
             .capture_any_mouse_down(cx.listener(move |this, _, window, cx| {
@@ -107,22 +113,33 @@ impl Render for DiffPane {
             .on_action(cx.listener(|this, _: &PreviousHunk, _, cx| this.hunk(false, cx)))
             .child(
                 div()
+                    .id("diff-toolbar")
                     .flex()
                     .flex_wrap()
-                    .gap_2()
-                    .p_2()
+                    .flex_shrink_0()
+                    .items_center()
+                    .min_h(metric(size::HEADER, cx))
+                    .gap(metric(space::TIGHT, cx))
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .text_size(Text::Body.rems())
+                    .text_color(palette.text)
+                    .bg(palette.chrome)
+                    .border_b_1()
+                    .border_color(palette.border)
+                    .child(div().mr(metric(space::CONTROL, cx)).child("Unified diff"))
                     .child(
-                        Button::new("previous-hunk")
+                        control(Button::new("previous-hunk"), cx)
                             .label("Previous hunk")
                             .on_click(cx.listener(|this, _, _, cx| this.hunk(false, cx))),
                     )
                     .child(
-                        Button::new("next-hunk")
+                        control(Button::new("next-hunk"), cx)
                             .label("Next hunk")
                             .on_click(cx.listener(|this, _, _, cx| this.hunk(true, cx))),
                     )
                     .child(
-                        Button::new("collapse-context")
+                        control(Button::new("collapse-context"), cx)
                             .label("Fold context")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.state.expanded.clear();
@@ -130,22 +147,33 @@ impl Render for DiffPane {
                             })),
                     )
                     .child(
-                        Button::new("copy-diff")
+                        control(Button::new("copy-diff"), cx)
                             .label("Copy diff / selection")
                             .on_click(
                                 cx.listener(|this, _, w, cx| this.copy(&CopySelection, w, cx)),
                             ),
                     ),
             )
-            .child(div().p_2().child(match self.state.direction {
-                Decision::Upload => "Remote → Local (Upload preview)",
-                Decision::Download | Decision::Skip => "Local → Remote (Download preview)",
-                Decision::DeleteLocal => "Local → removed",
-                Decision::DeleteRemote => "Remote → removed",
-            }))
+            .child(
+                div()
+                    .id("diff-direction")
+                    .flex_shrink_0()
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .text_size(Text::Metadata.rems())
+                    .text_color(palette.muted)
+                    .child(match self.state.direction {
+                        Decision::Upload => "Remote → Local (Upload preview)",
+                        Decision::Download | Decision::Skip => "Local → Remote (Download preview)",
+                        Decision::DeleteLocal => "Local → removed",
+                        Decision::DeleteRemote => "Remote → removed",
+                    }),
+            )
             .child(if self.rows.is_empty() {
                 div()
-                    .p_3()
+                    .p(metric(space::PANEL, cx))
+                    .text_size(Text::Body.rems())
+                    .text_color(palette.muted)
                     .child(if self.result.as_ref().is_some_and(|r| r.binary) {
                         "Binary or large file: content comparison only".into()
                     } else {

@@ -249,6 +249,9 @@ impl HostManager {
     pub(super) fn is_loading(&self) -> bool {
         self.cancel.is_some()
     }
+    pub fn can_leave(&self) -> bool {
+        self.list_active() && !self.writing && self.offer.is_none()
+    }
     pub fn deactivate(&mut self) {
         self.active = false;
     }
@@ -503,7 +506,7 @@ impl Render for HostManager {
                     .disabled(self.project_slug.is_none() || busy || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(false, w, cx))))
                 .child(Button::new("scope-global").label("Global servers").selected(self.global)
                     .disabled(busy || editing).on_click(cx.listener(|this, _, w, cx| this.change_scope(true, w, cx))))
-                .child(Button::new("hosts-close").label("Back to browser").disabled(self.writing)
+                .child(Button::new("hosts-close").label("Close hosts").disabled(self.writing)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Close)))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().flex().flex_col().w(px(350.)).min_h_0().p_3().gap_3().border_r_1().border_color(border)
@@ -584,7 +587,7 @@ impl Render for HostManager {
                         let defaults = self.catalog.as_ref().map(|c| format!("Defaults: port {}, user {}. Empty fields keep these defaults.",
                             if c.defaults.port == 0 { "by protocol".into() } else { c.defaults.port.to_string() },
                             if c.defaults.user.is_empty() { "unspecified" } else { &c.defaults.user })).unwrap_or_default();
-                        view.child(div().flex().flex_col().gap_3().child("↓ from filter · j/k navigate · n new · e edit · c duplicate · d delete · t test · r reset trust · Tab scope").child(defaults))
+                        view.child(div().flex().flex_col().gap_3().child(defaults))
                     })))
             .child(div().p_3().border_t_1().border_color(border).child(self.status.clone())).into_any_element()
     }

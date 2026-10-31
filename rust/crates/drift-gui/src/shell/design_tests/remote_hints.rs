@@ -43,8 +43,8 @@ async fn narrow_unicode_unmapped_symlinks_keep_hints_outside_filename_and_deep_i
     )
     .await;
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     cx.wait_for(f.handle, Duration::from_secs(20), |_, cx| {
@@ -208,7 +208,7 @@ async fn narrow_unicode_unmapped_symlinks_keep_hints_outside_filename_and_deep_i
             assert_eq!(w.focused(cx), focus);
             assert!(!remote.read(cx).is_loading());
             assert!(!f.shell.read(cx).comparison.read(cx).visible());
-            assert!(!f.shell.read(cx).preview.read(cx).is_loading());
+            assert!(!f.shell.read(cx).remote_preview.read(cx).is_loading());
         }
         // Measure in the completed, visible layout. The tiny shell's file pane
         // is not visible in macOS headless CI, so wheel dispatch or querying its
@@ -220,7 +220,7 @@ async fn narrow_unicode_unmapped_symlinks_keep_hints_outside_filename_and_deep_i
             + arrow.size.width + badge.size.width;
         w.resize(size(px(240.), px(1800.)));
         w.bounds_changed(cx);
-        w.render_frame(cx);
+        crate::test_support::settle(w, cx);
         assert_eq!(w.rem_size(), hint_rem, "resize must not change hint typography");
         let tiny_files = w.find("remote-files-pane");
         let tiny_pane = tiny_files.bounds();
@@ -235,7 +235,8 @@ async fn narrow_unicode_unmapped_symlinks_keep_hints_outside_filename_and_deep_i
         // Collapsing a real parent still preserves marks and the live session.
         w.resize(size(px(1400.), px(1800.)));
         w.bounds_changed(cx);
-        w.render_frame(cx);
+        // Aligned header heights converge a frame later; click rows from a settled layout.
+        crate::test_support::settle(w, cx);
         w.click(("remote-tree-toggle", 3usize), cx);
         w.render_frame(cx);
         assert_eq!(

@@ -212,8 +212,9 @@ func (c *Client) ReadFile(remotePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	return io.ReadAll(f)
+	data, readErr := io.ReadAll(f)
+	closeErr := f.Close()
+	return data, errors.Join(readErr, closeErr)
 }
 
 // Upload atomically writes everything src yields to a remote path, creating

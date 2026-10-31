@@ -35,6 +35,7 @@ fn geometry_uses_the_existing_kit_font_scale_exactly_once(cx: &mut TestAppContex
                 size::DISCLOSURE,
                 size::FILTER,
                 size::PROJECT_FORM,
+                size::SETTINGS,
                 size::RADIUS,
             ] {
                 assert_eq!(metric(token, cx), gpui_kit::px(token * font / 16.));
@@ -63,6 +64,7 @@ fn pilot_icons_are_already_in_the_default_kit_bundle() {
         IconName::Eye,
         IconName::EyeOff,
         IconName::Close,
+        IconName::Settings,
     ] {
         assert!(Assets.load(&icon.path()).unwrap().is_some(), "{icon:?}");
     }

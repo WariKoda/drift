@@ -90,7 +90,7 @@ async fn finder_return_from_shell_filter_respects_popups_help_and_live_marks(
         assert_eq!(browser.marked(), ["alpha.txt", "beta.txt"]);
         assert!(browser.focus_handle(cx).is_focused(w));
         assert!(!shell.read(cx).comparison.read(cx).visible());
-        assert!(!shell.read(cx).preview.read(cx).is_loading());
+        assert!(!shell.read(cx).local_preview.read(cx).is_loading());
         assert!(!shell.read(cx).remote.read(cx).has_session());
     })
     .unwrap();
@@ -201,8 +201,9 @@ async fn finder_failure_under_help_does_not_restore_a_disappeared_return_button(
                 .browser
                 .update(cx, |pane, cx| pane.command(BrowserCommand::Find, w, cx))
         });
-        for _ in 0..40 {
-            w.press("shift-tab", cx);
+        for _ in 0..64 {
+            w.focus_prev(cx);
+            w.render_frame(cx);
             if w.find("finder-return").focused() == Some(true) {
                 break;
             }

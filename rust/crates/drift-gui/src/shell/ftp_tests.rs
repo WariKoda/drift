@@ -64,8 +64,8 @@ async fn ftp_and_ftps_connect_preview_compare_sync_and_project_switch_use_existi
         })
         .await;
         cx.update_window(handle, |_, w, cx| {
-            w.click("remote", cx);
-            w.click(("connect-host", 0usize), cx);
+            w.click("remote-files-tab", cx);
+            crate::test_support::connect_first(w, cx);
         })
         .unwrap();
         cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
@@ -111,19 +111,25 @@ async fn ftp_and_ftps_connect_preview_compare_sync_and_project_switch_use_existi
             w.press("left", cx);
             assert_eq!(shell.read(cx).remote.read(cx).marked().len(), 1);
             w.within("remote-pane").click(1usize, cx);
+            assert_eq!(
+                shell.read(cx).remote_view,
+                crate::pane_tabs::PaneView::Files
+            );
+            w.click("remote-preview-tab", cx);
         })
         .unwrap();
         cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
-            shell.read(cx).remote_preview && !shell.read(cx).preview.read(cx).is_loading()
+            shell.read(cx).remote_view == crate::pane_tabs::PaneView::Preview
+                && !shell.read(cx).remote_preview.read(cx).is_loading()
         })
         .await;
         cx.update_window(handle, |_, w, cx| {
-            w.click("copy-preview", cx);
+            w.within("remote-workspace").click("copy-preview", cx);
             assert_eq!(
                 cx.read_from_clipboard().unwrap().text().as_deref(),
                 Some("remote contents")
             );
-            w.click("local-browser", cx);
+            w.click("local-files-tab", cx);
             w.click("compare-project", cx);
         })
         .unwrap();

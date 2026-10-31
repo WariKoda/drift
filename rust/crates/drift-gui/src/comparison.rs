@@ -19,7 +19,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
+    IntoElement, ParentElement, Pixels, Render, ScrollStrategy, StatefulInteractiveElement, Styled,
     Subscription, UniformListScrollHandle, Window, div, px, uniform_list,
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -62,6 +62,7 @@ pub struct ComparisonPane {
     diff: Entity<DiffPane>,
     split: PaneSplit,
     scroll: UniformListScrollHandle,
+    file_row_height: Pixels,
     focus: FocusHandle,
     _subscription: Subscription,
 }
@@ -148,6 +149,7 @@ impl ComparisonPane {
             diff: cx.new(DiffPane::new),
             split: PaneSplit::new(Some(px(350.)), cx),
             scroll: UniformListScrollHandle::new(),
+            file_row_height: px(0.),
             focus: cx.focus_handle().tab_stop(true),
             _subscription: subscription,
         }
@@ -171,6 +173,9 @@ impl ComparisonPane {
     }
     pub fn is_loading(&self) -> bool {
         self.loading.is_some() || self.syncing.is_some()
+    }
+    pub fn can_leave(&self) -> bool {
+        !self.is_loading() && self.confirm_sync.is_none()
     }
     #[cfg(test)]
     pub(crate) fn diff_for_test(&self) -> &Entity<DiffPane> {
@@ -438,6 +443,16 @@ impl ComparisonPane {
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.load(window, cx);
     }
+    pub fn close_idle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_leave() {
+            return;
+        }
+        self.visible = false;
+        self.show_errors = false;
+        self.deactivate_layout(window, cx);
+        cx.emit(ComparisonEvent::Closed);
+        cx.notify();
+    }
     pub fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
         if self.confirm_sync.take().is_some() {
             cx.notify();
@@ -458,12 +473,12 @@ impl ComparisonPane {
         }
         if self.is_loading() {
             self.invalidate(cx);
+            self.deactivate_layout(window, cx);
+            cx.emit(ComparisonEvent::Closed);
+            cx.notify();
         } else {
-            self.visible = false;
+            self.close_idle(window, cx);
         }
-        self.deactivate_layout(window, cx);
-        cx.emit(ComparisonEvent::Closed);
-        cx.notify();
     }
     pub(super) fn toggle_sync_errors(&mut self, cx: &mut Context<Self>) {
         if self.confirm_sync.is_none()

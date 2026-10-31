@@ -147,8 +147,8 @@ async fn active_project_move_and_removal_close_real_remote_sessions(cx: &mut Tes
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
@@ -213,10 +213,13 @@ async fn active_project_move_and_removal_close_real_remote_sessions(cx: &mut Tes
     assert!(!shell.read_with(cx, |s, cx| s.remote.read(cx).has_session()));
     cx.update_window(handle, |_, w, cx| {
         w.click("project-close", cx);
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
     })
     .unwrap();
+    cx.update_window(handle, |_, w, cx| crate::test_support::settle(w, cx))
+        .unwrap();
+    cx.update_window(handle, |_, w, cx| crate::test_support::connect_first(w, cx))
+        .unwrap();
     cx.wait_for(handle, Duration::from_secs(30), |_, cx| {
         shell.read(cx).remote.read(cx).has_session() && !shell.read(cx).remote.read(cx).is_loading()
     })

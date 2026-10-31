@@ -75,12 +75,11 @@ pub fn verify(
             continue;
         }
         known = true;
-        if entry.marker() == Some(&Marker::CertAuthority) {
-            if entry.certificate.is_none()
-                && cert.is_some_and(|cert| entry.public_key().key_data() == cert.signature_key())
-            {
-                authority = Some(entry.public_key().fingerprint(HashAlg::Sha256));
-            }
+        if entry.marker() == Some(&Marker::CertAuthority)
+            && entry.certificate.is_none()
+            && cert.is_some_and(|cert| entry.public_key().key_data() == cert.signature_key())
+        {
+            authority = Some(entry.public_key().fingerprint(HashAlg::Sha256));
         }
         if entry.certificate.is_none() {
             matching |= entry.public_key().key_data() == key.key_data();
@@ -340,10 +339,11 @@ fn parse_entries(text: &str) -> Result<Vec<Entry>> {
 
 fn split_endpoint(name: &str) -> Result<(&str, &str)> {
     if let Some(name) = name.strip_prefix('[') {
-        if let Some((host, port)) = name.split_once("]:") {
-            if !host.contains(['[', ']']) && !port.contains([':', '[', ']']) {
-                return Ok((host, port));
-            }
+        if let Some((host, port)) = name.split_once("]:")
+            && !host.contains(['[', ']'])
+            && !port.contains([':', '[', ']'])
+        {
+            return Ok((host, port));
         }
         return Err(Error::Invalid(
             "parse known_hosts: malformed bracketed endpoint".into(),

@@ -87,8 +87,8 @@ impl Fixture {
     }
     async fn connect(&self, cx: &mut TestAppContext) {
         cx.update_window(self.handle, |_, w, cx| {
-            w.click("remote", cx);
-            w.click(("connect-host", 0usize), cx);
+            w.click("remote-files-tab", cx);
+            crate::test_support::connect_first(w, cx);
         })
         .unwrap();
         cx.wait_for(self.handle, Duration::from_secs(30), |_, cx| {
@@ -113,18 +113,17 @@ async fn certified_ssh_browser_preview_and_help_do_not_transfer_or_open_tls_appr
         .shell
         .read_with(cx, |s, cx| s.remote.read(cx).session_id());
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("remote-filter", cx);
-        w.press("enter", cx);
-        w.press("home", cx);
-        w.press("enter", cx);
+        w.within("remote-pane").click(0usize, cx);
+        w.click("remote-preview-tab", cx);
     })
     .unwrap();
     cx.wait_for(f.handle, Duration::from_secs(30), |_, cx| {
-        f.shell.read(cx).remote_preview && !f.shell.read(cx).preview.read(cx).is_loading()
+        f.shell.read(cx).remote_view == PaneView::Preview
+            && !f.shell.read(cx).remote_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("copy-preview", cx);
+        w.within("remote-workspace").click("copy-preview", cx);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("certified remote content")
@@ -185,8 +184,10 @@ async fn untrusted_ssh_certificate_rejects_without_tofu_tls_prompt_or_automatic_
             .read_with(cx, |s, cx| !s.remote.read(cx).has_session()
                 && s.remote.read(cx).connection() == connection)
     );
-    cx.update_window(f.handle, |_, w, cx| w.click(("connect-host", 0usize), cx))
-        .unwrap();
+    cx.update_window(f.handle, |_, w, cx| {
+        crate::test_support::select(w, "remote-host-select", Some(0), 0, cx);
+    })
+    .unwrap();
     cx.wait_for(f.handle, Duration::from_secs(30), |_, cx| {
         !f.shell.read(cx).remote.read(cx).is_loading()
     })

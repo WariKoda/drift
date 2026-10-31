@@ -2,9 +2,11 @@
 
 ## Status: vorerst pausiert
 
-Der Rust-/GPUI-Port liegt bis auf Weiteres auf Eis. Der bisherige Arbeitsstand
-wird auf `feature/rust-workspace-design` gesichert; der Fokus liegt wieder auf
-der Optimierung der Go-basierten `drift`-TUI. Die folgenden Planungen und offenen
+Der Rust-/GPUI-Port liegt bis auf Weiteres auf Eis. Die verbleibenden Arbeiten
+sind zusammen mit Fensteridentität und dem gesperrten SSH-Prototyp auf
+`chore/rust-paused` gesichert; siehe [Konsolidierungsnachweis](rust-paused-consolidation.md).
+`main` und die installierte Go-TUI bleiben davon unberührt. Der Fokus liegt weiter
+auf der Optimierung der Go-basierten `drift`-TUI. Die folgenden Planungen und offenen
 Abnahme-/Release-Gates bleiben als Referenz für eine mögliche Wiederaufnahme
 erhalten und sind keine aktuellen Arbeitsaufträge.
 
@@ -77,7 +79,7 @@ enden nach gezieltem Close mit Exit 0, ohne stderr oder Projektdateien. Fokus
 wiederhergestellt; nur temporäre Konfiguration, keine Tastaturinjektion.
 X11/macOS und Launcher-Zuordnung bleiben offen; keine allgemeine Plattformabnahme.
 
-Aktueller UI-Folgeblock auf `feature/rust-workspace-design`: Vorschau-/Diff-Chrome,
+Letzter UI-Folgeblock, ursprünglich auf `feature/rust-workspace-design`: Vorschau-/Diff-Chrome,
 Vergleichs-Toolbar/-Dateiliste und Shell-Status nutzen die vorhandenen Tokens.
 Aufgaben-/Navigationsband priorisieren die Browser-Toolbar, Vergleich trennt
 Ansichtsoptionen von Aktionsplanung. Tatsächlich gemessene schmale Dateipanes
@@ -158,9 +160,10 @@ Siehe [Workspace-Details](rust-gui-design-system.md#hauptarbeitsfläche--vorscha
   CI-Nachweis für diesen Block. Die Basis `docs/rust-project-dialog-native-check`
   baut auf
   `feature/rust-project-dialog-design` (Draft #98), dieser auf
-  `feature/rust-zed-design-system` (Draft #97). Der SSH-Prototyp
-  bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
-  Dokumentation `b605dda`); seine Transportänderungen sind hier nicht übernommen.
+  `feature/rust-zed-design-system` (Draft #97). Der SSH-Prototyp entstand separat
+  auf `feature/rust-ssh-host-certificates` (`7db6671`, Dokumentation `b605dda`).
+  Seine Transportänderungen sind jetzt ausschließlich im pausierten Sammelbranch
+  `chore/rust-paused` übernommen, nicht in `main`; die Sicherheitsblocker bleiben offen.
 - Implementierungsstand: Commit `029d6d7`,
   [Draft-PR #98](https://github.com/WariKoda/drift/pull/98), aufgebaut auf korrigiertem
   #97 (`f8e5b94`). Sieben neue GPUI-Regressionen und lokaler Gesamtcheck bestanden;
@@ -824,8 +827,8 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    [Theme-Gate](rust-gui-theme-blockers.md). Der Paketierungsblock
    bereitet nur getrennte manuelle Prüfartefakte vor; er ersetzt keine native Abnahme.
    SSH-Hostzertifikate/CA bleiben wegen Parser-/Exchange-Signatur-/Rekey-Problemen
-   der Abhängigkeiten gesperrt. Der separate lokale Prototyp ist mit 42 gezielten
-   Tests geprüft, aber nicht freigegeben; siehe
+   der Abhängigkeiten gesperrt. Der im Sammelbranch gesicherte Prototyp wurde
+   ursprünglich mit 42 gezielten Tests geprüft, ist aber nicht freigegeben; siehe
    [SSH-Blocker und Wiederaufnahme](rust-ssh-certificate-blockers.md).
    Native Diff-Auswahl, Glyphen-Hit-Tests, Clipboard und Serverlink-Angebote
    bleiben praktisch mit abzunehmen.
@@ -849,7 +852,7 @@ stehen oben.
 
 | Nr. | Arbeitsblock | Fortschritt / nächster verbleibender Schritt |
 | --- | --- | --- |
-| 1 | SSH-Hostzertifikate/CA | Blockiert: separater lokaler Prototyp mit 42 gezielten Tests; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Regulärer Stand weist Zertifikate weiterhin ab; keine Release-Freigabe. |
+| 1 | SSH-Hostzertifikate/CA | Blockiert: Prototyp auf `chore/rust-paused` gesichert; Upstream-Korrekturen für Signer-Decoding, Exchange-Algorithmusprüfung und erneute Prüfung beim Rekey erforderlich. Rust auf `main` weist Zertifikate weiterhin ab; keine Release-Freigabe. |
 | 2 | GUI-Präferenzen und Themes | Teilweise umgesetzt: `gui.toml`, normale logische Inhaltsgröße/Maximierung, unabhängige Pane-Verhältnisse und System/Omarchy/Dark/Light im nativen Dropdown, Omarchy live/read-only und Kit-Fallback. Monokai Dark/Light Sun wegen Weitergabe-Klärung gesperrt; native laufende OS-/Fensterwechsel bleiben abzunehmen. |
 | 3 | Native Plattformabnahme | Offen: Wayland/X11, macOS Intel/Apple Silicon; Fokus, Rendering, IME, Accessibility, OS-Clipboard/Permissions und laufende I/O einschließlich WAN-Durchsatz des begrenzten SFTP-Adapters. Headless-Tests ersetzen diese Abnahme nicht. |
 | 4 | Pakete und GUI-Releases | Prüfartefakte vorbereitet: native Linux-Tarball/Desktop-Datei, getrennte Intel-/ARM-.app-Archive, SemVer-Einbettung und manuelle Actions-Matrix ohne Publishing/Tags. Native Mac-Bundles/Installation, Signierung/Notarisierung und öffentliche Release-Regeln bleiben offen. |

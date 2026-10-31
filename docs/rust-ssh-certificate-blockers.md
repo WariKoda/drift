@@ -2,9 +2,13 @@
 
 Stand: 5. Oktober 2026. **Keine Release-Freigabe, kein freigegebener PR.**
 
-Der lokale Branch `feature/rust-ssh-host-certificates` enthält einen Prototyp
-auf Basis von `5f8015c`. Er wird nicht in die folgenden Arbeitsblöcke übernommen.
-Der reguläre Rust-Stand weist Hostzertifikate weiterhin ab. Go bleibt unverändert.
+Der Prototyp entstand auf `feature/rust-ssh-host-certificates`, Basis `5f8015c`
+(Commits `7db6671` und `b605dda`). Auf Nutzerwunsch ist er jetzt zusammen mit den
+übrigen pausierten Rust-Arbeiten auf `chore/rust-paused` gesichert; siehe
+[Konsolidierungsnachweis](rust-paused-consolidation.md). Dort sind auch seine
+Transportänderungen enthalten, nicht nur Tests und Dokumentation. Das ist keine
+Freischaltung für Releases oder Installation. `main` weist Rust-Hostzertifikate
+weiterhin ab. Die produktive Go-TUI bleibt unverändert.
 
 ## Vorbereitet und gezielt geprüft
 

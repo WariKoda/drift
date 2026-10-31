@@ -4,6 +4,9 @@
 > Current work focuses on optimizing the Go-based `drift` TUI. This workspace
 > and its design notes are retained for a possible future return; existing
 > native acceptance and release gates remain open.
+> Remaining Rust work is consolidated on `chore/rust-paused`, including the
+> blocked SSH-certificate prototype. This is an archival branch, not a release
+> candidate; see the [consolidation record](../docs/rust-paused-consolidation.md).
 
 See the [Rust/GPUI port plan](../docs/rust-port-plan.md) for milestones and the
 System/Omarchy/Dark/Light preference and the still-blocked Monokai palettes
@@ -575,8 +578,8 @@ key paths. Empty auth/key-file settings use `SSH_AUTH_SOCK`. Connect/auth is bou
 by 15 seconds. Unknown host keys are added to `~/.ssh/known_hosts` following Go's
 TOFU behavior. Hashed entries, OpenSSH patterns, preferred known host-key algorithms
 and revocation are checked; changed keys fail visibly. Host certificates/CA entries
-remain rejected in the regular development/release line. The separate local
-`feature/rust-ssh-host-certificates` prototype is blocked on SSH dependency
+remain rejected in `main`. The archived prototype on `chore/rust-paused`
+includes their verification code, but remains blocked on SSH dependency
 parser, exchange-signature and rekey checks; it is not release-ready. See
 [the blocker record](../docs/rust-ssh-certificate-blockers.md).
 

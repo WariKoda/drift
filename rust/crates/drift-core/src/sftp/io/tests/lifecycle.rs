@@ -116,6 +116,7 @@ async fn unqueueable_close_is_terminal(mut daemon: Daemon, explicit: bool) {
         Verifier {
             options: options.clone(),
             names: vec![known_hosts::endpoint("127.0.0.1", daemon.port)],
+            hostname: "127.0.0.1".into(),
         },
     )
     .await

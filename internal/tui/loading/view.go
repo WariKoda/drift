@@ -62,7 +62,7 @@ func (m Model) modal(termWidth int) string {
 		phase = m.label
 	}
 	spinner := styles.Accent.Render(spinnerFrames[m.frame%len(spinnerFrames)])
-	lines := []string{spinner + "  " + styles.Header.Render(truncate(phase, contentWidth-3))}
+	lines := []string{spinner + "  " + styles.Header.Render(truncate(styles.SafeText(phase), contentWidth-3))}
 
 	if contentWidth >= 16 && m.progress.Total > 0 && !m.progress.Indeterminate {
 		total := m.progress.Total

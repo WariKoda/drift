@@ -25,11 +25,11 @@ func (m Model) viewMain() string {
 
 	title := "New Host"
 	if m.isEdit {
-		title = "Edit Host: " + m.oldName
+		title = "Edit Host: " + styles.SafeText(m.oldName)
 	} else if m.isDuplicate {
 		title = "Duplicate Host"
 	} else if m.linked != nil {
-		title = "Link Server: " + m.linked.Server
+		title = "Link Server: " + styles.SafeText(m.linked.Server)
 	}
 	header := styles.Header.Render("drift") + "  " + styles.Muted.Render(title)
 	sb.WriteString(padRight(header, m.Width))
@@ -80,11 +80,11 @@ func (m Model) viewMain() string {
 	sb.WriteByte('\n')
 
 	if m.errMsg != "" {
-		sb.WriteString("  " + styles.Err.Render("✗ "+m.errMsg))
+		sb.WriteString("  " + styles.Err.Render("✗ "+styles.SafeText(m.errMsg)))
 		sb.WriteByte('\n')
 	}
 	if m.offer != nil {
-		sb.WriteString("  " + styles.Warn.Render("Same server as "+m.offerLabel+". Link it instead of storing the connection twice?"))
+		sb.WriteString("  " + styles.Warn.Render("Same server as "+styles.SafeText(m.offerLabel)+". Link it instead of storing the connection twice?"))
 		sb.WriteByte('\n')
 		sb.WriteString(styles.KeyHints("  [l]ink, keeping name, root path and mappings  [s]ave as its own connection  [any]back", styles.Muted))
 		sb.WriteByte('\n')
@@ -109,7 +109,7 @@ func (m Model) viewMappingList() string {
 	if hostName == "" {
 		hostName = "new host"
 	}
-	header := styles.Header.Render("drift") + "  " + styles.Muted.Render("Mappings — "+hostName)
+	header := styles.Header.Render("drift") + "  " + styles.Muted.Render("Mappings — "+styles.SafeText(hostName))
 	sb.WriteString(padRight(header, m.Width))
 	sb.WriteByte('\n')
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
@@ -131,7 +131,7 @@ func (m Model) viewMappingList() string {
 				localStyle = styles.File
 				remoteStyle = styles.Dir
 			}
-			line := cursor + localStyle.Render(mp.Local) + "  →  " + remoteStyle.Render(mp.Remote)
+			line := cursor + localStyle.Render(styles.SafeText(mp.Local)) + "  →  " + remoteStyle.Render(styles.SafeText(mp.Remote))
 			sb.WriteString(line)
 			sb.WriteByte('\n')
 		}
@@ -140,7 +140,7 @@ func (m Model) viewMappingList() string {
 	sb.WriteByte('\n')
 
 	if m.mapConfirmDel && m.mapCursor < len(m.mappings) {
-		sb.WriteString("  " + styles.Err.Render(`Delete "`+m.mappings[m.mapCursor].Local+`"?`) + styles.KeyHints("  [y]yes  [any]cancel", styles.Err))
+		sb.WriteString("  " + styles.Err.Render(`Delete "`+styles.SafeText(m.mappings[m.mapCursor].Local)+`"?`) + styles.KeyHints("  [y]yes  [any]cancel", styles.Err))
 		sb.WriteByte('\n')
 	}
 
@@ -181,7 +181,7 @@ func (m Model) viewMappingEdit() string {
 
 	if m.errMsg != "" {
 		sb.WriteByte('\n')
-		sb.WriteString("  " + styles.Err.Render(m.errMsg))
+		sb.WriteString("  " + styles.Err.Render(styles.SafeText(m.errMsg)))
 		sb.WriteByte('\n')
 	}
 
@@ -209,7 +209,7 @@ func (m Model) renderServer() string {
 		protocol = "sftp"
 	}
 	line := "  " + styles.Muted.Render(padStr("Server", 14)) + " " +
-		styles.Badge.Render(h.Server) + "  " + styles.File.Render(endpoint) + "  " + styles.Muted.Render(protocol)
+		styles.Badge.Render(styles.SafeText(h.Server)) + "  " + styles.File.Render(styles.SafeText(endpoint)) + "  " + styles.Muted.Render(styles.SafeText(protocol))
 	note := "  " + styles.Muted.Render("Connection and credentials belong to the global server; edit them there.")
 	return line + "\n" + note + "\n\n"
 }

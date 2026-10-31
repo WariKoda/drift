@@ -56,7 +56,7 @@ func (m Model) chooseCurrent() (Model, tea.Cmd) {
 		return m, nil
 	}
 	if e.missing {
-		m.statusMsg = "Path not found: " + e.proj.Path + styles.KeyHints(" — press [e] to fix", styles.Err)
+		m.statusMsg = "Path not found: " + styles.SafeText(e.proj.Path) + styles.KeyHints(" — press [e] to fix", styles.Err)
 		return m, nil
 	}
 	p := e.proj

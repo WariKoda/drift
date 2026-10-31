@@ -132,7 +132,7 @@ func (m Model) viewPicker() []string {
 	for i := m.pickOffset; i < len(m.picker) && len(lines) < m.listHeight(); i++ {
 		row := m.picker[i]
 		if row.header != "" {
-			lines = append(lines, padRight("  "+styles.Key.Render(row.header), m.Width))
+			lines = append(lines, padRight("  "+styles.Key.Render(styles.SafeText(row.header)), m.Width))
 			continue
 		}
 		h := row.target.Host
@@ -152,10 +152,10 @@ func (m Model) viewPicker() []string {
 			note = "linked by " + row.usedBy
 		}
 		line := "    " +
-			styles.Dir.Render(fmt.Sprintf("%-16s", h.Name)) + " " +
-			styles.File.Render(fmt.Sprintf("%-34s", endpoint)) + " " +
-			styles.Muted.Render(fmt.Sprintf("%-6s", protocol)) + " " +
-			styles.Muted.Render(note)
+			styles.Dir.Render(fmt.Sprintf("%-16s", styles.SafeText(h.Name))) + " " +
+			styles.File.Render(fmt.Sprintf("%-34s", styles.SafeText(endpoint))) + " " +
+			styles.Muted.Render(fmt.Sprintf("%-6s", styles.SafeText(protocol))) + " " +
+			styles.Muted.Render(styles.SafeText(note))
 		if lipgloss.Width(line) > m.Width {
 			line = lipgloss.NewStyle().MaxWidth(m.Width).Render(line)
 		}

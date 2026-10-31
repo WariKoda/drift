@@ -205,11 +205,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.updateMouse(msg)
 
 	case tea.KeyMsg:
+		// Overlays capture keys first.
+		if m.showHelp {
+			if msg.String() == keyQuestion || msg.String() == keyEsc || msg.String() == keyQ {
+				m.showHelp = false
+			}
+			if msg.String() == keyCtrlC {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		if (m.remoteLoading || m.remoteReading) && (msg.String() == keyEsc || msg.String() == keyCtrlC) {
 			cmd := m.CloseRemote()
 			return m, cmd
 		}
-		// Overlays capture keys first.
 		if m.finder.active {
 			return m.updateFinder(msg)
 		}

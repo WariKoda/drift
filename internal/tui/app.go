@@ -1122,8 +1122,8 @@ func (a App) baseView() string {
 			BorderForeground(styles.ColorDir).
 			Padding(1, 2)
 		content := styles.Header.Render("Register this project?") + "\n\n" +
-			styles.File.Render(a.state.PendingRegisterName) + "  " +
-			styles.Muted.Render(a.state.PendingRegisterPath) + "\n\n" +
+			styles.File.Render(styles.SafeText(a.state.PendingRegisterName)) + "  " +
+			styles.Muted.Render(styles.SafeText(a.state.PendingRegisterPath)) + "\n\n" +
 			styles.Dir.Render("[y]") + styles.Muted.Render(" register   ") +
 			styles.Dir.Render("[n]") + styles.Muted.Render(" skip")
 		return lipgloss.Place(
@@ -1200,7 +1200,7 @@ func replaceStatusLine(view string, width, height int, text string, isError bool
 	}
 	line := styles.KeyHints("  "+text, styles.Warn)
 	if isError {
-		line = styles.Err.Render("  " + text)
+		line = styles.Err.Render("  " + styles.SafeText(text))
 	}
 	if width > 4 && lipgloss.Width(line) > width-2 {
 		line = ansi.Truncate(line, width-2, "…")

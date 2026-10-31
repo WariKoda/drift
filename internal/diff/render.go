@@ -161,7 +161,7 @@ func pad(s string, width int) string {
 
 func truncateRunes(s string, n int) string {
 	r := []rune(s)
-	expanded := expandTabs(r, 4)
+	expanded := []rune(styles.SafeText(string(expandTabs(r, 4))))
 	if len(expanded) <= n {
 		return string(expanded)
 	}

@@ -35,7 +35,7 @@ func (m Model) View() string {
 	inner.WriteString(styles.Header.Render("Switch project"))
 	inner.WriteByte('\n')
 
-	query := m.query + "█"
+	query := styles.SafeText(m.query) + "█"
 	if m.query == "" {
 		query = styles.Muted.Render("type to filter…")
 	}
@@ -56,7 +56,7 @@ func (m Model) View() string {
 
 	if m.statusMsg != "" {
 		inner.WriteByte('\n')
-		inner.WriteString(styles.Err.Render(m.statusMsg))
+		inner.WriteString(styles.Err.Render(styles.SafeText(m.statusMsg)))
 	}
 
 	return border.Render(inner.String())
@@ -139,9 +139,9 @@ func (m Model) renderRow(i, inner int) string {
 	}
 
 	line := st.Render(marker) +
-		st.Render(padRune(e.proj.Name, nameCols)) +
+		st.Render(padRune(styles.SafeText(e.proj.Name), nameCols)) +
 		" " +
-		styles.Muted.Render(padRuneLeft(collapseHome(e.proj.Path), pathWidth)) +
+		styles.Muted.Render(padRuneLeft(styles.SafeText(collapseHome(e.proj.Path)), pathWidth)) +
 		tag
 	if active {
 		line = styles.CursorRow.Width(inner).Render(padRight(line, inner))

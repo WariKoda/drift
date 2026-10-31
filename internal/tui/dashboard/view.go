@@ -239,8 +239,8 @@ func (m Model) renderRow(i, pathWidth int) string {
 		st = styles.File
 	}
 	diamond := st.Render(marker)
-	name := st.Render(padRune(e.proj.Name, m.nameWidth()))
-	path := styles.Muted.Render(padRuneLeft(collapseHome(e.proj.Path), pathWidth))
+	name := st.Render(padRune(styles.SafeText(e.proj.Name), m.nameWidth()))
+	path := styles.Muted.Render(padRuneLeft(styles.SafeText(collapseHome(e.proj.Path)), pathWidth))
 
 	// Right-aligned quick-open key for the first nine projects.
 	key := " "

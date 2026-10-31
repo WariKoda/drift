@@ -165,9 +165,10 @@ type Model struct {
 	syncStatus      string               // last bulk sync result message
 	syncErrors      []syncpolicy.Failure // per-file errors from the last bulk sync
 	showErrors      bool                 // true while the error overlay is open
-	syncProgress    *progress.Tracker    // live counter shared with the running bulk sync
-	syncDone        int                  // files processed so far in the active bulk sync
-	syncTotal       int                  // total files in the active bulk sync
+	errorOffset     int
+	syncProgress    *progress.Tracker // live counter shared with the running bulk sync
+	syncDone        int               // files processed so far in the active bulk sync
+	syncTotal       int               // total files in the active bulk sync
 	scope           syncpolicy.ScopeSummary
 	scopeOptions    syncpolicy.ScopeOptions
 	host            config.Host
@@ -215,6 +216,7 @@ func (m *Model) SetSyncResult(status string, failures []syncpolicy.Failure) {
 	m.syncStatus = status
 	m.syncErrors = append([]syncpolicy.Failure(nil), failures...)
 	m.showErrors = len(failures) > 0
+	m.errorOffset = 0
 }
 
 // Init satisfies the sub-model convention.
@@ -354,6 +356,7 @@ func (m *Model) SetSize(w, h int) {
 	m.Width = w
 	m.Height = h
 	m.clampFileList()
+	m.clampErrorScroll()
 }
 
 // bodyHeight returns the shared vertical space for the file list and diff pane.

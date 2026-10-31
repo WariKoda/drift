@@ -106,23 +106,23 @@ func (m Model) paneWidths() (int, int) {
 func (m Model) renderHeader() string {
 	line := styles.Header.Render("drift")
 	if m.projectName != "" {
-		line += "  " + styles.Accent.Render(m.projectName)
+		line += "  " + styles.Accent.Render(styles.SafeText(m.projectName))
 	}
-	line += "  " + styles.Muted.Render(m.absWorkDir())
+	line += "  " + styles.Muted.Render(styles.SafeText(m.absWorkDir()))
 	return padRight(line, m.Width)
 }
 
 func (m Model) renderPaneLabels(leftW, rightW int) string {
-	localLabel := styles.Muted.Render("  LOCAL  " + truncLeftPath(m.absWorkDir(), leftW-9))
+	localLabel := styles.Muted.Render("  LOCAL  " + truncLeftPath(styles.SafeText(m.absWorkDir()), leftW-9))
 	if m.activePane == PaneLocal {
-		localLabel = styles.ActivePane.Render(padRight("▶ LOCAL  "+truncLeftPath(m.absWorkDir(), leftW-9), leftW))
+		localLabel = styles.ActivePane.Render(padRight("▶ LOCAL  "+truncLeftPath(styles.SafeText(m.absWorkDir()), leftW-9), leftW))
 	}
 
 	remotePath := "[@] select host"
 	remoteName := "REMOTE"
 	if m.remoteHost != nil {
-		remoteName = "REMOTE " + m.remoteHost.Name
-		remotePath = m.remoteRoot
+		remoteName = "REMOTE " + styles.SafeText(m.remoteHost.Name)
+		remotePath = styles.SafeText(m.remoteRoot)
 	}
 	remoteText := remoteName + "  " + truncLeftPath(remotePath, rightW-lipgloss.Width(remoteName)-4)
 	remoteLabel := styles.Muted.Render("  " + remoteText)
@@ -196,7 +196,7 @@ func (m Model) renderRemoteRow(i, width int) string {
 		return strings.Repeat(" ", width)
 	case m.remoteLoading:
 		if i == 0 {
-			return padRight("  "+styles.Muted.Render(m.remoteStatus), width)
+			return padRight("  "+styles.Muted.Render(styles.SafeText(m.remoteStatus)), width)
 		}
 		return strings.Repeat(" ", width)
 	case len(entries) == 0:
@@ -264,6 +264,7 @@ func (m Model) renderPreviewRow(row, width int) string {
 
 func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selection *fs.SelectionState, filter string) string {
 	indent := strings.Repeat("  ", entry.Depth)
+	label := styles.SafeText(entry.Name)
 
 	var icon string
 	if entry.Kind == fs.EntryDir {
@@ -286,7 +287,6 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 
 	var name string
 	if isCursor {
-		label := entry.Name
 		if entry.Kind == fs.EntryDir {
 			label += "/"
 		} else if entry.Kind == fs.EntrySymlink {
@@ -299,7 +299,7 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 			name += styles.Muted.Render(" [ignored]")
 		}
 	} else if entry.Unmapped {
-		name = styles.Warn.Render(entry.Name + " [outside mapping]")
+		name = styles.Warn.Render(label + " [outside mapping]")
 	} else if entry.Class.Ignored {
 		suffix := ""
 		if entry.Kind == fs.EntryDir {
@@ -307,17 +307,17 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		} else if entry.Kind == fs.EntrySymlink {
 			suffix = "@"
 		}
-		name = styles.Muted.Render(entry.Name + suffix + " [ignored]")
+		name = styles.Muted.Render(label + suffix + " [ignored]")
 	} else if filter != "" {
-		name = highlightMatch(entry.Name, filter, entry.Kind)
+		name = highlightMatch(label, styles.SafeText(filter), entry.Kind)
 	} else {
 		switch entry.Kind {
 		case fs.EntryDir:
-			name = styles.Dir.Render(entry.Name + "/")
+			name = styles.Dir.Render(label + "/")
 		case fs.EntrySymlink:
-			name = styles.Link.Render(entry.Name + "@")
+			name = styles.Link.Render(label + "@")
 		default:
-			name = styles.File.Render(entry.Name)
+			name = styles.File.Render(label)
 		}
 	}
 
@@ -348,7 +348,7 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		if available < 1 {
 			available = 1
 		}
-		short := truncatePlain(entry.Name, available) + "…"
+		short := truncatePlain(label, available) + "…"
 		switch {
 		case isCursor:
 			name = styles.CurrentEntry.Render(short)
@@ -378,7 +378,7 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	var left string
 	switch {
 	case m.filterMode:
-		left = styles.Key.Render("/") + " " + m.filter + "█"
+		left = styles.Key.Render("/") + " " + styles.SafeText(m.filter) + "█"
 	case m.preview.active && m.preview.loading:
 		left = styles.Muted.Render("Loading preview…")
 	case m.statusMsg != "":
@@ -460,11 +460,11 @@ func (m Model) renderHelp() string {
 func (m Model) renderFinder() string {
 	var sb strings.Builder
 
-	title := styles.Header.Render("drift") + "  " + styles.Muted.Render("Find files — "+m.absWorkDir())
+	title := styles.Header.Render("drift") + "  " + styles.Muted.Render("Find files — "+styles.SafeText(m.absWorkDir()))
 	sb.WriteString(padRight(title, m.Width))
 	sb.WriteByte('\n')
 
-	prompt := "  " + styles.Key.Render("›") + " " + m.finder.query + "█"
+	prompt := "  " + styles.Key.Render("›") + " " + styles.SafeText(m.finder.query) + "█"
 	sb.WriteString(padRight(prompt, m.Width))
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderSep())
@@ -478,7 +478,7 @@ func (m Model) renderFinder() string {
 		sb.WriteByte('\n')
 		rendered++
 	case m.finder.err != "":
-		sb.WriteString(padRight("  "+styles.Err.Render("index failed: "+m.finder.err), m.Width))
+		sb.WriteString(padRight("  "+styles.Err.Render("index failed: "+styles.SafeText(m.finder.err)), m.Width))
 		sb.WriteByte('\n')
 		rendered++
 	case len(m.finder.results) == 0:
@@ -552,7 +552,7 @@ func (m Model) renderFinderRow(i int) string {
 	if dir != "." {
 		remaining := (m.Width - 1) - lipgloss.Width(line) - 2
 		if remaining >= 6 {
-			line += "  " + styles.Sep.Render(truncLeftPath(dir, remaining))
+			line += "  " + styles.Sep.Render(truncLeftPath(styles.SafeText(dir), remaining))
 		}
 	}
 
@@ -580,9 +580,9 @@ func highlightRunes(s string, matched []int, start int, base lipgloss.Style) str
 	var b strings.Builder
 	for i := start; i < len(runes); i++ {
 		if _, ok := set[i]; ok {
-			b.WriteString(hl.Render(string(runes[i])))
+			b.WriteString(hl.Render(styles.SafeText(string(runes[i]))))
 		} else {
-			b.WriteString(base.Render(string(runes[i])))
+			b.WriteString(base.Render(styles.SafeText(string(runes[i]))))
 		}
 	}
 	return b.String()

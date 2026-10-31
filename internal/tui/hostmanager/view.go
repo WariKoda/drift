@@ -151,9 +151,9 @@ func (m Model) renderHost(e entry, isCursor bool) string {
 		port = fmt.Sprintf(":%d", h.Port)
 	}
 
-	name := fmt.Sprintf("%-16s", h.Name)
-	host := fmt.Sprintf("%-30s", h.Hostname+port)
-	root := fmt.Sprintf("%-24s", h.RootPath)
+	name := fmt.Sprintf("%-16s", styles.SafeText(h.Name))
+	host := fmt.Sprintf("%-30s", styles.SafeText(h.Hostname)+port)
+	root := fmt.Sprintf("%-24s", styles.SafeText(h.RootPath))
 	auth := fmt.Sprintf("%-10s", authLabel)
 	authStyle := styles.Muted
 	if h.IsLink() {
@@ -164,7 +164,7 @@ func (m Model) renderHost(e entry, isCursor bool) string {
 		styles.Dir.Render(name) + " " +
 		styles.File.Render(host) + " " +
 		styles.Muted.Render(root) + " " +
-		authStyle.Render(auth)
+		authStyle.Render(styles.SafeText(auth))
 
 	if lipgloss.Width(line) > m.Width {
 		line = lipgloss.NewStyle().MaxWidth(m.Width).Render(line)
@@ -202,13 +202,13 @@ func (m Model) renderStatus() string {
 		return padRight(styles.KeyHints("  New project host:  [n]ew connection  [l]ink a server  [any]cancel", styles.Muted), m.Width)
 	}
 	if m.testing {
-		return styles.Warn.Render(fmt.Sprintf("  Testing %s…", m.testTarget))
+		return styles.Warn.Render(fmt.Sprintf("  Testing %s…", styles.SafeText(m.testTarget)))
 	}
 	if m.statusMsg != "" {
 		if strings.HasPrefix(m.statusMsg, "✓") {
-			return padRight(styles.File.Render("  "+m.statusMsg), m.Width)
+			return padRight(styles.File.Render("  "+styles.SafeText(m.statusMsg)), m.Width)
 		}
-		return padRight(styles.Err.Render("  "+m.statusMsg), m.Width)
+		return padRight(styles.Err.Render("  "+styles.SafeText(m.statusMsg)), m.Width)
 	}
 	help := "  [n]new  [l]ink server  [e]edit  [c]copy  [d]delete  [t]test  [r]reset cert trust  [Esc]back"
 	return padRight(styles.KeyHints(help, styles.Muted), m.Width)

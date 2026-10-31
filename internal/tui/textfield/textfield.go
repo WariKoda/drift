@@ -138,7 +138,7 @@ func (f *TextField) renderInner(width int) string {
 	written := 0
 
 	for i := start; i < len(display) && written < width; i++ {
-		ch := string(display[i])
+		ch := styles.SafeText(string(display[i]))
 		if f.Focused && i == f.cursor {
 			sb.WriteString(cursorStyle.Render(ch))
 		} else {

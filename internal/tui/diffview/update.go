@@ -28,6 +28,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.Width = msg.Width
 		m.Height = msg.Height
 		m.clampFileList()
+		m.clampErrorScroll()
 
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
@@ -62,6 +63,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.syncing = false
 		m.syncProgress = nil
 		m.syncErrors = msg.Errors
+		m.errorOffset = 0
 		log.Info("bulk sync done", "done", msg.Done, "errors", len(msg.Errors), "cancelled", canceled)
 		if m.connectionError() != nil {
 			m.syncStatus = fmt.Sprintf("stopped: ✓ %d  ✗ %d", msg.Done, len(msg.Errors))
@@ -179,6 +181,26 @@ func (m Model) remoteBusy() bool {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if m.showErrors {
+		switch msg.String() {
+		case "e", "q", "esc":
+			m.showErrors = false
+		case "j", "down":
+			m.errorOffset++
+		case "k", "up":
+			m.errorOffset--
+		case "pgdown", "ctrl+d":
+			m.errorOffset += max(1, m.viewportHeight()-1)
+		case "pgup", "ctrl+u":
+			m.errorOffset -= max(1, m.viewportHeight()-1)
+		case "g", "home":
+			m.errorOffset = 0
+		case "G", "end":
+			m.errorOffset = len(m.errorRows(m.diffWidth()))
+		}
+		m.clampErrorScroll()
+		return m, nil
+	}
 	if m.conn != nil {
 		m.ConnectionLost(m.conn, m.conn.Err())
 	}

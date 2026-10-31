@@ -26,13 +26,19 @@ func TestDeepUnicodeEntriesFitPane(t *testing.T) {
 }
 
 func TestDeepTreeViewKeepsDividerInsideTerminal(t *testing.T) {
-	m := Model{WorkDir: "/project", Selection: fs.NewSelectionState(), RemoteSelection: fs.NewSelectionState(), remoteHost: &config.Host{Name: "界remote"}}
+	m := Model{WorkDir: "/project", Selection: fs.NewSelectionState(), RemoteSelection: fs.NewSelectionState()}
 	entry := &fs.FileEntry{Name: "文件.txt", Path: "/file", Depth: 100}
 	m.entries, m.remoteEntries = []*fs.FileEntry{entry}, []*fs.FileEntry{entry}
 	m.SetSize(60, 24)
-	for _, row := range strings.Split(m.View(), "\n") {
-		if cells := ansi.StringWidth(row); cells != 60 {
-			t.Fatalf("tree row occupies %d columns instead of 60: %q", cells, ansi.Strip(row))
+	for _, host := range []*config.Host{nil, {Name: "界remote"}} {
+		m.remoteHost = host
+		for _, loading := range []bool{false, true} {
+			m.remoteLoading, m.remoteStatus = loading, strings.Repeat("界", 60)
+			for _, row := range strings.Split(m.View(), "\n") {
+				if cells := ansi.StringWidth(row); cells != 60 {
+					t.Fatalf("tree row occupies %d columns instead of 60: %q", cells, ansi.Strip(row))
+				}
+			}
 		}
 	}
 }

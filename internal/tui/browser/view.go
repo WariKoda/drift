@@ -194,12 +194,12 @@ func (m Model) renderRemoteRow(entries []*fs.FileEntry, i, width int) string {
 	switch {
 	case m.remoteHost == nil:
 		if i == 0 {
-			return padRight("  "+styles.KeyHints("press [@] to choose remote host", styles.Muted), width)
+			return padRight(truncate("  "+styles.KeyHints("press [@] to choose remote host", styles.Muted), width), width)
 		}
 		return strings.Repeat(" ", width)
 	case m.remoteLoading:
 		if i == 0 {
-			return padRight("  "+styles.Muted.Render(styles.SafeText(m.remoteStatus)), width)
+			return padRight(truncate("  "+styles.Muted.Render(styles.SafeText(m.remoteStatus)), width), width)
 		}
 		return strings.Repeat(" ", width)
 	case len(entries) == 0:

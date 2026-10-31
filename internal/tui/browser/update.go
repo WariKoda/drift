@@ -42,12 +42,6 @@ type msgPreviewCopied struct {
 	err  error
 }
 
-type msgClassifierReloaded struct {
-	base       string
-	classifier *fs.Classifier
-	err        error
-}
-
 func (m Model) finishVisualSelection() Model {
 	if !m.visualMode || m.activePane != m.visualPane {
 		startPath := ""
@@ -155,25 +149,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case msgPreviewLoaded:
 		return m, m.applyPreviewLoaded(msg)
 
-	case msgClassifierReloaded:
-		if msg.base != m.WorkDir {
-			return m, nil
-		}
-		if msg.err != nil {
-			log.Error("browser classifier refresh failed", "root", msg.base, "err", msg.err)
-			m.statusMsg = "Refresh failed: " + msg.err.Error()
-			return m, nil
-		}
-		oldClassifier := m.classifier
-		m.classifier = msg.classifier
-		if err := m.reload(); err != nil {
-			m.classifier = oldClassifier
-			log.Error("browser refresh failed", "root", msg.base, "err", err)
-			m.statusMsg = "Refresh failed: " + err.Error()
-			return m, nil
-		}
-		m.statusMsg = "Refreshed"
-		return m, m.schedulePreview()
+	case MsgLocalLoaded:
+		return m, m.applyLocalLoaded(msg)
 
 	case msgPreviewCopied:
 		if msg.err != nil {
@@ -218,6 +195,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if (m.remoteLoading || m.remoteReading) && (msg.String() == keyEsc || msg.String() == keyCtrlC) {
 			cmd := m.CloseRemote()
 			return m, cmd
+		}
+		if msg.String() == keyEsc && !m.finder.active && !m.filterMode && m.activePane == PaneLocal && (m.localReload != nil || len(m.localReads) > 0) {
+			m.CancelLocal()
+			m.statusMsg = "Local read cancelled"
+			return m, nil
 		}
 		if m.finder.active {
 			return m.updateFinder(msg)
@@ -372,10 +354,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 					return m, m.schedulePreview()
 				}
 			} else if raw := m.localIndex(entry); raw >= 0 {
-				if err := m.expandAt(raw); err != nil {
-					m.statusMsg = "Error: " + err.Error()
-				}
-				m.clampScroll()
+				return m, m.expandAt(raw)
 			}
 		}
 
@@ -582,13 +561,8 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			h := *m.remoteHost
 			return m, m.StartRemote(h)
 		}
-		base := m.WorkDir
 		previewCmd := m.schedulePreview()
-		classifierCmd := func() tea.Msg {
-			classifier, err := fs.NewClassifier(base)
-			return msgClassifierReloaded{base: base, classifier: classifier, err: err}
-		}
-		return m, tea.Batch(previewCmd, classifierCmd)
+		return m, tea.Batch(previewCmd, m.RefreshLocal())
 
 	// ── Help ──────────────────────────────────────────
 	case keyQuestion:

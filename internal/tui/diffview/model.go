@@ -55,11 +55,13 @@ type MsgScopeReloadRequested struct {
 
 // MsgBulkSyncDone is sent when bulk sync has finished.
 type MsgBulkSyncDone struct {
-	Conn      remote.Client
-	Done      int                  // number of successfully synced files
-	Completed []int                // session indices with confirmed successful operations
-	Errors    []syncpolicy.Failure // one entry per failed file
-	Err       error                // terminal connection failure; remaining jobs were not started
+	DeletedLocal  []string
+	DeletedRemote []string
+	Conn          remote.Client
+	Done          int                  // number of successfully synced files
+	Completed     []int                // session indices with confirmed successful operations
+	Errors        []syncpolicy.Failure // one entry per failed file
+	Err           error                // terminal connection failure; remaining jobs were not started
 }
 
 // MsgSyncProgress is emitted periodically while a bulk sync is running.
@@ -759,10 +761,16 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			sessionIdx = append(sessionIdx, i)
 		}
 		result := syncpolicy.Run(tracker.Context(), conn, root, items, tracker)
-		completed := make([]int, len(result.Completed))
-		for n, item := range result.Completed {
-			completed[n] = sessionIdx[item]
+		out := MsgBulkSyncDone{Conn: conn, Done: len(result.Completed), Errors: result.Failures, Err: result.Err}
+		for _, index := range result.Completed {
+			out.Completed = append(out.Completed, sessionIdx[index])
+			switch items[index].Decision {
+			case syncpolicy.DecisionDeleteLocal:
+				out.DeletedLocal = append(out.DeletedLocal, items[index].LocalPath)
+			case syncpolicy.DecisionDeleteRemote:
+				out.DeletedRemote = append(out.DeletedRemote, items[index].RemotePath)
+			}
 		}
-		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: result.Failures, Err: result.Err}
+		return out
 	})
 }

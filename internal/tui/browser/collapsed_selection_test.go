@@ -85,9 +85,7 @@ func TestCollapsePreservesAndRevealsSelectionCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := m.entries[0]
-	if err := m.expandAt(0); err != nil {
-		t.Fatal(err)
-	}
+	m, _ = m.Update(m.expandAt(0)())
 	m.Selection.Toggle(file)
 	if got := ansi.Strip(m.renderLocalRow(m.filteredEntries(), 0, 80)); strings.Contains(got, "marked") {
 		t.Fatalf("expanded badge: %q", got)

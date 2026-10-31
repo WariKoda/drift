@@ -42,9 +42,7 @@ func TestDeletingActiveProjectClearsItsRuntimeBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := browserModel.SetConfig(cfg); err != nil {
-		t.Fatal(err)
-	}
+	browserModel.SetConfig(cfg)
 	if cmd := browserModel.StartRemote(config.Host{Name: "prod", Hostname: "example.com"}); cmd == nil {
 		t.Fatal("StartRemote returned no load command")
 	}

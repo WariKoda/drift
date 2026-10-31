@@ -9,6 +9,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/project"
@@ -110,9 +111,7 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 		return App{}, err
 	}
 	a.browser = b
-	if err := a.browser.SetConfig(cfg); err != nil {
-		return App{}, err
-	}
+	a.browser.SetConfig(cfg)
 	a.browser.SetMouseEnabled(mouseEnabled)
 	a.browser.SetTrustManager(a.trust)
 	a.state.Selection = b.Selection
@@ -620,11 +619,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.Config = cfg
 			a.hostManager = hostmanager.New(cfg, a.state.TermWidth, a.state.TermHeight)
 			a.hostManager.SetTrustManager(a.trust)
-			browserErr := a.browser.SetConfig(cfg)
+			a.browser.SetConfig(cfg)
 			if loadErr != nil {
 				a.dashboard.SetStatus("Project removed, but global config reload failed: " + loadErr.Error())
-			} else if browserErr != nil {
-				a.dashboard.SetStatus("Project removed, but browser reload failed: " + browserErr.Error())
 			}
 		}
 		a.state.Screen = ScreenDashboard
@@ -775,6 +772,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, cmd
 
+	case browser.MsgLocalLoaded:
+		var cmd tea.Cmd
+		a.browser, cmd = a.browser.Update(msg)
+		return a, cmd
+
 	case browser.MsgRemoteChildrenLoaded:
 		if a.state.Screen != ScreenBrowser {
 			return a, nil
@@ -906,13 +908,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.state.Selection = a.browser.Selection
 		a.state.RemoteSelection = a.browser.RemoteSelection
+		refreshLocal := a.browser.RefreshLocal()
 		if a.state.SelectedHost != nil {
 			h := *a.state.SelectedHost
 			cmd := a.browser.StartRemote(h)
 			_, tracker, _ := a.browser.LoadingActivity()
-			return a, tea.Batch(closeDiff, cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
+			return a, tea.Batch(closeDiff, refreshLocal, cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
-		return a, closeDiff
+		return a, tea.Batch(closeDiff, refreshLocal)
 
 	// ── Host Manager ──────────────────────────────────────────────────
 	case browser.MsgOpenHostManager:
@@ -1130,7 +1133,30 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !progress.IsCanceled(result.Err) {
 				a.globalError = result.Err.Error()
 			}
+		case diffview.MsgSynced:
+			if result.Conn != nil && result.Conn == a.diffView.Connection() {
+				cmd = tea.Batch(cmd, a.browser.RefreshLocal())
+			}
 		case diffview.MsgBulkSyncDone:
+			if result.Conn != nil && result.Conn == a.diffView.Connection() {
+				for _, selection := range []*fs.SelectionState{a.state.Selection, a.browser.Selection} {
+					if selection != nil {
+						for _, path := range result.DeletedLocal {
+							delete(selection.Marked, path)
+						}
+					}
+				}
+				for _, selection := range []*fs.SelectionState{a.state.RemoteSelection, a.browser.RemoteSelection} {
+					if selection != nil {
+						for _, path := range result.DeletedRemote {
+							delete(selection.Marked, path)
+						}
+					}
+				}
+				if result.Done > 0 {
+					cmd = tea.Batch(cmd, a.browser.RefreshLocal())
+				}
+			}
 			for _, failure := range result.Errors {
 				if closeCmd, opened := a.openDiffCertificatePrompt(failure.Err); opened {
 					return a, tea.Batch(closeCmd, cmd)

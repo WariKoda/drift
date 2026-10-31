@@ -29,10 +29,12 @@ const (
 // Model is the bubbletea sub-model for the file browser screen.
 type Model struct {
 	// tree state
-	WorkDir string
-	entries []*fs.FileEntry // flat visible list
-	cursor  int
-	offset  int // scroll offset into entries
+	WorkDir     string
+	entries     []*fs.FileEntry // flat visible list
+	cursor      int
+	offset      int // scroll offset into entries
+	localReload *localReadRequest
+	localReads  map[string]*localReadRequest
 
 	// selection
 	Selection       *fs.SelectionState
@@ -102,7 +104,7 @@ type Model struct {
 // New creates a browser Model for the given directory.
 // Initial width/height will be overwritten by the first WindowSizeMsg.
 func New(workDir string) (Model, error) {
-	classifier, err := fs.NewClassifier(workDir)
+	classifier, err := fs.NewClassifier(context.Background(), workDir)
 	if err != nil {
 		return Model{}, err
 	}
@@ -133,37 +135,19 @@ func (m *Model) SetMouseEnabled(enabled bool) {
 }
 
 // SetConfig provides mappings and initial visibility preferences.
-func (m *Model) SetConfig(cfg *config.MergedConfig) error {
+func (m *Model) SetConfig(cfg *config.MergedConfig) {
 	m.config = cfg
 	if cfg != nil {
 		m.showHidden = cfg.UI.ShowHidden
 		m.showIgnored = cfg.UI.ShowIgnored
 	}
-	return m.reload()
+	m.clampScroll()
 }
 
 func (m Model) visible(entry *fs.FileEntry) bool {
 	return !entry.Class.HardExcluded &&
 		(m.showHidden || !entry.Class.Hidden) &&
 		(m.showIgnored || !entry.Class.Ignored)
-}
-
-func (m *Model) classifyLocal(entries []*fs.FileEntry) ([]*fs.FileEntry, error) {
-	if m.classifier == nil {
-		return entries, nil
-	}
-	candidates := make([]fs.ClassifyCandidate, len(entries))
-	for i, entry := range entries {
-		candidates[i] = fs.ClassifyCandidate{Path: entry.Path, IsDir: entry.Kind == fs.EntryDir}
-	}
-	classes, err := m.classifier.ClassifyBatch(context.Background(), candidates)
-	if err != nil {
-		return nil, err
-	}
-	for i, entry := range entries {
-		entry.Class = classes[i]
-	}
-	return entries, nil
 }
 
 func (m *Model) classifyRemote(entries []*fs.FileEntry, host config.Host) ([]*fs.FileEntry, error) {
@@ -421,38 +405,13 @@ func (m *Model) clampRemoteScroll() {
 	}
 }
 
-// reload refreshes the top-level directory listing, preserving expanded state.
+// reload initializes a browser before it is attached to the event loop.
 func (m *Model) reload() error {
-	// Collect currently expanded paths
-	expanded := map[string]bool{}
-	for _, e := range m.entries {
-		if e.Kind == fs.EntryDir && e.Expanded {
-			expanded[e.Path] = true
-		}
-	}
-
-	entries, err := fs.ReadDir(m.WorkDir)
+	entries, err := readLocalDirectory(context.Background(), m.classifier, m.WorkDir)
 	if err != nil {
 		return err
-	}
-	entries, err = m.classifyLocal(entries)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		e.Depth = 0
 	}
 	m.entries = entries
-
-	// Re-expand previously expanded directories.
-	for i := 0; i < len(m.entries); i++ {
-		if expanded[m.entries[i].Path] {
-			if err := m.expandAt(i); err != nil {
-				return err
-			}
-		}
-	}
-
 	m.clampScroll()
 	return nil
 }

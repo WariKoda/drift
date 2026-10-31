@@ -385,6 +385,8 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 		left = styles.Muted.Render("Loading preview…")
 	case m.statusMsg != "":
 		left = styles.KeyHints(m.statusMsg, styles.Muted)
+	case m.localReload != nil || len(m.localReads) > 0:
+		left = styles.KeyHints("Reading local files… [Esc] cancel", styles.Muted)
 	case selectionCount(m.Selection)+selectionCount(m.RemoteSelection) > 0:
 		left = styles.Marked.Render(markedStatus(selectionCount(m.Selection), selectionCount(m.RemoteSelection)))
 		if hidden := m.hiddenSelectionCount(); hidden > 0 {

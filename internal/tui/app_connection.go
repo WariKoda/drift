@@ -88,6 +88,7 @@ func (a *App) reconcileRemoteHost() tea.Cmd {
 // Close releases connections and background observers after Bubble Tea exits.
 // It runs outside Update, so waiting for transport shutdown cannot block input.
 func (a *App) Close() {
+	a.browser.CancelLocal()
 	a.projectRequest = nil
 	a.cancelNetworkActivity()
 	a.watchConnection(nil)

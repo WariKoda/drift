@@ -12,7 +12,7 @@ func TestClassifierSeparatesHiddenIgnoredAndHardExcluded(t *testing.T) {
 	writeClassifierFile(t, filepath.Join(root, ".gitignore"), "*.log\ncache/\n!keep.log\n")
 	writeClassifierFile(t, filepath.Join(root, "nested", ".gitignore"), "secret.txt\n")
 
-	classifier, err := NewClassifier(root)
+	classifier, err := NewClassifier(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestClassifierKeepsTrackedIgnoredFile(t *testing.T) {
 	runGit(t, root, "add", "tracked.env", "ignored/tracked.txt")
 	writeClassifierFile(t, filepath.Join(root, ".gitignore"), "*.env\nignored/\n")
 
-	classifier, err := NewClassifier(root)
+	classifier, err := NewClassifier(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestClassifierUsesGlobalAndInfoExcludes(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init", "--quiet")
 	writeClassifierFile(t, filepath.Join(root, ".git", "info", "exclude"), "private.tmp\n")
-	classifier, err := NewClassifier(root)
+	classifier, err := NewClassifier(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestClassifierMatchesGitForNestedAndNonexistentPaths(t *testing.T) {
 	runGit(t, root, "init", "--quiet")
 	writeClassifierFile(t, filepath.Join(root, ".gitignore"), "build/\n!build/keep.txt\nfoo/**\n")
 	writeClassifierFile(t, filepath.Join(root, "nested", ".gitignore"), "*.secret\n")
-	classifier, err := NewClassifier(root)
+	classifier, err := NewClassifier(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestClassifierSupportsLinkedWorktreeIndexAndCommonExclude(t *testing.T) {
 	if err := os.Remove(filepath.Join(worktree, "tracked.txt")); err != nil {
 		t.Fatal(err)
 	}
-	classifier, err := NewClassifier(worktree)
+	classifier, err := NewClassifier(t.Context(), worktree)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestClassifierSupportsNewlinesAndMissingGitFailsClosed(t *testing.T) {
 	writeClassifierFile(t, filepath.Join(root, ".gitignore"), "*.tmp\n")
 	name := "line\nbreak.tmp"
 	writeClassifierFile(t, filepath.Join(root, name), "value")
-	classifier, err := NewClassifier(root)
+	classifier, err := NewClassifier(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,14 +162,14 @@ func TestClassifierSupportsNewlinesAndMissingGitFailsClosed(t *testing.T) {
 	}
 
 	t.Setenv("PATH", t.TempDir())
-	if _, err := NewClassifier(root); err == nil {
+	if _, err := NewClassifier(t.Context(), root); err == nil {
 		t.Fatal("missing Git did not fail classifier initialization")
 	}
 }
 
 func TestClassifierRejectsPathsOutsideProject(t *testing.T) {
 	root := t.TempDir()
-	classifier, err := NewClassifier(root)
+	classifier, err := NewClassifier(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}

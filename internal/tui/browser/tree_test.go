@@ -9,9 +9,7 @@ import (
 func TestExpandAtRevealsAllChildrenWhenTheyFit(t *testing.T) {
 	model := localExpansionTestModel(t, 3)
 
-	if err := model.expandAt(model.cursor); err != nil {
-		t.Fatalf("expand directory: %v", err)
-	}
+	model, _ = model.Update(model.expandAt(model.cursor)())
 
 	if model.offset != 3 {
 		t.Fatalf("offset = %d, want 3 so the directory and all children are visible", model.offset)
@@ -21,9 +19,7 @@ func TestExpandAtRevealsAllChildrenWhenTheyFit(t *testing.T) {
 func TestExpandAtPinsDirectoryToTopWhenChildrenDoNotFit(t *testing.T) {
 	model := localExpansionTestModel(t, 6)
 
-	if err := model.expandAt(model.cursor); err != nil {
-		t.Fatalf("expand directory: %v", err)
-	}
+	model, _ = model.Update(model.expandAt(model.cursor)())
 
 	if model.offset != model.cursor {
 		t.Fatalf("offset = %d, want directory index %d at the top", model.offset, model.cursor)

@@ -49,7 +49,10 @@ type Classifier struct {
 // NewClassifier prepares a classifier and snapshots every existing project path.
 // Git is also used outside repositories, with a temporary bare metadata directory
 // that never writes into the project.
-func NewClassifier(projectRoot string) (*Classifier, error) {
+func NewClassifier(ctx context.Context, projectRoot string) (*Classifier, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	root, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return nil, err
@@ -63,19 +66,21 @@ func NewClassifier(projectRoot string) (*Classifier, error) {
 		cache:       map[classKey]PathClass{},
 	}
 
-	cmd := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel")
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-toplevel")
 	output, revErr := cmd.Output()
 	if revErr == nil {
 		classifier.repoRoot = filepath.Clean(strings.TrimSpace(string(output)))
+	} else if ctx.Err() != nil {
+		return nil, ctx.Err()
 	} else if !isNotRepository(revErr) {
 		return nil, fmt.Errorf("find Git worktree: %w", revErr)
 	}
 
-	candidates, err := existingCandidates(root)
+	candidates, err := existingCandidates(ctx, root)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := classifier.ClassifyBatch(context.Background(), candidates); err != nil {
+	if _, err := classifier.ClassifyBatch(ctx, candidates); err != nil {
 		return nil, err
 	}
 	return classifier, nil
@@ -87,9 +92,12 @@ func isNotRepository(err error) bool {
 		strings.Contains(strings.ToLower(string(exitErr.Stderr)), "not a git repository")
 }
 
-func existingCandidates(root string) ([]ClassifyCandidate, error) {
+func existingCandidates(ctx context.Context, root string) ([]ClassifyCandidate, error) {
 	var candidates []ClassifyCandidate
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			return err
 		}

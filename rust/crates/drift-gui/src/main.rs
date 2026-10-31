@@ -26,8 +26,26 @@ mod shell;
 mod test_support;
 mod toolbar;
 
-use gpui_kit::{AppContext, QuitMode, WindowOptions};
+use gpui_kit::{AppContext, QuitMode, TitlebarOptions, WindowBounds, WindowOptions};
 use shell::Shell;
+
+const APP_ID: &str = "io.github.WariKoda.drift-gui";
+const APP_NAME: &str = "Drift GUI";
+
+fn main_window_options(bounds: WindowBounds) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(bounds),
+        app_id: Some(APP_ID.into()),
+        titlebar: Some(TitlebarOptions {
+            title: Some(APP_NAME.into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod window_identity_tests;
 
 fn main() {
     if let Err(error) = run() {
@@ -174,13 +192,8 @@ fn run_command(
             gpui_kit::init(cx);
             actions::bind_keys(cx);
             let bounds = preferences::initial_window_bounds(preferences.window, cx);
-            if let Err(error) = gpui_kit::open_window(
-                WindowOptions {
-                    window_bounds: Some(bounds),
-                    ..Default::default()
-                },
-                cx,
-                |window, cx| {
+            if let Err(error) =
+                gpui_kit::open_window(main_window_options(bounds), cx, |window, cx| {
                     cx.new(|cx| {
                         let remote = drift_app::remote::RemoteService::new(service.clone());
                         Shell::new(window, cx, store, service, remote, start).with_preferences(
@@ -191,8 +204,8 @@ fn run_command(
                             cx,
                         )
                     })
-                },
-            ) {
+                })
+            {
                 logger.error("window open failed", &[]);
                 eprintln!("drift-gui: cannot open window: {error}");
                 cx.quit();

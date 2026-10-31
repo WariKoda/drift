@@ -26,7 +26,7 @@ Transferwiederholungen bleiben außerhalb der ersten Version.
 
 ## Übergabe für die nächste Session
 
-Stand: **7. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
+Stand: **8. Oktober 2026**. Browser-Mehrfachmarkierungen, Bereichsauswahl und
 aufklappbare Dateibäume mit verzögertem Laden sind implementiert. Listenanfang/-ende,
 Pane-Wechsel und Browser-/Vergleichs-Shortcuts sind ergänzt. Projekt-/Hostlisten,
 Formular-Speichern und Lösch-/Trust-Reset-Bestätigung sind per Tastatur bedienbar.
@@ -65,6 +65,17 @@ mit festem Header/Footer, Body-Scroll und bewusstem Tab Name → Path → Cancel
 Native Eingaben/IME/History, Validierung und Busy-/Speicherbedingungen bleiben;
 Listen/Löschen/Registrierung unverändert. Weitere Dialoge sind weiterhin Entwurf.
 Keine Zed-Assets oder Paletten übernommen.
+Der native Befund leerer Wayland-Fenstermetadaten ist im Code nachgearbeitet:
+Fensteroptionen setzen nun `Drift GUI` und `io.github.WariKoda.drift-gui`, passend
+zum vorhandenen Desktop-Dateinamen und macOS-Bundle. `StartupWMClass` ergänzt die
+X11-Zuordnung. Fenstergeometrie, Dekorationsdefaults und Start-/CLI-Routen bleiben
+unverändert. Zwei Rust-Optionsprüfungen und ein plattformübergreifender Paket-
+Metadatenabgleich sind ergänzt. Begrenzte native Metadatenprüfung mit dem
+extrahierten Linux-Paket auf Hyprland 0.56.2/Wayland/Scale 1 bestanden: Ordner-
+und Dashboardstart melden korrekten Titel und App-ID, auch initial; beide Prozesse
+enden nach gezieltem Close mit Exit 0, ohne stderr oder Projektdateien. Fokus
+wiederhergestellt; nur temporäre Konfiguration, keine Tastaturinjektion.
+X11/macOS und Launcher-Zuordnung bleiben offen; keine allgemeine Plattformabnahme.
 
 Aktueller UI-Folgeblock auf `feature/rust-workspace-design`: Vorschau-/Diff-Chrome,
 Vergleichs-Toolbar/-Dateiliste und Shell-Status nutzen die vorhandenen Tokens.
@@ -141,7 +152,11 @@ Siehe [Workspace-Details](rust-gui-design-system.md#hauptarbeitsfläche--vorscha
 
 ### Ausgangspunkt und Git
 
-- Vorheriger Arbeitsbranch: `docs/rust-project-dialog-native-check`, aufgebaut auf
+- Fensteridentitäts-Follow-up: `fix/rust-window-identity`, Basis `76f2f22`
+  (native Prüfdokumentation und Aufnahmen), ursprünglich im separaten Worktree
+  `/home/nibra/WariKoda/go/drift-rust-window-identity`. Kein neuer PR oder
+  CI-Nachweis für diesen Block. Die Basis `docs/rust-project-dialog-native-check`
+  baut auf
   `feature/rust-project-dialog-design` (Draft #98), dieser auf
   `feature/rust-zed-design-system` (Draft #97). Der SSH-Prototyp
   bleibt separat lokal auf `feature/rust-ssh-host-certificates` (`7db6671`,
@@ -292,12 +307,18 @@ Siehe [Workspace-Details](rust-gui-design-system.md#hauptarbeitsfläche--vorscha
 | CLI und Diagnose | projects list/add/edit/archive/remove, open/dash/version, Hilfe/Fehlercodes, optionales Datei-Logging und getrennte GUI-Build-Version | Öffentliche Release-Freigabe bleibt gesperrt |
 | Oberfläche und Veröffentlichung | Kit-/Omarchy-Oberfläche, GUI-Präferenzen/Fenster/Pane mit System/Omarchy/Dark/Light und lokaler Linux-Release-Build | Monokai-Weitergabe, native Plattformabnahme und Release-Pakete |
 
-Letzte lokale Gesamtprüfung: **460 Rust-Tests, davon 238 Headless-GPUI-Tests
-(GUI-Binärsuite 271); 0 fehlgeschlagen, 0 übersprungen**. Rustfmt, striktes All-target-
+Letzte lokale Gesamtprüfung (8. Oktober, separater Worktree): **462 Rust-Tests,
+davon weiterhin 238 Headless-GPUI-Tests (GUI-Binärsuite 273);
+0 fehlgeschlagen, 0 übersprungen**. Die zwei neuen Rust-Fälle prüfen die produktiven
+Fensteroptionen, nicht native Titel-/App-ID-Übernahme. Rustfmt, striktes All-target-
 Clippy, Go-Test/Vet/Build, frischer store_probe, Go/Rust-Prozessparität,
-Linux-Release-Build und Display-/Go-freier CLI-/Logging-Smoke bestanden.
-Zusätzlich 27 Python-Paket-/Prozess-Tests bestanden; ein privilegierter Realfall
-mangels Root-Supervisor übersprungen. Workflow-Validierung mit actionlint und
+Linux-Release-Build und Display-/Go-freier Version-/Hilfe-Smoke bestanden;
+CLI-/Logging-Prozessregressionen sind Teil der bestandenen Rust-Suite.
+Zusätzlich 28 Python-Paket-/Prozess-Tests bestanden; ein privilegierter Realfall
+mangels Root-Supervisor übersprungen. Frischer Linux-Tarball samt extrahierter
+Desktop-Metadaten, Checksumme und display-/Go-freiem Version-/Hilfe-Smoke geprüft;
+Artefakte unter `/var/tmp/drift-window-identity-package-P9Yfqu`.
+Weitere frühere Paketierungsnachweise: Workflow-Validierung mit actionlint und
 nativer Linux-Tarball inklusive extrahiertem Binary/Version/Hilfe, Desktop-Datei,
 Checksumme, Reproduzierbarkeit und Overwrite-/Versionsverweigerung bestanden.
 Ein echter Cargo-Build verweigert unsichere Versionswerte ohne Rohwertdiagnose,
@@ -320,6 +341,17 @@ verbleibenden Arbeitsblöcke stehen unten.
 
 ### Implementiert und lokal geprüft
 
+- Fensteridentität: `main.rs::main_window_options` setzt statischen Titel und
+  App-ID vor dem Fensteröffnen; keine Projekt-/Hostpfade im Titel. Die vorhandene
+  `.desktop`-Datei bekommt dieselbe X11-`StartupWMClass`; macOS-Bundle-ID bleibt
+  unverändert. Rust-Tests erhalten Bounds samt Windowed/Maximized/Fullscreen und
+  allen übrigen Fensterdefaults. Python gleicht produktive Rust-Konstanten mit
+  tatsächlichen Linux-/Intel-/ARM-Paketmetadaten ab. Das gepinnte GPUI-Testbackend
+  ignoriert initiale Titel und App-IDs im lesbaren Plattformzustand; deshalb keine
+  erfundene Headless-/OS-Abnahme oder redundantes SetTitle nur für einen Test.
+  Begrenzte native Wayland-Metadatenprüfung für Ordner-/Dashboardstart bestanden;
+  tatsächliche X11-/macOS-Übernahme und Launcher-Zuordnung bleiben offen. Siehe
+  [Code- und native Nachprüfung](rust-project-dialog-native-check.md#fenstermetadaten-code-follow-up-8-oktober).
 - Projektformular-Designpilot (`029d6d7`): Create/Edit-Header, Body und Footer
   getrennt, 560 nominal, tatsächliche Parent-Bounds via öffentlichem Canvas;
   native Entities/Guard-Handler, Scroll-Reveal und Speicherbedingungen erhalten.
@@ -777,8 +809,11 @@ Buchstaben-Aliase allein machen diese Kontrollen nicht mausabhängig.
    Projektform-Details/Aktionen sind headless umgesetzt. Create/Edit ist nun
    begrenzt in echten Wayland-Fenstern bei Scale 1/Kit Dark und Light bis 320×120
    geprüft; [Umfang und offene Fälle](rust-project-dialog-native-check.md).
-   X11/macOS, native Pointer-/Wheel-/Busy-Fälle und weitere Viewports bleiben
-   abzunehmen; Sichtbarkeit statt nur FocusHandles prüfen.
+   Zusätzlich ist die statische Fensteridentität für Ordner-/Dashboardstart
+   nativ auf Wayland geprüft; sie gibt weder Formulare noch Eingaben frei.
+   Nächster praktischer Block: native Host-/Mapping-Formulare. X11/macOS,
+   Pointer-/Wheel-/Busy-Fälle und weitere Viewports bleiben abzunehmen;
+   Sichtbarkeit statt nur FocusHandles prüfen.
 2. **Native Eingabeabnahme:** Whole-insertion-Ablehnung und IME-Escape/Enter sind
    headless umgesetzt. Echte Wayland/X11/macOS-IME, exponierte Accessibility-Knoten,
    Clipboard/Permission-Settlement und SDK-Folgecallbacks nach abgelehnten

@@ -1808,6 +1808,8 @@ mod settings;
 #[cfg(test)]
 mod shutdown_logging_tests;
 #[cfg(test)]
+mod ssh_certificate_tests;
+#[cfg(test)]
 mod sync_tests;
 #[cfg(test)]
 mod tests;

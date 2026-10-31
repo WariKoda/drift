@@ -1,10 +1,14 @@
-//! Go-compatible TOFU with OpenSSH patterns, hashed names and revoked keys.
+//! OpenSSH host CA verification and Go-compatible raw-key TOFU.
 use crate::error::{Error, Result};
 use fs2::FileExt;
 use hmac::{Hmac, Mac};
 use russh::keys::{
-    PublicKey,
-    ssh_key::known_hosts::{HostPatterns, KnownHosts, Marker},
+    Algorithm, HashAlg, PublicKey, PublicKeyOrCertificate,
+    ssh_key::{
+        Certificate,
+        certificate::CertType,
+        known_hosts::{Entry as KnownEntry, HostPatterns, Marker},
+    },
 };
 use sha1::Sha1;
 use std::{
@@ -12,38 +16,54 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-pub fn verify(path: &Path, names: &[String], key: &PublicKey) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(parent)?;
+pub fn verify(
+    path: &Path,
+    names: &[String],
+    hostname: &str,
+    presented: &PublicKeyOrCertificate,
+) -> Result<()> {
+    let mut options = OpenOptions::new();
+    options.read(true).custom_flags(libc::O_NONBLOCK);
+    if presented.certificate().is_none() {
+        if let Some(parent) = path.parent() {
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(parent)?;
+        }
+        options.append(true).create(true).mode(0o600);
     }
-    let mut file = OpenOptions::new()
-        .read(true)
-        .append(true)
-        .create(true)
-        .mode(0o600)
-        .open(path)?;
+    let mut file = options.open(path).map_err(|error| {
+        if presented.certificate().is_some() && error.kind() == std::io::ErrorKind::NotFound {
+            Error::Invalid("SSH host certificate has no trusted authority for this endpoint".into())
+        } else {
+            Error::Io(error)
+        }
+    })?;
+    if !file.metadata()?.is_file() {
+        return Err(Error::Invalid("known_hosts must be a regular file".into()));
+    }
     file.try_lock_exclusive()?;
     let mut text = String::new();
     file.read_to_string(&mut text)?;
+    // Parse everything before accepting or appending, including lines after a pin.
+    let entries = parse_entries(&text)?;
+    let key = presented.public_key();
+    let cert = presented.certificate();
     let mut known = false;
     let mut matching = false;
-    let normalized = text
-        .lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join("\n");
-    for entry in KnownHosts::new(&normalized) {
-        let entry = entry.map_err(|e| Error::Invalid(format!("parse known_hosts: {e}")))?;
-        // Revocation is key-wide, as in Go's known_hosts checker.
+    let mut authority = None;
+    for entry in &entries {
+        // Certificate, leaf and signing-key revocations are not endpoint-scoped.
         if entry.marker() == Some(&Marker::Revoked) {
-            if entry.public_key().key_data() == key.key_data() {
+            if entry.public_key().key_data() == key.key_data()
+                || cert.is_some_and(|cert| entry.public_key().key_data() == cert.signature_key())
+            {
                 return Err(Error::Invalid(
-                    "SSH host key is revoked in known_hosts".into(),
+                    "SSH host key or certificate authority is revoked in known_hosts".into(),
                 ));
             }
             continue;
@@ -56,9 +76,29 @@ pub fn verify(path: &Path, names: &[String], key: &PublicKey) -> Result<()> {
         }
         known = true;
         if entry.marker() == Some(&Marker::CertAuthority) {
-            return Err(Error::Invalid("SSH host certificates require certificate-authority verification, which is not implemented yet".into()));
+            if entry.certificate.is_none()
+                && cert.is_some_and(|cert| entry.public_key().key_data() == cert.signature_key())
+            {
+                authority = Some(entry.public_key().fingerprint(HashAlg::Sha256));
+            }
         }
-        matching |= entry.marker().is_none() && entry.public_key().key_data() == key.key_data();
+        if entry.certificate.is_none() {
+            matching |= entry.public_key().key_data() == key.key_data();
+        }
+    }
+    if let Some(cert) = cert {
+        let authority = authority.ok_or_else(|| {
+            Error::Invalid("SSH host certificate has no trusted authority for this endpoint".into())
+        })?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| {
+                Error::Invalid("SSH certificate verification requires a valid clock".into())
+            })?
+            .as_secs();
+        check_certificate(cert, hostname, now, &authority)?;
+        FileExt::unlock(&file)?;
+        return Ok(());
     }
     if known && !matching {
         return Err(Error::Invalid(format!(
@@ -91,7 +131,12 @@ fn matches_host(patterns: &HostPatterns, name: &str) -> bool {
                 let (negative, pattern) = pattern
                     .strip_prefix('!')
                     .map_or((false, pattern.as_str()), |p| (true, p));
-                if wildcard(pattern.as_bytes(), name.as_bytes()) {
+                let (Ok((pattern_host, pattern_port)), Ok((host, port))) =
+                    (split_endpoint(pattern), split_endpoint(name))
+                else {
+                    continue;
+                };
+                if pattern_port == port && wildcard(pattern_host.as_bytes(), host.as_bytes()) {
                     if negative {
                         return false;
                     }
@@ -110,6 +155,10 @@ fn matches_host(patterns: &HostPatterns, name: &str) -> bool {
     }
 }
 pub fn endpoint(host: &str, port: u16) -> String {
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
     if port == 22 {
         host.into()
     } else {
@@ -137,44 +186,222 @@ fn wildcard(pattern: &[u8], name: &[u8]) -> bool {
             return false;
         }
     }
-    while p < pattern.len() && pattern[p] == b'*' {
-        p += 1;
-    }
+    // Go does not consume a trailing wildcard once the hostname is exhausted.
     p == pattern.len()
 }
 
-pub fn preferred(path: &Path, names: &[String]) -> Result<Vec<russh::keys::Algorithm>> {
+pub fn preferred(path: &Path, names: &[String]) -> Result<russh::Preferred> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e.into()),
     };
-    let normalized = text
-        .lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let entries = parse_entries(&text)?;
+    let mut preferred = russh::Preferred::default();
+    let supported = preferred.key.to_vec();
     let mut algorithms = vec![];
-    for entry in KnownHosts::new(&normalized) {
-        let entry = entry.map_err(|e| Error::Invalid(format!("parse known_hosts: {e}")))?;
-        if entry.marker().is_none()
-            && names
+    let mut authority = false;
+    let mut raw_pin = false;
+    for entry in &entries {
+        if entry.marker() == Some(&Marker::Revoked)
+            || entries.iter().any(|revoked| {
+                revoked.marker() == Some(&Marker::Revoked)
+                    && revoked.public_key().key_data() == entry.public_key().key_data()
+            })
+            || !names
                 .iter()
                 .any(|name| matches_host(entry.host_patterns(), name))
         {
-            let algorithm = entry.public_key().algorithm();
-            if algorithm.clone().is_rsa() {
-                algorithms.push(russh::keys::Algorithm::Rsa {
-                    hash: Some(russh::keys::HashAlg::Sha512),
-                });
-                algorithms.push(russh::keys::Algorithm::Rsa {
-                    hash: Some(russh::keys::HashAlg::Sha256),
-                });
+            continue;
+        }
+        if entry.marker() == Some(&Marker::CertAuthority) {
+            authority |= entry.certificate.is_none();
+            continue;
+        }
+        // An ordinary certificate pin cannot substitute for a host CA or raw pin.
+        if entry.certificate.is_some() {
+            continue;
+        }
+        raw_pin = true;
+        let algorithm = entry.public_key().algorithm();
+        // Retain the existing raw RSA preference; certificate negotiation excludes SHA-1.
+        for candidate in supported.iter().filter(|candidate| {
+            if matches!(algorithm, Algorithm::Rsa { .. }) {
+                matches!(candidate, Algorithm::Rsa { .. })
+            } else {
+                **candidate == algorithm
             }
-            if !algorithms.contains(&algorithm) {
-                algorithms.push(algorithm);
+        }) {
+            if !algorithms.contains(candidate) {
+                algorithms.push(candidate.clone());
             }
         }
     }
-    Ok(algorithms)
+    if authority || !raw_pin {
+        // Unknown certificates must reach verification, not fall through to raw TOFU.
+        // A CA's algorithm says nothing about the leaf key it may sign.
+        preferred.host_key_certificates = std::borrow::Cow::Owned(
+            supported
+                .iter()
+                .filter(|algorithm| !matches!(algorithm, Algorithm::Rsa { hash: None }))
+                .cloned()
+                .collect(),
+        );
+    }
+    for algorithm in supported {
+        if !algorithms.contains(&algorithm) {
+            algorithms.push(algorithm);
+        }
+    }
+    preferred.key = std::borrow::Cow::Owned(algorithms);
+    Ok(preferred)
 }
+
+struct Entry {
+    record: KnownEntry,
+    certificate: Option<Certificate>,
+}
+impl Entry {
+    fn marker(&self) -> Option<&Marker> {
+        self.record.marker()
+    }
+    fn host_patterns(&self) -> &HostPatterns {
+        self.record.host_patterns()
+    }
+    fn public_key(&self) -> &PublicKey {
+        self.record.public_key()
+    }
+}
+fn parse_entries(text: &str) -> Result<Vec<Entry>> {
+    let mut entries = vec![];
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap().trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let offset = usize::from(fields[0].starts_with('@'));
+        let malformed = || Error::Invalid("parse known_hosts: malformed entry".into());
+        if fields.len() < offset + 3 {
+            return Err(malformed());
+        }
+        let certificate = if fields[offset + 1].ends_with("-cert-v01@openssh.com") {
+            Some(
+                Certificate::from_openssh(&format!(
+                    "{} {}",
+                    fields[offset + 1],
+                    fields[offset + 2]
+                ))
+                .map_err(|_| malformed())?,
+            )
+        } else {
+            None
+        };
+        let normalized = if let Some(cert) = &certificate {
+            // Reuse the SDK's marker/pattern parser without treating a certificate as a raw pin.
+            let raw = PublicKey::new(cert.public_key().clone(), "")
+                .to_openssh()
+                .map_err(|_| malformed())?;
+            format!(
+                "{}{} {raw}",
+                if offset == 1 {
+                    format!("{} ", fields[0])
+                } else {
+                    String::new()
+                },
+                fields[offset]
+            )
+        } else {
+            fields.join(" ")
+        };
+        entries.push(Entry {
+            record: normalized.parse().map_err(|_| malformed())?,
+            certificate,
+        });
+    }
+    for entry in &entries {
+        if let HostPatterns::Patterns(patterns) = entry.host_patterns() {
+            for pattern in patterns {
+                if pattern.is_empty() {
+                    continue;
+                }
+                let pattern = pattern.strip_prefix('!').unwrap_or(pattern);
+                if pattern.is_empty() || pattern.starts_with('|') {
+                    return Err(Error::Invalid(
+                        "parse known_hosts: malformed host pattern".into(),
+                    ));
+                }
+                split_endpoint(pattern)?;
+            }
+        }
+    }
+    Ok(entries)
+}
+
+fn split_endpoint(name: &str) -> Result<(&str, &str)> {
+    if let Some(name) = name.strip_prefix('[') {
+        if let Some((host, port)) = name.split_once("]:") {
+            if !host.contains(['[', ']']) && !port.contains([':', '[', ']']) {
+                return Ok((host, port));
+            }
+        }
+        return Err(Error::Invalid(
+            "parse known_hosts: malformed bracketed endpoint".into(),
+        ));
+    }
+    if name.contains(['[', ']']) {
+        return Err(Error::Invalid(
+            "parse known_hosts: malformed endpoint".into(),
+        ));
+    }
+    if name.bytes().filter(|byte| *byte == b':').count() == 1 {
+        return Ok(name.split_once(':').expect("one colon"));
+    }
+    Ok((name, "22"))
+}
+
+fn check_certificate(
+    cert: &Certificate,
+    hostname: &str,
+    now: u64,
+    authority: &russh::keys::ssh_key::Fingerprint,
+) -> Result<()> {
+    if cert.cert_type() != CertType::Host {
+        return Err(Error::Invalid(
+            "SSH host certificate must have host type".into(),
+        ));
+    }
+    // No host critical option is enforced by this transport, including source-address.
+    if !cert.critical_options().is_empty() {
+        return Err(Error::Invalid(
+            "SSH host certificate has unsupported critical options".into(),
+        ));
+    }
+    if !cert.valid_principals().is_empty()
+        && !cert
+            .valid_principals()
+            .iter()
+            .any(|principal| principal == hostname)
+    {
+        return Err(Error::Invalid(
+            "SSH host certificate principal does not match requested hostname".into(),
+        ));
+    }
+    // Go rejects timestamps outside int64, except its infinity sentinel.
+    if cert.valid_after() > i64::MAX as u64 || now < cert.valid_after() {
+        return Err(Error::Invalid(
+            "SSH host certificate is not yet valid".into(),
+        ));
+    }
+    if cert.valid_before() != u64::MAX
+        && (cert.valid_before() > i64::MAX as u64 || now >= cert.valid_before())
+    {
+        return Err(Error::Invalid("SSH host certificate has expired".into()));
+    }
+    cert.validate_at(now, [authority]).map_err(|_| {
+        Error::Invalid("SSH host certificate signature or validity check failed".into())
+    })
+}
+
+#[cfg(test)]
+mod tests;

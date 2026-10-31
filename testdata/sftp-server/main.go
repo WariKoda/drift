@@ -49,7 +49,37 @@ func main() {
 			return nil, fmt.Errorf("authentication rejected")
 		},
 	}
-	config.AddHostKey(hostKey)
+	if certificatePath := os.Getenv("DRIFT_TEST_HOST_CERT"); certificatePath != "" {
+		certificateData, err := os.ReadFile(certificatePath)
+		if err != nil {
+			panic(err)
+		}
+		key, _, _, _, err := ssh.ParseAuthorizedKey(certificateData)
+		if err != nil {
+			panic(err)
+		}
+		certificate, ok := key.(*ssh.Certificate)
+		if !ok {
+			panic("DRIFT_TEST_HOST_CERT must contain an SSH certificate")
+		}
+		if os.Getenv("DRIFT_TEST_TAMPER_CERT") == "true" {
+			// Corrupt only the CA signature; the leaf still signs the SSH exchange.
+			if certificate.Signature == nil || len(certificate.Signature.Blob) == 0 {
+				panic("host certificate has no CA signature")
+			}
+			certificate.Signature.Blob[0] ^= 1
+		}
+		certificateSigner, err := ssh.NewCertSigner(certificate, hostKey)
+		if err != nil {
+			panic(err)
+		}
+		if os.Getenv("DRIFT_TEST_RAW_HOST_KEY") == "true" {
+			config.AddHostKey(hostKey)
+		}
+		config.AddHostKey(certificateSigner)
+	} else {
+		config.AddHostKey(hostKey)
+	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:"+os.Args[4])
 	if err != nil {
 		panic(err)

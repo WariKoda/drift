@@ -9,6 +9,9 @@ use gpui_kit::{
 };
 use std::{fs, time::Duration};
 
+mod design;
+mod narrow;
+
 #[gpui_kit::test]
 async fn comparison_filter_keyboard_bridges_preserve_decisions_confirmation_and_work(
     cx: &mut TestAppContext,

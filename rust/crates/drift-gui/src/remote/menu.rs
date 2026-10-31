@@ -83,7 +83,17 @@ impl RemotePane {
         match action {
             MenuAction::Open => idle && entry.is_some_and(|e| e.directory || e.regular),
             MenuAction::ToggleTree => idle && entry.is_some_and(|e| e.directory),
-            MenuAction::Mark => idle && entry.is_some_and(|e| self.files.can_mark(&e.path)),
+            MenuAction::Mark => {
+                idle && entry.is_some()
+                    && if self.files.selection().len() > 1 {
+                        self.files
+                            .selection()
+                            .iter()
+                            .any(|path| self.files.can_mark(path))
+                    } else {
+                        entry.is_some_and(|e| self.files.can_mark(&e.path))
+                    }
+            }
             MenuAction::MarkSiblings => idle && entry.is_some(),
             MenuAction::InvertMarks => idle && !self.files.is_empty(),
             MenuAction::ClearMarks => {
@@ -137,7 +147,7 @@ impl RemotePane {
             entries.push(None);
             entries.push(item(
                 MenuAction::Mark,
-                if self.files.is_marked(path) {
+                if self.files.mark_will_clear() {
                     "Unmark"
                 } else {
                     "Mark"
@@ -220,6 +230,7 @@ impl RemotePane {
         if cx.has_active_drag() {
             return;
         }
+        self.navigation_revision += 1;
         let snapshot = Snapshot {
             project: self.project,
             connection: self.connection,
@@ -242,8 +253,7 @@ impl RemotePane {
         }
         self.dismiss_context_menu(window, cx);
         if let Some(path) = &snapshot.target {
-            // Moving only the cursor keeps the active range, marks and preview intact.
-            self.files.select_path(path);
+            self.files.context_select_path(path);
         }
         self.focus.focus(window, cx);
         let entity = cx.weak_entity();
@@ -298,7 +308,7 @@ impl RemotePane {
             return;
         }
         if let Some(path) = &snapshot.target {
-            self.files.select_path(path);
+            self.files.context_select_path(path);
         }
         self.focus.focus(window, cx);
         match action {
@@ -354,10 +364,7 @@ impl RemotePane {
             MenuAction::Forward => self.forward(&GoForward, window, cx),
             MenuAction::Up => self.up(&GoUp, window, cx),
             MenuAction::Refresh => self.refresh(&Refresh, window, cx),
-            MenuAction::Hidden => {
-                self.show_hidden = !self.show_hidden;
-                self.set_entries(cx);
-            }
+            MenuAction::Hidden => self.toggle_hidden(cx),
             MenuAction::Cancel => self.cancel(cx),
             MenuAction::Disconnect => {
                 self.disconnect(cx);

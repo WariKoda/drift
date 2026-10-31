@@ -19,10 +19,14 @@ async fn malformed_remote_preview_terminates_connection_before_commands_behind_h
         .unwrap();
     fs::write(server.dir.path().join("arm-empty-read"), "armed").unwrap();
     cx.update_window(handle, |_, w, cx| {
-        w.click("remote-filter", cx);
-        w.press("enter", cx);
+        w.click("remote-files-tab", cx);
         w.press("home", cx);
-        w.press("enter", cx);
+        assert_eq!(shell.read(cx).remote.read(cx).selected(), target.to_str());
+        w.press("p", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, w, cx| {
+        assert!(shell.read(cx).remote_preview.read(cx).is_loading());
         w.press("f1", cx);
         assert!(shell.read(cx).help.is_some());
     })
@@ -30,7 +34,7 @@ async fn malformed_remote_preview_terminates_connection_before_commands_behind_h
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
         !shell.read(cx).remote.read(cx).has_session()
             && !shell.read(cx).remote.read(cx).is_loading()
-            && !shell.read(cx).preview.read(cx).is_loading()
+            && !shell.read(cx).remote_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(handle, |_, w, cx| {

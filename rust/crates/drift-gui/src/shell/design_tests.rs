@@ -12,18 +12,30 @@ use gpui_kit::{
 };
 use std::{fs, path::Path, time::Duration};
 
+mod fixed_panes;
+mod header_history;
+mod pane_cache;
+mod pane_path;
+mod persistent;
+mod relocated_controls;
 mod remote_hints;
+mod remote_preview_cancel;
+mod selection_comparison;
+mod selection_status;
+mod toolbar_keyboard;
+pub(super) mod toolbar_scopes;
+mod workspace_filters;
+mod workspace_headers;
 
-const CONTROLS: [(&str, &str); 17] = [
+pub(super) const CONTROLS: [(&str, &str); 5] = [
+    ("home", "Home"),
     ("projects", "Projects"),
     ("hosts", "Hosts"),
     ("open-folder", "Open folder"),
-    ("remote", "Remote"),
-    ("local-browser", "Local files"),
-    ("compare-project", "Compare project"),
-    ("compare-local", "Compare local selection"),
-    ("compare-remote", "Compare remote selection"),
-    ("compare-marked", "Compare marked paths"),
+    ("settings", "Settings"),
+];
+
+pub(super) const LOCAL_CONTROLS: [(&str, &str); 8] = [
     ("back", "Back"),
     ("forward", "Forward"),
     ("up", "Up"),
@@ -34,58 +46,112 @@ const CONTROLS: [(&str, &str); 17] = [
     ("cancel", "Cancel"),
 ];
 
-// Render the production native Toolbar; record delivered events, not a replacement control.
+pub(super) const COMPARE_CONTROLS: [(&str, &str); 4] = [
+    ("compare-project", "Compare project"),
+    ("compare-local", "Compare local selection"),
+    ("compare-remote", "Compare remote selection"),
+    ("compare-marked", "Compare marked paths"),
+];
+
+#[derive(Clone, Copy, PartialEq)]
+enum ToolbarScope {
+    Global,
+    Local,
+    Compare,
+}
+impl ToolbarScope {
+    const ALL: [Self; 3] = [Self::Global, Self::Local, Self::Compare];
+    fn id(self) -> &'static str {
+        match self {
+            Self::Global => "workspace-toolbar",
+            Self::Local => "local-navigation-toolbar",
+            Self::Compare => "workspace-compare",
+        }
+    }
+    fn controls(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Global => &CONTROLS,
+            Self::Local => &LOCAL_CONTROLS,
+            Self::Compare => &COMPARE_CONTROLS,
+        }
+    }
+    /// Controls that show a text label next to their icon.
+    fn labelled(self, id: &str) -> bool {
+        match self {
+            Self::Global => ["projects", "hosts", "open-folder"].contains(&id),
+            Self::Local => false,
+            Self::Compare => true,
+        }
+    }
+}
+
+// Render fresh production native components for each scope and state, without I/O.
 struct RecordedToolbar {
     enabled: bool,
+    scope: ToolbarScope,
+    covered: bool,
     events: Vec<&'static str>,
 }
 impl Render for RecordedToolbar {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let enabled = self.enabled;
-        div().size_full().child(Toolbar::new(
-            ToolbarState {
-                remote_preview: enabled,
-                can_compare: enabled,
-                has_location: enabled,
-                listing: false,
-                cancellable: enabled,
-                folder_prompt: !enabled,
-                can_back: enabled,
-                can_forward: enabled,
-                can_up: enabled,
-                show_hidden: false,
-                show_ignored: false,
-            },
-            cx.listener(|this, event, _, _| {
-                this.events.push(match event {
-                    ToolbarEvent::Projects => "projects",
-                    ToolbarEvent::Hosts => "hosts",
-                    ToolbarEvent::OpenFolder => "open-folder",
-                    ToolbarEvent::Remote => "remote",
-                    ToolbarEvent::LocalBrowser => "local-browser",
-                    ToolbarEvent::Cancel => "cancel",
-                    ToolbarEvent::CompareProject => "compare-project",
-                    ToolbarEvent::CompareLocal => "compare-local",
-                    ToolbarEvent::CompareRemote => "compare-remote",
-                    ToolbarEvent::CompareMarked => "compare-marked",
-                    ToolbarEvent::Browser(command) => match command {
-                        BrowserCommand::Back => "back",
-                        BrowserCommand::Forward => "forward",
-                        BrowserCommand::Up => "up",
-                        BrowserCommand::Refresh => "refresh",
-                        BrowserCommand::Find => "find",
-                        BrowserCommand::Hidden => "hidden",
-                        BrowserCommand::Ignored => "ignored",
-                        _ => panic!("unexpected toolbar navigation"),
-                    },
-                });
-            }),
-        ))
+        let state = ToolbarState {
+            management_enabled: !self.covered,
+            browser_enabled: !self.covered,
+            projects_open: false,
+            hosts_open: false,
+            settings_open: false,
+            can_compare: enabled,
+            has_location: enabled,
+            listing: false,
+            cancellable: enabled,
+            remote_cancellable: enabled,
+            folder_prompt: !enabled,
+            can_back: enabled,
+            can_forward: enabled,
+            can_up: enabled,
+            show_hidden: false,
+            show_ignored: false,
+        };
+        let listener = cx.listener(|this, event, _, _| {
+            this.events.push(match event {
+                ToolbarEvent::Home => "home",
+                ToolbarEvent::Settings => "settings",
+                ToolbarEvent::Projects => "projects",
+                ToolbarEvent::Hosts => "hosts",
+                ToolbarEvent::OpenFolder => "open-folder",
+                ToolbarEvent::Cancel => "cancel",
+                ToolbarEvent::CancelRemote => "remote-cancel",
+                ToolbarEvent::CompareProject => "compare-project",
+                ToolbarEvent::CompareLocal => "compare-local",
+                ToolbarEvent::CompareRemote => "compare-remote",
+                ToolbarEvent::CompareMarked => "compare-marked",
+                ToolbarEvent::Browser(command) => match command {
+                    BrowserCommand::Back => "back",
+                    BrowserCommand::Forward => "forward",
+                    BrowserCommand::Up => "up",
+                    BrowserCommand::Refresh => "refresh",
+                    BrowserCommand::Find => "find",
+                    BrowserCommand::Hidden => "hidden",
+                    BrowserCommand::Ignored => "ignored",
+                    _ => panic!("unexpected toolbar navigation"),
+                },
+            });
+        });
+        div().size_full().child(match self.scope {
+            ToolbarScope::Global => Toolbar::new(state, listener),
+            ToolbarScope::Local => Toolbar::local(state, listener),
+            ToolbarScope::Compare => Toolbar::compare(state, listener),
+        })
     }
 }
 
-#[gpui_kit::test]
-fn native_toolbar_names_disabled_routing_wrapping_and_keyed_focus(cx: &mut TestAppContext) {
+fn check_native_toolbar(
+    cx: &mut TestAppContext,
+    scope: ToolbarScope,
+    enabled: bool,
+    covered: bool,
+) {
     let (handle, view) = cx.update(|cx| {
         gpui_kit::init(cx);
         gpui_kit::open_window(
@@ -99,7 +165,9 @@ fn native_toolbar_names_disabled_routing_wrapping_and_keyed_focus(cx: &mut TestA
             cx,
             |_, cx| {
                 cx.new(|_| RecordedToolbar {
-                    enabled: false,
+                    enabled,
+                    scope,
+                    covered,
                     events: vec![],
                 })
             },
@@ -107,91 +175,174 @@ fn native_toolbar_names_disabled_routing_wrapping_and_keyed_focus(cx: &mut TestA
         .unwrap()
     });
     cx.update_window(handle, |_, w, cx| {
-        w.render_frame(cx);
-        for (id, label) in CONTROLS {
-            let item = w.find(id);
-            assert_eq!(item.role(), Some(gpui_kit::Role::Button));
-            assert_eq!(item.label(), Some(label));
-            let disabled = !["projects", "refresh", "hidden", "ignored"].contains(&id);
-            // Kit 0.7's Base Button exposes no aria-disabled flag (its own
-            // regression documents this gap). Assert inert activation below.
-            assert_eq!(item.disabled(), None, "{id}");
-            let before = view.read(cx).events.len();
-            w.click(id, cx);
-            assert_eq!(
-                view.read(cx).events.len(),
-                before + usize::from(!disabled),
-                "{id}"
-            );
-        }
-        for _ in 0..8 {
-            w.focus_next(cx);
-            w.render_frame(cx);
-            let focused = snapshots(w)
-                .into_iter()
-                .find(|item| item.focused() == Some(true))
-                .unwrap();
-            assert!(
-                ["Projects", "Refresh", "Show hidden", "Show ignored"]
-                    .contains(&focused.label().unwrap())
-            );
-            let before = view.read(cx).events.len();
-            w.press("enter", cx);
-            assert_eq!(view.read(cx).events.len(), before + 1);
-        }
-        view.update(cx, |view, cx| {
-            view.enabled = true;
-            view.events.clear();
-            cx.notify();
-        });
-        for (width, font) in [(420., 16.), (420., 24.), (1200., 24.)] {
+        let controls = scope.controls();
+        let scope_id = scope.id();
+        let active: Vec<_> = controls
+            .iter()
+            .copied()
+            .filter(|(id, _)| {
+                !covered
+                    && (enabled
+                        || (scope != ToolbarScope::Compare
+                            && [
+                                "home", "projects", "refresh", "hidden", "ignored", "settings",
+                            ]
+                            .contains(id)))
+            })
+            .collect();
+        for (width, font) in [(420., 16.), (420., 24.), (1200., 24.), (180., 24.)] {
             w.resize(size(px(width), px(900.)));
+            w.bounds_changed(cx);
             Theme::update(cx, |theme| theme.font_size = px(font));
             w.render_frame(cx);
-            let buttons = snapshots(w)
-                .into_iter()
-                .filter(|item| item.role() == Some(gpui_kit::Role::Button))
-                .count();
-            assert_eq!(buttons, CONTROLS.len());
+            assert_eq!(
+                snapshots(w)
+                    .into_iter()
+                    .filter(|item| item.role() == Some(gpui_kit::Role::Button))
+                    .count(),
+                controls.len()
+            );
+            for other in ToolbarScope::ALL {
+                if other != scope {
+                    for &(id, _) in other.controls() {
+                        assert!(w.try_find(id).is_none(), "unexpected {id} in {scope_id}");
+                    }
+                }
+            }
+            let toolbar = w.find(scope_id).bounds();
             let mut origins = vec![];
-            for (id, label) in CONTROLS {
-                let item = w.find(id);
+            for &(id, label) in controls {
+                let item = w.within(scope_id).find(id);
                 let bounds = item.bounds();
+                assert_eq!(item.role(), Some(gpui_kit::Role::Button));
                 assert_eq!(item.label(), Some(label));
-                assert_ne!(item.disabled(), Some(true));
-                assert!(item.visible());
+                if scope != ToolbarScope::Local {
+                    assert!(item.visible(), "{id}");
+                    assert!(
+                        bounds.left() >= toolbar.left() && bounds.right() <= toolbar.right(),
+                        "{id}: {bounds:?}"
+                    );
+                }
                 assert!(
-                    bounds.left() >= px(0.) && bounds.right() <= px(width),
+                    bounds.top() >= toolbar.top() && bounds.bottom() <= toolbar.bottom(),
                     "{id}: {bounds:?}"
                 );
                 assert!(
-                    bounds.top() >= px(0.) && bounds.bottom() <= px(900.),
+                    (scope == ToolbarScope::Local || bounds.right() <= px(width))
+                        && bounds.bottom() <= px(900.),
                     "{id}: {bounds:?}"
                 );
                 assert_eq!(bounds.size.height, metric(token::CONTROL, cx), "{id}");
+                if scope.labelled(id) {
+                    assert!(
+                        bounds.size.width > metric(token::CONTROL, cx),
+                        "labelled {id}: {bounds:?}"
+                    );
+                } else {
+                    assert_eq!(
+                        bounds.size.width,
+                        metric(token::CONTROL, cx),
+                        "icon-only {id}"
+                    );
+                }
                 origins.push(bounds.top());
-                w.click(id, cx);
-                assert_eq!(view.read(cx).events.last(), Some(&id));
+                // Offscreen scroll content is mounted, but its center is not a pointer target.
+                if item.visible()
+                    && bounds.left() >= toolbar.left()
+                    && bounds.right() <= toolbar.right()
+                {
+                    let before = view.read(cx).events.len();
+                    w.click(id, cx);
+                    let enabled = active.iter().any(|(active_id, _)| *active_id == id);
+                    assert_eq!(
+                        view.read(cx).events.len(),
+                        before + usize::from(enabled),
+                        "{id}"
+                    );
+                    if enabled {
+                        assert_eq!(view.read(cx).events.last(), Some(&id));
+                    }
+                }
             }
-            assert!(
-                origins.iter().any(|y| *y != origins[0]),
-                "toolbar must wrap"
-            );
+            if scope == ToolbarScope::Local {
+                assert!(
+                    origins.iter().all(|y| *y == origins[0]),
+                    "navigation must not wrap"
+                );
+                assert_eq!(toolbar.size.height, metric(token::HEADER, cx));
+            }
+            // Disabled native controls must not join traversal or deliver keyboard events.
+            if active.is_empty() {
+                let before = view.read(cx).events.len();
+                for _ in 0..controls.len() + 1 {
+                    w.focus_next(cx);
+                    w.press("enter", cx);
+                    w.press("space", cx);
+                }
+                assert_eq!(view.read(cx).events.len(), before);
+            } else {
+                w.focus_next(cx);
+                w.render_frame(cx);
+                let focused = snapshots(w)
+                    .into_iter()
+                    .find(|item| item.focused() == Some(true))
+                    .unwrap();
+                let start = active
+                    .iter()
+                    .position(|(_, label)| Some(*label) == focused.label())
+                    .unwrap();
+                for offset in 1..=active.len() {
+                    w.focus_next(cx);
+                    w.render_frame(cx);
+                    let (id, label) = active[(start + offset) % active.len()];
+                    assert_eq!(w.find(id).focused(), Some(true), "expected {label}");
+                    for key in ["enter", "space"] {
+                        let before = view.read(cx).events.len();
+                        w.press(key, cx);
+                        assert_eq!(view.read(cx).events.len(), before + 1, "{id}: {key}");
+                        assert_eq!(view.read(cx).events.last(), Some(&id));
+                    }
+                }
+            }
         }
-        w.focus_next(cx);
-        w.render_frame(cx);
         let focus = w.focused(cx);
-        assert!(focus.is_some());
         for mode in [ThemeMode::Dark, ThemeMode::Light] {
             Theme::change(mode, Some(w), cx);
             w.render_frame(cx);
             assert_eq!(w.focused(cx), focus);
-            for (id, label) in CONTROLS {
-                assert_eq!(w.find(id).label(), Some(label));
+            for &(id, label) in controls {
+                assert_eq!(w.within(scope_id).find(id).label(), Some(label));
             }
         }
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn native_global_toolbar_names_bounds_keyboard_order_and_disabled_inertness(
+    cx: &mut TestAppContext,
+) {
+    check_native_toolbar(cx, ToolbarScope::Global, true, false);
+    check_native_toolbar(cx, ToolbarScope::Global, false, false);
+    check_native_toolbar(cx, ToolbarScope::Global, true, true);
+}
+
+#[gpui_kit::test]
+fn native_local_toolbar_names_bounds_keyboard_order_and_disabled_inertness(
+    cx: &mut TestAppContext,
+) {
+    check_native_toolbar(cx, ToolbarScope::Local, true, false);
+    check_native_toolbar(cx, ToolbarScope::Local, false, false);
+    check_native_toolbar(cx, ToolbarScope::Local, true, true);
+}
+
+#[gpui_kit::test]
+fn native_compare_toolbar_names_bounds_keyboard_order_and_disabled_inertness(
+    cx: &mut TestAppContext,
+) {
+    check_native_toolbar(cx, ToolbarScope::Compare, true, false);
+    check_native_toolbar(cx, ToolbarScope::Compare, false, false);
+    check_native_toolbar(cx, ToolbarScope::Compare, true, true);
 }
 
 struct Fixture {
@@ -301,7 +452,7 @@ async fn local_rows_scale_indent_marks_range_disclosure_and_context_without_tran
         let id = browser.read(cx).id();
         let focus = w.focused(cx);
         Theme::update(cx, |theme| theme.font_size = px(32.));
-        w.render_frame(cx);
+        crate::test_support::settle(w, cx);
         assert_eq!(
             w.within("local-files-pane")
                 .find(0usize)
@@ -330,11 +481,17 @@ async fn local_rows_scale_indent_marks_range_disclosure_and_context_without_tran
         assert_eq!(browser.read(cx).selected(), Some("child/a.txt"));
         assert_eq!(browser.read(cx).marked(), marks);
         w.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(f.handle, |_, w, cx| {
+        let browser = f.shell.read(cx).browser.clone();
+        let marks = browser.read(cx).marked();
+        assert_eq!(marks.len(), 3);
         w.click(("local-tree-toggle", 0usize), cx);
         assert_eq!(browser.read(cx).len(), 2);
         assert_eq!(browser.read(cx).marked(), marks);
         assert!(!f.shell.read(cx).comparison.read(cx).visible());
-        assert!(!f.shell.read(cx).preview.read(cx).is_loading());
+        assert!(!f.shell.read(cx).local_preview.read(cx).is_loading());
         assert_eq!(
             fs::read(local.path().join("child/a.txt")).unwrap(),
             b"nested local"
@@ -360,11 +517,12 @@ async fn narrow_shell_long_paths_and_host_names_keep_actions_in_bounds(cx: &mut 
     let f = Fixture::new(420., 1200., store, &root, None, cx).await;
     cx.update_window(f.handle, |_, w, cx| {
         Theme::update(cx, |theme| theme.font_size = px(24.));
-        w.click("remote", cx);
-        w.render_frame(cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::settle(w, cx);
         let browser_id = f.shell.read(cx).browser.read(cx).id();
         let connection = f.shell.read(cx).remote.read(cx).connection();
-        for (id, _) in CONTROLS {
+        toolbar_scopes::assert_workspace_toolbar_scopes(w);
+        for (id, _) in CONTROLS.into_iter().chain(COMPARE_CONTROLS) {
             let item = w.find(id);
             assert!(item.visible(), "{id}");
             assert!(
@@ -374,43 +532,73 @@ async fn narrow_shell_long_paths_and_host_names_keep_actions_in_bounds(cx: &mut 
             );
             assert!(item.bounds().bottom() <= px(1200.), "{id}");
         }
-        let connect = w.find(("connect-host", 0usize));
-        assert_eq!(
-            connect.label(),
-            Some(format!("Connect {}", host.name).as_str())
-        );
-        assert!(connect.visible());
-        assert!(
-            connect.bounds().right() <= px(420.),
-            "long host button must fit: {:?}",
-            connect.bounds()
-        );
-        for id in [
-            "disconnect",
-            "local-preview",
-            "remote-back",
-            "remote-forward",
-            "remote-up",
-            "remote-refresh",
-            "remote-hidden",
-            "remote-ignored",
-            "remote-filter",
-            "filter",
+        for id in ["remote-filter", "filter"] {
+            let item = w.find(id);
+            assert!(item.visible(), "{id}");
+            assert!(
+                item.bounds().left() >= px(0.) && item.bounds().right() <= px(420.),
+                "{id}: {:?}",
+                item.bounds()
+            );
+            assert!(item.bounds().bottom() <= px(1200.), "{id}");
+        }
+        // Both tab groups scroll horizontally when the pane is too narrow; the
+        // remote one scrolls on its own line above the wrapped host picker.
+        let pane = w.find("remote-workspace").bounds();
+        for (scroller, tab) in [
+            ("local-pane-tabs", "local-preview-tab"),
+            ("remote-tab-group", "remote-preview-tab"),
         ] {
-            let item = w.find(id);
-            assert!(item.visible(), "{id}");
+            let viewport = w.find(scroller).bounds();
+            for _ in 0..400 {
+                let button = w.within(scroller).find(tab).bounds();
+                if button.left() >= viewport.left() && button.right() <= viewport.right() {
+                    break;
+                }
+                w.scroll(
+                    scroller,
+                    gpui_kit::ScrollDelta::Pixels(point(px(-4.), px(0.))),
+                    cx,
+                );
+                w.render_frame(cx);
+            }
+            let button = w.within(scroller).find(tab);
             assert!(
-                item.bounds().left() >= px(0.) && item.bounds().right() <= px(420.),
-                "{id}: {:?}",
-                item.bounds()
+                button.visible(),
+                "{tab} must remain reachable by horizontal scroll"
             );
-            assert!(item.bounds().bottom() <= px(1200.), "{id}");
+            assert!(button.bounds().right() <= viewport.right() + px(1.));
+            assert!(
+                button.bounds().top() >= viewport.top()
+                    && button.bounds().bottom() <= viewport.bottom()
+            );
         }
+        let group = w.find("remote-tab-group").bounds();
+        assert!(group.left() >= pane.left() && group.right() <= pane.right());
         assert_eq!(f.shell.read(cx).browser.read(cx).id(), browser_id);
         assert_eq!(f.shell.read(cx).remote.read(cx).connection(), connection);
         assert!(!f.shell.read(cx).remote.read(cx).has_session());
         assert!(!f.shell.read(cx).comparison.read(cx).visible());
-        assert!(!f.shell.read(cx).preview.read(cx).is_loading());
+        assert!(!f.shell.read(cx).local_preview.read(cx).is_loading());
+        assert!(!f.shell.read(cx).remote_preview.read(cx).is_loading());
+        workspace_headers::assert_navigation_scroll(w, cx);
+        let connect = w.find("remote-host-select");
+        assert_eq!(connect.role(), Some(gpui_kit::Role::ComboBox));
+        assert!(connect.label().is_some_and(|label| !label.is_empty()));
+        assert!(connect.visible());
+        assert!(
+            connect.bounds().right() <= px(420.),
+            "long host picker must fit: {:?}",
+            connect.bounds()
+        );
+        let disconnect = w.find("disconnect");
+        assert!(disconnect.visible(), "disconnect");
+        assert!(
+            disconnect.bounds().left() >= px(0.) && disconnect.bounds().right() <= px(420.),
+            "disconnect: {:?}",
+            disconnect.bounds()
+        );
+        assert!(disconnect.bounds().bottom() <= px(1200.), "disconnect");
     })
     .unwrap();
 }
@@ -439,8 +627,8 @@ async fn palette_and_font_changes_preserve_real_remote_session_rows_and_active_p
     )
     .await;
     cx.update_window(f.handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     cx.wait_for(f.handle, Duration::from_secs(20), |_, cx| {
@@ -491,7 +679,7 @@ async fn palette_and_font_changes_preserve_real_remote_session_rows_and_active_p
         for (mode, font) in [(ThemeMode::Light, 24.), (ThemeMode::Dark, 16.)] {
             Theme::change(mode, Some(w), cx);
             Theme::update(cx, |theme| theme.font_size = px(font));
-            w.render_frame(cx);
+            crate::test_support::settle(w, cx);
             assert_eq!(w.rem_size(), px(font));
             assert_eq!(w.within("remote-files-pane").find(0usize).bounds().size.height, px(24. * font / 16.));
             assert_eq!(w.find(("remote-tree-toggle", 1usize)).bounds().left() - w.find(("remote-tree-toggle", 0usize)).bounds().left(), px(font));
@@ -502,7 +690,8 @@ async fn palette_and_font_changes_preserve_real_remote_session_rows_and_active_p
             assert_eq!(remote.read(cx).marked(), marks);
             assert_eq!(remote.read(cx).selected(), Some(selection.as_str()));
             assert_eq!(w.focused(cx), focus);
-            for (id, label) in CONTROLS { assert_eq!(w.find(id).label(), Some(label)); }
+            toolbar_scopes::assert_workspace_toolbar_scopes(w);
+            for (id, label) in CONTROLS.into_iter().chain(LOCAL_CONTROLS).chain(COMPARE_CONTROLS).chain(workspace_headers::REMOTE_NAV_CONTROLS) { assert_eq!(w.find(id).label(), Some(label)); }
             let chosen_row = w.within("remote-files-pane").find(2usize).bounds().scale(w.scale_factor());
             assert!(w.painted_quads().iter().any(|q| q.bounds == chosen_row && q.background == Palette::current(cx).selected.into()));
             let pane = w.find("remote-files-pane").bounds().scale(w.scale_factor());
@@ -525,7 +714,7 @@ async fn palette_and_font_changes_preserve_real_remote_session_rows_and_active_p
         assert_eq!(remote.read(cx).marked(), marks);
         assert_eq!(remote.read(cx).session_id(), session);
         assert!(!f.shell.read(cx).comparison.read(cx).visible());
-        assert!(!f.shell.read(cx).preview.read(cx).is_loading());
+        assert!(!f.shell.read(cx).remote_preview.read(cx).is_loading());
         assert_eq!(fs::read(local.path().join("local.txt")).unwrap(), b"local unchanged");
         assert_eq!(fs::read(remote_root.join("child/a.txt")).unwrap(), b"remote child");
         assert!(!local.path().join("z.txt").exists());
@@ -559,7 +748,10 @@ async fn scaled_virtual_rows_keep_keyboard_scroll_selection_and_range(cx: &mut T
         let id = browser.read(cx).id();
         for font in [16., 24., 32.] {
             Theme::update(cx, |theme| theme.font_size = px(font));
-            w.render_frame(cx);
+            // Keep a usable list viewport while testing scaled virtual rows.
+            w.resize(size(px(1200.), metric(650., cx)));
+            w.bounds_changed(cx);
+            crate::test_support::settle(w, cx);
             w.press("end", cx);
             w.render_frame(cx);
             assert_eq!(browser.read(cx).selected(), Some("file-511.txt"));
@@ -582,7 +774,7 @@ async fn scaled_virtual_rows_keep_keyboard_scroll_selection_and_range(cx: &mut T
             assert!(browser.read(cx).marked().is_empty());
             assert_eq!(browser.read(cx).id(), id);
             assert!(!browser.read(cx).is_loading());
-            assert!(!f.shell.read(cx).preview.read(cx).is_loading());
+            assert!(!f.shell.read(cx).local_preview.read(cx).is_loading());
             assert!(!f.shell.read(cx).comparison.read(cx).visible());
         }
         assert_eq!(

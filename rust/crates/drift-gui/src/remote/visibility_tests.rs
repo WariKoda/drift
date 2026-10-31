@@ -154,7 +154,7 @@ impl Fixture {
     }
     async fn connect(&self, cx: &mut TestAppContext) {
         cx.update_window(self.handle, |_, window, cx| {
-            window.click(("connect-host", 0usize), cx)
+            crate::test_support::connect_first(window, cx)
         })
         .unwrap();
         self.idle(cx).await;
@@ -841,6 +841,8 @@ async fn local_classifier_busy_cancel_disconnect_and_app_cancellation_guard_sess
             pane.update(cx, |pane, cx| {
                 pane.start_visibility(window, cx);
                 pane.toggle_ignored(window, cx);
+                // This direct private-helper call has no owner to publish the changed scope.
+                cx.notify();
             });
             assert!(pane.read(cx).visibility_cancel.is_none());
             assert!(!pane.read(cx).is_loading());

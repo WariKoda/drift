@@ -20,7 +20,12 @@ impl RemotePane {
             }
         }
         if let Some(path) = self.tree_cursor.take() {
-            self.files.select_path(&path);
+            if self.files.selected() != Some(path.as_str())
+                && let Some(row) =
+                    (0..self.files.len()).find(|row| self.files.row(*row) == Some(path.as_str()))
+            {
+                self.files.select(row);
+            }
             self.scroll.scroll_to_item(
                 self.files.selected_row().unwrap_or(0),
                 ScrollStrategy::Nearest,
@@ -111,7 +116,7 @@ impl RemotePane {
         self.tree_restore.clear();
         self.tree_cursor = None;
         self.focus.focus(window, cx);
-        self.files.select_path(&path);
+        self.files.focus_path(&path);
         if self.tree_pending.as_deref() == Some(&path) {
             // Abandon this result, allowing the bounded listing to finish on the
             // existing connection. Explicit Cancel still shuts down remote I/O.
@@ -121,7 +126,7 @@ impl RemotePane {
             self.tree.collapse(&path);
             self.entries.retain(|e| self.tree.node(&e.path).is_some());
             self.set_entries(cx);
-            self.files.select_path(&path);
+            self.files.focus_path(&path);
             self.status(format!("Collapsed {path}"), cx);
         } else {
             self.expand(path, window, cx);

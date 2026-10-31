@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::InputEvent as _;
 use gpui_kit::test::{TestAppContextExt, TestWindowExt};
 use gpui_kit::{Bounds, TestAppContext, WindowBounds, WindowOptions, point, size};
 use std::{fs, time::Duration};
@@ -40,7 +41,7 @@ impl Render for TwoPanes {
                                     this.left.update(cx, |pane, cx| pane.focus(w, cx));
                                 },
                             ))
-                            .child(self.left.read(cx).header(cx)),
+                            .child(self.left.update(cx, |pane, cx| pane.header(cx))),
                     )
                     .child(self.left.clone()),
             )
@@ -51,7 +52,7 @@ impl Render for TwoPanes {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(self.right.read(cx).header(cx))
+                    .child(self.right.update(cx, |pane, cx| pane.header(cx)))
                     .child(self.right.clone()),
             )
     }
@@ -119,6 +120,31 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
     let (left, right) = panes.read_with(cx, |panes, _| (panes.left.clone(), panes.right.clone()));
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
+        for side in ["left", "right"] {
+            let actions = window
+                .within(side)
+                .within("browser-pane")
+                .find("local-actions-header")
+                .bounds();
+            let path = window
+                .within(side)
+                .within("browser-pane")
+                .find("local-path-header")
+                .bounds();
+            let files = window.within(side).find("local-files-pane").bounds();
+            let footer = window
+                .within(side)
+                .within("browser-pane")
+                .find("local-selection-status")
+                .bounds();
+            assert_eq!(actions.bottom(), path.top());
+            assert_eq!(path.bottom(), files.top());
+            assert_eq!(files.bottom(), footer.top());
+            assert_eq!(
+                window.within(side).find("local-selection-status").label(),
+                Some("0 marked")
+            );
+        }
         window.within("right").click("filter", cx);
         assert!(
             right.read(cx).filter.focus_handle(cx).is_focused(window),
@@ -140,6 +166,7 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
         assert_eq!(right.read(cx).selected(), Some("right.txt"));
         assert_eq!(left.read(cx).selected(), None);
         window.within("left").click(0usize, cx);
+        window.press("alt-enter", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
@@ -241,6 +268,66 @@ async fn panes_keep_filter_selection_history_and_cancellation_independent(cx: &m
     .await;
     assert_eq!(right.read_with(cx, |pane, _| pane.marked()), ["right.txt"]);
     assert!(!right.read_with(cx, |pane, _| pane.files.range_active()));
+    let right_state = right.read_with(cx, |p, cx| {
+        (
+            p.id(),
+            p.filter.entity_id(),
+            p.filter.read(cx).value().to_string(),
+            p.marked(),
+            p.selected().map(str::to_owned),
+        )
+    });
+    for (direction, expected) in [
+        (
+            gpui_kit::NavigationDirection::Forward,
+            left_root.path().join("child"),
+        ),
+        (
+            gpui_kit::NavigationDirection::Back,
+            left_root.path().to_path_buf(),
+        ),
+    ] {
+        cx.update_window(handle, |_, window, cx| {
+            // Focus belongs to the other pane; pointer origin alone routes the event.
+            right.update(cx, |pane, cx| pane.focus_filter_input(window, cx));
+            window.render_frame(cx);
+            let position = window
+                .within("left")
+                .find("local-browser-header")
+                .bounds()
+                .center();
+            window.dispatch_event(
+                gpui_kit::MouseDownEvent {
+                    button: MouseButton::Navigate(direction),
+                    position,
+                    modifiers: Default::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }
+                .to_platform_input(),
+                cx,
+            );
+        })
+        .unwrap();
+        cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
+            !left.read(cx).is_loading()
+        })
+        .await;
+        assert_eq!(
+            left.read_with(cx, |p, _| p.location().unwrap().directory.clone()),
+            expected
+        );
+        assert_eq!(
+            right.read_with(cx, |p, cx| (
+                p.id(),
+                p.filter.entity_id(),
+                p.filter.read(cx).value().to_string(),
+                p.marked(),
+                p.selected().map(str::to_owned),
+            )),
+            right_state
+        );
+    }
 }
 
 #[gpui_kit::test]

@@ -7,6 +7,7 @@ pub mod gui_preferences;
 pub mod hosts;
 pub mod logging;
 pub mod navigation;
+pub mod omarchy;
 pub mod projects;
 pub mod remote;
 pub mod sync;
@@ -14,12 +15,32 @@ pub mod tree;
 
 use std::collections::BTreeSet;
 
-/// Cursor uses the displayed row's stable path, independent of filtering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectGesture {
+    Single,
+    Toggle,
+    Extend { additive: bool },
+}
+
+impl SelectGesture {
+    pub fn from_modifiers(shift: bool, toggle: bool) -> Self {
+        if shift {
+            Self::Extend { additive: toggle }
+        } else if toggle {
+            Self::Toggle
+        } else {
+            Self::Single
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct FileList {
     entries: Vec<String>,
     visible: Vec<usize>,
     selected: Option<usize>,
+    selection: BTreeSet<String>,
+    anchor: Option<String>,
     marked: BTreeSet<String>,
     range_start: Option<String>,
     allowed_marks: Option<BTreeSet<String>>,
@@ -36,6 +57,8 @@ impl FileList {
             entries,
             visible,
             selected: None,
+            selection: BTreeSet::new(),
+            anchor: None,
             marked: BTreeSet::new(),
             range_start: None,
             allowed_marks: None,
@@ -76,12 +99,17 @@ impl FileList {
     pub fn replace_entries(&mut self, entries: Vec<String>) {
         let cursor = self.selected().map(str::to_owned);
         let marked = std::mem::take(&mut self.marked);
+        let selection = std::mem::take(&mut self.selection);
+        let anchor = self.anchor.take();
         *self = match self.remote_root.clone() {
             Some(root) => Self::new_remote(&root.to_string_lossy(), entries),
             None => Self::new(entries),
         };
         self.marked = marked;
         self.selected = cursor.and_then(|path| self.entries.iter().position(|p| *p == path));
+        self.selection = selection;
+        self.anchor = anchor;
+        self.prune_selection();
     }
     pub fn replace_remote_entries(&mut self, root: &str, entries: Vec<String>) {
         self.remote_root = Some(root.into());
@@ -121,7 +149,32 @@ impl FileList {
             self.marked.insert(path);
         }
     }
+    pub fn mark_will_clear(&self) -> bool {
+        if self.selection.len() > 1 {
+            self.selection
+                .iter()
+                .filter(|path| self.can_mark(path))
+                .all(|path| self.is_marked(path))
+        } else {
+            self.selected().is_some_and(|path| self.is_marked(path))
+        }
+    }
     pub fn toggle_mark(&mut self) {
+        if self.selection.len() > 1 {
+            let paths: Vec<_> = self
+                .selection()
+                .into_iter()
+                .filter(|path| self.can_mark(path))
+                .collect();
+            if self.mark_will_clear() {
+                for path in paths {
+                    self.marked.remove(&path);
+                }
+            } else {
+                self.marked.extend(paths);
+            }
+            return;
+        }
         if let Some(path) = self.selected().map(str::to_owned)
             && !self.marked.remove(&path)
         {
@@ -196,15 +249,25 @@ impl FileList {
             .enumerate()
             .filter_map(|(i, name)| name.to_lowercase().contains(&query).then_some(i))
             .collect();
-        if self.selected.is_some_and(|i| !self.visible.contains(&i)) {
-            self.selected = None;
-        }
+        self.prune_selection();
     }
     /// Rank Unicode-lowercased subsequence matches across each full path.
     /// Empty queries restore source order; marks, ranges and restrictions stay
     /// intact, and the cursor stays on its stable path while it remains visible.
     pub fn filter_finder(&mut self, query: &str) {
         self.visible = finder::matching_indices(&self.entries, query);
+        self.prune_selection();
+    }
+    fn prune_selection(&mut self) {
+        let visible: BTreeSet<_> = self.visible.iter().map(|i| &self.entries[*i]).collect();
+        self.selection.retain(|path| visible.contains(path));
+        if self
+            .anchor
+            .as_ref()
+            .is_some_and(|path| !visible.contains(path))
+        {
+            self.anchor = None;
+        }
         if self.selected.is_some_and(|i| !self.visible.contains(&i)) {
             self.selected = None;
         }
@@ -219,17 +282,82 @@ impl FileList {
         self.visible.get(index).map(|i| self.entries[*i].as_str())
     }
     pub fn select(&mut self, index: usize) {
-        self.selected = self.visible.get(index).copied();
+        self.click(index, SelectGesture::Single);
     }
-    pub fn selected(&self) -> Option<&str> {
-        self.selected.map(|i| self.entries[i].as_str())
+    pub fn click(&mut self, index: usize, gesture: SelectGesture) {
+        let Some(entry) = self.visible.get(index).copied() else {
+            if gesture == SelectGesture::Single {
+                self.selected = None;
+                self.selection.clear();
+                self.anchor = None;
+            }
+            return;
+        };
+        self.selected = Some(entry);
+        let path = self.entries[entry].clone();
+        match gesture {
+            SelectGesture::Single => {
+                self.selection.clear();
+                self.selection.insert(path.clone());
+                self.anchor = Some(path);
+            }
+            SelectGesture::Toggle => {
+                if !self.selection.remove(&path) {
+                    self.selection.insert(path.clone());
+                }
+                self.anchor = Some(path);
+            }
+            SelectGesture::Extend { additive } => {
+                let start = self.anchor.as_ref().and_then(|anchor| {
+                    self.visible
+                        .iter()
+                        .position(|i| self.entries[*i] == *anchor)
+                });
+                let Some(start) = start else {
+                    self.select(index);
+                    return;
+                };
+                if !additive {
+                    self.selection.clear();
+                }
+                for row in start.min(index)..=start.max(index) {
+                    self.selection.insert(self.row(row).unwrap().to_owned());
+                }
+            }
+        }
     }
-    pub fn select_path(&mut self, path: &str) {
+    pub fn selection(&self) -> Vec<String> {
+        self.visible
+            .iter()
+            .map(|i| &self.entries[*i])
+            .filter(|path| self.selection.contains(*path))
+            .cloned()
+            .collect()
+    }
+    pub fn is_selected(&self, path: &str) -> bool {
+        self.selection.contains(path)
+    }
+    pub fn context_select_path(&mut self, path: &str) {
+        if self.is_selected(path) {
+            self.focus_path(path);
+        } else {
+            self.select_path(path);
+        }
+    }
+    /// Moves only the cursor, e.g. for a disclosure toggle, keeping the selection.
+    pub fn focus_path(&mut self, path: &str) {
         self.selected = self
             .visible
             .iter()
             .copied()
             .find(|i| self.entries[*i] == path);
+    }
+    pub fn selected(&self) -> Option<&str> {
+        self.selected.map(|i| self.entries[i].as_str())
+    }
+    pub fn select_path(&mut self, path: &str) {
+        let row = self.visible.iter().position(|i| self.entries[*i] == path);
+        self.select(row.unwrap_or(usize::MAX));
     }
     pub fn marked_descendants(&self, path: &str) -> usize {
         let parent = std::path::Path::new(path);
@@ -243,6 +371,9 @@ impl FileList {
             .and_then(|selected| self.visible.iter().position(|i| *i == selected))
     }
 }
+
+#[cfg(test)]
+mod selection_tests;
 
 #[cfg(test)]
 mod tests {

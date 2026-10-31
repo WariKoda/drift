@@ -1,5 +1,6 @@
 use super::*;
 mod close;
+mod omarchy;
 mod window;
 mod window_pending;
 mod window_restore;

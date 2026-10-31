@@ -330,8 +330,8 @@ async fn offer_discovery_is_readonly_and_presents_only_first_sorted_target(
             assert!(w.try_find("host-save").is_none());
             assert!(w.try_find("host-choose-link").is_none());
             assert_eq!(w.find(BACK).label(), Some("Back to form"));
-            assert_eq!(w.find(OWN).label(), Some("Save own connection (n)"));
-            assert_eq!(w.find(USE).label(), Some("Use server link (y)"));
+            assert_eq!(w.find(OWN).label(), Some("Save own connection"));
+            assert_eq!(w.find(USE).label(), Some("Use server link"));
         })
         .unwrap();
         assert!(stored_bytes(&store) == before);

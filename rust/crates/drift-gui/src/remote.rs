@@ -1,12 +1,14 @@
 //! Remote browser and host selection. Network tasks belong to drift-app.
+mod dropdown;
 mod menu;
+mod navigation;
 mod tree;
 mod visibility;
 use crate::actions::*;
 use crate::browser_menu::BrowserMenu;
 use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::{
-    FileList,
+    FileList, SelectGesture,
     browser::{Location, OperationId},
     navigation::History,
     remote::{RemoteDirectory, RemoteService, RemoteSession, RemoteVisibility},
@@ -38,6 +40,10 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 pub enum RemoteEvent {
+    ListingChanged {
+        id: OperationId,
+        connection: u64,
+    },
     SelectionChanged {
         project: u64,
         connection: u64,
@@ -67,7 +73,6 @@ pub enum RemoteEvent {
         connection: u64,
         event: crate::toolbar::ToolbarEvent,
     },
-    ShowLocalPreview,
 }
 impl EventEmitter<RemoteEvent> for RemotePane {}
 #[derive(Clone, Copy)]
@@ -83,6 +88,8 @@ pub struct RemotePane {
     connection: u64,
     operation: u64,
     hosts: Vec<Host>,
+    host_select: Option<dropdown::HostSelect>,
+    _host_select_sync: Subscription,
     target: Option<Host>,
     pending: Option<Challenge>,
     session: Option<RemoteSession>,
@@ -102,6 +109,10 @@ pub struct RemotePane {
     scroll: UniformListScrollHandle,
     history: History,
     navigation: Navigation,
+    navigation_active: bool,
+    workspace_active: bool,
+    external_chrome: bool,
+    navigation_revision: u64,
     show_hidden: bool,
     show_ignored: bool,
     visibility: Option<RemoteVisibility>,
@@ -146,12 +157,17 @@ impl RemotePane {
                 cx.notify();
             }
         });
-        Self {
+        let host_select_sync = cx.observe_in(&cx.entity(), window, |this, _, window, cx| {
+            this.sync_host_select(window, cx);
+        });
+        let mut pane = Self {
             service,
             project: 0,
             connection: 0,
             operation: 0,
             hosts: vec![],
+            host_select: None,
+            _host_select_sync: host_select_sync,
             target: None,
             pending: None,
             session: None,
@@ -171,6 +187,10 @@ impl RemotePane {
             scroll: UniformListScrollHandle::new(),
             history: History::default(),
             navigation: Navigation::Reset,
+            navigation_active: true,
+            workspace_active: true,
+            external_chrome: false,
+            navigation_revision: 0,
             show_hidden: false,
             show_ignored: false,
             visibility: None,
@@ -181,8 +201,209 @@ impl RemotePane {
             menu_revision: 0,
             comparison_ready: false,
             _subscription: subscription,
-        }
+        };
+        pane.sync_host_select(window, cx);
+        pane
     }
+    pub fn with_external_chrome(mut self) -> Self {
+        self.external_chrome = true;
+        self
+    }
+
+    pub fn connection_controls(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let stamp = self.navigation_stamp();
+        div()
+            .id("remote-connection-controls")
+            .test_support()
+            .w_full()
+            .max_w_full()
+            .flex()
+            .items_center()
+            .min_w_0()
+            .gap(metric(space::TIGHT, cx))
+            .when(!self.external_chrome, |row| {
+                row.flex_shrink_0()
+                    .min_h(metric(size::HEADER, cx))
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .bg(Palette::current(cx).chrome)
+            })
+            .capture_any_mouse_down(cx.listener(
+                move |this, _: &gpui_kit::MouseDownEvent, w, cx| {
+                    if !this.session_controls_active(stamp) {
+                        w.prevent_default();
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .capture_any_mouse_up(cx.listener(move |this, _: &gpui_kit::MouseUpEvent, w, cx| {
+                if !this.session_controls_active(stamp) {
+                    w.prevent_default();
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_key_down(cx.listener(move |this, _: &gpui_kit::KeyDownEvent, w, cx| {
+                if !this.session_controls_active(stamp) {
+                    w.prevent_default();
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_key_up(cx.listener(move |this, _: &gpui_kit::KeyUpEvent, w, cx| {
+                if !this.session_controls_active(stamp) {
+                    w.prevent_default();
+                    cx.stop_propagation();
+                }
+            }))
+            .child(self.host_select_control(cx))
+            .child(
+                control(Button::new("disconnect"), cx)
+                    .icon(IconName::Unplug)
+                    .accessibility_label("Disconnect")
+                    .tooltip("Disconnect")
+                    .w(metric(size::CONTROL, cx))
+                    .flex_shrink_0()
+                    .disabled(!self.has_session() && !self.is_loading())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.session_controls_active(stamp) {
+                            return;
+                        }
+                        this.disconnect(cx);
+                        this.status("Disconnected".into(), cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    pub fn path_header(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        let stamp = self.navigation_stamp();
+        div()
+            .id("remote-path-header")
+            .test_support()
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Back, w, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Forward, w, cx);
+                }),
+            )
+            .flex()
+            .flex_shrink_0()
+            .min_w_0()
+            .items_center()
+            .overflow_hidden()
+            .h(metric(size::HEADER, cx))
+            .min_h(metric(size::HEADER, cx))
+            .max_h(metric(size::HEADER, cx))
+            .bg(palette.chrome)
+            .border_b_1()
+            .border_color(palette.border)
+            .child(self.breadcrumbs(cx))
+            .into_any_element()
+    }
+
+    pub fn selection_footer(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        let mut status = if self.path.is_empty() {
+            "Select a host to connect".into()
+        } else {
+            format!(
+                "{} marked{}",
+                self.files.marked().len(),
+                if self.files.range_active() {
+                    " · range active"
+                } else {
+                    ""
+                }
+            )
+        };
+        let count = self.files.selection().len();
+        if count > 1 {
+            status.push_str(&format!(" · {count} selected"));
+        }
+        div()
+            .id("remote-selection-status")
+            .role(gpui_kit::Role::Status)
+            .aria_label(status.clone())
+            .test_support()
+            .flex_shrink_0()
+            .min_w_0()
+            .h(metric(size::HEADER, cx))
+            .min_h(metric(size::HEADER, cx))
+            .max_h(metric(size::HEADER, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .text_size(Text::Metadata.rems())
+            .bg(palette.chrome)
+            .truncate()
+            .border_t_1()
+            .border_color(palette.border)
+            .child(status)
+            .into_any_element()
+    }
+
+    pub fn filter_header(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let stamp = self.navigation_stamp();
+        div()
+            .id("remote-browser-header")
+            .test_support()
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Back, w, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Forward, w, cx);
+                }),
+            )
+            .key_context("DriftRemoteFilter")
+            .flex()
+            .items_center()
+            .flex_shrink_0()
+            .min_w_0()
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .min_h(metric(size::HEADER, cx))
+            .text_size(Text::Body.rems())
+            .bg(Palette::current(cx).chrome)
+            .border_b_1()
+            .border_color(Palette::current(cx).border)
+            .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
+                this.focus.focus(w, cx);
+            }))
+            .on_action(cx.listener(|this, _: &Cancel, w, cx| {
+                this.focus.focus(w, cx);
+            }))
+            .on_action(
+                cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
+                    this.focus.focus(w, cx);
+                }),
+            )
+            .child(div().w_full().max_w_full().min_w_0().flex_shrink_1().child(
+                crate::form_input::guard(&self.filter, |input| {
+                    input
+                        .id("remote-filter")
+                        .w_full()
+                        .min_w_0()
+                        .flex_shrink_1()
+                        .disabled(!self.navigation_active)
+                }),
+            ))
+            .into_any_element()
+    }
+
     pub fn set_context(&mut self, project: u64, hosts: Vec<Host>, cx: &mut Context<Self>) {
         if self.project != project {
             self.disconnect(cx);
@@ -237,6 +458,9 @@ impl RemotePane {
     pub fn marked(&self) -> Vec<String> {
         self.files.marked()
     }
+    pub fn selection(&self) -> Vec<String> {
+        self.files.selection()
+    }
     pub fn selected(&self) -> Option<&str> {
         self.files.selected()
     }
@@ -251,6 +475,13 @@ impl RemotePane {
     }
     pub fn has_session(&self) -> bool {
         self.session.is_some()
+    }
+    #[cfg(test)]
+    pub fn host_name(&self) -> Option<&str> {
+        self.session
+            .as_ref()
+            .map(|session| session.host_name.as_str())
+            .or_else(|| self.target.as_ref().map(|host| host.name.as_str()))
     }
     pub fn comparison_target(&self) -> Option<(Host, RemoteSession)> {
         Some((self.target.clone()?, self.session.clone()?))
@@ -528,6 +759,7 @@ impl RemotePane {
             operation: self.operation,
         };
         let connection = self.connection;
+        cx.emit(RemoteEvent::ListingChanged { id, connection });
         let operation = self.service.list(session, path, id);
         self.listing = Some(operation.cancel);
         cx.spawn_in(window, async move |this, cx| {
@@ -579,24 +811,22 @@ impl RemotePane {
         }
         cx.notify();
     }
+    pub fn can_preview(&self) -> bool {
+        !self.is_loading()
+            && self.files.selected().is_some_and(|path| {
+                self.session.as_ref().is_some_and(|session| {
+                    session.state() == ConnectionState::Connected && session.contains(path)
+                }) && self
+                    .entries
+                    .iter()
+                    .any(|entry| entry.path == path && entry.regular && !entry.directory)
+            })
+    }
     pub fn preview_selected(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if self.is_loading() {
+        if !self.can_preview() {
             return;
         }
-        let Some(path) = self.files.selected() else {
-            return;
-        };
-        let Some(session) = self.session.as_ref() else {
-            return;
-        };
-        if session.state() != ConnectionState::Connected || !session.contains(path) {
-            return;
-        }
-        if self
-            .entries
-            .iter()
-            .any(|entry| entry.path == path && entry.regular && !entry.directory)
-        {
+        if let (Some(path), Some(session)) = (self.files.selected(), self.session.as_ref()) {
             cx.emit(RemoteEvent::Preview {
                 session: session.clone(),
                 path: path.to_owned(),
@@ -605,33 +835,22 @@ impl RemotePane {
         }
     }
     fn up(&mut self, _: &GoUp, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(parent) = PathBuf::from(&self.path).parent() {
-            self.navigate(
-                parent.to_string_lossy().into_owned(),
-                Navigation::Push,
-                window,
-                cx,
-            );
+        if let Some(parent) = navigation::parent_path(&self.path) {
+            self.navigate(parent.to_owned(), Navigation::Push, window, cx);
         }
     }
     fn back(&mut self, _: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((index, path)) = self.history.previous() {
-            self.navigate(
-                path.to_string_lossy().into_owned(),
-                Navigation::Seek(index),
-                window,
-                cx,
-            );
+        if let Some((index, path)) = self.history.previous()
+            && let Ok(path) = path.into_os_string().into_string()
+        {
+            self.navigate(path, Navigation::Seek(index), window, cx);
         }
     }
     fn forward(&mut self, _: &GoForward, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((index, path)) = self.history.next() {
-            self.navigate(
-                path.to_string_lossy().into_owned(),
-                Navigation::Seek(index),
-                window,
-                cx,
-            );
+        if let Some((index, path)) = self.history.next()
+            && let Ok(path) = path.into_os_string().into_string()
+        {
+            self.navigate(path, Navigation::Seek(index), window, cx);
         }
     }
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
@@ -683,10 +902,11 @@ impl RemotePane {
             cx.propagate();
             return;
         }
-        if self
-            .files
-            .selected()
-            .is_some_and(|path| !self.files.can_mark(path))
+        if self.files.selection().len() <= 1
+            && self
+                .files
+                .selected()
+                .is_some_and(|path| !self.files.can_mark(path))
         {
             self.status("Path is outside the active mappings".into(), cx);
             return;
@@ -817,8 +1037,12 @@ impl RemotePane {
         }
     }
     pub fn copy(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(path) = self.files.selected() {
-            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(path.into()));
+        let paths = self.files.selection();
+        if !paths.is_empty() {
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(paths.join("\n")));
+            if paths.len() > 1 {
+                self.status(format!("Copied {} paths", paths.len()), cx);
+            }
         }
     }
 }
@@ -839,13 +1063,27 @@ impl Render for RemotePane {
             self.operation,
             self.menu_revision,
         );
+        let navigation_stamp = self.navigation_stamp();
+        let connection_controls = self.connection_controls(cx);
+        let navigation_controls = self.navigation_controls(None, cx);
+        let filter_header = self.filter_header(cx);
+        let path_header = self.path_header(cx);
+        let selection_footer = self.selection_footer(cx);
         let palette = Palette::current(cx);
-        let border = palette.border;
         let background = palette.canvas;
         let accent = palette.selected;
         let empty_anchor_offset = metric(space::CONTROL, cx);
         div()
             .id("remote-pane")
+            .test_support()
+            .on_mouse_down(MouseButton::Navigate(gpui_kit::NavigationDirection::Back), cx.listener(move |this, _, w, cx| {
+                cx.stop_propagation();
+                this.mouse_navigation(navigation_stamp, gpui_kit::NavigationDirection::Back, w, cx);
+            }))
+            .on_mouse_down(MouseButton::Navigate(gpui_kit::NavigationDirection::Forward), cx.listener(move |this, _, w, cx| {
+                cx.stop_propagation();
+                this.mouse_navigation(navigation_stamp, gpui_kit::NavigationDirection::Forward, w, cx);
+            }))
             .text_size(Text::Body.rems())
             .text_color(palette.text)
             .bg(palette.canvas)
@@ -857,152 +1095,8 @@ impl Render for RemotePane {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(metric(space::TIGHT, cx))
-                    .px(metric(space::PANEL, cx))
-                    .py(metric(space::TIGHT, cx))
-                    .min_h(metric(size::HEADER, cx))
-                    .bg(palette.chrome)
-                    .child(
-                        control(Button::new("disconnect"), cx)
-                            .icon(IconName::Close)
-                            .label("Disconnect")
-                            .disabled(!self.has_session() && !self.is_loading())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.disconnect(cx);
-                                this.status("Disconnected".into(), cx);
-                            })),
-                    )
-                    .child(
-                        control(Button::new("local-preview"), cx)
-                            .icon(IconName::FileText)
-                            .label("Local preview")
-                            .on_click(
-                                cx.listener(|_, _, _, cx| cx.emit(RemoteEvent::ShowLocalPreview)),
-                            ),
-                    )
-                    .children(self.hosts.iter().cloned().enumerate().map(|(index, host)| {
-                        control(Button::new(("connect-host", index)), cx)
-                            .min_w_0()
-                            .max_w_full()
-                            .overflow_hidden()
-                            .icon(IconName::Network)
-                            .label(format!("Connect {}", host.name))
-                            .disabled(self.is_loading())
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.connect(host.clone(), window, cx)
-                            }))
-                    })),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(metric(space::TIGHT, cx))
-                    .px(metric(space::PANEL, cx))
-                    .py(metric(space::TIGHT, cx))
-                    .bg(palette.chrome)
-                    .child(
-                        control(Button::new("remote-back"), cx)
-                            .icon(IconName::ArrowLeft)
-                            .label("Back")
-                            .disabled(self.history.previous().is_none() || self.is_loading())
-                            .on_click(cx.listener(|this, _, w, cx| this.back(&GoBack, w, cx))),
-                    )
-                    .child(
-                        control(Button::new("remote-forward"), cx)
-                            .icon(IconName::ArrowRight)
-                            .label("Forward")
-                            .disabled(self.history.next().is_none() || self.is_loading())
-                            .on_click(
-                                cx.listener(|this, _, w, cx| this.forward(&GoForward, w, cx)),
-                            ),
-                    )
-                    .child(
-                        control(Button::new("remote-up"), cx)
-                            .icon(IconName::ArrowUp)
-                            .label("Up")
-                            .disabled(
-                                self.session.as_ref().is_none_or(|s| s.root == self.path)
-                                    || self.is_loading(),
-                            )
-                            .on_click(cx.listener(|this, _, w, cx| this.up(&GoUp, w, cx))),
-                    )
-                    .child(
-                        control(Button::new("remote-refresh"), cx)
-                            .icon(IconName::RefreshCw)
-                            .label("Refresh")
-                            .disabled(!self.has_session() || self.is_loading())
-                            .on_click(cx.listener(|this, _, w, cx| this.refresh(&Refresh, w, cx))),
-                    )
-                    .child(
-                        control(Button::new("remote-ignored"), cx)
-                            .icon(IconName::EyeOff)
-                            .label(if self.show_ignored { "Hide ignored" } else { "Show ignored" })
-                            .disabled(self.is_loading() || !self.has_session() || self.selection_location.is_none() || self.visibility.is_none())
-                            .on_click(cx.listener(|this, _, window, cx| this.toggle_ignored(window, cx))),
-                    )
-                    .child(
-                        control(Button::new("remote-hidden"), cx)
-                            .icon(IconName::Eye)
-                            .disabled(self.is_loading())
-                            .label(if self.show_hidden {
-                                "Hide hidden"
-                            } else {
-                                "Show hidden"
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if this.is_loading() {
-                                    return;
-                                }
-                                this.show_hidden = !this.show_hidden;
-                                this.set_entries(cx);
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .key_context("DriftRemoteFilter")
-                    .px(metric(space::PANEL, cx))
-                    .py(metric(space::TIGHT, cx))
-                    .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
-                        this.focus.focus(w, cx);
-                    }))
-                    .on_action(cx.listener(|this, _: &Cancel, w, cx| {
-                        this.focus.focus(w, cx);
-                    }))
-                    .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
-                        this.focus.focus(w, cx);
-                    }))
-                    .child(crate::form_input::guard(&self.filter, |input| input.id("remote-filter"))),
-            )
-            .child(
-                div()
-                    .px(metric(space::PANEL, cx))
-                    .py(metric(space::TIGHT, cx))
-                    .text_size(Text::Metadata.rems())
-                    .bg(palette.chrome)
-                    .border_b_1()
-                    .border_color(border)
-                    .child(if self.path.is_empty() {
-                        "Select a host to connect".into()
-                    } else {
-                        format!(
-                            "{} · {} marked{}",
-                            self.path,
-                            self.files.marked().len(),
-                            if self.files.range_active() {
-                                " · range: press v to finish"
-                            } else {
-                                ""
-                            }
-                        )
-                    }),
-            )
+            .when(!self.external_chrome, |view| view.child(connection_controls).child(navigation_controls).child(filter_header))
+            .when(!self.external_chrome, |view| view.child(path_header))
             .child(
                 div()
                     .id("remote-files-pane")
@@ -1037,12 +1131,7 @@ impl Render for RemotePane {
                     .on_action(cx.listener(Self::cursor_up))
                     .on_action(cx.listener(Self::cursor_down))
                     .on_action(cx.listener(|this, _: &ToggleHidden, _, cx| {
-                        if this.is_loading() {
-                            return;
-                        }
-                        this.show_hidden = !this.show_hidden;
-                        this.set_entries(cx);
-                        cx.notify();
+                        this.toggle_hidden(cx);
                     }))
                     .on_action(cx.listener(|this, _: &ToggleIgnored, window, cx| {
                         this.toggle_ignored(window, cx);
@@ -1072,7 +1161,7 @@ impl Render for RemotePane {
                                     .filter_map(|index| {
                                         let path = this.files.row(index)?.to_owned();
                                         let entry = this.entries.iter().find(|e| e.path == path)?;
-                                        let chosen = this.files.selected() == Some(path.as_str());
+                                        let chosen = this.files.is_selected(&path);
                                         let depth = this.tree.node(&path).map_or(0, |n| n.depth);
                                         let expanded =
                                             this.tree.node(&path).is_some_and(|n| n.expanded);
@@ -1105,7 +1194,10 @@ impl Render for RemotePane {
                                             .on_click(cx.listener(move |this, _, w, cx| {
                                                 if is_directory {
                                                     cx.stop_propagation();
-                                                    if (this.project, this.connection, this.operation, this.menu_revision) == row_stamp {
+                                                    if this.navigation_active && this.menu.is_none()
+                                                        && (this.project, this.connection, this.operation, this.menu_revision) == row_stamp
+                                                        && this.files.row(index) == Some(toggle_path.as_str())
+                                                        && (!this.is_loading() || this.tree_pending.as_deref() == Some(toggle_path.as_str())) {
                                                         this.toggle_tree(toggle_path.clone(), w, cx);
                                                     }
                                                 }
@@ -1213,21 +1305,28 @@ impl Render for RemotePane {
                                             .when(!this.files.can_mark(&path), |row| row.child(unmapped))
                                             .on_click(cx.listener(
                                                 move |this, event: &gpui_kit::ClickEvent, w, cx| {
-                                                    if this.is_loading() || (this.project, this.connection, this.operation, this.menu_revision) != row_stamp
-                                                        || this.files.row(index) != Some(path.as_str()) {
+                                                    let modifiers = event.modifiers();
+                                                    let gesture = SelectGesture::from_modifiers(
+                                                        modifiers.shift,
+                                                        modifiers.control || modifiers.platform,
+                                                    );
+                                                    let toggle_directory = is_directory && event.click_count() == 2
+                                                        && gesture == SelectGesture::Single;
+                                                    let pending_expansion = this.tree_pending.as_deref() == Some(path.as_str());
+                                                    let classifying_expansion = this.listing.is_none()
+                                                        && this.visibility_cancel.is_some()
+                                                        && this.tree.node(&path).is_some_and(|node| node.expanded);
+                                                    if !this.navigation_active || this.menu.is_some()
+                                                        || (this.project, this.connection, this.operation, this.menu_revision) != row_stamp
+                                                        || this.files.row(index) != Some(path.as_str())
+                                                        || this.session.as_ref().is_none_or(|session| session.state() != ConnectionState::Connected || !session.contains(&path))
+                                                        || (this.is_loading() && !pending_expansion && !(toggle_directory && classifying_expansion)) {
                                                         return;
                                                     }
                                                     this.focus.focus(w, cx);
-                                                    let modifiers = event.modifiers();
-                                                    if modifiers.shift {
-                                                        this.files.select_range(index);
-                                                    } else if modifiers.control
-                                                        || modifiers.platform
-                                                    {
-                                                        this.files.select(index);
-                                                        this.files.toggle_mark();
-                                                    } else {
-                                                        this.choose(index, w, cx);
+                                                    this.files.click(index, gesture);
+                                                    if toggle_directory {
+                                                        this.toggle_tree(path.clone(), w, cx);
                                                         return;
                                                     }
                                                     this.selection_changed(cx);
@@ -1242,13 +1341,12 @@ impl Render for RemotePane {
                             })
                         })
                         .track_scroll(&self.scroll)
-                        .flex_1(),
+                        .w_full().min_w_0().flex_1(),
                     )
+                    .when(self.hosts.is_empty(), |view| view.child(div().p_3().child("Configure a host in Hosts to connect")))
                     .children(self.menu.as_ref().map(|(_, menu)| menu.render())),
             )
-            .when(self.hosts.is_empty(), |view| {
-                view.child(div().p_3().child("Configure a host in Hosts to connect"))
-            })
+            .when(!self.external_chrome, |view| view.child(selection_footer))
     }
 }
 

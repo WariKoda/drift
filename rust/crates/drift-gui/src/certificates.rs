@@ -183,7 +183,6 @@ impl Render for CertificatePrompt {
             }))
             .child(div().text_lg().child("Verify FTPS certificate"))
             .child(details)
-            .child("Tab/Left/Right chooses · Enter confirms · Escape rejects")
             .child(
                 div()
                     .flex()

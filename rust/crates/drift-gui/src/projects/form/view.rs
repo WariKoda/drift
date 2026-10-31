@@ -46,7 +46,7 @@ impl ProjectsPanel {
             .into_any_element();
         let save = Button::new("project-save")
             .label("Save project")
-            .tooltip("Save project (Ctrl/Cmd+S)")
+            .tooltip("Save project")
             .small()
             .primary()
             .tab_index(0)

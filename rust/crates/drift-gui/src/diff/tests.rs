@@ -4,6 +4,8 @@ use gpui_kit::{
     AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions, point, size,
 };
 
+mod design;
+
 struct DiffHarness {
     pane: Entity<DiffPane>,
 }

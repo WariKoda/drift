@@ -17,6 +17,7 @@ pub enum ThemePreference {
     System,
     Dark,
     Light,
+    Omarchy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]

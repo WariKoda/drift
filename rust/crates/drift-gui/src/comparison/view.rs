@@ -1,16 +1,22 @@
 use super::*;
+use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::sync::{ItemOutcome, StopReason};
+use gpui_kit::TestSupportExt;
+use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::prelude::FluentBuilder;
-#[cfg(test)]
-use gpui_kit::test::TestSupportExt;
 impl Render for ComparisonPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = Palette::current(cx);
+        let files_owner = cx.entity();
         div()
             .id("comparison")
             .key_context("Drift DriftComparison")
             .flex()
             .flex_col()
             .size_full()
+            .min_w_0()
+            .text_color(palette.text)
+            .bg(palette.canvas)
             .capture_action(cx.listener(|this, _: &Cancel, w, cx| {
                 this.split.cancel_resize(w, cx);
             }))
@@ -65,12 +71,23 @@ impl Render for ComparisonPane {
             )
             .child(
                 div()
+                    .id("comparison-toolbar")
+                    .test_support()
                     .flex()
                     .flex_wrap()
-                    .gap_2()
-                    .p_2()
+                    .flex_shrink_0()
+                    .items_center()
+                    .min_h(metric(size::HEADER, cx))
+                    .text_size(Text::Body.rems())
+                    .gap(metric(space::CONTROL, cx))
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .bg(palette.chrome)
+                    .border_b_1()
+                    .border_color(palette.border)
+                    .child(div().text_size(Text::Title.rems()).font_weight(gpui_kit::FontWeight::SEMIBOLD).child("Comparison"))
                     .child(
-                        Button::new("comparison-back")
+                        control(Button::new("comparison-back"), cx)
                             .label(if self.show_errors {
                                 "Close error details"
                             } else if self.syncing.is_some() {
@@ -83,13 +100,13 @@ impl Render for ComparisonPane {
                             .on_click(cx.listener(|this, _, w, cx| this.cancel(&Cancel, w, cx))),
                     )
                     .child(
-                        Button::new("comparison-refresh")
+                        control(Button::new("comparison-refresh"), cx)
                             .label("Refresh comparison")
                             .disabled(self.is_loading() || self.request.as_ref().is_none_or(|r| r.connection.state() != drift_core::remote::ConnectionState::Connected))
                             .on_click(cx.listener(|this, _, w, cx| this.refresh(&Refresh, w, cx))),
                     )
                     .child(
-                        Button::new("comparison-ignored")
+                        control(Button::new("comparison-ignored"), cx)
                             .label(
                                 if self
                                     .request
@@ -107,7 +124,7 @@ impl Render for ComparisonPane {
                             })),
                     )
                     .child(
-                        Button::new("comparison-progress")
+                        control(Button::new("comparison-progress"), cx)
                             .label(if self.hide_progress {
                                 "Show progress"
                             } else {
@@ -118,8 +135,27 @@ impl Render for ComparisonPane {
                                 cx.notify();
                             })),
                     )
+            )
+            .child(
+                div()
+                    .id("comparison-plan-toolbar")
+                    .test_support()
+                    .flex()
+                    .flex_wrap()
+                    .flex_shrink_0()
+                    .items_center()
+                    .min_w_0()
+                    .min_h(metric(size::HEADER, cx))
+                    .text_size(Text::Body.rems())
+                    .gap(metric(space::CONTROL, cx))
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .border_b_1()
+                    .border_color(palette.border)
+                    .child(div().text_size(Text::Metadata.rems()).text_color(palette.muted).child("Plan"))
                     .child(
-                        Button::new("comparison-action")
+                        control(Button::new("comparison-action"), cx)
+                            .tooltip("Change action for the selected file")
                             .label(self.selected.map_or("Skip", |i| self.decisions[i].label()))
                             .disabled(
                                 self.is_loading() || self.confirm_sync.is_some()
@@ -129,10 +165,10 @@ impl Render for ComparisonPane {
                             )
                             .on_click(cx.listener(|this, _, w, cx| this.cycle(w, cx))),
                     )
-                    .child(Button::new("sync-selected").label("Sync selected")
+                    .child(control(Button::new("sync-selected"), cx).secondary().label("Sync selected")
                         .disabled(!self.can_sync() || self.selected.is_none_or(|i| self.decisions[i] == Decision::Skip))
                         .on_click(cx.listener(|this, _, _, cx| this.prepare_sync(false, cx))))
-                    .child(Button::new("sync-all").label("Sync all actions")
+                    .child(control(Button::new("sync-all"), cx).secondary().label("Sync all actions")
                         .disabled(!self.can_sync() || self.decisions.iter().all(|d| *d == Decision::Skip))
                         .on_click(cx.listener(|this, _, _, cx| this.prepare_sync(true, cx)))),
             )
@@ -140,10 +176,29 @@ impl Render for ComparisonPane {
                 let uploads = decisions.iter().filter(|d| **d == Decision::Upload).count();
                 let downloads = decisions.iter().filter(|d| **d == Decision::Download).count();
                 let deletes = decisions.iter().filter(|d| matches!(d, Decision::DeleteLocal | Decision::DeleteRemote)).count();
-                view.child(div().p_2().flex().gap_2()
-                    .child(format!("Run {uploads} uploads, {downloads} downloads and {deletes} deletions in the comparison scope? Ctrl/Cmd+Enter to run, Escape to cancel."))
-                    .child(Button::new("sync-confirm").label("Run sync").on_click(cx.listener(|this, _, w, cx| this.start_sync(w, cx))))
-                    .child(Button::new("sync-dismiss").label("Cancel").on_click(cx.listener(|this, _, _, cx| { this.confirm_sync = None; cx.notify(); }))))
+                view.child(
+                    div()
+                        .id("sync-confirmation")
+                        .flex()
+                        .flex_col()
+                        .flex_shrink_0()
+                        .min_w_0()
+                        .text_size(Text::Body.rems())
+                        .px(metric(space::PANEL, cx))
+                        .py(metric(space::CONTROL, cx))
+                        .gap(metric(space::CONTROL, cx))
+                        .border_b_1()
+                        .border_color(palette.border)
+                        .child(format!("Run {uploads} uploads, {downloads} downloads and {deletes} deletions in the comparison scope?"))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap(metric(space::CONTROL, cx))
+                                .child(Button::new("sync-confirm").primary().label("Run sync").on_click(cx.listener(|this, _, w, cx| this.start_sync(w, cx))))
+                                .child(Button::new("sync-dismiss").label("Cancel").on_click(cx.listener(|this, _, _, cx| { this.confirm_sync = None; cx.notify(); }))),
+                        ),
+                )
             })
             .when_some(self.sync_result.as_ref(), |view, report| {
                 let completed = report.outcomes.iter().filter(|o| **o == ItemOutcome::Completed).count();
@@ -157,11 +212,11 @@ impl Render for ComparisonPane {
                     let (label, reason) = match outcome { ItemOutcome::Failed(e) => ("Failed",e), ItemOutcome::Unknown(e) => ("Outcome unknown",e), _ => return None };
                     Some(format!("{label}: {} {} — {reason}", item.decision.label(), item.local.display()))
                 }).collect();
-                view.child(div().id("sync-report").p_2()
-                    .child(div().flex().gap_2()
+                view.child(div().id("sync-report").text_size(Text::Body.rems()).px(metric(space::PANEL, cx)).py(metric(space::CONTROL, cx))
+                    .child(div().flex().flex_wrap().items_center().gap(metric(space::CONTROL, cx))
                         .child(format!("Sync: {completed} completed, {} errors{suffix}", errors.len()))
-                        .when(!errors.is_empty(), |view| view.child(Button::new("sync-errors-toggle")
-                            .label(if self.show_errors { "Hide errors (e)" } else { "Show errors (e)" })
+                        .when(!errors.is_empty(), |view| view.child(control(Button::new("sync-errors-toggle"), cx)
+                            .label(if self.show_errors { "Hide errors" } else { "Show errors" })
                             .disabled(self.confirm_sync.is_some())
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_sync_errors(cx))))))
                     .when(self.show_errors, |view| view.child(div().id("sync-error-details")
@@ -174,7 +229,14 @@ impl Render for ComparisonPane {
             })
             .child(
                 div()
-                    .p_2()
+                    .id("comparison-status")
+                    .flex_shrink_0()
+                    .px(metric(space::PANEL, cx))
+                    .py(metric(space::TIGHT, cx))
+                    .text_size(Text::Metadata.rems())
+                    .text_color(palette.muted)
+                    .border_b_1()
+                    .border_color(palette.border)
                     .child(if self.is_loading() && !self.hide_progress {
                         format!(
                             "{}: {} / {} files, {} bytes read",
@@ -197,15 +259,68 @@ impl Render for ComparisonPane {
                     .min_h_0()
                     .min_w_0()
                     .child(self.split.view("comparison-split",
+                        gpui_kit::canvas(
+                            move |bounds, window, cx| {
+                                let mut content = files_owner.update(cx, |pane, cx| {
+                                    let compact = bounds.size.width < metric(240., cx);
+                                    let padding = metric(if compact { space::TIGHT } else { space::PANEL }, cx);
+                                    let row_height = if compact {
+                                        let content_width = (bounds.size.width - padding * 2. - metric(2., cx)).max(px(1.));
+                                        let actions = [Decision::Skip, Decision::Upload, Decision::Download, Decision::DeleteLocal, Decision::DeleteRemote].map(Decision::label);
+                                        // Uniform rows must fit every status/action, not only the measured first file.
+                                        let heights = [(["Changed", "Local only", "Remote only", "Error"]).as_slice(), actions.as_slice()].map(|labels| {
+                                            labels.iter().map(|label| {
+                                                let mut text = div().w(content_width).text_size(Text::Metadata.rems()).line_height(metric(16., cx)).child(*label).into_any_element();
+                                                text.layout_as_root(gpui_kit::size(gpui_kit::AvailableSpace::Definite(content_width), gpui_kit::AvailableSpace::MinContent), window, cx).height
+                                            }).max().unwrap()
+                                        });
+                                        metric(80., cx).max(metric(20. + 2. * space::TIGHT, cx) + heights[0] + heights[1])
+                                    } else {
+                                        metric(size::ROW * 2., cx)
+                                    };
+                                    // Keep the fractional file anchor when density or typography changes.
+                                    if pane.file_row_height > px(0.) && pane.file_row_height != row_height {
+                                        let scroll = pane.scroll.0.borrow();
+                                        let offset = scroll.base_handle.offset();
+                                        scroll.base_handle.set_offset(gpui_kit::point(offset.x, offset.y * (row_height / pane.file_row_height)));
+                                    }
+                                    pane.file_row_height = row_height;
                         div()
                             .id("comparison-files")
+                            .test_support()
                             .flex()
                             .flex_col()
-                            .w_full()
+                            .size_full()
                             .min_w_0()
                             .min_h_0()
                             .child(
                                 div()
+                                    .id("comparison-files-header")
+                                    .test_support()
+                                    .flex_shrink_0()
+                                    .px(padding)
+                                    .py(metric(space::TIGHT, cx))
+                                    .min_h(metric(size::HEADER, cx))
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap(metric(space::TIGHT, cx))
+                                    .text_size(Text::Metadata.rems())
+                                    .line_height(metric(16., cx))
+                                    .text_color(palette.muted)
+                                    .bg(palette.chrome)
+                                    .border_b_1()
+                                    .border_color(palette.border)
+                                    .child(div().min_w_0().max_w_full().child("Files"))
+                                    .child(div().id("comparison-shown-count").test_support().aria_label(format!("{} shown", pane.files.len())).min_w_0().max_w_full().child(format!("{} shown", pane.files.len())))
+                                    .child(div().id("comparison-total-count").test_support().aria_label(format!("{} total", pane.session.as_ref().map_or(0, |s| s.entries.len()))).min_w_0().max_w_full().child(format!("{} total", pane.session.as_ref().map_or(0, |s| s.entries.len())))),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px(padding)
+                                    .py(metric(space::CONTROL, cx))
                                     .key_context("DriftComparisonFilter")
                                     .on_action(cx.listener(|this, _: &FocusResults, w, cx| {
                                         this.focus.focus(w, cx);
@@ -216,17 +331,21 @@ impl Render for ComparisonPane {
                                     .on_action(cx.listener(|this, _: &gpui_kit::component::input::Escape, w, cx| {
                                         this.focus.focus(w, cx);
                                     }))
-                                    .child(crate::form_input::guard(&self.filter, |input| input.id("comparison-filter"))),
+                                    .child(crate::form_input::guard(&pane.filter, |input| input.id("comparison-filter"))),
                             )
                             .child(
                                 div()
                                     .id("comparison-file-list")
+                                    .test_support()
                                     .key_context("DriftComparisonFiles")
-                                    .track_focus(&self.focus)
+                                    .track_focus(&pane.focus)
                                     .flex()
                                     .flex_col()
                                     .flex_1()
                                     .min_h_0()
+                                    .border_l(metric(2., cx))
+                                    .border_color(palette.border)
+                                    .focus(move |style| style.border_color(palette.focus))
                                     .on_action(cx.listener(|this, _: &CursorFirst, w, cx| this.cursor_edge(false, w, cx)))
                                     .on_action(cx.listener(|this, _: &CursorLast, w, cx| this.cursor_edge(true, w, cx)))
                                     .on_action(cx.listener(|this, _: &CursorUp, w, cx| {
@@ -241,9 +360,9 @@ impl Render for ComparisonPane {
                                     .child(
                                         uniform_list(
                                             "comparison-list",
-                                            self.files.len(),
+                                            pane.files.len(),
                                             cx.processor(
-                                                |this, range: std::ops::Range<usize>, _, cx| {
+                                                move |this, range: std::ops::Range<usize>, _, cx| {
                                                     range
                                                         .map(|row| {
                                                             let i = this.files[row];
@@ -292,19 +411,40 @@ impl Render for ComparisonPane {
                                                             } else {
                                                                 "Changed"
                                                             };
+                                                            let chosen = this.selected == Some(i);
                                                             let element = div()
                                                                 .id(("comparison-file", row))
-                                                                .h(px(48.))
-                                                                .p_2()
-                                                                .bg(if this.selected == Some(i) {
-                                                                    cx.theme().selection
-                                                                } else {
-                                                                    cx.theme().background
+                                                                .aria_label(format!("{path} · {status} · {}", this.decisions[i].label()))
+                                                                .tooltip({
+                                                                    let details = format!("{path}\n{status} · {}", this.decisions[i].label());
+                                                                    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(details.clone()).build(window, cx)
                                                                 })
-                                                                .child(format!(
-                                                                    "{path}\n{status} · {}",
-                                                                    this.decisions[i].label()
-                                                                ))
+                                                                .h(row_height)
+                                                                .px(padding)
+                                                                .py(metric(space::TIGHT, cx))
+                                                                .flex()
+                                                                .flex_col()
+                                                                .justify_center()
+                                                                .min_w_0()
+                                                                .overflow_hidden()
+                                                                .bg(if chosen {
+                                                                    palette.selected
+                                                                } else {
+                                                                    palette.canvas
+                                                                })
+                                                                .hover(move |style| style.bg(if chosen { palette.selected } else { palette.hover }))
+                                                                .child(div().text_size(Text::Body.rems()).line_height(metric(20., cx)).truncate().child(path.into_owned()))
+                                                                .child(
+                                                                    div()
+                                                                        .flex()
+                                                                        .when(compact, |view| view.flex_col())
+                                                                        .min_w_0()
+                                                                        .text_size(Text::Metadata.rems())
+                                                                        .line_height(metric(16., cx))
+                                                                        .text_color(if entry.error.is_some() { cx.theme().danger } else { palette.muted })
+                                                                        .child(div().id(("comparison-file-status", row)).test_support().min_w_0().max_w_full().whitespace_normal().child(status))
+                                                                        .child(div().id(("comparison-file-action", row)).test_support().min_w_0().max_w_full().whitespace_normal().child(if compact { this.decisions[i].label().to_owned() } else { format!(" · {}", this.decisions[i].label()) })),
+                                                                )
                                                                 .on_click(cx.listener(
                                                                     move |this, _, w, cx| {
                                                                         this.focus.focus(w, cx);
@@ -319,11 +459,21 @@ impl Render for ComparisonPane {
                                                 },
                                             ),
                                         )
-                                        .track_scroll(&self.scroll)
+                                        .track_scroll(&pane.scroll)
                                         .flex_1()
                                         .min_h_0(),
                                     ),
-                            ).into_any_element(),
+                            ).into_any_element()
+                                });
+                                content.layout_as_root(gpui_kit::size(
+                                    gpui_kit::AvailableSpace::Definite(bounds.size.width),
+                                    gpui_kit::AvailableSpace::Definite(bounds.size.height),
+                                ), window, cx);
+                                content.prepaint_at(bounds.origin, window, cx);
+                                content
+                            },
+                            |_, mut content, window, cx| content.paint(window, cx),
+                        ).size_full().into_any_element(),
                         self.diff.clone().into_any_element(), window, cx),
                     ),
             )

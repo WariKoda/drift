@@ -121,6 +121,9 @@ impl ProjectsPanel {
     pub fn is_loading(&self) -> bool {
         self.busy || self.cancel.is_some()
     }
+    pub fn can_leave(&self) -> bool {
+        !self.is_loading() && !self.writing && self.form.is_none() && self.delete.is_none()
+    }
     pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.query.focus_handle(cx).focus(window, cx);
     }
@@ -265,8 +268,7 @@ impl Render for ProjectsPanel {
             );
             return view.child(details);
         } else {
-            view = view.child("Projects · ↓ from filter · j/k navigate · n new · e edit · a archive · d remove")
-                .child(self.status.clone());
+            view = view.child("Projects").child(self.status.clone());
             view = view
                 .child(
                     div()
@@ -436,12 +438,7 @@ impl Render for ProjectsPanel {
                                     .min_w_0()
                                     .gap_2()
                                     .child(format!(
-                                        "{}{}{} — {}",
-                                        if index < 9 {
-                                            format!("[{}] ", index + 1)
-                                        } else {
-                                            String::new()
-                                        },
+                                        "{}{} — {}",
                                         project.name,
                                         if project.archived { " (archived)" } else { "" },
                                         project.path.display()
@@ -564,7 +561,7 @@ impl Render for ProjectsPanel {
         }
         view.child(
             Button::new("project-close")
-                .label("Return to browser")
+                .label("Close projects")
                 .disabled(self.writing || self.busy)
                 .on_click(cx.listener(|this, _, w, cx| this.cancel_view(&Cancel, w, cx))),
         )

@@ -59,8 +59,8 @@ async fn closing_the_last_window_drains_real_transfer_outcomes_before_the_logger
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
+        crate::test_support::connect_first(w, cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {

@@ -11,13 +11,14 @@ struct HelpOwner {
     hosts: Option<(EntityId, u64)>,
     certificate: Option<(u64, u64)>,
     projects: bool,
+    settings: bool,
     comparison: bool,
-    show_remote: bool,
-    remote_preview: bool,
+    local_view: PaneView,
+    remote_view: PaneView,
 }
 
 pub(super) struct ShortcutHelp {
-    focus: FocusHandle,
+    pub(super) focus: FocusHandle,
     restore: Option<FocusHandle>,
     owner: HelpOwner,
     scroll: ScrollHandle,
@@ -37,7 +38,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "Tab / Shift+Tab · @",
-                "Switch local/remote browsers · Show remote targets",
+                "Switch local/remote panes · Show remote targets",
             ),
             (
                 "/ or Ctrl/Cmd+F · ↓ / Enter in filter",
@@ -75,11 +76,11 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         &[
             (
                 "p · Ctrl/Cmd+Alt+P",
-                "Toggle the selected file preview · Focus its read-only editor",
+                "Toggle preview in the focused pane · Focus that pane's visible preview",
             ),
             (
                 "c · Ctrl/Cmd+Shift+C",
-                "Copy loaded preview text from a browser · Copy path",
+                "Copy the focused pane's visible preview text · Copy its path",
             ),
             (
                 "Native arrows / PageUp / PageDown · Ctrl/Cmd+C",
@@ -91,7 +92,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ),
             (
                 "Esc in preview",
-                "Close preview and return to its originating browser",
+                "Return that pane to Files; keep its cached preview",
             ),
             ("Ctrl+Alt+← / → / 0", "Resize panes / reset saved sizes"),
             (
@@ -172,6 +173,7 @@ impl Shell {
             project: self.browser.read(cx).id().project,
             finder: self.browser.read(cx).finder_active()
                 && self.hosts.is_none()
+                && self.settings.is_none()
                 && self.certificate.is_none()
                 && !self.projects.read(cx).visible()
                 && !self.comparison.read(cx).visible(),
@@ -181,9 +183,30 @@ impl Shell {
                 .map(|hosts| (hosts.entity_id(), hosts.read(cx).operation())),
             certificate: self.certificate.as_ref().map(|(p, c, _)| (*p, *c)),
             projects: self.projects.read(cx).visible(),
+            settings: self.settings.is_some(),
             comparison: self.comparison.read(cx).visible(),
-            show_remote: self.show_remote,
-            remote_preview: self.remote_preview,
+            local_view: self.local_view,
+            remote_view: self.remote_view,
+        }
+    }
+
+    pub(super) fn modal_restore_focus(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<FocusHandle> {
+        // Deactivation retires native host selectors, even when closed. Keep
+        // modal restoration on the stable visible pane instead of its trigger.
+        if self.remote.read(cx).host_select_focused(window, cx) {
+            if self.remote_view == PaneView::Preview {
+                self.remote_preview
+                    .update(cx, |pane, cx| pane.focus(window, cx));
+                window.focused(cx)
+            } else {
+                Some(self.remote.focus_handle(cx))
+            }
+        } else {
+            window.focused(cx)
         }
     }
 
@@ -195,6 +218,8 @@ impl Shell {
         if self.startup.is_some() || self.folder_prompt || self.split.is_resizing() {
             return;
         }
+        let restore = self.modal_restore_focus(window, cx);
+        self.deactivate_browser_navigation(cx);
         self.comparison
             .update(cx, |pane, cx| pane.deactivate_layout(window, cx));
         if let Some(hosts) = &self.hosts {
@@ -202,7 +227,7 @@ impl Shell {
         }
         let focus = cx.focus_handle();
         self.help = Some(ShortcutHelp {
-            restore: window.focused(cx),
+            restore,
             owner: self.help_owner(cx),
             focus: focus.clone(),
             scroll: ScrollHandle::new(),
@@ -213,27 +238,12 @@ impl Shell {
 
     pub(super) fn close_help(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(help) = self.help.take() else { return };
-        let restore_remote = help.restore.as_ref() == Some(&self.remote.focus_handle(cx));
-        if help.owner == self.help_owner(cx) {
-            if let Some(focus) = help.restore {
-                focus.focus(window, cx);
-            }
-        } else if let Some((_, _, prompt)) = &self.certificate {
-            prompt.update(cx, |prompt, cx| prompt.focus(window, cx));
-        } else if let Some(hosts) = &self.hosts {
-            hosts.update(cx, |hosts, cx| hosts.focus(window, cx));
-        } else if self.projects.read(cx).visible() {
-            self.projects
-                .update(cx, |projects, cx| projects.focus(window, cx));
-        } else if self.comparison.read(cx).visible() {
-            self.comparison.focus_handle(cx).focus(window, cx);
-        } else if self.browser_screen_active(cx) {
-            if self.show_remote && (self.remote_preview || restore_remote) {
-                self.remote.focus_handle(cx).focus(window, cx);
-            } else {
-                self.browser
-                    .update(cx, |browser, cx| browser.focus(window, cx));
-            }
+        if help.owner == self.help_owner(cx)
+            && let Some(focus) = help.restore
+        {
+            focus.focus(window, cx);
+        } else {
+            self.focus_workspace(window, cx);
         }
         cx.notify();
     }
@@ -255,9 +265,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let owner = self.help_owner(cx);
+        let restore = self.modal_restore_focus(window, cx);
         let help = self.help.as_mut().expect("help is visible");
         if !help.focus.contains_focused(window, cx) {
-            if let Some(focus) = window.focused(cx)
+            if let Some(focus) = restore
                 && focus != help.focus
             {
                 help.restore = Some(focus);
@@ -290,7 +301,7 @@ impl Shell {
                 })))
             .child(div().flex().flex_wrap().p_3().gap_2()
                 .child("Letters remain text in editable inputs. Transfers always require confirmation.")
-                .child(Button::new("shortcut-help-close").label("Close help (Esc)")
+                .child(Button::new("shortcut-help-close").label("Close help")
                     .on_click(cx.listener(|this, _, w, cx| this.close_help(w, cx)))))
             .into_any_element()
     }
@@ -304,29 +315,17 @@ impl Shell {
         if !self.browser_screen_active(cx) || self.split.is_resizing() {
             return;
         }
-        let remote = self.show_remote && self.remote.focus_handle(cx).is_focused(window);
-        let project = self.browser.read(cx).id().project;
-        let path = if remote {
-            self.remote.read(cx).selected().map(PathBuf::from)
-        } else if !self.remote_preview && self.browser.focus_handle(cx).is_focused(window) {
-            self.browser.read(cx).selected().map(PathBuf::from)
-        } else {
+        let side = self.focused_side(window, cx);
+        if self.pane_view(side) == PaneView::Preview {
+            self.close_preview(side, window, cx);
             return;
+        }
+        let can_preview = match side {
+            PaneSide::Local => self.browser.read(cx).can_preview(),
+            PaneSide::Remote => self.remote.read(cx).can_preview(),
         };
-        let Some(path) = path else { return };
-        let visible = if remote {
-            self.remote_preview
-        } else {
-            !self.show_remote
-        };
-        if visible && self.preview.read(cx).requested_for(project, &path, remote) {
-            self.close_preview(window, cx);
-        } else if remote {
-            self.remote
-                .update(cx, |pane, cx| pane.preview_selected(window, cx));
-        } else {
-            self.browser
-                .update(cx, |pane, cx| pane.preview_selected(window, cx));
+        if can_preview {
+            self.set_pane_view(side, PaneView::Preview, window, cx);
         }
     }
 
@@ -336,34 +335,42 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.browser_screen_active(cx)
-            && (self.remote_preview || !self.show_remote)
-            && !self.split.is_resizing()
-        {
-            self.preview.update(cx, |pane, cx| pane.focus(window, cx));
+        if !self.browser_screen_active(cx) || self.split.is_resizing() {
+            return;
+        }
+        let side = self.focused_side(window, cx);
+        if self.pane_view(side) == PaneView::Preview {
+            self.active_pane = side;
+            self.preview_pane(side)
+                .update(cx, |pane, cx| pane.focus(window, cx));
         }
     }
 
-    pub(super) fn copy_preview(&mut self, _: &CopyPreview, _: &mut Window, cx: &mut Context<Self>) {
-        if self.browser_screen_active(cx) && (self.remote_preview || !self.show_remote) {
-            self.preview.update(cx, |pane, cx| pane.copy_text(cx));
+    pub(super) fn copy_preview(
+        &mut self,
+        _: &CopyPreview,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.browser_screen_active(cx) || self.split.is_resizing() {
+            return;
+        }
+        let side = self.focused_side(window, cx);
+        if self.pane_view(side) == PaneView::Preview {
+            self.preview_pane(side)
+                .update(cx, |pane, cx| pane.copy_text(cx));
         }
     }
 
-    pub(super) fn close_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let remote = self.remote_preview;
-        self.remote_preview = false;
-        if !remote {
-            self.show_remote = true;
+    pub(super) fn close_preview(
+        &mut self,
+        side: PaneSide,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.browser_screen_active(cx) || self.split.is_resizing() {
+            return;
         }
-        self.preview.update(cx, |pane, cx| {
-            pane.select(None, self.browser.read(cx).id().project, window, cx)
-        });
-        if remote {
-            self.remote.focus_handle(cx).focus(window, cx);
-        } else {
-            self.browser.update(cx, |pane, cx| pane.focus(window, cx));
-        }
-        cx.notify();
+        self.set_pane_view(side, PaneView::Files, window, cx);
     }
 }

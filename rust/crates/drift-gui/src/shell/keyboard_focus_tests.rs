@@ -63,17 +63,20 @@ async fn ftps_challenge_dismisses_pending_connect_help_and_reject_restores_keybo
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {
-        assert!(shell.read(cx).show_remote);
-        assert!(!shell.read(cx).remote_preview);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Files
+        );
         assert!(!shell.read(cx).remote.read(cx).is_loading());
         assert!(!shell.read(cx).remote.read(cx).has_session());
         w.render_frame(cx);
-        assert!(w.find(("connect-host", 0usize)).visible());
+        assert!(w.find("remote-host-select").visible());
     })
     .unwrap();
+    cx.update_window(handle, |_, w, cx| crate::test_support::connect_first(w, cx))
+        .unwrap();
     let (invoking_focus, help_focus) = cx
         .update_window(handle, |_, w, cx| {
-            w.click(("connect-host", 0usize), cx);
             assert!(shell.read(cx).remote.read(cx).is_loading());
             let invoking_focus = w.focused(cx).unwrap();
             assert!(shell.read(cx).remote.focus_handle(cx).is_focused(w));
@@ -111,6 +114,21 @@ async fn ftps_challenge_dismisses_pending_connect_help_and_reject_restores_keybo
         assert_ne!(w.focused(cx), Some(invoking_focus.clone()));
         assert!(w.focused(cx).is_some());
         assert!(!s.remote.read(cx).has_session());
+        let prompt_id = prompt.entity_id();
+        super::design_tests::toolbar_scopes::assert_browser_scopes_absent(w);
+        for (id, _) in super::design_tests::CONTROLS {
+            assert!(w.find(id).visible());
+            w.click(id, cx);
+        }
+        shell.update(cx, |shell, cx| {
+            shell.toolbar_event(&crate::toolbar::ToolbarEvent::Hosts, w, cx)
+        });
+        assert_eq!(
+            shell.read(cx).certificate.as_ref().unwrap().2.entity_id(),
+            prompt_id
+        );
+        assert!(!shell.read(cx).projects.read(cx).visible());
+        assert!(shell.read(cx).hosts.is_none());
         w.press("escape", cx);
     })
     .unwrap();
@@ -123,8 +141,7 @@ async fn ftps_challenge_dismisses_pending_connect_help_and_reject_restores_keybo
             "Escape must reach the certificate prompt"
         );
         assert!(s.help.is_none());
-        assert!(s.show_remote);
-        assert!(!s.remote_preview);
+        assert_eq!(s.remote_view, crate::pane_tabs::PaneView::Files);
         assert!(!s.remote.read(cx).has_session());
         assert!(!s.remote.read(cx).is_loading());
         assert!(invoking_focus.is_focused(w));
@@ -133,7 +150,7 @@ async fn ftps_challenge_dismisses_pending_connect_help_and_reject_restores_keybo
         assert_eq!(s.browser.read(cx).id(), browser_id);
         assert_eq!(s.browser.read(cx).marked(), ["local.txt"]);
         assert!(!s.comparison.read(cx).visible());
-        assert!(!s.preview.read(cx).is_loading());
+        assert!(!s.remote_preview.read(cx).is_loading());
         w.press("/", cx);
         assert_eq!(w.find("remote-filter").focused(), Some(true));
         w.input("keyboard still works", cx);
@@ -218,9 +235,14 @@ async fn help_restores_invoking_hosts_filter_after_real_sftp_disconnect(cx: &mut
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {
-        assert!(shell.read(cx).show_remote);
-        assert!(!shell.read(cx).remote_preview);
-        w.click(("connect-host", 0usize), cx);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Files
+        );
+        crate::test_support::connect_first(w, cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, _, cx| {
         assert!(shell.read(cx).remote.read(cx).is_loading());
     })
     .unwrap();
@@ -253,8 +275,7 @@ async fn help_restores_invoking_hosts_filter_after_real_sftp_disconnect(cx: &mut
     })
     .unwrap();
     let hosts_id = shell.read_with(cx, |s, _| {
-        assert!(s.show_remote);
-        assert!(!s.remote_preview);
+        assert_eq!(s.remote_view, crate::pane_tabs::PaneView::Files);
         s.hosts
             .as_ref()
             .expect("hosts must open before help")
@@ -296,8 +317,7 @@ async fn help_restores_invoking_hosts_filter_after_real_sftp_disconnect(cx: &mut
         assert_eq!(s.hosts.as_ref().unwrap().entity_id(), hosts_id);
         assert_eq!(s.remote.read(cx).connection(), connection + 1);
         assert!(!s.remote.read(cx).has_session());
-        assert!(s.show_remote);
-        assert!(!s.remote_preview);
+        assert_eq!(s.remote_view, crate::pane_tabs::PaneView::Files);
         w.press("escape", cx);
     })
     .unwrap();
@@ -329,16 +349,16 @@ async fn help_restores_invoking_hosts_filter_after_real_sftp_disconnect(cx: &mut
         );
         assert!(s.help.is_none());
         assert!(s.certificate.is_none());
-        assert!(s.browser.focus_handle(cx).is_focused(w));
+        assert!(s.remote.focus_handle(cx).is_focused(w));
+        assert!(w.within("remote-workspace").find("remote-pane").visible());
         assert_eq!(s.browser.read(cx).id(), browser_id);
         assert_eq!(s.browser.read(cx).marked(), ["local.txt"]);
         assert!(!s.remote.read(cx).has_session());
         assert!(!s.remote.read(cx).is_loading());
         assert!(s.remote.read(cx).marked().is_empty());
-        assert!(s.show_remote);
-        assert!(!s.remote_preview);
+        assert_eq!(s.remote_view, crate::pane_tabs::PaneView::Files);
         assert!(!s.comparison.read(cx).visible());
-        assert!(!s.preview.read(cx).is_loading());
+        assert!(!s.remote_preview.read(cx).is_loading());
     })
     .unwrap();
     assert!(store.global().unwrap().hosts == vec![server.host()]);

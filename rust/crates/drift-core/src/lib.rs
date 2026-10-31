@@ -4,6 +4,7 @@ pub mod diff;
 pub mod error;
 pub mod gui_preferences;
 pub mod local;
+pub mod omarchy;
 pub mod pathmap;
 pub mod project;
 pub mod staging;

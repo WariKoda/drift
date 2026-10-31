@@ -1,15 +1,17 @@
 //! Read-only preview state and the lifetime of its own background request.
 use crate::actions::Cancel;
+use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::browser::{BrowserService, Location, OperationId};
 use gpui_kit::base::Disableable;
 use gpui_kit::component::{
-    ActiveTheme,
     button::Button,
     input::{Editor, EditorState},
 };
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, AppContext, ClipboardItem, Context, Entity, EventEmitter, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Styled, Window, div,
+    IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, TestSupportExt, Window,
+    div,
 };
 use std::path::{Path, PathBuf};
 use tokio_util::sync::CancellationToken;
@@ -33,6 +35,7 @@ pub struct PreviewPane {
     remote: bool,
     requested: bool,
     ready: bool,
+    external_chrome: bool,
 }
 impl Drop for PreviewPane {
     fn drop(&mut self) {
@@ -61,8 +64,86 @@ impl PreviewPane {
             remote: false,
             requested: false,
             ready: false,
+            external_chrome: false,
         }
     }
+    pub fn with_external_chrome(mut self) -> Self {
+        self.external_chrome = true;
+        self
+    }
+
+    pub fn controls_header(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        div()
+            .id("preview-header")
+            .test_support()
+            .key_context("DriftPreview")
+            .flex()
+            .flex_wrap()
+            .flex_shrink_0()
+            .items_center()
+            .min_w_0()
+            .min_h(metric(size::HEADER, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .gap(metric(space::CONTROL, cx))
+            .text_size(Text::Body.rems())
+            .bg(palette.chrome)
+            .border_b_1()
+            .border_color(palette.border)
+            .child("Preview")
+            .child(
+                div()
+                    .text_size(Text::Metadata.rems())
+                    .text_color(palette.muted)
+                    .child("Read-only"),
+            )
+            .child(
+                control(Button::new("copy-selection"), cx)
+                    .label("Copy path")
+                    .disabled(self.selection.is_none())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.copy_path(cx);
+                    })),
+            )
+            .child(
+                control(Button::new("copy-preview"), cx)
+                    .label("Copy text")
+                    .disabled(!self.ready)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.copy_text(cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    pub fn path_header(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        div()
+            .id("preview-location")
+            .test_support()
+            .aria_label(self.title.clone())
+            .tooltip({
+                let title = self.title.clone();
+                move |w, cx| gpui_kit::component::tooltip::Tooltip::new(title.clone()).build(w, cx)
+            })
+            .flex_shrink_0()
+            .min_w_0()
+            .h(metric(size::HEADER, cx))
+            .min_h(metric(size::HEADER, cx))
+            .max_h(metric(size::HEADER, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .text_size(Text::Metadata.rems())
+            .text_color(palette.muted)
+            .bg(palette.chrome)
+            .border_b_1()
+            .border_color(palette.border)
+            .truncate()
+            .child(self.title.clone())
+            .into_any_element()
+    }
+
     pub fn id(&self) -> OperationId {
         self.id
     }
@@ -72,8 +153,20 @@ impl PreviewPane {
             && self.remote == remote
             && self.selection.as_deref() == Some(path)
     }
+    pub fn can_show(&self, project: u64) -> bool {
+        self.requested && self.id.project == project && (self.ready || self.is_loading())
+    }
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.editor.focus_handle(cx).focus(window, cx);
+    }
+    pub fn copy_path(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(path) = &self.selection else {
+            return false;
+        };
+        let path = path.to_string_lossy().into_owned();
+        cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+        cx.emit(PreviewEvent::Copied(path));
+        true
     }
     pub fn copy_text(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.ready {
@@ -85,9 +178,6 @@ impl PreviewPane {
     }
     pub fn is_loading(&self) -> bool {
         self.cancel.is_some()
-    }
-    pub fn is_loading_remote(&self) -> bool {
-        self.remote && self.is_loading()
     }
     pub fn select(
         &mut self,
@@ -194,7 +284,12 @@ impl PreviewPane {
 }
 impl Render for PreviewPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = Palette::current(cx);
+        let controls = self.controls_header(cx);
+        let path = self.path_header(cx);
         div()
+            .id("preview")
+            .test_support()
             .key_context("DriftPreview")
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 cx.emit(PreviewEvent::Close(this.id));
@@ -204,43 +299,15 @@ impl Render for PreviewPane {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(
-                div()
-                    .p_3()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(self.title.clone()),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .p_2()
-                    .gap_2()
-                    .child(
-                        Button::new("copy-selection")
-                            .label("Copy path")
-                            .disabled(self.selection.is_none())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if let Some(path) = &this.selection {
-                                    let path = path.to_string_lossy().into_owned();
-                                    cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
-                                    cx.emit(PreviewEvent::Copied(path));
-                                }
-                            })),
-                    )
-                    .child(
-                        Button::new("copy-preview")
-                            .label("Copy text")
-                            .disabled(!self.ready)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.copy_text(cx);
-                            })),
-                    ),
-            )
+            .bg(palette.canvas)
+            .text_color(palette.text)
+            .when(!self.external_chrome, |view| {
+                view.child(controls).child(path)
+            })
             .child(
                 div()
                     .id("preview-pane")
+                    .test_support()
                     .flex_1()
                     .min_h_0()
                     .child(Editor::new(&self.editor).readonly(true).size_full()),
@@ -248,5 +315,7 @@ impl Render for PreviewPane {
     }
 }
 
+#[cfg(test)]
+mod design_tests;
 #[cfg(test)]
 mod tests;

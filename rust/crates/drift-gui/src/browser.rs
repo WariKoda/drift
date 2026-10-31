@@ -1,12 +1,13 @@
 //! One independently navigable pane. Finder uses the same virtualized rows.
 mod finder;
 mod menu;
+mod navigation;
 mod tree;
 use crate::actions::*;
 use crate::browser_menu::BrowserMenu;
 use crate::design::{Palette, Text, control, metric, size, space};
 use drift_app::{
-    FileList,
+    FileList, SelectGesture,
     browser::{BrowserService, Directory, Location, OperationId},
     navigation::History,
     tree::FileTree,
@@ -19,6 +20,7 @@ use gpui_kit::base::ElementExt;
 use gpui_kit::component::Icon;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, AppContext, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
@@ -98,6 +100,9 @@ pub struct BrowserPane {
     browser_focus: FocusHandle,
     history: History,
     navigation: Navigation,
+    navigation_active: bool,
+    external_chrome: bool,
+    navigation_revision: u64,
     scroll: UniformListScrollHandle,
     menu: Option<(MenuSnapshot, BrowserMenu)>,
     menu_anchor: Point<Pixels>,
@@ -163,6 +168,9 @@ impl BrowserPane {
             browser_focus: cx.focus_handle().tab_stop(true),
             history: History::default(),
             navigation: Navigation::Reset,
+            navigation_active: true,
+            external_chrome: false,
+            navigation_revision: 0,
             scroll: UniformListScrollHandle::new(),
             menu: None,
             menu_anchor: point(px(0.), px(0.)),
@@ -184,11 +192,15 @@ impl BrowserPane {
     pub fn is_loading(&self) -> bool {
         self.listing_cancel.is_some()
     }
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.files.len()
     }
     pub fn marked(&self) -> Vec<String> {
         self.files.marked()
+    }
+    pub fn selection(&self) -> Vec<String> {
+        self.files.selection()
     }
     pub fn selected(&self) -> Option<&str> {
         self.files.selected()
@@ -453,16 +465,17 @@ impl BrowserPane {
         self.selection_changed(true, cx);
         cx.notify();
     }
+    pub fn can_preview(&self) -> bool {
+        !self.is_loading()
+            && self.location.is_some()
+            && self.files.selected().is_some_and(|path| {
+                self.entries.iter().any(|entry| {
+                    entry.path == std::path::Path::new(path) && !entry.directory && !entry.symlink
+                })
+            })
+    }
     pub fn preview_selected(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if self.is_loading() || self.location.is_none() {
-            return;
-        }
-        let Some(path) = self.files.selected() else {
-            return;
-        };
-        if self.entries.iter().any(|entry| {
-            entry.path == std::path::Path::new(path) && !entry.directory && !entry.symlink
-        }) {
+        if self.can_preview() {
             self.selection_changed(true, cx);
         }
     }
@@ -697,9 +710,17 @@ impl BrowserPane {
         self.filter.focus_handle(cx).focus(window, cx);
     }
     pub fn copy_selection(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(name) = self.files.selected() {
-            cx.write_to_clipboard(ClipboardItem::new_string(name.into()));
-            self.status(format!("Copied {name}"), cx);
+        let paths = self.files.selection();
+        if !paths.is_empty() {
+            cx.write_to_clipboard(ClipboardItem::new_string(paths.join("\n")));
+            self.status(
+                if paths.len() > 1 {
+                    format!("Copied {} paths", paths.len())
+                } else {
+                    format!("Copied {}", paths[0])
+                },
+                cx,
+            );
             cx.notify();
         }
     }
@@ -747,32 +768,160 @@ impl BrowserPane {
         }
         cx.notify();
     }
-    pub fn header(&self, cx: &App) -> gpui_kit::AnyElement {
-        let path = self
-            .location
-            .as_ref()
-            .map(|l| l.directory.display().to_string())
-            .unwrap_or_else(|| self.start.display().to_string());
+    pub fn with_external_chrome(mut self) -> Self {
+        self.external_chrome = true;
+        self
+    }
+
+    pub fn actions_header(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
         div()
+            .id("local-actions-header")
+            .test_support()
+            .flex()
+            .flex_wrap()
+            .min_w_0()
+            .items_center()
+            .flex_shrink_0()
+            .gap(metric(space::CONTROL, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .min_h(metric(size::HEADER, cx))
+            .text_size(Text::Metadata.rems())
+            .bg(palette.chrome)
+            .border_b_1()
+            .border_color(palette.border)
+            .children(self.finder.then(|| {
+                control(Button::new("finder-return"), cx)
+                    .label("Return")
+                    .icon(IconName::ArrowLeft)
+                    .min_w_0()
+                    .max_w_full()
+                    .overflow_hidden()
+                    .on_click(cx.listener(|this, _, w, cx| this.return_finder(w, cx)))
+            }))
+            .child(if self.finder {
+                "Project files"
+            } else {
+                "Local"
+            })
+            .into_any_element()
+    }
+
+    pub fn path_header(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        let stamp = self.navigation_stamp();
+        div()
+            .id("local-path-header")
+            .test_support()
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Back, w, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Forward, w, cx);
+                }),
+            )
+            .flex()
+            .flex_shrink_0()
+            .min_w_0()
+            .items_center()
+            .overflow_hidden()
+            .h(metric(size::HEADER, cx))
+            .min_h(metric(size::HEADER, cx))
+            .max_h(metric(size::HEADER, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .bg(palette.chrome)
+            .border_b_1()
+            .border_color(palette.border)
+            .child(self.breadcrumbs(cx))
+            .into_any_element()
+    }
+
+    pub fn selection_footer(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let palette = Palette::current(cx);
+        let mut status = format!(
+            "{} marked{}",
+            self.files.marked().len(),
+            if self.files.range_active() {
+                " · range active"
+            } else {
+                ""
+            }
+        );
+        let count = self.files.selection().len();
+        if count > 1 {
+            status.push_str(&format!(" · {count} selected"));
+        }
+        div()
+            .id("local-selection-status")
+            .role(gpui_kit::Role::Status)
+            .aria_label(status.clone())
+            .test_support()
+            .flex_shrink_0()
+            .min_w_0()
+            .h(metric(size::HEADER, cx))
+            .min_h(metric(size::HEADER, cx))
+            .max_h(metric(size::HEADER, cx))
+            .px(metric(space::PANEL, cx))
+            .py(metric(space::TIGHT, cx))
+            .text_size(Text::Metadata.rems())
+            .bg(palette.chrome)
+            .truncate()
+            .border_t_1()
+            .border_color(palette.border)
+            .child(status)
+            .into_any_element()
+    }
+
+    pub fn header(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let stamp = self.navigation_stamp();
+        div()
+            .id("local-browser-header")
+            .test_support()
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Back),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Back, w, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui_kit::NavigationDirection::Forward),
+                cx.listener(move |this, _, w, cx| {
+                    cx.stop_propagation();
+                    this.mouse_navigation(stamp, gpui_kit::NavigationDirection::Forward, w, cx);
+                }),
+            )
             .flex()
             .min_w_0()
             .items_center()
             .gap(metric(space::CONTROL, cx))
+            .bg(Palette::current(cx).chrome)
+            .border_b_1()
+            .border_color(Palette::current(cx).border)
             .px(metric(space::PANEL, cx))
             .py(metric(space::TIGHT, cx))
             .min_h(metric(size::HEADER, cx))
             .flex_shrink_0()
             .text_size(Text::Body.rems())
-            .child(
-                div()
-                    .w(metric(size::FILTER, cx))
-                    .min_w_0()
-                    .flex_shrink_1()
-                    .child(crate::form_input::guard(&self.filter, |input| {
-                        input.id("filter").w_full().min_w_0().flex_shrink_1()
-                    })),
-            )
-            .child(div().flex_1().min_w_0().truncate().child(path))
+            .child(div().w_full().max_w_full().min_w_0().flex_shrink_1().child(
+                crate::form_input::guard(&self.filter, |input| {
+                    input
+                        .id("filter")
+                        .w_full()
+                        .min_w_0()
+                        .flex_shrink_1()
+                        .disabled(!self.navigation_active)
+                }),
+            ))
             .into_any_element()
     }
 }
@@ -786,11 +935,23 @@ impl Render for BrowserPane {
         let count = self.files.len();
         let entity = cx.entity();
         let context_stamp = (self.id(), self.menu_revision);
+        let navigation_stamp = self.navigation_stamp();
+        let actions_header = self.actions_header(cx);
+        let path_header = self.path_header(cx);
+        let selection_footer = self.selection_footer(cx);
         let empty_anchor_offset = metric(space::PANEL, cx);
         let row_anchor_offset = metric(22., cx);
         div()
             .id("browser-pane")
             .test_support()
+            .on_mouse_down(MouseButton::Navigate(gpui_kit::NavigationDirection::Back), cx.listener(move |this, _, w, cx| {
+                cx.stop_propagation();
+                this.mouse_navigation(navigation_stamp, gpui_kit::NavigationDirection::Back, w, cx);
+            }))
+            .on_mouse_down(MouseButton::Navigate(gpui_kit::NavigationDirection::Forward), cx.listener(move |this, _, w, cx| {
+                cx.stop_propagation();
+                this.mouse_navigation(navigation_stamp, gpui_kit::NavigationDirection::Forward, w, cx);
+            }))
             .key_context("DriftBrowser")
             .track_focus(&self.browser_focus)
             .on_action(cx.listener(Self::focus_filter))
@@ -832,28 +993,7 @@ impl Render for BrowserPane {
             .border_l(metric(2., cx))
             .border_color(border)
             .focus(move |style| style.border_color(palette.focus))
-            .child(div().flex().flex_wrap().min_w_0().items_center().gap(metric(space::CONTROL, cx)).px(metric(space::PANEL, cx)).py(metric(space::TIGHT, cx)).min_h(metric(size::HEADER, cx)).text_size(Text::Metadata.rems()).bg(palette.chrome).border_b_1().border_color(border).children(self.finder.then(|| {
-                control(Button::new("finder-return"), cx)
-                    .label("Return")
-                    .icon(IconName::ArrowLeft)
-                    .min_w_0()
-                    .max_w_full()
-                    .overflow_hidden()
-                    .on_click(cx.listener(|this, _, w, cx| this.return_finder(w, cx)))
-            })).child(format!(
-                "{} · {} marked{}",
-                if self.finder {
-                    "Project files"
-                } else {
-                    "Local"
-                },
-                self.files.marked().len(),
-                if self.files.range_active() {
-                    " · range: press v to finish"
-                } else {
-                    ""
-                }
-            )))
+            .when(!self.external_chrome, |view| view.child(actions_header).child(path_header))
             .child(
                 div()
                 .id("local-files-pane")
@@ -883,7 +1023,7 @@ impl Render for BrowserPane {
                         range
                             .filter_map(|index| {
                                 let name = this.files.row(index)?.to_owned();
-                                let chosen = this.files.selected() == Some(name.as_str());
+                                let chosen = this.files.is_selected(&name);
                                 let directory = this
                                     .entries
                                     .iter()
@@ -907,6 +1047,8 @@ impl Render for BrowserPane {
                                     0
                                 };
                                 let toggle_path = name.clone();
+                                let click_path = name.clone();
+                                let row_stamp = (this.id(), this.menu_revision);
                                 let is_directory = directory;
                                 let disclosure = div()
                                     .id(("local-tree-toggle", index))
@@ -924,17 +1066,23 @@ impl Render for BrowserPane {
                                     .on_click(cx.listener(move |this, _, w, cx| {
                                         if is_directory {
                                             cx.stop_propagation();
-                                            this.toggle_tree(toggle_path.clone(), w, cx);
+                                            if this.navigation_active && this.menu.is_none()
+                                                && (this.id(), this.menu_revision) == row_stamp
+                                                && this.files.row(index) == Some(toggle_path.as_str())
+                                                && (!this.is_loading() || this.tree_pending.as_deref() == Some(toggle_path.as_str())) {
+                                                this.toggle_tree(toggle_path.clone(), w, cx);
+                                            }
                                         }
                                     }));
                                 #[cfg(test)]
                                 let disclosure = disclosure.test_support();
                                 let context_path = name.clone();
-                                let row_stamp = (this.id(), this.menu_revision);
                                 let anchor_path = name;
                                 let anchor_owner = cx.weak_entity();
                                 let row = div()
                                     .id(index)
+                                    .w_full()
+                                    .min_w_0()
                                     .h(metric(size::ROW, cx))
                                     .pr(metric(space::PANEL, cx))
                                     .pl(metric(space::PANEL + depth as f32 * space::INDENT, cx))
@@ -946,7 +1094,7 @@ impl Render for BrowserPane {
                                     .child(disclosure)
                                     .child(div().w(metric(size::ICON, cx)).flex_shrink_0().child(if marked { "✓" } else { "" }))
                                     .child(Icon::new(if directory { if expanded { IconName::FolderOpen } else { IconName::FolderClosed } } else { IconName::File }).size(metric(size::ICON, cx)))
-                                    .child(div().min_w_0().truncate().child(if directory { format!("{display_name}/") } else { display_name }))
+                                    .child(div().flex_1().min_w_0().truncate().child(if directory { format!("{display_name}/") } else { display_name }))
                                     .child(if descendants > 0 {
                                         format!(" · {descendants} marked")
                                     } else {
@@ -967,15 +1115,21 @@ impl Render for BrowserPane {
                                     })
                                     .on_click(cx.listener(
                                         move |this, event: &gpui_kit::ClickEvent, w, cx| {
+                                            if !this.navigation_active || this.menu.is_some()
+                                                || (this.id(), this.menu_revision) != row_stamp
+                                                || this.files.row(index) != Some(click_path.as_str())
+                                                || (this.is_loading() && this.tree_pending.as_deref() != Some(click_path.as_str())) {
+                                                return;
+                                            }
                                             this.browser_focus.focus(w, cx);
                                             let modifiers = event.modifiers();
-                                            if modifiers.shift {
-                                                this.files.select_range(index);
-                                            } else if modifiers.control || modifiers.platform {
-                                                this.files.select(index);
-                                                this.files.toggle_mark();
-                                            } else {
-                                                this.choose(index, w, cx);
+                                            let gesture = SelectGesture::from_modifiers(
+                                                modifiers.shift,
+                                                modifiers.control || modifiers.platform,
+                                            );
+                                            this.files.click(index, gesture);
+                                            if gesture == SelectGesture::Single && directory && event.click_count() == 2 {
+                                                this.toggle_tree(click_path.clone(), w, cx);
                                                 return;
                                             }
                                             this.selection_changed(false, cx);
@@ -990,9 +1144,10 @@ impl Render for BrowserPane {
                     })
                 })
                 .track_scroll(&self.scroll)
-                .flex_1())
+                .w_full().min_w_0().flex_1())
                 .children(self.menu.as_ref().map(|(_, menu)| menu.render())),
             )
+            .when(!self.external_chrome, |view| view.child(selection_footer))
     }
 }
 

@@ -71,10 +71,13 @@ async fn logging_open_warning_remains_visible_in_browser_and_management(cx: &mut
         assert!(shell.read(cx).hosts.is_none());
         assert!(w.find("logging-warning").visible());
         assert_eq!(shell.read(cx).logging_warning.as_ref(), Some(&warning));
-        w.click("remote", cx);
-        w.click(("connect-host", 0usize), cx);
+        w.click("remote-files-tab", cx);
     })
     .unwrap();
+    cx.update_window(handle, |_, w, cx| crate::test_support::settle(w, cx))
+        .unwrap();
+    cx.update_window(handle, |_, w, cx| crate::test_support::connect_first(w, cx))
+        .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
         shell.read(cx).certificate.is_some()
     })

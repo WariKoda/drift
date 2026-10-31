@@ -58,19 +58,19 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
             shell.read(cx).browser.read(cx).selected(),
             Some("first.txt")
         );
-        assert!(!shell.read(cx).preview.read(cx).is_loading());
+        assert!(!shell.read(cx).local_preview.read(cx).is_loading());
         w.press("space", cx);
         w.press("p", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        !shell.read(cx).preview.read(cx).is_loading()
+        !shell.read(cx).local_preview.read(cx).is_loading()
     })
     .await;
     let original = shell.read_with(cx, |s, cx| {
         (
             s.browser.entity_id(),
-            s.preview.entity_id(),
+            (s.local_preview.entity_id(), s.remote_preview.entity_id()),
             s.remote.entity_id(),
             s.browser.read(cx).id(),
         )
@@ -86,6 +86,7 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("first.txt")
         );
+        w.click("local-files-tab", cx);
         w.press("menu", cx);
         assert!(w.find("popup-menu").visible());
         w.press("f1", cx);
@@ -94,7 +95,7 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
         w.press("c", cx);
         assert_eq!(w.find("popup-menu").focused(), Some(true));
         assert!(shell.read(cx).help.is_none());
-        assert!(!shell.read(cx).show_remote);
+        assert_eq!(shell.read(cx).local_view, crate::pane_tabs::PaneView::Files);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some("first.txt")
@@ -108,10 +109,11 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
         w.press("s", cx);
         w.press("p", cx);
         assert!(!shell.read(cx).comparison.read(cx).visible());
-        assert!(!shell.read(cx).show_remote);
+        assert_eq!(shell.read(cx).local_view, crate::pane_tabs::PaneView::Files);
         w.press("escape", cx);
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
         assert_eq!(shell.read(cx).browser.read(cx).marked(), ["first.txt"]);
+        w.click("local-preview-tab", cx);
         w.press("ctrl-alt-p", cx);
         assert!(!shell.read(cx).browser.focus_handle(cx).is_focused(w));
         w.press(
@@ -138,21 +140,21 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
     })
     .unwrap();
     cx.update_window(handle, |_, w, cx| {
-        assert!(shell.read(cx).show_remote);
+        assert_eq!(shell.read(cx).local_view, crate::pane_tabs::PaneView::Files);
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
         assert_eq!(shell.read(cx).browser.read(cx).marked(), ["first.txt"]);
         w.press("p", cx);
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        !shell.read(cx).preview.read(cx).is_loading()
+        !shell.read(cx).local_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
-        let stale = shell.read(cx).preview.read(cx).id();
+        let stale = shell.read(cx).local_preview.read(cx).id();
         w.press("p", cx);
-        assert!(shell.read(cx).show_remote);
-        let preview = shell.read(cx).preview.clone();
+        assert_eq!(shell.read(cx).local_view, crate::pane_tabs::PaneView::Files);
+        let preview = shell.read(cx).local_preview.clone();
         preview.update(cx, |_, cx| cx.emit(PreviewEvent::Loaded(stale)));
         assert_eq!(
             shell.read(cx).browser.read(cx).selected(),
@@ -166,7 +168,7 @@ async fn keyboard_preview_toggle_copy_focus_and_help_preserve_browser_state(
         assert_eq!(
             (
                 s.browser.entity_id(),
-                s.preview.entity_id(),
+                (s.local_preview.entity_id(), s.remote_preview.entity_id()),
                 s.remote.entity_id(),
                 s.browser.read(cx).id()
             ),
@@ -225,13 +227,18 @@ async fn remote_keyboard_preview_restore_retains_connection_marks_and_files(
         w.press("space", cx);
         w.press("@", cx);
         w.press("ctrl-f", cx);
-        for _ in 0..32 {
-            w.press("shift-tab", cx);
-            if w.find(("connect-host", 0usize)).focused() == Some(true) {
+        for _ in 0..64 {
+            w.focus_next(cx);
+            w.render_frame(cx);
+            if w.find("remote-host-select").focused() == Some(true) {
                 break;
             }
         }
-        assert_eq!(w.find(("connect-host", 0usize)).focused(), Some(true));
+        assert_eq!(w.find("remote-host-select").focused(), Some(true));
+        w.press("enter", cx);
+        assert_eq!(w.find("remote-host-select").expanded(), Some(true));
+        assert!(!shell.read(cx).remote.read(cx).is_loading());
+        w.press("down", cx);
         w.press("enter", cx);
     })
     .unwrap();
@@ -254,7 +261,8 @@ async fn remote_keyboard_preview_restore_retains_connection_marks_and_files(
     })
     .unwrap();
     cx.wait_for(handle, Duration::from_secs(60), |_, cx| {
-        shell.read(cx).remote_preview && !shell.read(cx).preview.read(cx).is_loading()
+        shell.read(cx).remote_view == crate::pane_tabs::PaneView::Preview
+            && !shell.read(cx).remote_preview.read(cx).is_loading()
     })
     .await;
     cx.update_window(handle, |_, w, cx| {
@@ -265,9 +273,17 @@ async fn remote_keyboard_preview_restore_retains_connection_marks_and_files(
         );
         w.press("?", cx);
         w.press("escape", cx);
-        assert!(shell.read(cx).remote.focus_handle(cx).is_focused(w));
+        assert!(shell.read(cx).remote_focus.contains_focused(w, cx));
+        assert!(
+            w.within("remote-workspace")
+                .find("preview-header")
+                .visible()
+        );
         w.press("p", cx);
-        assert!(!shell.read(cx).remote_preview);
+        assert_eq!(
+            shell.read(cx).remote_view,
+            crate::pane_tabs::PaneView::Files
+        );
         assert_eq!(shell.read(cx).remote.read(cx).session_id(), connection);
         assert_eq!(
             shell.read(cx).remote.read(cx).marked(),
@@ -343,7 +359,7 @@ async fn help_from_editable_filter_restores_typing_and_scrolls_without_running_c
         assert!(filter_focus.is_focused(w));
         w.input("c", cx);
         assert_eq!(shell.read(cx).browser.read(cx).len(), 1);
-        assert!(!shell.read(cx).preview.read(cx).is_loading());
+        assert!(!shell.read(cx).local_preview.read(cx).is_loading());
         w.press("down", cx);
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
         w.press("f1", cx);
@@ -352,11 +368,11 @@ async fn help_from_editable_filter_restores_typing_and_scrolls_without_running_c
         assert!(shell.read(cx).help.is_none());
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
         w.press("/", cx);
-        let preview_id = shell.read(cx).preview.read(cx).id();
+        let preview_id = shell.read(cx).local_preview.read(cx).id();
         w.press("escape", cx);
         assert!(shell.read(cx).browser.focus_handle(cx).is_focused(w));
         assert_eq!(w.find("filter").value(), Some("pc"));
-        assert_eq!(shell.read(cx).preview.read(cx).id(), preview_id);
+        assert_eq!(shell.read(cx).local_preview.read(cx).id(), preview_id);
         w.press("f", cx);
         assert!(shell.read(cx).browser.read(cx).is_loading());
         w.press("ctrl-escape", cx);

@@ -657,6 +657,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		a.state.Screen = ScreenDashboard
+		if msg.OldSlug != "" && msg.OldSlug == a.currentSlug() {
+			if saved := a.registry.Find(msg.OldSlug); saved != nil {
+				if saved.Path != a.state.WorkingDir {
+					return a, a.openProject(*saved)
+				}
+				pc := *saved
+				a.state.ActiveProject = &pc
+				a.browser.SetProjectName(pc.Name)
+			}
+		}
 		return a, nil
 
 	case projectform.MsgProjectFormCancelled:
@@ -683,7 +693,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case projectselector.MsgProjectChosen:
-		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Project.Slug {
+		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Project.Slug && a.state.WorkingDir == msg.Project.Path {
 			a.state.Screen = ScreenBrowser
 			return a, nil
 		}
@@ -855,11 +865,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.state.Selection != nil {
 			for _, path := range msg.DeletedLocal {
 				delete(a.state.Selection.Marked, path)
+				if a.browser.Selection != nil {
+					delete(a.browser.Selection.Marked, path)
+				}
 			}
 		}
 		if a.state.RemoteSelection != nil {
 			for _, path := range msg.DeletedRemote {
 				delete(a.state.RemoteSelection.Marked, path)
+				if a.browser.RemoteSelection != nil {
+					delete(a.browser.RemoteSelection.Marked, path)
+				}
 			}
 		}
 		host := *a.state.SelectedHost
@@ -876,10 +892,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.watchConnection(nil)
 		closeDiff := a.diffView.Close()
 		a.state.Screen = ScreenBrowser
-		a.state.Selection.Clear()
+		if a.state.Selection != nil {
+			a.state.Selection.Clear()
+		}
 		if a.state.RemoteSelection != nil {
 			a.state.RemoteSelection.Clear()
 		}
+		if a.browser.Selection != nil {
+			a.browser.Selection.Clear()
+		}
+		if a.browser.RemoteSelection != nil {
+			a.browser.RemoteSelection.Clear()
+		}
+		a.state.Selection = a.browser.Selection
+		a.state.RemoteSelection = a.browser.RemoteSelection
 		if a.state.SelectedHost != nil {
 			h := *a.state.SelectedHost
 			cmd := a.browser.StartRemote(h)
@@ -951,7 +977,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.hostManager.SetErr("Delete failed: " + a.describeConfigError(err))
 		}
 		a.state.Screen = ScreenHostManager
-		return a, nil
+		if err != nil {
+			return a, nil
+		}
+		return a, a.reconcileRemoteHost()
 
 	case hostmanager.MsgLinkPickerRequested:
 		targets, err := config.LinkTargets(a.state.Config)
@@ -996,7 +1025,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.hostManager.SetErr(err.Error())
 		}
 		a.state.Screen = ScreenHostManager
-		return a, nil
+		return a, a.reconcileRemoteHost()
 
 	case hostform.MsgHostSaved:
 		if msg.Scope == config.ScopeProject && !msg.Host.IsLink() && !msg.KeepConnection {
@@ -1018,7 +1047,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.hostManager.Refresh()
 		a.state.Screen = ScreenHostManager
-		return a, nil
+		return a, a.reconcileRemoteHost()
 
 	case hostform.MsgFormCancelled:
 		a.state.Screen = ScreenHostManager

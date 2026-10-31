@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/WariKoda/drift/internal/project"
+	"github.com/WariKoda/drift/internal/styles"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -92,7 +93,7 @@ func (m Model) currentEntry() *entry {
 }
 
 // SetStatus sets a one-line status/error message shown in the footer.
-func (m *Model) SetStatus(msg string) { m.statusMsg = msg }
+func (m *Model) SetStatus(msg string) { m.statusMsg = styles.SafeText(msg) }
 
 // SetReturnable marks whether Esc should return to the previous screen
 // instead of quitting drift. Landing-page dashboard stays false (Esc/q quit).

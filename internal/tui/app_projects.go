@@ -42,7 +42,7 @@ func (a *App) openProject(p project.Project) tea.Cmd {
 			result.browser, result.err = browser.New(p.Path)
 		}
 		if result.err == nil {
-			result.err = result.browser.SetConfig(result.config)
+			result.browser.SetConfig(result.config)
 		}
 		if result.err != nil {
 			log.Error("prepare project failed", "slug", p.Slug, "path", p.Path, "err", result.err)
@@ -86,6 +86,7 @@ func (a App) applyPreparedProject(msg msgProjectPrepared) (tea.Model, tea.Cmd) {
 	a.trustSaving = false
 	a.trustWriteSeq++
 
+	a.browser.CancelLocal()
 	a.browser = b
 	a.state.Config = msg.config
 	a.state.WorkingDir = p.Path

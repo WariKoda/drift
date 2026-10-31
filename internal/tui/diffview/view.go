@@ -155,8 +155,8 @@ func (m Model) renderComparisonSplash(state comparisonEmptyState) []string {
 
 func (m Model) renderHeader() string {
 	left := styles.Header.Render("drift")
-	right := styles.Muted.Render("→ ") + styles.Dir.Render(m.host.Name) +
-		styles.Muted.Render("  "+m.host.Hostname)
+	right := styles.Muted.Render("→ ") + styles.Dir.Render(styles.SafeText(m.host.Name)) +
+		styles.Muted.Render("  "+styles.SafeText(m.host.Hostname))
 	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
@@ -195,7 +195,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s == nil:
 		content = blankRows(vh, dw)
 	case s.Err != nil:
-		content = paddedContentRows([]string{"  " + styles.Err.Render(s.Err.Error())}, vh, dw)
+		content = paddedContentRows([]string{"  " + styles.Err.Render(styles.SafeText(s.Err.Error()))}, vh, dw)
 	case s.Result == nil:
 		content = paddedContentRows([]string{"  " + styles.Muted.Render("loading…")}, vh, dw)
 	case s.Result.Binary || len(s.Result.Lines) == 0:
@@ -223,8 +223,8 @@ func (m Model) renderPathHeader(localPath, remotePath string, width int) string 
 	if m.remoteBeforeLocal() {
 		localPath, remotePath = remotePath, localPath
 	}
-	left := truncLeft(localPath, half)
-	right := truncLeft(remotePath, half)
+	left := truncLeft(styles.SafeText(localPath), half)
+	right := truncLeft(styles.SafeText(remotePath), half)
 	return pad(styles.Muted.Render(left+sep+right), width)
 }
 
@@ -286,15 +286,13 @@ func (m Model) renderFileRow(i, width int) string {
 		nameStyle = styles.Muted
 	}
 
-	name := fileListName(s)
+	name := styles.SafeText(fileListName(s))
 	// cursor(2) + name + space + dir(1)
 	nameMax := width - 4
 	if nameMax < 2 {
 		nameMax = 2
 	}
-	if r := []rune(name); len(r) > nameMax {
-		name = "…" + string(r[len(r)-(nameMax-1):])
-	}
+	name = truncLeft(name, nameMax)
 
 	return pad(cursor+nameStyle.Render(name)+" "+dirChar, width)
 }
@@ -336,37 +334,41 @@ func sessionStatus(s *diff.Session) string {
 
 // renderErrorListRows renders bulk-sync errors for the right pane.
 func (m Model) renderErrorListRows(height, width int) []string {
-	rows := make([]string, 0, height)
-
+	if height <= 0 {
+		return nil
+	}
 	title := styles.Err.Render(fmt.Sprintf("Sync errors (%d)", len(m.syncErrors)))
-	rows = append(rows, pad("  "+title+styles.KeyHints("  — [e] or [q] to close", styles.Muted), width))
+	rows := []string{pad(ansi.Truncate("  "+title+styles.KeyHints("  — [e] or [q] to close", styles.Muted), width, ""), width)}
+	content := m.errorRows(width)
+	start := min(m.errorOffset, max(0, len(content)-max(1, height-1)))
+	end := min(len(content), start+height-1)
+	rows = append(rows, content[start:end]...)
+	return paddedContentRows(rows, height, width)
+}
 
+func (m Model) errorRows(width int) []string {
+	var rows []string
 	for _, failure := range m.syncErrors {
-		if len(rows) >= height {
-			break
-		}
-		contentWidth := max(1, width-4)
-		path := failure.Path
+		path, operation, reason := failure.Path, failure.Operation, failure.Reason
 		if path == "" {
 			path = "unknown file"
 		}
-		path = truncLeft(path, max(1, contentWidth/3))
-		operation := failure.Operation
 		if operation == "" {
 			operation = "sync"
 		}
-		prefix := "✗ " + path + " [" + operation + "] "
-		reason := failure.Reason
 		if reason == "" {
 			reason = "unknown error"
 		}
-		// Keep the leading outcome warning visible even when its cause is long.
-		reason = ansi.Truncate(reason, max(1, contentWidth-lipgloss.Width(prefix)), "…")
-		rows = append(rows, pad("  "+styles.Err.Render("✗ ")+styles.File.Render(path)+
-			styles.Muted.Render(" ["+operation+"] ")+styles.Err.Render(reason), width))
+		line := "✗ " + styles.SafeText(path) + " [" + styles.SafeText(operation) + "] " + styles.SafeText(reason)
+		for _, part := range strings.Split(ansi.Hardwrap(line, max(1, width-2), true), "\n") {
+			rows = append(rows, pad("  "+styles.Err.Render(part), width))
+		}
 	}
+	return rows
+}
 
-	return paddedContentRows(rows, height, width)
+func (m *Model) clampErrorScroll() {
+	m.errorOffset = min(max(0, m.errorOffset), max(0, len(m.errorRows(m.diffWidth()))-max(1, m.viewportHeight()-1)))
 }
 
 func (m Model) renderSummaryRows(r *diff.DiffResult, height, width int) []string {
@@ -545,12 +547,8 @@ func truncLeft(p string, max int) string {
 	if max < 1 {
 		max = 1
 	}
-	r := []rune(p)
-	if len(r) <= max {
-		return p
+	if cells := ansi.StringWidth(p); cells > max {
+		return ansi.TruncateLeft(p, cells-max+1, "…")
 	}
-	if max == 1 {
-		return "…"
-	}
-	return "…" + string(r[len(r)-(max-1):])
+	return p
 }

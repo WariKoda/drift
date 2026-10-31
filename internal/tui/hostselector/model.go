@@ -129,7 +129,7 @@ func (m Model) View() string {
 	inner.WriteByte('\n')
 
 	// Search input
-	query := m.query + "█"
+	query := styles.SafeText(m.query) + "█"
 	if m.query == "" {
 		query = styles.Muted.Render("type to filter…")
 	}
@@ -150,8 +150,8 @@ func (m Model) View() string {
 					":" + itoa(h.Port),
 				)
 			}
-			name := styles.Dir.Render(padStr(h.Name, 16))
-			host := styles.File.Render(h.Hostname) + port
+			name := styles.Dir.Render(padStr(styles.SafeText(h.Name), 16))
+			host := styles.File.Render(styles.SafeText(h.Hostname)) + port
 
 			line := "  " + name + " " + host
 			if i == m.cursor {

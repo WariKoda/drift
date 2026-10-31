@@ -72,8 +72,13 @@ func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 			m.fileListOffset += delta
 			m.clampFileListOffset()
 		case zoneContent:
-			m.scroll += delta
-			m.clampScroll()
+			if m.showErrors {
+				m.errorOffset += delta
+				m.clampErrorScroll()
+			} else {
+				m.scroll += delta
+				m.clampScroll()
+			}
 		}
 		return m, nil
 	}

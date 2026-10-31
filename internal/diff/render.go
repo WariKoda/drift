@@ -6,6 +6,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // RenderUnifiedRows renders flattened display rows (hunk headers, folds, lines).
@@ -160,12 +161,7 @@ func pad(s string, width int) string {
 }
 
 func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	expanded := expandTabs(r, 4)
-	if len(expanded) <= n {
-		return string(expanded)
-	}
-	return string(expanded[:n])
+	return ansi.Truncate(styles.SafeText(string(expandTabs([]rune(s), 4))), max(0, n), "")
 }
 
 func expandTabs(r []rune, tabWidth int) []rune {

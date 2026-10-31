@@ -55,11 +55,13 @@ type MsgScopeReloadRequested struct {
 
 // MsgBulkSyncDone is sent when bulk sync has finished.
 type MsgBulkSyncDone struct {
-	Conn      remote.Client
-	Done      int                  // number of successfully synced files
-	Completed []int                // session indices with confirmed successful operations
-	Errors    []syncpolicy.Failure // one entry per failed file
-	Err       error                // terminal connection failure; remaining jobs were not started
+	DeletedLocal  []string
+	DeletedRemote []string
+	Conn          remote.Client
+	Done          int                  // number of successfully synced files
+	Completed     []int                // session indices with confirmed successful operations
+	Errors        []syncpolicy.Failure // one entry per failed file
+	Err           error                // terminal connection failure; remaining jobs were not started
 }
 
 // MsgSyncProgress is emitted periodically while a bulk sync is running.
@@ -165,9 +167,10 @@ type Model struct {
 	syncStatus      string               // last bulk sync result message
 	syncErrors      []syncpolicy.Failure // per-file errors from the last bulk sync
 	showErrors      bool                 // true while the error overlay is open
-	syncProgress    *progress.Tracker    // live counter shared with the running bulk sync
-	syncDone        int                  // files processed so far in the active bulk sync
-	syncTotal       int                  // total files in the active bulk sync
+	errorOffset     int
+	syncProgress    *progress.Tracker // live counter shared with the running bulk sync
+	syncDone        int               // files processed so far in the active bulk sync
+	syncTotal       int               // total files in the active bulk sync
 	scope           syncpolicy.ScopeSummary
 	scopeOptions    syncpolicy.ScopeOptions
 	host            config.Host
@@ -215,6 +218,7 @@ func (m *Model) SetSyncResult(status string, failures []syncpolicy.Failure) {
 	m.syncStatus = status
 	m.syncErrors = append([]syncpolicy.Failure(nil), failures...)
 	m.showErrors = len(failures) > 0
+	m.errorOffset = 0
 }
 
 // Init satisfies the sub-model convention.
@@ -354,6 +358,7 @@ func (m *Model) SetSize(w, h int) {
 	m.Width = w
 	m.Height = h
 	m.clampFileList()
+	m.clampErrorScroll()
 }
 
 // bodyHeight returns the shared vertical space for the file list and diff pane.
@@ -756,10 +761,16 @@ func (m Model) bulkSyncCmd(indices []int) tea.Cmd {
 			sessionIdx = append(sessionIdx, i)
 		}
 		result := syncpolicy.Run(tracker.Context(), conn, root, items, tracker)
-		completed := make([]int, len(result.Completed))
-		for n, item := range result.Completed {
-			completed[n] = sessionIdx[item]
+		out := MsgBulkSyncDone{Conn: conn, Done: len(result.Completed), Errors: result.Failures, Err: result.Err}
+		for _, index := range result.Completed {
+			out.Completed = append(out.Completed, sessionIdx[index])
+			switch items[index].Decision {
+			case syncpolicy.DecisionDeleteLocal:
+				out.DeletedLocal = append(out.DeletedLocal, items[index].LocalPath)
+			case syncpolicy.DecisionDeleteRemote:
+				out.DeletedRemote = append(out.DeletedRemote, items[index].RemotePath)
+			}
 		}
-		return MsgBulkSyncDone{Conn: conn, Done: len(completed), Completed: completed, Errors: result.Failures, Err: result.Err}
+		return out
 	})
 }

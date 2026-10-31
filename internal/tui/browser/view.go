@@ -55,6 +55,7 @@ func (m Model) View() string {
 
 	var sb strings.Builder
 	localEntries := m.filteredEntries()
+	remoteEntries := m.visibleRemoteEntries()
 	leftW, rightW := m.paneWidths()
 	divider := styles.Sep.Render("│")
 
@@ -70,7 +71,7 @@ func (m Model) View() string {
 	vh := m.viewportHeight()
 	for row := 0; row < vh; row++ {
 		left := m.renderLocalRow(localEntries, m.offset+row, leftW)
-		right := m.renderRemoteRow(m.remoteOffset+row, rightW)
+		right := m.renderRemoteRow(remoteEntries, m.remoteOffset+row, rightW)
 		if m.preview.active {
 			if m.preview.source == PaneLocal {
 				right = m.renderPreviewRow(row, rightW)
@@ -106,23 +107,26 @@ func (m Model) paneWidths() (int, int) {
 func (m Model) renderHeader() string {
 	line := styles.Header.Render("drift")
 	if m.projectName != "" {
-		line += "  " + styles.Accent.Render(m.projectName)
+		line += "  " + styles.Accent.Render(styles.SafeText(m.projectName))
 	}
-	line += "  " + styles.Muted.Render(m.absWorkDir())
-	return padRight(line, m.Width)
+	line += "  " + styles.Muted.Render(styles.SafeText(m.absWorkDir()))
+	if m.Width <= 0 {
+		return line
+	}
+	return padRight(ansi.Truncate(line, m.Width, "…"), m.Width)
 }
 
 func (m Model) renderPaneLabels(leftW, rightW int) string {
-	localLabel := styles.Muted.Render("  LOCAL  " + truncLeftPath(m.absWorkDir(), leftW-9))
+	localLabel := styles.Muted.Render("  LOCAL  " + truncLeftPath(styles.SafeText(m.absWorkDir()), leftW-9))
 	if m.activePane == PaneLocal {
-		localLabel = styles.ActivePane.Render(padRight("▶ LOCAL  "+truncLeftPath(m.absWorkDir(), leftW-9), leftW))
+		localLabel = styles.ActivePane.Render(padRight("▶ LOCAL  "+truncLeftPath(styles.SafeText(m.absWorkDir()), leftW-9), leftW))
 	}
 
 	remotePath := "[@] select host"
 	remoteName := "REMOTE"
 	if m.remoteHost != nil {
-		remoteName = "REMOTE " + m.remoteHost.Name
-		remotePath = m.remoteRoot
+		remoteName = "REMOTE " + styles.SafeText(m.remoteHost.Name)
+		remotePath = styles.SafeText(m.remoteRoot)
 	}
 	remoteText := remoteName + "  " + truncLeftPath(remotePath, rightW-lipgloss.Width(remoteName)-4)
 	remoteLabel := styles.Muted.Render("  " + remoteText)
@@ -186,17 +190,16 @@ func (m Model) renderLocalRow(entries []*fs.FileEntry, i, width int) string {
 	return m.renderEntry(entries[i], i == m.cursor && m.activePane == PaneLocal, width, m.Selection, m.filter)
 }
 
-func (m Model) renderRemoteRow(i, width int) string {
-	entries := m.visibleRemoteEntries()
+func (m Model) renderRemoteRow(entries []*fs.FileEntry, i, width int) string {
 	switch {
 	case m.remoteHost == nil:
 		if i == 0 {
-			return padRight("  "+styles.KeyHints("press [@] to choose remote host", styles.Muted), width)
+			return padRight(truncate("  "+styles.KeyHints("press [@] to choose remote host", styles.Muted), width), width)
 		}
 		return strings.Repeat(" ", width)
 	case m.remoteLoading:
 		if i == 0 {
-			return padRight("  "+styles.Muted.Render(m.remoteStatus), width)
+			return padRight(truncate("  "+styles.Muted.Render(styles.SafeText(m.remoteStatus)), width), width)
 		}
 		return strings.Repeat(" ", width)
 	case len(entries) == 0:
@@ -263,7 +266,8 @@ func (m Model) renderPreviewRow(row, width int) string {
 }
 
 func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selection *fs.SelectionState, filter string) string {
-	indent := strings.Repeat("  ", entry.Depth)
+	indent := strings.Repeat("  ", min(max(0, entry.Depth), max(0, (width-8)/2)))
+	label := styles.SafeText(entry.Name)
 
 	var icon string
 	if entry.Kind == fs.EntryDir {
@@ -286,7 +290,6 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 
 	var name string
 	if isCursor {
-		label := entry.Name
 		if entry.Kind == fs.EntryDir {
 			label += "/"
 		} else if entry.Kind == fs.EntrySymlink {
@@ -299,7 +302,7 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 			name += styles.Muted.Render(" [ignored]")
 		}
 	} else if entry.Unmapped {
-		name = styles.Warn.Render(entry.Name + " [outside mapping]")
+		name = styles.Warn.Render(label + " [outside mapping]")
 	} else if entry.Class.Ignored {
 		suffix := ""
 		if entry.Kind == fs.EntryDir {
@@ -307,17 +310,17 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		} else if entry.Kind == fs.EntrySymlink {
 			suffix = "@"
 		}
-		name = styles.Muted.Render(entry.Name + suffix + " [ignored]")
+		name = styles.Muted.Render(label + suffix + " [ignored]")
 	} else if filter != "" {
-		name = highlightMatch(entry.Name, filter, entry.Kind)
+		name = highlightMatch(label, styles.SafeText(filter), entry.Kind)
 	} else {
 		switch entry.Kind {
 		case fs.EntryDir:
-			name = styles.Dir.Render(entry.Name + "/")
+			name = styles.Dir.Render(label + "/")
 		case fs.EntrySymlink:
-			name = styles.Link.Render(entry.Name + "@")
+			name = styles.Link.Render(label + "@")
 		default:
-			name = styles.File.Render(entry.Name)
+			name = styles.File.Render(label)
 		}
 	}
 
@@ -344,11 +347,9 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		line = prefix + ansi.Truncate(name, nameWidth, "…") + badge
 	} else if lipgloss.Width(line) > maxW {
 		prefix := indent + icon + mark
-		available := maxW - lipgloss.Width(prefix) - 1
-		if available < 1 {
-			available = 1
-		}
-		short := truncatePlain(entry.Name, available) + "…"
+		prefix = ansi.Truncate(prefix, max(0, maxW-2), "")
+		available := max(0, maxW-lipgloss.Width(prefix))
+		short := ansi.Truncate(label, available, "…")
 		switch {
 		case isCursor:
 			name = styles.CurrentEntry.Render(short)
@@ -366,6 +367,7 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		line = prefix + name
 	}
 
+	line = ansi.Truncate(line, max(0, width), "…")
 	if isCursor {
 		line = styles.CursorRow.Width(width).Render(padRight(line, width))
 	} else {
@@ -378,11 +380,13 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	var left string
 	switch {
 	case m.filterMode:
-		left = styles.Key.Render("/") + " " + m.filter + "█"
+		left = styles.Key.Render("/") + " " + styles.SafeText(m.filter) + "█"
 	case m.preview.active && m.preview.loading:
 		left = styles.Muted.Render("Loading preview…")
 	case m.statusMsg != "":
 		left = styles.KeyHints(m.statusMsg, styles.Muted)
+	case m.localReload != nil || len(m.localReads) > 0:
+		left = styles.KeyHints("Reading local files… [Esc] cancel", styles.Muted)
 	case selectionCount(m.Selection)+selectionCount(m.RemoteSelection) > 0:
 		left = styles.Marked.Render(markedStatus(selectionCount(m.Selection), selectionCount(m.RemoteSelection)))
 		if hidden := m.hiddenSelectionCount(); hidden > 0 {
@@ -460,11 +464,11 @@ func (m Model) renderHelp() string {
 func (m Model) renderFinder() string {
 	var sb strings.Builder
 
-	title := styles.Header.Render("drift") + "  " + styles.Muted.Render("Find files — "+m.absWorkDir())
+	title := styles.Header.Render("drift") + "  " + styles.Muted.Render("Find files — "+styles.SafeText(m.absWorkDir()))
 	sb.WriteString(padRight(title, m.Width))
 	sb.WriteByte('\n')
 
-	prompt := "  " + styles.Key.Render("›") + " " + m.finder.query + "█"
+	prompt := "  " + styles.Key.Render("›") + " " + styles.SafeText(m.finder.query) + "█"
 	sb.WriteString(padRight(prompt, m.Width))
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderSep())
@@ -478,7 +482,7 @@ func (m Model) renderFinder() string {
 		sb.WriteByte('\n')
 		rendered++
 	case m.finder.err != "":
-		sb.WriteString(padRight("  "+styles.Err.Render("index failed: "+m.finder.err), m.Width))
+		sb.WriteString(padRight("  "+styles.Err.Render("index failed: "+styles.SafeText(m.finder.err)), m.Width))
 		sb.WriteByte('\n')
 		rendered++
 	case len(m.finder.results) == 0:
@@ -552,7 +556,7 @@ func (m Model) renderFinderRow(i int) string {
 	if dir != "." {
 		remaining := (m.Width - 1) - lipgloss.Width(line) - 2
 		if remaining >= 6 {
-			line += "  " + styles.Sep.Render(truncLeftPath(dir, remaining))
+			line += "  " + styles.Sep.Render(truncLeftPath(styles.SafeText(dir), remaining))
 		}
 	}
 
@@ -580,9 +584,9 @@ func highlightRunes(s string, matched []int, start int, base lipgloss.Style) str
 	var b strings.Builder
 	for i := start; i < len(runes); i++ {
 		if _, ok := set[i]; ok {
-			b.WriteString(hl.Render(string(runes[i])))
+			b.WriteString(hl.Render(styles.SafeText(string(runes[i]))))
 		} else {
-			b.WriteString(base.Render(string(runes[i])))
+			b.WriteString(base.Render(styles.SafeText(string(runes[i]))))
 		}
 	}
 	return b.String()
@@ -590,15 +594,14 @@ func highlightRunes(s string, matched []int, start int, base lipgloss.Style) str
 
 // truncLeftPath shortens a path to max columns, keeping the tail (the immediate
 // parent is the most useful for disambiguation).
-func truncLeftPath(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
+func truncLeftPath(s string, width int) string {
+	if width <= 0 {
+		return ""
 	}
-	if max <= 1 {
-		return "…"
+	if cells := ansi.StringWidth(s); cells > width {
+		return ansi.TruncateLeft(s, cells-width+1, "…")
 	}
-	return "…" + string(r[len(r)-(max-1):])
+	return s
 }
 
 func highlightMatch(name, filter string, kind fs.EntryKind) string {
@@ -654,13 +657,5 @@ func truncate(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	return lipgloss.NewStyle().MaxWidth(width).Render(s)
-}
-
-func truncatePlain(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
+	return ansi.Truncate(s, max(0, width), "")
 }

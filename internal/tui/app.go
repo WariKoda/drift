@@ -9,6 +9,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/project"
@@ -110,9 +111,7 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 		return App{}, err
 	}
 	a.browser = b
-	if err := a.browser.SetConfig(cfg); err != nil {
-		return App{}, err
-	}
+	a.browser.SetConfig(cfg)
 	a.browser.SetMouseEnabled(mouseEnabled)
 	a.browser.SetTrustManager(a.trust)
 	a.state.Selection = b.Selection
@@ -620,11 +619,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.Config = cfg
 			a.hostManager = hostmanager.New(cfg, a.state.TermWidth, a.state.TermHeight)
 			a.hostManager.SetTrustManager(a.trust)
-			browserErr := a.browser.SetConfig(cfg)
+			a.browser.SetConfig(cfg)
 			if loadErr != nil {
 				a.dashboard.SetStatus("Project removed, but global config reload failed: " + loadErr.Error())
-			} else if browserErr != nil {
-				a.dashboard.SetStatus("Project removed, but browser reload failed: " + browserErr.Error())
 			}
 		}
 		a.state.Screen = ScreenDashboard
@@ -657,6 +654,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		a.state.Screen = ScreenDashboard
+		if msg.OldSlug != "" && msg.OldSlug == a.currentSlug() {
+			if saved := a.registry.Find(msg.OldSlug); saved != nil {
+				if saved.Path != a.state.WorkingDir {
+					return a, a.openProject(*saved)
+				}
+				pc := *saved
+				a.state.ActiveProject = &pc
+				a.browser.SetProjectName(pc.Name)
+			}
+		}
 		return a, nil
 
 	case projectform.MsgProjectFormCancelled:
@@ -683,7 +690,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case projectselector.MsgProjectChosen:
-		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Project.Slug {
+		if a.state.ActiveProject != nil && a.state.ActiveProject.Slug == msg.Project.Slug && a.state.WorkingDir == msg.Project.Path {
 			a.state.Screen = ScreenBrowser
 			return a, nil
 		}
@@ -763,6 +770,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, cmd
 			}
 		}
+		return a, cmd
+
+	case browser.MsgLocalLoaded:
+		var cmd tea.Cmd
+		a.browser, cmd = a.browser.Update(msg)
 		return a, cmd
 
 	case browser.MsgRemoteChildrenLoaded:
@@ -855,11 +867,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.state.Selection != nil {
 			for _, path := range msg.DeletedLocal {
 				delete(a.state.Selection.Marked, path)
+				if a.browser.Selection != nil {
+					delete(a.browser.Selection.Marked, path)
+				}
 			}
 		}
 		if a.state.RemoteSelection != nil {
 			for _, path := range msg.DeletedRemote {
 				delete(a.state.RemoteSelection.Marked, path)
+				if a.browser.RemoteSelection != nil {
+					delete(a.browser.RemoteSelection.Marked, path)
+				}
 			}
 		}
 		host := *a.state.SelectedHost
@@ -876,17 +894,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.watchConnection(nil)
 		closeDiff := a.diffView.Close()
 		a.state.Screen = ScreenBrowser
-		a.state.Selection.Clear()
+		if a.state.Selection != nil {
+			a.state.Selection.Clear()
+		}
 		if a.state.RemoteSelection != nil {
 			a.state.RemoteSelection.Clear()
 		}
+		if a.browser.Selection != nil {
+			a.browser.Selection.Clear()
+		}
+		if a.browser.RemoteSelection != nil {
+			a.browser.RemoteSelection.Clear()
+		}
+		a.state.Selection = a.browser.Selection
+		a.state.RemoteSelection = a.browser.RemoteSelection
+		refreshLocal := a.browser.RefreshLocal()
 		if a.state.SelectedHost != nil {
 			h := *a.state.SelectedHost
 			cmd := a.browser.StartRemote(h)
 			_, tracker, _ := a.browser.LoadingActivity()
-			return a, tea.Batch(closeDiff, cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
+			return a, tea.Batch(closeDiff, refreshLocal, cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+h.Name+"…", tracker))
 		}
-		return a, closeDiff
+		return a, tea.Batch(closeDiff, refreshLocal)
 
 	// ── Host Manager ──────────────────────────────────────────────────
 	case browser.MsgOpenHostManager:
@@ -951,7 +980,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.hostManager.SetErr("Delete failed: " + a.describeConfigError(err))
 		}
 		a.state.Screen = ScreenHostManager
-		return a, nil
+		if err != nil {
+			return a, nil
+		}
+		return a, a.reconcileRemoteHost()
 
 	case hostmanager.MsgLinkPickerRequested:
 		targets, err := config.LinkTargets(a.state.Config)
@@ -996,7 +1028,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.hostManager.SetErr(err.Error())
 		}
 		a.state.Screen = ScreenHostManager
-		return a, nil
+		return a, a.reconcileRemoteHost()
 
 	case hostform.MsgHostSaved:
 		if msg.Scope == config.ScopeProject && !msg.Host.IsLink() && !msg.KeepConnection {
@@ -1018,7 +1050,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.hostManager.Refresh()
 		a.state.Screen = ScreenHostManager
-		return a, nil
+		return a, a.reconcileRemoteHost()
 
 	case hostform.MsgFormCancelled:
 		a.state.Screen = ScreenHostManager
@@ -1101,7 +1133,30 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !progress.IsCanceled(result.Err) {
 				a.globalError = result.Err.Error()
 			}
+		case diffview.MsgSynced:
+			if result.Conn != nil && result.Conn == a.diffView.Connection() {
+				cmd = tea.Batch(cmd, a.browser.RefreshLocal())
+			}
 		case diffview.MsgBulkSyncDone:
+			if result.Conn != nil && result.Conn == a.diffView.Connection() {
+				for _, selection := range []*fs.SelectionState{a.state.Selection, a.browser.Selection} {
+					if selection != nil {
+						for _, path := range result.DeletedLocal {
+							delete(selection.Marked, path)
+						}
+					}
+				}
+				for _, selection := range []*fs.SelectionState{a.state.RemoteSelection, a.browser.RemoteSelection} {
+					if selection != nil {
+						for _, path := range result.DeletedRemote {
+							delete(selection.Marked, path)
+						}
+					}
+				}
+				if result.Done > 0 {
+					cmd = tea.Batch(cmd, a.browser.RefreshLocal())
+				}
+			}
 			for _, failure := range result.Errors {
 				if closeCmd, opened := a.openDiffCertificatePrompt(failure.Err); opened {
 					return a, tea.Batch(closeCmd, cmd)
@@ -1122,8 +1177,8 @@ func (a App) baseView() string {
 			BorderForeground(styles.ColorDir).
 			Padding(1, 2)
 		content := styles.Header.Render("Register this project?") + "\n\n" +
-			styles.File.Render(a.state.PendingRegisterName) + "  " +
-			styles.Muted.Render(a.state.PendingRegisterPath) + "\n\n" +
+			styles.File.Render(styles.SafeText(a.state.PendingRegisterName)) + "  " +
+			styles.Muted.Render(styles.SafeText(a.state.PendingRegisterPath)) + "\n\n" +
 			styles.Dir.Render("[y]") + styles.Muted.Render(" register   ") +
 			styles.Dir.Render("[n]") + styles.Muted.Render(" skip")
 		return lipgloss.Place(
@@ -1200,7 +1255,7 @@ func replaceStatusLine(view string, width, height int, text string, isError bool
 	}
 	line := styles.KeyHints("  "+text, styles.Warn)
 	if isError {
-		line = styles.Err.Render("  " + text)
+		line = styles.Err.Render("  " + styles.SafeText(text))
 	}
 	if width > 4 && lipgloss.Width(line) > width-2 {
 		line = ansi.Truncate(line, width-2, "…")

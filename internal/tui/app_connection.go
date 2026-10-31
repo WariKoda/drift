@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/WariKoda/drift/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
@@ -67,9 +68,27 @@ func (a *App) connectionEnded(msg msgConnectionEnded) {
 	}
 }
 
+func (a *App) reconcileRemoteHost() tea.Cmd {
+	host, assigned := a.browser.RemoteHost()
+	if !assigned || a.state.Config == nil {
+		return nil
+	}
+	current, exists := a.state.Config.Hosts[host.Name]
+	if exists && reflect.DeepEqual(current, host) {
+		return nil
+	}
+	a.abandonDiffRequest()
+	a.watchConnection(nil)
+	a.state.SelectedHost = nil
+	cmd := a.browser.ClearRemote()
+	a.browser.SetStatus("Remote configuration changed. Choose a host with [@] and compare again before syncing.")
+	return cmd
+}
+
 // Close releases connections and background observers after Bubble Tea exits.
 // It runs outside Update, so waiting for transport shutdown cannot block input.
 func (a *App) Close() {
+	a.browser.CancelLocal()
 	a.projectRequest = nil
 	a.cancelNetworkActivity()
 	a.watchConnection(nil)

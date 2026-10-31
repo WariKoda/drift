@@ -7,6 +7,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -35,7 +36,7 @@ func (m Model) View() string {
 	inner.WriteString(styles.Header.Render("Switch project"))
 	inner.WriteByte('\n')
 
-	query := m.query + "█"
+	query := styles.SafeText(m.query) + "█"
 	if m.query == "" {
 		query = styles.Muted.Render("type to filter…")
 	}
@@ -56,7 +57,7 @@ func (m Model) View() string {
 
 	if m.statusMsg != "" {
 		inner.WriteByte('\n')
-		inner.WriteString(styles.Err.Render(m.statusMsg))
+		inner.WriteString(styles.Err.Render(styles.SafeText(m.statusMsg)))
 	}
 
 	return border.Render(inner.String())
@@ -139,9 +140,9 @@ func (m Model) renderRow(i, inner int) string {
 	}
 
 	line := st.Render(marker) +
-		st.Render(padRune(e.proj.Name, nameCols)) +
+		st.Render(padRune(styles.SafeText(e.proj.Name), nameCols)) +
 		" " +
-		styles.Muted.Render(padRuneLeft(collapseHome(e.proj.Path), pathWidth)) +
+		styles.Muted.Render(padRuneLeft(styles.SafeText(collapseHome(e.proj.Path)), pathWidth)) +
 		tag
 	if active {
 		line = styles.CursorRow.Width(inner).Render(padRight(line, inner))
@@ -165,25 +166,19 @@ func collapseHome(p string) string {
 }
 
 func padRune(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		if width <= 1 {
-			return string(r[:width])
-		}
-		return string(r[:width-1]) + "…"
-	}
-	return s + strings.Repeat(" ", width-len(r))
+	width = max(0, width)
+	s = ansi.Truncate(s, width, "…")
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 func padRuneLeft(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		if width <= 1 {
-			return string(r[len(r)-width:])
-		}
-		return "…" + string(r[len(r)-(width-1):])
+	if width <= 0 {
+		return ""
 	}
-	return s + strings.Repeat(" ", width-len(r))
+	if cells := ansi.StringWidth(s); cells > width {
+		s = ansi.TruncateLeft(s, cells-width+1, "…")
+	}
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 func padRight(s string, width int) string {

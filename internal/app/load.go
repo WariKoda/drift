@@ -113,7 +113,7 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 
 	prog.Set("Scanning selections…", 0, 0, true)
 	mapper := pathmap.New(cfg.ProjectRoot, cfg.Mappings, host)
-	classifier, classifyErr := fs.NewClassifier(cfg.ProjectRoot)
+	classifier, classifyErr := fs.NewClassifier(ctx, cfg.ProjectRoot)
 	if classifyErr != nil {
 		return LoadResult{}, abort(classifyErr)
 	}

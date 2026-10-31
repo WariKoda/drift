@@ -36,7 +36,7 @@ func (m Model) View() string {
 
 	sb.WriteByte('\n')
 	if m.errMsg != "" {
-		sb.WriteString("  " + styles.Err.Render("✗ "+m.errMsg))
+		sb.WriteString("  " + styles.Err.Render("✗ "+styles.SafeText(m.errMsg)))
 		sb.WriteByte('\n')
 	}
 

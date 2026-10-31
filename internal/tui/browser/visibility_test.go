@@ -27,9 +27,7 @@ func TestVisibilityTogglesAreIndependentAndKeepTreeState(t *testing.T) {
 	assertVisibleNames(t, model.filteredEntries(), "dir", "visible.txt")
 
 	dir := model.filteredEntries()[0]
-	if err := model.expandAt(model.localIndex(dir)); err != nil {
-		t.Fatal(err)
-	}
+	model, _ = model.Update(model.expandAt(model.localIndex(dir))())
 	if !dir.Expanded {
 		t.Fatal("directory did not expand")
 	}

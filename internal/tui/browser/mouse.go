@@ -230,10 +230,8 @@ func (m Model) activateLocal() (Model, tea.Cmd) {
 	if entry.Expanded {
 		m.collapseAt(raw)
 		m.clampScroll()
-	} else if err := m.expandAt(raw); err != nil {
-		m.statusMsg = "Error: " + err.Error()
 	} else {
-		m.clampScroll()
+		return m, m.expandAt(raw)
 	}
 	return m, m.schedulePreview()
 }

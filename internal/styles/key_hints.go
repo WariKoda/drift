@@ -14,6 +14,7 @@ var keyHintPattern = regexp.MustCompile(`\[(?:\[|\]|[^\[\]\r\n]+)\]`)
 // KeyHints renders bracketed keys in the directory/primary style, keeping
 // descriptions in base. text must be plain text, without embedded ANSI styles.
 func KeyHints(text string, base lipgloss.Style) string {
+	text = SafeText(text)
 	var out strings.Builder
 	start := 0
 	for _, match := range keyHintPattern.FindAllStringIndex(text, -1) {

@@ -1,65 +1,35 @@
 package browser
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/WariKoda/drift/internal/fs"
 )
 
-// expandAt expands the directory at entries[i], inserting its children into the flat list.
-// Returns error if ReadDir fails; entries is not modified in that case.
-func (m *Model) expandAt(i int) error {
+// expandAt schedules a directory read without sharing live entries with the command.
+func (m *Model) expandAt(i int) tea.Cmd {
 	entry := m.entries[i]
 	if entry.Kind != fs.EntryDir || entry.Expanded {
 		return nil
 	}
-
-	children, err := fs.ReadDir(entry.Path)
-	if err != nil {
-		return err
+	m.cancelLocalRefresh()
+	ctx, cancel := context.WithCancel(context.Background())
+	request := &localReadRequest{session: m.remoteSession, path: entry.Path, cancel: cancel}
+	if m.localReads == nil {
+		m.localReads = make(map[string]*localReadRequest)
 	}
-	children, err = m.classifyLocal(children)
-	if err != nil {
-		return err
+	m.localReads[entry.Path] = request
+	entry.Expanded, entry.Children = true, nil
+	classifier := m.classifier
+	return func() tea.Msg {
+		defer cancel()
+		entries, err := readLocalDirectory(ctx, classifier, request.path)
+		return MsgLocalLoaded{request: request, entries: entries, err: err}
 	}
-	for _, c := range children {
-		c.Depth = entry.Depth + 1
-		c.Parent = entry
-	}
-	entry.Children = children
-	entry.Expanded = true
-
-	// Insert children after position i
-	newEntries := make([]*fs.FileEntry, 0, len(m.entries)+len(children))
-	newEntries = append(newEntries, m.entries[:i+1]...)
-	newEntries = append(newEntries, children...)
-	newEntries = append(newEntries, m.entries[i+1:]...)
-	m.entries = newEntries
-
-	// Keep the directory and as many visible children as the viewport allows.
-	visibleChildren := 0
-	for _, child := range children {
-		if m.visible(child) && (m.filter == "" || contains(toLower(child.Name), toLower(m.filter))) {
-			visibleChildren++
-		}
-	}
-	entryVisible := indexEntry(m.filteredEntries(), entry)
-	if visibleChildren > 0 && entryVisible >= 0 {
-		viewportHeight := m.viewportHeight()
-		if visibleChildren+1 >= viewportHeight {
-			m.offset = entryVisible
-		} else {
-			minimumOffset := entryVisible + visibleChildren - viewportHeight + 1
-			if m.offset < minimumOffset {
-				m.offset = minimumOffset
-			}
-			if m.offset > entryVisible {
-				m.offset = entryVisible
-			}
-		}
-		m.clampLocalOffset()
-	}
-	return nil
 }
 
 // collapseAt collapses the directory at entries[i], removing all its descendants.
@@ -67,6 +37,13 @@ func (m *Model) collapseAt(i int) {
 	entry := m.entries[i]
 	if entry.Kind != fs.EntryDir || !entry.Expanded {
 		return
+	}
+	m.cancelLocalRefresh()
+	for path, request := range m.localReads {
+		if path == entry.Path || strings.HasPrefix(path, entry.Path+string(filepath.Separator)) {
+			request.cancel()
+			delete(m.localReads, path)
+		}
 	}
 	entry.Expanded = false
 

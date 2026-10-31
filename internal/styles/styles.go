@@ -45,6 +45,7 @@ var (
 	Err             lipgloss.Style
 	CursorRow       lipgloss.Style
 	CurrentEntry    lipgloss.Style
+	InputCursor     lipgloss.Style
 	Accent          lipgloss.Style
 	LoadingBackdrop lipgloss.Style
 	LoadingBox      lipgloss.Style
@@ -96,6 +97,7 @@ func ApplyPalette(p Palette) {
 	Err = lipgloss.NewStyle().Foreground(ColorError)
 	CursorRow = lipgloss.NewStyle().Background(ColorCursorBg)
 	CurrentEntry = lipgloss.NewStyle().Foreground(ColorWarn)
+	InputCursor = lipgloss.NewStyle().Background(ColorDir).Foreground(ColorBadgeFg)
 	Accent = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	LoadingBackdrop = lipgloss.NewStyle().Foreground(ColorMuted).Faint(true)
 	LoadingBox = lipgloss.NewStyle().

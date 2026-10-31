@@ -126,16 +126,16 @@ func TestLocalEmptyReasons(t *testing.T) {
 
 func TestRemoteEmptyReasons(t *testing.T) {
 	m := Model{remoteHost: &config.Host{Name: "test"}, remoteEntries: []*fs.FileEntry{{Name: ".env", Class: fs.PathClass{Hidden: true}}}}
-	if got := ansi.Strip(m.renderRemoteRow(0, 80)); !strings.Contains(got, "Hidden by visibility") {
+	if got := ansi.Strip(m.renderRemoteRow(m.visibleRemoteEntries(), 0, 80)); !strings.Contains(got, "Hidden by visibility") {
 		t.Fatal(got)
 	}
 	m.remoteEntries = nil
-	if got := ansi.Strip(m.renderRemoteRow(0, 80)); strings.Contains(got, "Folder is empty") {
+	if got := ansi.Strip(m.renderRemoteRow(m.visibleRemoteEntries(), 0, 80)); strings.Contains(got, "Folder is empty") {
 		t.Fatal("unconnected host shown as empty")
 	}
 	m.remoteLoading = true
 	m.remoteStatus = "Connecting"
-	if got := ansi.Strip(m.renderRemoteRow(0, 80)); !strings.Contains(got, "Connecting") {
+	if got := ansi.Strip(m.renderRemoteRow(m.visibleRemoteEntries(), 0, 80)); !strings.Contains(got, "Connecting") {
 		t.Fatal(got)
 	}
 }

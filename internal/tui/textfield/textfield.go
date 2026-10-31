@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/WariKoda/drift/internal/styles"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 )
 
 // TextField is a single-line editable text input widget.
@@ -38,21 +41,19 @@ func (f *TextField) HandleKey(msg tea.KeyMsg) {
 	switch msg.String() {
 	case "backspace", "ctrl+h":
 		if f.cursor > 0 {
-			f.value = append(f.value[:f.cursor-1], f.value[f.cursor:]...)
-			f.cursor--
+			previous := f.cursorBoundary(false)
+			f.value = append(f.value[:previous], f.value[f.cursor:]...)
+			f.cursor = previous
 		}
 	case "delete":
 		if f.cursor < len(f.value) {
-			f.value = append(f.value[:f.cursor], f.value[f.cursor+1:]...)
+			next := f.cursorBoundary(true)
+			f.value = append(f.value[:f.cursor], f.value[next:]...)
 		}
 	case "left":
-		if f.cursor > 0 {
-			f.cursor--
-		}
+		f.cursor = f.cursorBoundary(false)
 	case "right":
-		if f.cursor < len(f.value) {
-			f.cursor++
-		}
+		f.cursor = f.cursorBoundary(true)
 	case "home", "ctrl+a":
 		f.cursor = 0
 	case "end", "ctrl+e":
@@ -104,60 +105,76 @@ func (f *TextField) View() string {
 	return "  " + label + " " + open + inner + close
 }
 
+func (f TextField) cursorBoundary(forward bool) int {
+	previous, position := 0, 0
+	clusters := uniseg.NewGraphemes(string(f.value))
+	for clusters.Next() {
+		position += utf8.RuneCountInString(clusters.Str())
+		if forward && position > f.cursor {
+			return position
+		}
+		if !forward && position >= f.cursor {
+			return previous
+		}
+		previous = position
+	}
+	return len(f.value)
+}
+
 func (f *TextField) renderInner(width int) string {
-	// Show placeholder when empty and not focused
+	if width <= 0 {
+		return ""
+	}
 	if len(f.value) == 0 && !f.Focused && f.Placeholder != "" {
-		ph := f.Placeholder
-		r := []rune(ph)
-		if len(r) > width {
-			ph = string(r[:width])
+		text := ansi.Truncate(styles.SafeText(f.Placeholder), width, "")
+		return styles.Muted.Render(text + strings.Repeat(" ", width-ansi.StringWidth(text)))
+	}
+
+	type cell struct {
+		text  string
+		width int
+	}
+	var cells []cell
+	cursor, position := 0, 0
+	clusters := uniseg.NewGraphemes(string(f.value))
+	for clusters.Next() {
+		text := styles.SafeText(clusters.Str())
+		count := utf8.RuneCountInString(clusters.Str())
+		if f.Password {
+			text = "•"
 		}
-		return styles.Muted.Render(ph + strings.Repeat(" ", width-len([]rune(ph))))
-	}
-
-	// Build display chars (masked for password fields)
-	display := make([]rune, len(f.value))
-	copy(display, f.value)
-	if f.Password {
-		for i := range display {
-			display[i] = '•'
+		if position <= f.cursor {
+			cursor = len(cells)
 		}
+		cells = append(cells, cell{text, ansi.StringWidth(text)})
+		position += count
+	}
+	if f.cursor == len(f.value) {
+		cursor = len(cells)
+		cells = append(cells, cell{" ", 1})
 	}
 
-	// Scroll window so cursor stays visible
-	start := 0
-	if f.cursor >= width {
-		start = f.cursor - width + 1
+	start, occupied := 0, 0
+	for i := 0; i <= cursor && i < len(cells); i++ {
+		occupied += cells[i].width
 	}
-
-	cursorStyle := lipgloss.NewStyle().
-		Background(styles.ColorDir).
-		Foreground(styles.ColorBadgeFg)
-
-	var sb strings.Builder
+	for occupied > width && start < cursor {
+		occupied -= cells[start].width
+		start++
+	}
+	var out strings.Builder
 	written := 0
-
-	for i := start; i < len(display) && written < width; i++ {
-		ch := styles.SafeText(string(display[i]))
-		if f.Focused && i == f.cursor {
-			sb.WriteString(cursorStyle.Render(ch))
-		} else {
-			sb.WriteString(ch)
+	for i := start; i < len(cells); i++ {
+		if written+cells[i].width > width {
+			break
 		}
-		written++
+		if f.Focused && i == cursor {
+			out.WriteString(styles.InputCursor.Render(cells[i].text))
+		} else {
+			out.WriteString(cells[i].text)
+		}
+		written += cells[i].width
 	}
-
-	// Cursor at end of value
-	if f.Focused && f.cursor == len(f.value) && written < width {
-		sb.WriteString(cursorStyle.Render(" "))
-		written++
-	}
-
-	// Pad remaining space
-	for written < width {
-		sb.WriteRune(' ')
-		written++
-	}
-
-	return sb.String()
+	out.WriteString(strings.Repeat(" ", width-written))
+	return out.String()
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -165,25 +166,19 @@ func collapseHome(p string) string {
 }
 
 func padRune(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		if width <= 1 {
-			return string(r[:width])
-		}
-		return string(r[:width-1]) + "…"
-	}
-	return s + strings.Repeat(" ", width-len(r))
+	width = max(0, width)
+	s = ansi.Truncate(s, width, "…")
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 func padRuneLeft(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		if width <= 1 {
-			return string(r[len(r)-width:])
-		}
-		return "…" + string(r[len(r)-(width-1):])
+	if width <= 0 {
+		return ""
 	}
-	return s + strings.Repeat(" ", width-len(r))
+	if cells := ansi.StringWidth(s); cells > width {
+		s = ansi.TruncateLeft(s, cells-width+1, "…")
+	}
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 func padRight(s string, width int) string {

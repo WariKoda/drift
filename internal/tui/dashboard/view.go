@@ -8,6 +8,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // accent is used for the logo and active items.
@@ -309,26 +310,20 @@ func collapseHome(p string) string {
 	return p
 }
 
-// padRune truncates s to max runes (with an ellipsis) and pads it to width.
+// padRune truncates s to terminal columns and pads it to width.
 func padRune(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		if width <= 1 {
-			return string(r[:width])
-		}
-		return string(r[:width-1]) + "…"
-	}
-	return s + strings.Repeat(" ", width-len(r))
+	width = max(0, width)
+	s = ansi.Truncate(s, width, "…")
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 // padRuneLeft keeps the tail of s (most relevant for paths) within width.
 func padRuneLeft(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		if width <= 1 {
-			return string(r[len(r)-width:])
-		}
-		return "…" + string(r[len(r)-(width-1):])
+	if width <= 0 {
+		return ""
 	}
-	return s + strings.Repeat(" ", width-len(r))
+	if cells := ansi.StringWidth(s); cells > width {
+		s = ansi.TruncateLeft(s, cells-width+1, "…")
+	}
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }

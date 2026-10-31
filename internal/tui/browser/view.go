@@ -55,6 +55,7 @@ func (m Model) View() string {
 
 	var sb strings.Builder
 	localEntries := m.filteredEntries()
+	remoteEntries := m.visibleRemoteEntries()
 	leftW, rightW := m.paneWidths()
 	divider := styles.Sep.Render("│")
 
@@ -70,7 +71,7 @@ func (m Model) View() string {
 	vh := m.viewportHeight()
 	for row := 0; row < vh; row++ {
 		left := m.renderLocalRow(localEntries, m.offset+row, leftW)
-		right := m.renderRemoteRow(m.remoteOffset+row, rightW)
+		right := m.renderRemoteRow(remoteEntries, m.remoteOffset+row, rightW)
 		if m.preview.active {
 			if m.preview.source == PaneLocal {
 				right = m.renderPreviewRow(row, rightW)
@@ -109,7 +110,10 @@ func (m Model) renderHeader() string {
 		line += "  " + styles.Accent.Render(styles.SafeText(m.projectName))
 	}
 	line += "  " + styles.Muted.Render(styles.SafeText(m.absWorkDir()))
-	return padRight(line, m.Width)
+	if m.Width <= 0 {
+		return line
+	}
+	return padRight(ansi.Truncate(line, m.Width, "…"), m.Width)
 }
 
 func (m Model) renderPaneLabels(leftW, rightW int) string {
@@ -186,8 +190,7 @@ func (m Model) renderLocalRow(entries []*fs.FileEntry, i, width int) string {
 	return m.renderEntry(entries[i], i == m.cursor && m.activePane == PaneLocal, width, m.Selection, m.filter)
 }
 
-func (m Model) renderRemoteRow(i, width int) string {
-	entries := m.visibleRemoteEntries()
+func (m Model) renderRemoteRow(entries []*fs.FileEntry, i, width int) string {
 	switch {
 	case m.remoteHost == nil:
 		if i == 0 {
@@ -263,7 +266,7 @@ func (m Model) renderPreviewRow(row, width int) string {
 }
 
 func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selection *fs.SelectionState, filter string) string {
-	indent := strings.Repeat("  ", entry.Depth)
+	indent := strings.Repeat("  ", min(max(0, entry.Depth), max(0, (width-8)/2)))
 	label := styles.SafeText(entry.Name)
 
 	var icon string
@@ -344,11 +347,9 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		line = prefix + ansi.Truncate(name, nameWidth, "…") + badge
 	} else if lipgloss.Width(line) > maxW {
 		prefix := indent + icon + mark
-		available := maxW - lipgloss.Width(prefix) - 1
-		if available < 1 {
-			available = 1
-		}
-		short := truncatePlain(label, available) + "…"
+		prefix = ansi.Truncate(prefix, max(0, maxW-2), "")
+		available := max(0, maxW-lipgloss.Width(prefix))
+		short := ansi.Truncate(label, available, "…")
 		switch {
 		case isCursor:
 			name = styles.CurrentEntry.Render(short)
@@ -366,6 +367,7 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		line = prefix + name
 	}
 
+	line = ansi.Truncate(line, max(0, width), "…")
 	if isCursor {
 		line = styles.CursorRow.Width(width).Render(padRight(line, width))
 	} else {
@@ -590,15 +592,14 @@ func highlightRunes(s string, matched []int, start int, base lipgloss.Style) str
 
 // truncLeftPath shortens a path to max columns, keeping the tail (the immediate
 // parent is the most useful for disambiguation).
-func truncLeftPath(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
+func truncLeftPath(s string, width int) string {
+	if width <= 0 {
+		return ""
 	}
-	if max <= 1 {
-		return "…"
+	if cells := ansi.StringWidth(s); cells > width {
+		return ansi.TruncateLeft(s, cells-width+1, "…")
 	}
-	return "…" + string(r[len(r)-(max-1):])
+	return s
 }
 
 func highlightMatch(name, filter string, kind fs.EntryKind) string {
@@ -654,13 +655,5 @@ func truncate(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	return lipgloss.NewStyle().MaxWidth(width).Render(s)
-}
-
-func truncatePlain(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
+	return ansi.Truncate(s, max(0, width), "")
 }

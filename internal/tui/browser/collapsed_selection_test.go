@@ -70,7 +70,7 @@ func TestCollapsedSelectionsArePaneSpecific(t *testing.T) {
 		if got := ansi.Strip(m.renderLocalRow(m.entries, 0, 80)); !strings.Contains(got, "· 1 marked") {
 			t.Fatal(got)
 		}
-		if got := ansi.Strip(m.renderRemoteRow(0, 80)); !strings.Contains(got, "· 2 marked") {
+		if got := ansi.Strip(m.renderRemoteRow(m.visibleRemoteEntries(), 0, 80)); !strings.Contains(got, "· 2 marked") {
 			t.Fatal(got)
 		}
 	}

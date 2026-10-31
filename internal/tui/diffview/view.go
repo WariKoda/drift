@@ -292,9 +292,7 @@ func (m Model) renderFileRow(i, width int) string {
 	if nameMax < 2 {
 		nameMax = 2
 	}
-	if r := []rune(name); len(r) > nameMax {
-		name = "…" + string(r[len(r)-(nameMax-1):])
-	}
+	name = truncLeft(name, nameMax)
 
 	return pad(cursor+nameStyle.Render(name)+" "+dirChar, width)
 }
@@ -549,12 +547,8 @@ func truncLeft(p string, max int) string {
 	if max < 1 {
 		max = 1
 	}
-	r := []rune(p)
-	if len(r) <= max {
-		return p
+	if cells := ansi.StringWidth(p); cells > max {
+		return ansi.TruncateLeft(p, cells-max+1, "…")
 	}
-	if max == 1 {
-		return "…"
-	}
-	return "…" + string(r[len(r)-(max-1):])
+	return p
 }

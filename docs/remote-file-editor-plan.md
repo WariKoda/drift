@@ -1,442 +1,434 @@
-# Implementierungsplan: Remote-Dateien im File Browser bearbeiten
+# Implementierungsplan: Remote-Dateien im externen Editor bearbeiten
 
-Status: geplant, noch nicht implementiert.
-Gewählte Variante: eigener Editor-Screen.
+Status: im Feature-Branch implementiert; manuelle Terminal-/GUI-Abnahme noch offen.
+Dieser Plan ersetzt den früheren Entwurf eines eingebauten Editors und beschreibt
+die umgesetzten Regeln.
+Geltungsbereich: Go-TUI; kein neues Editor-Feature für die pausierte Rust-GUI.
 
-## Ziel und Umfang
+Automatisierte Prüfungen verwenden echte SFTP-, FTP- und FTPS-Verbindungen sowie
+einen echten Editor-Hilfsprozess. Die Bedienung mit Nano/Neovim, Zed und VS Code
+ist zusätzlich nach `docs/manual-testing.md` zu prüfen.
 
-Im Remote-Pane ausgewählte kleine Textdateien sollen direkt aus dem File Browser
-geöffnet, bearbeitet und sicher auf denselben Remote-Pfad zurückgeschrieben werden
-können. Der Editor erhält einen eigenen Screen. Dadurch bleiben Browser-Navigation,
-Preview und Texteingabe klar voneinander getrennt.
+## Festgelegter Ablauf
 
-Zum ersten Lieferumfang gehören:
+- Eine Datei im Remote-Pane lässt sich in einem vorkonfigurierten externen Editor öffnen.
+- Terminal- und GUI-Editoren werden unterstützt.
+- Erst nach dem Ende der Editor-Bearbeitung bietet drift den Upload an.
+- Jeder Upload braucht eine ausdrückliche Bestätigung. Speichern im Editor allein
+  verändert den Host nicht.
+- Die Arbeitskopie liegt außerhalb des lokalen Projekts. Eine gleichnamige lokale
+  Projektdatei wird weder überschrieben noch als Ausgangsbasis verwendet.
+- Es wird kein eigener Texteditor und kein mehrzeiliges Eingabewidget gebaut.
 
-- Einstieg über eine reguläre Datei im aktiven Remote-Pane.
-- Verlustfreies Laden kleiner unterstützter Textdateien.
-- Mehrzeilige Bearbeitung in einem eigenen Screen.
-- Speichern mit Konfliktprüfung gegen den seit dem Öffnen veränderten Remote-Inhalt.
-- Explizites Verwerfen ungespeicherter Änderungen.
-- Sichtbare Lade-, Speicher- und Uploadfehler ohne Verlust des Editor-Puffers.
-- Aktualisierung von Remote-Liste und Preview nach erfolgreichem Speichern.
-- Unterstützung für SFTP, FTP und FTPS über `remote.Client`.
+Beispiel:
 
-Nicht Bestandteil des ersten Lieferumfangs sind:
-
-- Binär- und Hex-Editor.
-- Bearbeitung großer Dateien.
-- Anlegen, Umbenennen oder Löschen von Dateien.
-- Gleichzeitige Bearbeitung mehrerer Dateien oder Tabs.
-- Syntaxhervorhebung, Language Server oder Formatierung.
-- Automatisches Zusammenführen konkurrierender Änderungen.
-- Garantierte Unterbrechung eines bereits an den Protokoll-Client übergebenen Uploads.
+```text
+Remote-Datei auswählen → e → herunterladen → Editor öffnen
+    → Editor-Bearbeitung beenden → Änderungen erkennen
+    → Upload bestätigen → Remote-Inhalt prüfen → hochladen
+    → zum unveränderten Browser-Kontext zurückkehren
+```
 
 Die UI-Texte bleiben entsprechend der bestehenden Anwendung Englisch.
 
-## Bestehende Ansatzpunkte
+## Umfang der ersten Version
 
-| Datei | Aktuelles Verhalten und geplante Nutzung |
-| --- | --- |
-| `internal/tui/browser/model.go` | Besitzt aktive Pane-Seite, Remote-Host, Verbindung, Einträge und Busy-Zustände. Von hier wird die Editieranforderung ausgelöst. |
-| `internal/tui/browser/update.go` | `updateNormal` verarbeitet Tastenkürzel und sendet bereits typisierte Nachrichten an das Root-Modell. |
-| `internal/tui/browser/preview.go` | Lädt lokale und Remote-Dateien asynchron, begrenzt die Größe und verwirft verspätete Ergebnisse per Generation. Die sanitisierten Preview-Zeilen dürfen nicht als Editor-Puffer verwendet werden. |
-| `internal/tui/browser/view.go` | Rendert Remote-Baum und Preview. Nach Rückkehr müssen Dateimetadaten und eine gegebenenfalls aktive Preview gezielt aktualisiert werden. |
-| `internal/tui/app.go` | Root-Routing, Screen-Wechsel, globale Netzwerkaktivität, Abbruch und sichtbare Fehler. Hier wird der Editor-Screen eingebunden. |
-| `internal/tui/state.go` | Enthält die Screen-Konstanten. `ScreenRemoteEditor` ergänzen. |
-| `internal/remote/client.go` | `Open`, `ReadFile`, `Stat` und `Upload` reichen für Laden, Konfliktprüfung und Speichern aus. Kein Protokoll-Client wird direkt aus der TUI erzeugt. |
-| `internal/sftp/client.go` | `Upload` schreibt eine Staging-Datei, erhält vorhandene Berechtigungsbits und ersetzt anschließend das Ziel. Nichtreguläre Ziele werden abgelehnt. |
-| `internal/ftp/client.go` | `Upload` schreibt ebenfalls über eine Staging-Datei und Rename. FTP-Operationen auf einer Verbindung sind serialisiert. |
-| `internal/tui/loading/model.go` | Gemeinsamer Tracker und Loader für asynchrone Netzwerkoperationen. Abbruch ist kooperativ und beendet nicht zwingend einen bereits laufenden `Upload`. |
-| `internal/tui/textfield/textfield.go` | Nur einzeilig und daher nicht als Editor geeignet. |
-| `internal/styles/styles.go` | Alle benötigten Editor- und Dialog-Styles zentral ergänzen. Keine Lipgloss-Styles direkt in View-Code definieren. |
+Enthalten sind eine reguläre Datei und eine Editiersitzung zurzeit, SFTP, FTP und
+FTPS, eine globale Editor-Konfiguration, Konflikterkennung und der Erhalt der
+Arbeitskopie bei Fehlern. Ein Host muss bereits im Remote-Browser verbunden sein.
 
-Aktuelle Tastenbelegung: `p` schaltet die Preview, `P` öffnet den Projektwechsel.
-Beide Belegungen bleiben unverändert. Als Editor-Einstieg ist `e` vorgesehen.
+Nicht enthalten sind:
 
-## Sicherheits- und Datenregeln
-
-### Originalinhalt getrennt von der Darstellung halten
-
-`preview.lines` ist keine zulässige Datenquelle für den Editor. Die Preview ersetzt
-ungültiges UTF-8, normalisiert Zeilenenden, erweitert Tabs und entfernt Steuerzeichen.
-Der Editor muss die geladenen Originalbytes separat halten und nur eine sichere
-Darstellung rendern.
-
-Die Editor-Sitzung speichert mindestens:
-
-- Host-Snapshot und Remote-Pfad.
-- Originalbytes oder deren kryptografischen Hash plus die für Konfliktprüfung
-  benötigten Originalbytes innerhalb des Größenlimits.
-- Editierbaren Textpuffer.
-- ursprünglichen Zeilenendentyp und Zustand des abschließenden Zeilenumbruchs.
-- Dirty-Zustand.
-- eindeutige Sitzungs- und Operations-ID.
-- aktuellen Lade-, Konflikt-, Speicher- und Fehlerzustand.
-
-### Unterstützte Dateien
-
-Der erste Ausbau akzeptiert nur reguläre UTF-8-Textdateien ohne NUL-Bytes.
-Symlinks, Verzeichnisse und sonstige Dateitypen werden abgelehnt. Ungültiges UTF-8
-wird nicht still ersetzt.
-
-Vor Implementierung ist ein festes Größenlimit zu wählen. Empfehlung für den ersten
-Ausbau: 256 KiB. Das Limit gilt beim Laden sowie nach Eingabe oder Paste vor dem
-Speichern. Die vorhandene Preview-Grenze von 1 MiB ist davon unabhängig.
-
-LF und CRLF sollen erhalten bleiben. Gemischte Zeilenenden werden im ersten Ausbau
-abgelehnt oder nur nach ausdrücklicher Bestätigung normalisiert. Die genaue Regel ist
-vor dem ersten Code-Schritt in Tests festzuschreiben.
-
-### Schreibbereich
-
-Empfehlung: Remote-Bearbeitung nur für Pfade erlauben, die durch die effektiven
-Host- oder Projekt-Mappings abgedeckt sind. Ohne konfigurierte Mappings gilt wie beim
-Sync der Bereich unter `Host.RootPath`.
-
-Die Prüfung verwendet `internal/pathmap` und erfolgt beim Öffnen sowie erneut vor dem
-Speichern. Damit erweitert der Editor die vorhandenen Sync-Schreibrechte nicht
-unbemerkt auf jeden vom Remote-Browser erreichbaren Pfad.
-
-### Konfliktprüfung
-
-Vor jedem Upload wird der Remote-Inhalt erneut unter demselben Größenlimit geladen
-und bytegenau mit dem beim Öffnen gespeicherten Original verglichen.
-
-- Unverändert: Upload darf fortfahren.
-- Verändert: nicht automatisch überschreiben.
-- Gelöscht: als Konflikt behandeln, nicht still neu anlegen.
-- Kein reguläres Ziel mehr: Speichern ablehnen.
-- Prüfung fehlgeschlagen: Puffer erhalten und Fehler anzeigen.
-
-Der Konfliktdialog bietet:
-
-1. `Continue editing`
-2. `Reload remote`, nur nach Bestätigung zum Verwerfen lokaler Änderungen
-3. `Overwrite`, mit ausdrücklicher zweiter Bestätigung
-
-Zwischen Konfliktprüfung und Rename bleibt mit dem vorhandenen `remote.Client` ein
-Race-Fenster. Die Schnittstelle bietet kein bedingtes Schreiben. Diese Grenze muss in
-Dokumentation und Fehlermeldungen ehrlich benannt werden. Strikte Compare-and-Swap-
-Semantik wäre ein getrenntes Folgefeature und müsste für alle Protokolle entworfen
-werden.
-
-### Upload und unklarer Ausgang
-
-`remote.Client.Upload` verwendet bereits Staging und Rename. Ein Fehler schützt in
-vielen Fällen die bisherige Zieldatei. Wenn die Verbindung nach einem möglicherweise
-erfolgreichen Rename abbricht, ist der Ausgang für den Client jedoch unklar.
-
-In diesem Fall:
-
-- Editor-Puffer nicht verwerfen.
-- Zustand `Save result unknown` anzeigen.
-- Remote-Inhalt vor einem weiteren Upload erneut lesen.
-- Übereinstimmung mit dem Editor-Puffer als Erfolg behandeln.
-- Abweichung als Konflikt behandeln.
-- Fehler mit Host, Pfad und Operation über `internal/log` protokollieren, niemals
-  Dateiinhalt oder Zugangsdaten.
+- automatischer Upload bei jedem Speichern oder Dateiüberwachung;
+- gleichzeitige Editiersitzungen, Editor-Auswahl je Dateityp oder Host;
+- Anlegen, Umbenennen oder Löschen von Remote-Dateien;
+- Remote-Shell, auf dem Server ausgeführte Editoren oder editorabhängige Remote-URLs;
+- eingebauter Editor, Syntaxhervorhebung oder Language Server;
+- automatisches Zusammenführen oder erzwungenes Überschreiben bei Konflikten;
+- automatische Wiederaufnahme liegen gebliebener Sitzungen nach einem Neustart;
+- garantierte sofortige Unterbrechung eines laufenden Protokollaufrufs.
 
 ## Bedienung
 
-### Einstieg aus dem Browser
+### Einstieg
 
-`e` öffnet den Editor nur, wenn:
+`e` startet die Bearbeitung der Datei unter dem Cursor im aktiven Remote-Pane.
+Markierungen spielen dabei keine Rolle. `Enter`, `p`, `P` und `s` behalten ihre
+bisherige Bedeutung.
 
-- das Remote-Pane aktiv ist,
-- eine reguläre Remote-Datei ausgewählt ist,
-- ein Host verbunden ist,
-- keine Remote-Operation läuft,
-- der Pfad nach der Schreibbereichsregel zulässig ist.
+Voraussetzungen:
 
-In allen anderen Fällen bleibt der Browser aktiv und zeigt eine konkrete Statuszeile.
-Die Editieranforderung enthält Kopien von Host und Pfad, nicht nur einen Zeiger auf den
-beweglichen Browser-Cursor.
+- reguläre Remote-Datei, kein Verzeichnis und kein bekannter Symlink;
+- aktive, nicht fehlgeschlagene Verbindung;
+- keine laufende Remote- oder globale Netzwerkoperation;
+- zulässiger Schreibbereich gemäß den effektiven Mappings;
+- gültige Editor-Konfiguration.
 
-### Editor-Screen
+Bei einer nicht erfüllten Voraussetzung bleibt der Browser aktiv und zeigt den
+konkreten Grund. `e` im lokalen Pane bearbeitet in dieser Version keine Datei.
+Preview und Dateityp werden nicht als Inhaltsquelle verwendet: drift lädt die
+Originalbytes neu über die Remote-Verbindung.
 
-Vorgeschlagene Darstellung:
+### Während der Bearbeitung
 
-```text
-Edit remote file                                      modified
-host: staging                 /var/www/app/config.php
-────────────────────────────────────────────────────────────────
-  1 │ <?php
-  2 │ return [
-  3 │     'debug' => true,
-  4 │ ];
-    │
-────────────────────────────────────────────────────────────────
-[Ctrl+S] save  [Esc] back  [Ctrl+G] help
+Bei einem Terminal-Editor übergibt drift das Terminal über `tea.ExecProcess`.
+Nach Ende des Prozesses müssen Alt-Screen, Eingabemodus, Mauspräferenz und die
+aktuelle Terminalgröße wieder stimmen, auch nach einem Prozessfehler.
+
+Bei einem GUI-Editor bleibt drift sichtbar und wartet in einem eigenen
+Sitzungs-Screen. Der Editor läuft in einem `tea.Cmd`; seine Ausgaben gehen nicht
+ungefiltert in das von Bubble Tea verwendete Terminal. Der Screen zeigt Host,
+Remote-Pfad und den lokalen Arbeitsdateipfad.
+
+Beide Varianten erlauben währenddessen keinen Projekt-, Host- oder Sync-Wechsel.
+Ein GUI-Prozess wird bei einem Rückkehrversuch nicht still beendet. Die UI fordert
+zum Beenden der Bearbeitung im Editor auf. Ein erzwungenes Beenden von drift darf
+keinen automatischen Upload und kein Löschen der Arbeitskopie auslösen.
+
+Die konfigurierte Warteoption ist Voraussetzung: `code --wait` muss warten, bis
+die Datei im Editor geschlossen wurde. Ein nur kurz laufender Launcher ohne
+Warteoption kann nicht zuverlässig als Fehlkonfiguration erkannt werden.
+
+### Nach dem Editor-Ende
+
+- Erfolgreicher Prozess, Datei bytegleich: kein Upload und Rückkehr zum Browser.
+- Erfolgreicher Prozess, Datei geändert: Bestätigungsdialog mit Host und Remote-Pfad.
+- Prozessfehler, fehlende oder ungültige Arbeitsdatei: kein Upload; Fehler und
+  erhaltenen Arbeitsdateipfad anzeigen.
+
+Der Bestätigungsdialog bietet `Upload`, `Edit again`, `Keep local copy` und
+`Discard`. `Upload` ist nicht vorausgewählt. `Esc` bedeutet nicht Zustimmung und
+verwirft keine Änderungen. `Discard` benötigt eine eigene Bestätigung.
+
+`Keep local copy` beendet die Sitzung ohne Remote-Änderung, erhält die Datei und
+zeigt ihren Pfad an. Bei `Edit again` wird dieselbe Arbeitskopie geöffnet; die
+ursprüngliche Remote-Vergleichsbasis bleibt unverändert.
+
+Nach erfolgreichem Upload werden betroffener Remote-Eintrag und eine zugehörige
+aktive Preview aktualisiert. Cursor, Scrollposition, aufgeklappte Verzeichnisse,
+Markierungen und lokale Dateien bleiben erhalten.
+
+## Editor-Konfiguration
+
+Geplant ist ein optionaler Abschnitt in der globalen Konfiguration
+`<config.Dir()>/config.toml`. Keine Editor-Befehle in Projekt- oder Host-Datensätzen:
+Die Freigabe eines Projekts oder Servers darf kein lokales Programm konfigurieren.
+
+Terminal-Beispiel:
+
+```toml
+[editor]
+command = ["nvim", "{file}"]
+terminal = true
+```
+
+GUI-Alternative, statt des obigen Abschnitts:
+
+```toml
+[editor]
+command = ["code", "--wait", "{file}"]
+terminal = false
 ```
 
 Regeln:
 
-- Normale Buchstaben einschließlich `q`, `p`, `P`, `s` und `e` schreiben Text.
-- `Ctrl+S` startet Konfliktprüfung und Speichern.
-- `Esc` kehrt bei unverändertem Puffer direkt zurück.
-- `Esc` bei Änderungen öffnet eine Auswahl `Continue editing`, `Discard`, `Save`.
-- Während Laden, Prüfen und Speichern sind Textänderungen und weitere Speichervorgänge
-  gesperrt.
-- Ein Fehler bleibt sichtbar, bis eine neue Aktion ihn ersetzt. Der Puffer bleibt
-  bearbeitbar.
-- Terminal-Resize erhält Cursor und Scrollposition.
-- Mausunterstützung ist für den ersten Ausbau optional. Falls das eingesetzte Widget
-  Mausereignisse unterstützt, darf es das bestehende Browser-Mausverhalten nicht
-  unbeabsichtigt übernehmen.
+- Genau ein konfigurierter Editor. `terminal` hat bei fehlender Angabe den Wert `true`.
+- `command` ist eine Argumentliste mit einem nicht leeren Programmnamen und genau
+  einem eigenständigen `{file}`-Argument. Andere Platzhalter sind nicht vorgesehen.
+- `{file}` wird durch den absoluten lokalen Arbeitsdateipfad ersetzt. Host,
+  Remote-Pfad und Dateiinhalte werden nie in einen Shell-Ausdruck eingesetzt.
+- Aufruf über `os/exec`, ohne `sh -c`, Shell-Expansion oder implizite Ausführung
+  einer Projektkonfiguration. Leerzeichen und Sonderzeichen bleiben Argumentinhalt.
+- Arbeitsverzeichnis ist das private Sitzungsverzeichnis, nicht das Projekt.
+- Kein hartcodierter Default-Editor. Ohne Konfiguration zeigt `e` eine Anleitung.
+- Kein implizites Parsen von `$VISUAL` oder `$EDITOR` in der ersten Version.
+- Einrichtung zunächst über TOML; ein Einstellungsdialog ist kein Teil dieses Plans.
 
-Vor Auswahl einer Textarea-Abhängigkeit ist ein kleiner Prototyp nötig. Zu prüfen sind
-Bubble Tea 1.3.10, Unicode, breite Zeichen, Tabs, mehrzeilige Paste, Undo, horizontales
-Scrollen, Größenlimit und programmatisches Setzen ohne Inhaltstransformation. Das
-bestehende `textfield` wird nicht erweitert.
+Die Go-Typen gehören nach `internal/config/config.go`. Loader, Laufzeitkonfiguration
+und Writer müssen den Abschnitt erhalten, auch bei Host-Verwaltungsoperationen und
+beim Schreiben einer vorher nicht vorhandenen globalen Datei. Ohne Abschnitt bleibt
+das bisherige Verhalten unverändert.
 
-## Architektur und Datenfluss
+### Gemeinsame Konfiguration mit Rust
 
-### Neues Package
+Go und Rust schreiben dieselbe globale Datei. Rusts gespeicherter `GlobalConfig`
+erhält jetzt ebenfalls den Editor-Abschnitt; ein Roundtrip-Test prüft Host-Save und
+-Delete. Ohne diese koordinierte Schemaänderung würde ein typisierter
+Lese-/Schreibzyklus den Abschnitt verlieren. Das ist reine Store-Kompatibilität,
+keine Wiederaufnahme der GUI-Featureentwicklung. Alte Binaries, die den Abschnitt
+nicht erhalten, werden dadurch nicht nachträglich kompatibel.
 
-Neues Screen-Package:
+## Arbeitskopie und Inhalt
 
-```text
-internal/tui/remoteeditor/
-  model.go
-  update.go
-  view.go
-  content.go
-  model_test.go
-  update_test.go
-  content_test.go
-```
+Jede Sitzung erhält ein zufällig benanntes, privates Arbeitsverzeichnis unter
+`<os.UserCacheDir()>/drift/remote-edit/`. Es ist ein temporärer Arbeitsbereich im
+Benutzer-Cache, nicht im Projekt. Anders als ein automatisch aufgeräumtes
+Prozess-Tempverzeichnis darf er bei Fehlern oder ungespeicherten Änderungen
+nicht bedingungslos entfernt werden.
 
-`content.go` enthält nur konkret benötigte Regeln für UTF-8, Größe, Zeilenenden,
-Originalvergleich und Serialisierung. Keine allgemeine Dokument- oder Editor-
-Abstraktion anlegen.
+- Sitzungsverzeichnis Modus `0700`, Arbeits- und Snapshot-Dateien Modus `0600`.
+- Ursprünglichen Dateinamen einschließlich Erweiterung für die Editor-Erkennung
+  erhalten; unzulässige Basenames vor der lokalen Erstellung ablehnen.
+- Eigene `fs.Root` über diesem Verzeichnis öffnen. Transfers und erneutes Lesen
+  bleiben darauf beschränkt; die Projekt-Root wird nicht erweitert.
+- Download mit `remote.Client.Open` und `fs.Root.WriteAtomic`; Upload aus
+  `fs.Root.Open` über den bestehenden Sync-Pfad. Reader- und Close-Fehler auswerten.
+- Typ und Größe vor und nach der Bearbeitung prüfen. Symlink-Escapes, Geräte,
+  Verzeichnisse und andere nichtreguläre lokale Dateien ablehnen.
+- Planvorgabe für den ersten Ausbau: höchstens 10 MiB pro Datei. Beim Download
+  begrenzt lesen und eine Überschreitung als Fehler behandeln, nicht als gekürzte
+  Datei. Dasselbe Limit gilt für bearbeiteten Inhalt und erneute Remote-Prüfung.
+- Originalinhalt beziehungsweise SHA-256-Vergleichsbasis unabhängig von der
+  veränderlichen Arbeitsdatei halten.
+- Nach Editor-Ende einen unveränderlichen Upload-Snapshot erzeugen. Zustimmung und
+  Upload beziehen sich auf diese Bytes, nicht auf eine später erneut geöffnete,
+  möglicherweise weiter veränderte Editor-Datei.
 
-Vorgeschlagene Nachrichten:
+Die Berechtigungen sind nach dem Download und nach einem atomaren Editor-Save zu
+prüfen beziehungsweise über den geöffneten Dateihandle wieder einzuschränken.
+Das private Elternverzeichnis schützt auch während eines editorseitigen Austauschs.
+Der externe Editor ist ein vom Benutzer gewähltes Programm, keine Sandbox:
+Plugins und editorseitige Backups liegen außerhalb der Kontrolle von drift.
 
-```go
-type MsgLoaded struct {
-    SessionID uint64
-    Content   []byte
-    Info      os.FileInfo
-    Err       error
-}
+Drift normalisiert keine Kodierung, Zeilenenden, Tabs, BOMs oder Schlussumbrüche.
+Es gibt keine eigene UTF-8-Textarea-Beschränkung. Welche Formate bearbeitbar sind,
+bestimmt der konfigurierte Editor. Vergleiche beziehen sich auf Originalbytes,
+nicht auf die sanitisierten Zeilen der Preview.
 
-type MsgSaved struct {
-    SessionID   uint64
-    OperationID uint64
-    RemoteInfo  os.FileInfo
-    Err         error
-    Unknown     bool
-}
+Aufräumen nur nach bestätigtem Verwerfen, bestätigtem Upload-Erfolg oder einem
+unveränderten Abschluss. Vor dem Aufräumen nach Upload-Erfolg erneut prüfen, ob
+die Arbeitsdatei noch dem bestätigten Snapshot entspricht. Spätere Änderungen
+bleiben erhalten und brauchen eine neue Entscheidung; sie sind weder übertragen
+noch zum Löschen freigegeben. Fehler beim Aufräumen bleiben sichtbar und werden
+protokolliert. Bei Prozess-, Lese-, Verbindungs- und Uploadfehlern bleibt eine
+bereits vorhandene Arbeitskopie erhalten. Ein globales `defer os.RemoveAll` wäre
+dafür falsch. Eine vollständige Cache-/Recovery-Verwaltung wird nicht vorsorglich
+eingeführt.
 
-type MsgBackToBrowser struct {
-    Host config.Host
-    Path string
-    Saved bool
-}
-```
+## Schreibbereich und Konflikte
 
-Konflikte können als eigene typisierte Nachricht oder als expliziter Zustand nach
-einem Prüfergebnis modelliert werden. Nicht über Fehlertext entscheiden.
+### Schreibbereich
+
+Öffnen und Speichern prüfen den Remote-Pfad mit `internal/pathmap` gegen die
+effektiven Host-Mappings beziehungsweise Projekt-Fallback-Mappings. Ohne Mappings
+gilt der Bereich unter `Host.RootPath`. Sichtbare, aber ungemappte Remote-Dateien
+werden dadurch nicht editierbar.
+
+Hard Exclusions bleiben gesperrt. Ein direkt gewählter, bewusst sichtbar gemachter
+gitignorierter Dateipfad folgt derselben Ausnahme wie eine direkt gewählte Sync-Datei.
+Das Feature erweitert weder Mapping-Grenzen noch Ignore-Regeln.
+
+Der Remote-Dateityp wird beim Öffnen und vor dem Upload neu geprüft, bei Bedarf
+über die Elternverzeichnis-Liste. `remote.Client.Stat` allein genügt nicht als
+Symlink-Prüfung: SFTP-`Stat` folgt Links. Bekannte Symlinks und nichtreguläre Ziele
+werden abgelehnt. Die vorhandene API bietet aber keine allgemeine serverseitige
+Pfad-Confinement-Garantie für zwischenzeitlich ausgetauschte Pfadkomponenten.
+
+### Prüfung vor dem Upload
+
+Nach ausdrücklicher Upload-Zustimmung lädt drift den Remote-Inhalt erneut begrenzt
+und vergleicht ihn mit der beim Öffnen gesicherten Originalbasis. Größe und
+Änderungszeit allein reichen dafür nicht.
+
+| Beobachtung | Verhalten |
+| --- | --- |
+| Remote-Inhalt entspricht der Originalbasis | Bestätigten Snapshot hochladen. |
+| Remote-Inhalt entspricht bereits dem Upload-Snapshot | Keine erneute Übertragung; gewünschter Inhalt ist bestätigt. |
+| Remote-Inhalt anderweitig verändert | Konflikt, kein Upload. |
+| Datei erkennbar gelöscht oder Zieltyp geändert | Kein Upload und kein stilles Neuanlegen. |
+| Lesen, Klassifizieren oder Rechteprüfung fehlgeschlagen | Kein Upload; Arbeitskopie erhalten und Fehler anzeigen. |
+
+Bei einem Konflikt kann der Benutzer weiterbearbeiten, die Arbeitskopie behalten
+oder den aktuellen Remote-Stand neu laden. Neuladen verwirft Änderungen nur nach
+Bestätigung und legt eine neue Vergleichsbasis an. Es gibt in der ersten Version
+keinen `Overwrite anyway`-Knopf und kein automatisches Merge.
+
+FTP-Status `550` kann auch eine Berechtigungsverweigerung bedeuten. Er darf nicht
+pauschal als bestätigte Löschung dargestellt werden.
+
+Zwischen erneuter Prüfung und serverseitigem Rename bleibt ein Race-Fenster.
+`remote.Client` bietet kein bedingtes Schreiben; die Prüfung ist keine atomare
+Compare-and-Swap-Garantie. Das gilt auch für Zieltypwechsel oder Löschungen in
+diesem Fenster und ist in Hilfe und Dokumentation zu benennen.
+
+### Übertragung und unklarer Ausgang
+
+Die Übertragung nutzt `internal/sync.Run` mit genau einem Upload-Item, der
+Sitzungs-Root und dem zuvor geprüften Remote-Pfad. `remote.Client.Upload` verwendet
+bereits Staging-Dateien und Rename. Keine zweite Transferimplementierung und keine
+Editor-spezifische Remote-Client-Schnittstelle ergänzen.
+
+Die Protokollgrenzen bleiben bestehen: SFTP erhält vorhandene Berechtigungsbits;
+FTP/FTPS garantieren nicht dieselbe Metadatenerhaltung oder identische Rename-Semantik
+auf jedem Server. Atomare Ersetzung ist von den Serverfähigkeiten abhängig.
+
+Bei Verbindungsverlust kann ein Upload trotz Fehlermeldung bereits angekommen sein.
+Dann `Save result unknown` anzeigen, Snapshot und Arbeitskopie erhalten und niemals
+automatisch erneut hochladen. Nach einer ausdrücklich angeforderten Wiederverbindung
+zuerst den Remote-Inhalt prüfen. Übereinstimmung mit dem Snapshot bestätigt den
+Erfolg; eine Abweichung wird erneut gegen die Originalbasis geprüft. Ein weiterer
+Upload benötigt erneut Zustimmung.
+
+`Esc` oder `Ctrl+C` während eines Netzwerkaufrufs bedeutet Abbruchanforderung, nicht
+bestätigte Rücknahme eines bereits begonnenen Uploads. Solange der Ausgang unklar
+ist, dürfen weder Erfolg noch sicheres Nichtschreiben behauptet werden.
+
+## Architektur
+
+### Bestehende Ansatzpunkte
+
+| Bereich | Nutzung |
+| --- | --- |
+| `internal/tui/browser/keys.go`, `update.go`, `model.go` | `e`, Help, Voraussetzungen und typisierte Editieranforderung ergänzen; `StartsNetworkOperation` berücksichtigen. |
+| `internal/tui/browser/remote.go`, `preview.go` | Verbindungsübergabe und gezielte Aktualisierung nach Rückkehr; Preview nicht als Editor-Datenquelle verwenden. |
+| `internal/tui/app.go`, `state.go` | Eigenen Sitzungs-/Bestätigungs-Screen und Nachrichten routen. |
+| `internal/tui/app_connection.go` | Root-eigene Verbindungsbeobachtung um den neuen Eigentümer ergänzen. |
+| `internal/tui/app_certtrust.go` | FTPS-Vertrauen für ausdrücklich angeforderte Wiederverbindungen integrieren, ohne Transfer-Auto-Retry. |
+| `internal/config/config.go`, `loader.go`, `writer.go` | Editor-Konfiguration laden, validieren und verlustfrei erhalten. |
+| `internal/fs/root.go`, `internal/sync/run.go` | Vorhandene lokale Confinement- und Transferpfade verwenden. |
+| `internal/styles/styles.go`, `internal/tui/styles.go` | Fehlende Sitzungs-/Dialog-Styles zentral ergänzen. |
+
+### Fachlogik und UI trennen
+
+Neues Package `internal/remoteedit` enthält nur tatsächlich benötigte Sitzungslogik:
+Arbeitsverzeichnis, unveränderliche Originalbasis, Größen- und Pfadprüfungen,
+Snapshot-Erstellung, Konfliktprüfung, Transferaufruf und kontrolliertes Aufräumen.
+Es importiert kein Bubble Tea und liefert Werte sowie typisierte Fehler zurück.
+
+`internal/tui/remoteeditor` ist trotz des Namens kein Texteditor. Der Screen zeigt
+Sitzungszustand, Dateipfade, Bestätigung, Konflikt und Fehler. Er verpackt Aufrufe
+der Fachlogik in `tea.Cmd` und bindet den externen Prozess ein. Netzwerk-, lokale
+Datei- und Prozessarbeit laufen nicht synchron in `Update` oder `View`.
+
+Der Prozessaufruf wird als Argumentliste aufgebaut. Terminal-Prozesse starten über
+`tea.ExecProcess`, GUI-Prozesse in einem asynchronen Command. GUI-stdout/stderr
+werden verworfen; Prozessfehler werden bereinigt angezeigt. Dateiinhalte,
+Prozessausgaben und Zugangsdaten gehören nicht ins Log.
 
 ### Verbindungseigentum
 
-Für den ersten Ausbau öffnet jede Editor-Sitzung eine eigene Verbindung über
-`remote.Connect` und schließt sie beim endgültigen Verlassen. Das kostet einen
-zusätzlichen Verbindungsaufbau, trennt aber Lebensdauer und Fehlerzustand sauber von
-der Browser-Verbindung.
+Für diese Variante wird die bereits verbundene Browser-Verbindung exklusiv an die
+Editiersitzung übergeben, ähnlich dem Übergang zur Diffview. Der Browser behält
+seinen Baum und seine Navigation, besitzt währenddessen aber keine aktive
+Verbindung. Es wird nicht vorsorglich eine zweite Verbindung geöffnet.
 
-Die Verbindung entsteht in einem `tea.Cmd`, nicht in `Update`. Falls FTPS-Vertrauen
-oder andere Laufzeit-Verbindungsoptionen bis dahin die Signatur von `remote.Connect`
-ändern, übernimmt der Editor exakt denselben Factory-Aufruf wie Browser und Diffview.
+Die Root-Beobachtung folgt derselben Verbindungs- und Projektidentität und verarbeitet
+Ausfälle auch bei offenem Bestätigungs- oder Zertifikatsdialog. Während eines
+Terminal-Editors können TUI-Nachrichten verzögert verarbeitet werden; vor jedem
+weiteren I/O sind deshalb auch `Err()` und `Done()` zu prüfen.
 
-Ein späteres Übergeben der Browser-Verbindung ist nur sinnvoll, wenn Eigentum,
-Rückgabe bei Fehlern und FTP-Serialisierung ausdrücklich gelöst werden. Für den ersten
-Ausbau wird diese Optimierung nicht vorgenommen.
+Beim Abschluss wird eine noch verwendbare Verbindung ausdrücklich an denselben
+Browser-Kontext zurückgegeben. Eine fehlgeschlagene Verbindung wird nicht als gesund
+zurückgereicht. Sie wird in einem Command geschlossen; Baum und Arbeitskopie bleiben
+erhalten. Es gibt keine automatische Wiederverbindung oder Transferwiederholung.
 
-### Ablauf
+Eine manuell angeforderte Wiederverbindung verwendet ausschließlich
+`remote.Connect(ctx, host, trustManager, requiredChallenge)` und den root-eigenen
+Trust-Manager. Ein akzeptiertes FTPS-Zertifikat erlaubt zunächst nur die Fortsetzung
+der Verbindung/Prüfung, niemals einen ungeprüften erneuten Upload.
 
-1. Browser validiert Auswahl und sendet `MsgEditRequested`.
-2. `App.Update` erzeugt `remoteeditor.Model`, setzt Größe und wechselt auf
-   `ScreenRemoteEditor`.
-3. `remoteeditor.Init` startet Verbindung, `Stat` und begrenztes `Open` als
-   `tea.Cmd`. Reader werden immer geschlossen; Read- und Close-Fehler werden
-   gemeinsam ausgewertet.
-4. Ein aktuelles `MsgLoaded` initialisiert Original und Textpuffer. Veraltete
-   Sitzungsnachrichten räumen Ressourcen auf und ändern keinen sichtbaren Zustand.
-5. `Ctrl+S` startet erneutes `Stat` und begrenztes Lesen.
-6. Bei unverändertem Original serialisiert der Editor den Puffer verlustfrei und
-   ruft `Upload(path, reader)` in einem `tea.Cmd` auf.
-7. Nach Upload liest der Command `Stat` und bei unklarem Ergebnis gegebenenfalls
-   den Inhalt zurück.
-8. Bei Erfolg wird der gespeicherte Inhalt zur neuen Originalbasis und der Dirty-
-   Zustand gelöscht.
-9. Beim Verlassen schließt der Editor seine Verbindung asynchron und sendet
-   `MsgBackToBrowser`.
-10. Der Browser aktualisiert den betroffenen Verzeichniseintrag und lädt eine aktive
-    Preview für denselben Pfad neu, ohne Remote-Cursor, Expanded-State und Scrollposition
-    pauschal zurückzusetzen.
+### Sitzungszustand und Nachrichten
 
-### Root-Routing und Loader
+Die Sitzung hält mindestens Host-Snapshot, Projektidentität, Remote-Pfad,
+Verbindung, eigene lokale Root, Arbeitsdateipfad, Originalbasis, bestätigten
+Snapshot sowie eindeutige Sitzungs- und Operations-IDs.
 
-In `internal/tui/app.go` ergänzen:
+Vorgesehene Zustände:
 
-- `remoteEditor remoteeditor.Model` im Root-Modell.
-- `ScreenRemoteEditor` in `internal/tui/state.go`.
-- Größe, `Update`, `View` und Rückkehrnachrichten routen.
-- neue globale Netzwerkaktivität oder eine eindeutig zuordenbare Editor-Aktivität.
-- Loader-Abbruch nur dann als erfolgreicher Abbruch anzeigen, wenn die Operation noch
-  nicht an einen nicht abbrechbaren Upload übergeben wurde.
+```text
+Preparing → Editing → Awaiting decision → Checking → Uploading → Finished
+```
 
-`q` darf im Editor nicht durch das globale Browser-Quit-Verhalten abgefangen werden.
-Der Editor besitzt seine eigene Rückkehrlogik. `Ctrl+C` während Texteingabe und
-Netzwerkaktivität muss vor Implementierung ausdrücklich festgelegt und getestet
-werden.
+`Edit again` führt zurück nach `Editing`. Konflikt, Fehler und unklarer Ausgang
+sind eigene Zustände, die Arbeitskopie und Vergleichsbasis erhalten.
 
-## Geplante Änderungen pro Bereich
+Typisierte Nachrichten für Start, Download-Ergebnis, Prozess-Ende, Snapshot,
+Prüfergebnis, Upload-Ergebnis und Rückkehr enthalten die zugehörigen Identitäten.
+Ein verspätetes Ergebnis darf keine andere Datei oder ein neues Projekt verändern.
+Veraltete Ergebnisse räumen ihre Ressourcen auf, ohne unbestätigte Arbeitskopien
+zu löschen. Doppelklicks beziehungsweise wiederholte Tasten starten keine zweite
+Sitzung oder einen zweiten Upload.
 
-### Browser
+`q`, `Ctrl+C`, Fenstergrößenänderungen und Rückkehraktionen sind je Zustand zu
+testen. Ein Beenden mit geänderter Arbeitskopie verlangt eine ausdrückliche
+Entscheidung zum Behalten oder Verwerfen; im gestarteten Terminal-Editor gelten
+dessen eigene Tasten. Upload-Zustände dürfen nicht über die normale Browser-
+Quit-Logik übergangen werden.
 
-Betroffene Dateien:
+## Umsetzungsschritte und Abnahme
 
-- `internal/tui/browser/keys.go`
-- `internal/tui/browser/model.go`
-- `internal/tui/browser/update.go`
-- `internal/tui/browser/remote.go`
-- `internal/tui/browser/view.go`
-- zugehörige Tests
+### 1. Konfiguration und sicherer Prozessaufruf
 
-Änderungen:
+- Go-Konfiguration und Writer um den optionalen Editor-Abschnitt ergänzen.
+- Rust-Store um den notwendigen Schema-Roundtrip ergänzen, ohne GUI-Anbindung.
+- Argumentersetzung und Validierung testen; keine Shell-Zwischenschicht.
 
-- `e` und Hilfetext ergänzen.
-- `MsgEditRequested` mit Host- und Pfad-Snapshot ergänzen.
-- Editor-Einstieg nur für zulässige reguläre Remote-Dateien.
-- Remote-Busy-Erkennung um Editor-Übergang sauber abgrenzen.
-- gezielte Aktualisierung eines Remote-Eintrags nach Rückkehr implementieren.
-- aktive Preview nach erfolgreichem Speichern neu laden.
+Abnahme: Beispiele für `nvim` und `code --wait` sind korrekt abbildbar. Host-Saves
+beider aktualisierter Anwendungen erhalten den Abschnitt. Fehlende Konfiguration
+verändert das bestehende Browser-Verhalten nicht.
 
-### Editor-Screen
+### 2. Isolierte Sitzung und Download
 
-Betroffene Dateien:
+- `internal/remoteedit` mit privatem Cache-Arbeitsverzeichnis und eigener `fs.Root`.
+- Mapping-/Dateitypprüfung, begrenzter Download und unveränderte Vergleichsbasis.
+- Ressourcenbesitz, Aufräumen und Erhalt bei Fehlern festlegen und testen.
 
-- `internal/tui/remoteeditor/model.go` neu
-- `internal/tui/remoteeditor/update.go` neu
-- `internal/tui/remoteeditor/view.go` neu
-- `internal/tui/remoteeditor/content.go` neu
-- Tests im selben Package
+Abnahme: Originalbytes kommen unverändert beim Editor an. Keine lokale Projektdatei
+wird gelesen oder geschrieben. Unsichere oder zu große Dateien starten keinen Editor.
 
-Änderungen:
+### 3. Editor-Lebenszyklus und Bestätigung
 
-- Textarea einbinden oder eng begrenztes eigenes Widget implementieren.
-- Sitzungs- und Operations-IDs verwalten.
-- Dirty-, Bestätigungs-, Konflikt- und Fehlerzustände modellieren.
-- Commands für Laden, Prüfen, Speichern, Rücklesen und Schließen implementieren.
-- Größen-, Text- und Zeilenendenregeln zentral anwenden.
+- Sitzungs-Screen, Terminal-Übergabe und asynchronen GUI-Prozess integrieren.
+- Nach Prozess-Ende Datei prüfen und einen unveränderlichen Snapshot erzeugen.
+- Bestätigen, erneut bearbeiten, behalten und verwerfen umsetzen.
 
-### Root und Styles
+Abnahme: Kein Editor-Save und kein Prozessfehler lädt automatisch hoch. Ein
+unveränderter Abschluss benötigt keinen Bestätigungsdialog. Terminal und Maus
+werden auch nach Editor-Fehlern korrekt wiederhergestellt.
 
-Betroffene Dateien:
+### 4. Konfliktprüfung und Upload
 
-- `internal/tui/app.go`
-- `internal/tui/state.go`
-- `internal/styles/styles.go`
-- optional `internal/tui/styles.go`
-- `internal/tui/app_test.go`
+- Aktuellen Remote-Inhalt erneut prüfen und mit Originalbasis/Snapshot vergleichen.
+- Bestehenden Sync-Upload auf dem Sitzungs-Snapshot ausführen.
+- Konflikt, Fehler und unklaren Ausgang getrennt behandeln.
+- Explizite Wiederverbindung samt FTPS-Trust und erneuter Prüfung integrieren.
 
-Änderungen:
+Abnahme: Beobachtete konkurrierende Änderungen werden nicht still überschrieben.
+Jeder neue Upload ist bestätigt, Fehler erhalten die Arbeitskopie und unklare
+Ausgänge führen nie zu einem automatischen Transfer-Retry.
 
-- Screen-Lebenszyklus und typisierte Übergänge ergänzen.
-- Netzwerkaktivität und Fehleranzeige integrieren.
-- zentrale Styles für Editor-Cursor, Dirty-Zustand, Bestätigungen und Konflikte
-  hinzufügen, soweit vorhandene Styles nicht reichen.
+### 5. Browser-/Root-Integration und Dokumentation
 
-### Remote-Schicht
+- `e`, Hilfe, Screen-Routing, Netzwerkaktivität und Verbindungsbeobachtung ergänzen.
+- Eigentum bei Einstieg, Rückkehr, Fehlern und Shutdown eindeutig übertragen.
+- Remote-Metadaten/Preview gezielt aktualisieren, ohne Browser-Neuaufbau.
+- `README.md`, `CHANGELOG.md`, `docs/manual-testing.md` und gegebenenfalls
+  Architekturregeln in `AGENTS.md` aktualisieren.
 
-Für den Grundablauf ist keine Erweiterung von `remote.Client` vorgesehen. Der Editor
-verwendet `Stat`, `Open` und `Upload`.
+Abnahme: Der vollständige Ablauf funktioniert mit SFTP, FTP und FTPS, Terminal-
+und GUI-Editor. Warteoption, Cache-Datenschutz, Größenlimit und Grenzen der
+Konfliktprüfung/Metadatenerhaltung sind dokumentiert.
 
-Vor Freigabe muss die FTP-Testabdeckung für Upload, Staging, Rename-Fehler und
-unklaren Verbindungsausgang ergänzt werden. Falls sich dabei zeigt, dass vorhandene
-Protokollmethoden eine sichere Zustandsbestimmung verhindern, wird eine kleine
-protokollunabhängige API-Änderung separat begründet. Kein `WriteFile`-Alias und kein
-Editor-spezifischer Client werden vorsorglich eingeführt.
+## Testmatrix
 
-## Umsetzungsschritte
-
-### 1. Inhaltsregeln und Widget-Prototyp
-
-- Größenlimit und Verhalten bei gemischten Zeilenenden festlegen.
-- Verlustfreie Parser-/Serializer-Tests schreiben.
-- Textarea-Kandidat gegen Bubble Tea 1.3.10 und die benötigten Eingaben prüfen.
-- Entscheidung zur Abhängigkeit dokumentieren.
-
-Abnahme: Laden und unverändertes Serialisieren ergibt bytegleich den Originalinhalt.
-Nicht unterstützte Inhalte werden vor dem Editorstart verständlich abgelehnt.
-
-### 2. Editor-Zustandsmaschine ohne Netzwerk
-
-- `remoteeditor.Model`, Update und View anlegen.
-- Eingabe, Dirty-State, Resize sowie Speichern-/Verwerfen-Dialog implementieren.
-- Sitzungs- und Operations-IDs samt veralteten Ergebnissen testen.
-
-Abnahme: Alle Editorzustände sind mit synthetischen Bubble-Tea-Nachrichten testbar;
-keine View- oder Update-Methode blockiert.
-
-### 3. Laden und Konfliktprüfung
-
-- Verbindung und begrenztes Remote-Lesen in `tea.Cmd` integrieren.
-- Dateityp, Schreibbereich und Inhalt prüfen.
-- bytegenaue Konflikterkennung und Konfliktdialog umsetzen.
-- Fehler sichtbar machen und protokollieren.
-
-Abnahme: Zwischenzeitliche Änderungen oder Löschungen werden nie still überschrieben.
-
-### 4. Sicheres Speichern
-
-- `Upload` asynchron aufrufen.
-- eindeutigen Erfolg, Fehler und unklaren Ausgang unterscheiden.
-- Rücklesen nach unklarem Ergebnis implementieren.
-- Puffer bei jedem Fehler erhalten.
-- SFTP- und FTP/FTPS-Transporttests ergänzen.
-
-Abnahme: Ein fehlgeschlagener Upload verliert weder Editorinhalt noch bestätigt er
-fälschlich Erfolg. Staging-Dateien bleiben nach erwartbaren Fehlern nicht zurück.
-
-### 5. Browser- und Root-Integration
-
-- `e`, Help, Screen-Konstante und Root-Routing ergänzen.
-- Editor-Verbindung sicher schließen.
-- Browser-Eintrag und Preview nach Erfolg gezielt aktualisieren.
-- Cursor, Scrollposition, Expanded-State und Markierungen erhalten.
-- Projekt-, Host- und Screen-Wechsel während laufender Ergebnisse absichern.
-
-Abnahme: Der vollständige Ablauf funktioniert ohne Neuaufbau der Browser-Sitzung und
-ohne dass verspätete Nachrichten eine andere Datei oder ein anderes Projekt ändern.
-
-### 6. Dokumentation und Gesamtprüfung
-
-- `README.md`, `CHANGELOG.md` und bei geänderten Architekturregeln `AGENTS.md`
-  aktualisieren.
-- Grenzen von Konfliktprüfung, Upload-Abbruch, Dateiformaten und Größenlimit nennen.
-- Hilfe und Fehlermeldungen mit SFTP, FTP und FTPS manuell prüfen.
-
-## Test- und Abnahmematrix
-
-Keine gemockten Remote-Clients. Reine Inhalts- und TUI-Zustände benötigen kein
-Remote-I/O. Transportverhalten wird mit echten Loopback-Protokollverbindungen oder
-optional übersprungenen externen Testservern geprüft.
+Keine gemockten Remote-Clients. Transporttests verwenden echte Loopback-SFTP-,
+FTP- und FTPS-Verbindungen; `internal/ftptest` für FTP/FTPS wiederverwenden. Rein
+lokale Sitzungsregeln und TUI-Zustände benötigen keine Remote-Verbindung. Für
+Prozess-Tests einen echten kurzlebigen Hilfsprozess verwenden, keinen Remote-Mock.
 
 | Bereich | Pflichtfälle |
 | --- | --- |
-| Inhalt | Leere Datei, LF, CRLF, fehlender Schlussumbruch, Tabs, Unicode und breite Zeichen, maximale Größe, Überschreitung nach Paste, NUL, ungültiges UTF-8, gemischte Zeilenenden. |
-| Editor | Einfügen, Löschen, Navigation, mehrzeilige Paste, Undo falls zugesagt, Resize, horizontales/vertikales Scrollen, Dirty-State. |
-| Tastatur | `q`, `p`, `P`, `s` und `e` schreiben Text; `Ctrl+S`, `Esc`, Bestätigungsdialoge und Hilfe funktionieren kontextabhängig. |
-| Einstieg | Nur aktive reguläre Remote-Datei; kein Host, lokales Pane, Verzeichnis, Symlink, Busy-State und nicht erlaubtes Mapping werden verständlich behandelt. |
-| Asynchronität | Veraltete Load-/Save-Nachrichten, Doppelspeichern, Rückkehr vor spätem Ergebnis, Projekt-/Hostwechsel, Fehler beim Reader-Close. |
-| Konflikt | Inhalt verändert, gleiche Größe mit anderem Inhalt, Datei gelöscht, Zieltyp geändert, Reload mit Dirty-Puffer, ausdrückliches Overwrite. |
-| Upload | Erfolg, Quell-Lesefehler, Rechtefehler, Verbindungsabbruch, Rename-Fehler, unklarer Ausgang, Rücklesen, keine verbliebene Staging-Datei. |
-| Browser-Rückkehr | Cursor, Scrollposition, Expanded-State und Markierungen bleiben; Größe und Änderungszeit werden aktualisiert; Preview zeigt den neuen Inhalt. |
-| Protokolle | SFTP, FTP und FTPS; vorhandene Berechtigungsbits bei SFTP; dokumentiertes FTP-Metadatenverhalten. |
-| Logging | Fehler mit Operation, Host und Pfad; keine Zugangsdaten oder Dateiinhalte; bei deaktiviertem Logging keine Datei und keine Terminalausgabe. |
+| Konfiguration | Fehlender Abschnitt, Default für `terminal`, ungültige Argumentliste, fehlender/doppelter Platzhalter, unbekanntes Programm, Go-/Rust-Roundtrip nach Host-Schreibvorgängen. |
+| Prozessaufruf | Leerzeichen, Unicode, Shell-Metazeichen und führender Bindestrich im Dateinamen; kein Shell-Aufruf; nicht vorhandenes Programm; Exit ungleich null; korrektes Warten. |
+| Inhalt | Leere Datei, LF/CRLF/gemischte Zeilenenden, BOM, ungültiges UTF-8, NUL, Tabs, fehlender Schlussumbruch; bytegleicher Download und keine drift-seitige Umwandlung. |
+| Arbeitsdatei | 0700/0600, Größenlimit vor/nach Bearbeitung, atomarer Editor-Save, gelöschte Datei, Symlink-Escape, nichtreguläre Datei, private Snapshots und Aufräumfehler. |
+| Einstieg | Lokales Pane, Verzeichnis, Symlink, ungemappter Pfad, Hard Exclusion, direkt gewählte ignorierte Datei, kein Host, tote Verbindung und Busy-State. |
+| Bestätigung | Unverändert ohne Upload; Änderungen nur mit Zustimmung; erneut bearbeiten; behalten; bestätigtes Verwerfen; Prozessfehler ohne Upload; neue Bytes nach Snapshot weder still übertragen noch nach Upload-Erfolg löschen. |
+| Konflikt | Geänderter Inhalt trotz gleicher Größe/Zeit, Remote bereits gleich Snapshot, beobachtete Löschung, Rechtefehler/FTP 550, Typwechsel, Reload nur nach Verwerf-Bestätigung. |
+| Verbindung/Upload | Ausfall während Editor-Lauf, vor/während Upload, Rename-Fehler, unklarer Ausgang, expliziter Reconnect, FTPS-Challenge, kein automatischer Transfer-Retry. |
+| Asynchronität | Veraltete Session-/Operations-ID, Doppelauslösung, Projekt-/Hostidentität, Dialogrouting, verzögertes Prozess-Ende, Reader-Close-Fehler, Schließen außerhalb von Update. |
+| Browser/Terminal | Cursor, Scrollposition, Expanded-State und Markierungen erhalten; gezielte Metadaten-/Preview-Aktualisierung; Resize, Alt-Screen, Maus an/aus, Rückkehr nach Editor-Fehler. |
+| Daten/Logging | Keine Projektdatei verändert; Arbeitskopie bei Fehlern erhalten; keine Inhalte/Zugangsdaten im Log; Logging standardmäßig aus; keine GUI-Prozessausgabe in der TUI. |
 
 Nach der späteren Implementierung:
 
@@ -445,26 +437,11 @@ go test ./...
 go test -race ./...
 go vet ./...
 go build ./...
+cd rust && cargo test -p drift-core
 ```
 
-Zusätzlich manuell mit Testhosts für SFTP, FTP und FTPS prüfen:
-
-1. Datei öffnen, minimal ändern und speichern.
-2. Datei parallel außerhalb von drift ändern und Konflikt erkennen.
-3. Verbindung vor sowie während des Uploads trennen.
-4. Schreibrechte entziehen und den Puffer nach dem Fehler weiterbearbeiten.
-5. Kleine Terminalgröße, Resize und große Paste testen.
-6. Sicherstellen, dass keine Datei im lokalen Projekt erzeugt oder geändert wird.
-
-## Vor Implementierungsbeginn zu entscheiden
-
-1. Exaktes Größenlimit. Empfehlung: 256 KiB.
-2. Verhalten bei gemischten Zeilenenden. Empfehlung: im ersten Ausbau ablehnen.
-3. Textarea-Bibliothek oder eigenes eng begrenztes Widget nach Prototyp.
-4. `Ctrl+C` im Editor: Anwendung beenden, Editor abbrechen oder nur laufende
-   Netzwerkaktivität abbrechen.
-5. Ob `Overwrite` im Konfliktfall bereits im ersten Lieferumfang enthalten ist.
-   Sicherheitsorientierte Alternative: nur weiterbearbeiten oder Remote neu laden.
-
-Diese Entscheidungen ändern nicht die grundsätzliche Machbarkeit, müssen aber vor
-Implementierung in Akzeptanztests festgeschrieben werden.
+Zusätzlich manuell mit `nvim` und `code --wait`, kleinen Terminalgrößen und
+Testhosts für SFTP, FTP und FTPS prüfen. Dabei Paralleländerungen, entzogene
+Schreibrechte und Verbindungsabbrüche gezielt auslösen. Automatisierte Tests
+ersetzen nicht die Prüfung der Terminal-Übergabe und der tatsächlichen
+GUI-Warteoption.

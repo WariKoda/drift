@@ -15,6 +15,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 
 - Side-by-side local/remote file browser with multi-select (Space) and recursive directory marking
 - Safe local/remote text preview in the opposite pane (`p`), with line numbers and wrapping
+- Edit a remote file in a configured external editor (`e`), with explicit upload consent and content-conflict checks
 - Project-wide fuzzy file finder (`f`) for marking files
 - Unified diff view with the file list on the left for local vs. remote files, unchanged
   stretches folded away behind `@@` hunk headers
@@ -151,6 +152,60 @@ which prefills the repository root too.
 
 ---
 
+## Editing remote files
+
+Connect to a host with `@`, switch to the remote pane with `Tab`, select a regular
+file and press `e`. Configure one editor in `~/.config/drift/config.toml` first:
+
+```toml
+[editor]
+command = ["nano", "{file}"]
+terminal = true
+```
+
+Other examples, replacing the `command` and `terminal` values above:
+
+| Editor | `command` | `terminal` |
+| --- | --- | --- |
+| Neovim | `["nvim", "{file}"]` | `true` |
+| Zed | `["zed", "--wait", "{file}"]` | `false` |
+| VS Code | `["code", "--wait", "{file}"]` | `false` |
+
+`{file}` must be a separate argument and appear exactly once. Commands run without
+a shell, from the private working directory. `terminal` defaults to `true`. GUI
+editors must wait until the file is closed; a launcher without a wait option is
+not supported. Editor commands are global user preferences, never project/host
+settings. There is no automatic `$EDITOR`/`$VISUAL` fallback.
+
+Drift downloads the original remote bytes to a private directory in the OS user
+cache (`~/.cache/drift/remote-edit/` on Linux unless `$XDG_CACHE_HOME` is set).
+The local project file is not used or changed. Only one file is edited at a time,
+up to 10 MiB, within the active mappings or the host root. A terminal editor takes
+over the terminal; a GUI editor opens separately while drift waits.
+
+Saving in the editor does **not** upload. After closing the file/editor:
+
+- unchanged bytes return directly to the browser;
+- changed bytes require `u` to upload; `Enter`/`e` opens the editor again;
+- `k` keeps the local copy and returns; `d` asks before discarding it;
+- `c` reconnects and checks content without uploading; `r` reloads remote content
+  only after confirmation to discard the working changes.
+
+Before upload, drift reads the remote content again. Observed parallel changes,
+missing files and file-type changes stop the upload. There is no force-overwrite
+or automatic merge. This is not an atomic conditional write: another process can
+still change the remote file between the check and server-side replacement.
+Uploads use the existing staged-transfer path; server rename capabilities and
+FTP/FTPS metadata preservation vary.
+
+Failures preserve the working copy. An interrupted upload can have an unknown
+outcome; reconnecting checks it before any new, separately confirmed upload.
+Confirmed saved/discarded or unchanged sessions are cleaned up, except when
+later working-copy changes need retaining. Kept copies can contain secrets;
+they have private permissions but are not encrypted or automatically recovered
+on restart. Drift shows their path so you can retrieve and remove them yourself.
+The browser keeps its cursor, open directories and markings on return.
+
 ## Key Bindings
 
 ### Project Dashboard
@@ -188,6 +243,7 @@ which prefills the repository root too.
 | `g` / `G` | Jump to top / bottom |
 | `Tab` | Switch local / remote pane |
 | `p` | Toggle a text preview in the opposite pane |
+| `e` | Edit the current remote file in the configured external editor |
 | `c` | Copy the loaded preview content to the clipboard |
 | `PgUp` / `PgDn`, `Home` / `End` | Scroll / jump within an active preview |
 | `@` | Choose or change the remote host |
@@ -495,7 +551,7 @@ add to `.gitignore` and nothing to commit by accident:
 
 | File | Holds |
 | --- | --- |
-| `~/.config/drift/config.toml` | global servers, `[ui]` |
+| `~/.config/drift/config.toml` | global servers, `[ui]`, `[editor]` |
 | `~/.config/drift/projects.toml` | the registry: slug, name, path, timestamps |
 | `~/.config/drift/projects/<slug>.toml` | one project's hosts and mappings, mode `600` |
 | `~/.config/drift/trusted-certificates.toml` | persistent FTPS certificate exceptions, mode `600` |

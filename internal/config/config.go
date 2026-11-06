@@ -107,6 +107,7 @@ type UI struct {
 type GlobalConfig struct {
 	Defaults Defaults `toml:"defaults"`
 	UI       UI       `toml:"ui,omitempty"`
+	Editor   *Editor  `toml:"editor,omitempty"`
 	Hosts    []Host   `toml:"hosts"`
 }
 
@@ -129,9 +130,10 @@ const (
 type MergedConfig struct {
 	GlobalDefaults  Defaults
 	ProjectDefaults Defaults
-	UI              UI     // from the global config only
-	GlobalHosts     []Host // hosts from ~/.config/drift/config.toml, the servers projects link to
-	ProjectHosts    []Host // hosts from the project store, links resolved against GlobalHosts
+	UI              UI      // from the global config only
+	Editor          *Editor // from the global config only
+	GlobalHosts     []Host  // hosts from ~/.config/drift/config.toml, the servers projects link to
+	ProjectHosts    []Host  // hosts from the project store, links resolved against GlobalHosts
 
 	// Hosts are the hosts the open project can sync with, keyed by Name: its
 	// own and linked ones. Global hosts are servers to link to, not targets of

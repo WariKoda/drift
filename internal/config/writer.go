@@ -203,7 +203,7 @@ func deleteProjectHost(cfg *MergedConfig, name string) error {
 func globalConfigBase(cfg *MergedConfig) (GlobalConfig, error) {
 	path := globalConfigPath()
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Hosts: cfg.GlobalHosts}, nil
+		return GlobalConfig{Defaults: cfg.GlobalDefaults, UI: cfg.UI, Editor: cfg.Editor, Hosts: cfg.GlobalHosts}, nil
 	}
 	gc, err := loadGlobal()
 	if err != nil {
@@ -301,6 +301,11 @@ func removeHost(hosts []Host, name string) []Host {
 }
 
 func writeGlobal(cfg GlobalConfig) error {
+	if cfg.Editor != nil {
+		if err := cfg.Editor.Validate(); err != nil {
+			return err
+		}
+	}
 	for _, host := range cfg.Hosts {
 		if host.IsLink() {
 			return fmt.Errorf("global host %q: server is only valid for project hosts", host.Name)
@@ -319,6 +324,7 @@ func writeGlobal(cfg GlobalConfig) error {
 	return WriteTOML(path, globalConfigOut{
 		Defaults: defaultsOut{Port: optionalInt(cfg.Defaults.Port), User: cfg.Defaults.User},
 		UI:       cfg.UI,
+		Editor:   cfg.Editor,
 		Hosts:    hostsOut(cfg.Hosts),
 	})
 }
@@ -355,6 +361,7 @@ type projectConfigOut struct {
 type globalConfigOut struct {
 	Defaults defaultsOut `toml:"defaults,omitempty"`
 	UI       UI          `toml:"ui,omitempty"`
+	Editor   *Editor     `toml:"editor,omitempty"`
 	Hosts    []hostOut   `toml:"hosts,omitempty"`
 }
 

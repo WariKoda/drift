@@ -21,6 +21,7 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
 | `diffview`          | File list + unified diff + sync                       |
+| `remoteeditor`      | External-editor session + upload confirmation         |
 
 The `textfield` package holds the shared single-line input widget used by `hostform`
 and `projectform`. The project registry (slug, name, path, timestamps) lives in
@@ -32,11 +33,22 @@ intact until a different project is chosen.
 
 Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
 
+Remote editing uses `internal/remoteedit` for scope checks, private cache working
+copies, immutable upload snapshots, conflict checks and cleanup. The
+`internal/tui/remoteeditor` screen only runs the external process and routes typed
+results/decisions. It takes exclusive ownership of the existing browser connection
+and returns it on exit; reconnect/certificate approval only reads and never retries
+a write. Each session has its own `fs.Root` outside the project. Unconfirmed copies
+are retained on shutdown; cleanup uses an opened cache-parent root, not an
+unconfined recursive delete. `[editor]` is global user configuration only and must
+survive both Go and Rust store writes. Never execute editor commands from project
+or host records.
+
 Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`); every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
 
 Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
 
-Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.
+Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project (or the remote editor's separate private working directory) and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.
 
 Remote clients own their keep-alive monitors. `Host.KeepAliveInterval` is optional: nil uses 60 seconds, `0` disables probes. `Done()` closes on normal shutdown or a terminal monitor failure; `Err()` reports only the latter. Keep monitors independent of the short-lived connect context. FTP probes share the operation lock and skip busy connections; SSH probes may run alongside SFTP transfers. Root-owned connection observers must handle failures before modal input routing and reject stale connection/project identities. Browser/diff close methods return commands: detach state in `Update`, run transport shutdown in the returned `tea.Cmd`. Never automatically retry a transfer after connection loss.
 

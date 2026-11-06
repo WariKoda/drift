@@ -21,6 +21,7 @@ const (
 	trustOperationRemoteBrowse
 	trustOperationDiffLoad
 	trustOperationNoRetry
+	trustOperationRemoteEdit
 )
 
 type pendingTrustOperation struct {
@@ -148,6 +149,14 @@ func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 		tracker := progress.NewTracker("Connecting…")
 		cmd := diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(pending.host, nil, &pending.challenge), tracker)
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker))
+	case trustOperationRemoteEdit:
+		if a.state.Screen != ScreenRemoteEditor {
+			return *a, nil
+		}
+		cmd := a.remoteEditor.RetryConnection(pending.challenge)
+		label, tracker, _ := a.remoteEditor.LoadingActivity()
+		a.watchConnection(nil)
+		return *a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteEdit, label, tracker))
 	case trustOperationNoRetry:
 		cmd := a.browser.RetryRemote(pending.host, pending.challenge)
 		_, tracker, _ := a.browser.LoadingActivity()

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `e` in the remote browser opens the current file in a globally configured external
+  terminal or GUI editor, including Nano, Neovim, Zed and VS Code; GUI launchers need
+  a wait option
+- remote editing uses a private, size-limited cache working copy, explicit upload
+  confirmation and byte-content conflict checks without changing the local project
+  file; errors and unknown transfer outcomes retain the copy without automatic retry
+- the Rust config store preserves the TUI's optional `[editor]` section during host
+  management writes, without adding an editor feature to the paused GUI
+
 ## [0.2.0-beta.1] - 2026-09-28
 
 First beta. The beta phase focuses on real-world SFTP/FTP/FTPS deployments, sync

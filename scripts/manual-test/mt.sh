@@ -97,7 +97,7 @@ drift)
 	(cd "$REPO" && go build -o "$STATE/bin/drift" .)
 	seed
 	cd "$STATE/project"
-	exec env HOME="$STATE/home" XDG_CONFIG_HOME="$STATE/home/.config" \
+	exec env HOME="$STATE/home" XDG_CONFIG_HOME="$STATE/home/.config" XDG_CACHE_HOME="$STATE/home/.cache" \
 		"$STATE/bin/drift" --no-dashboard --debug --log "$STATE/drift.log"
 	;;
 ftps)

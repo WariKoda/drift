@@ -167,6 +167,59 @@ Statuszeile "include ignored: on". Erneut `i` schaltet zurück.
 **A2. Abbruch beim Laden.** `r` und sofort `q`. Erwartet: zurück im Browser,
 kein verspätetes Ergebnis, "cancelled network activity" in `drift.log`.
 
+## Externer Remote-Editor
+
+Diese Fälle sind zusätzlich mit SFTP und FTPS, nach Möglichkeit auch mit einem
+FTP-Testhost, manuell zu prüfen. Das Kit setzt für drift einen eigenen
+`XDG_CACHE_HOME` unter `.state/home/.cache`; Arbeitskopien landen nicht im
+Testprojekt oder im echten Benutzer-Cache.
+
+In `.state/home/.config/drift/config.toml` einen Editor-Abschnitt eintragen,
+beispielsweise:
+
+```toml
+[editor]
+command = ["nano", "{file}"]
+terminal = true
+```
+
+Für GUI-Tests den Abschnitt durch `command = ["zed", "--wait", "{file}"]` und
+`terminal = false` ersetzen. Dasselbe mit `code --wait` prüfen, falls installiert.
+Nach Konfigurationsänderungen drift neu starten; keine echten Zugangsdaten nötig.
+
+**E1. Unverändert.** Mit `@` verbinden, per `Tab` ins Remote-Pane wechseln, eine
+Datei auswählen und `e` drücken. Ohne Änderung schließen. Erwartet: kein Upload,
+Browser-Cursor, offene Verzeichnisse und Markierungen bleiben erhalten. Bei Nano
+und Neovim Alt-Screen und Maus sowohl mit als auch ohne Mausunterstützung prüfen;
+Terminal während der Bearbeitung verkleinern/vergrößern.
+
+**E2. Bestätigter Upload.** Eine Remote-Datei bearbeiten und speichern, den Editor
+noch offen lassen. Erwartet: Serverseite und lokale Projektdatei unverändert.
+Datei/Editor schließen. `Enter` öffnet erneut, ohne Upload. Wieder schließen und
+`u` drücken. Erwartet: nur die Remote-Datei ändert sich; Metadaten und eine vorher
+aktive Preview werden aktualisiert. Im GUI-Test muss erst das Schließen des
+Dokuments, nicht schon das Ende des Launchers, zur Bestätigung führen.
+
+**E3. Konflikt.** Während der Bearbeitung dieselbe Datei in `.state/sftproot/`
+beziehungsweise `.state/ftproot/` anderweitig ändern. Auch gleich lange Inhalte
+verwenden. Nach Editor-Ende `u`. Erwartet: Konflikt, kein Überschreiben. `k` erhält
+die Arbeitskopie; `r` fragt vor dem Verwerfen und Neuladen. Dasselbe mit beobachteter
+Löschung oder entzogenem Leserecht prüfen; ein FTP `550` ist kein Löschungsbeweis.
+
+**E4. Prozess- und Verbindungsfehler.** Einen ungültigen Editor-Programmnamen
+eintragen oder den Editor mit Fehler beenden. Erwartet: kein Upload, Arbeitskopie
+bleibt erhalten. Während einer weiteren Sitzung den Server stoppen. Nach Rückkehr
+Fehler anzeigen, nicht automatisch übertragen. Server neu starten und `c` drücken:
+Verbindung/Prüfung allein laden nichts hoch. Bei neuem FTPS-Zertifikat gilt das
+auch nach Trust-Zustimmung. Erst ein neues `u` darf erneut übertragen.
+
+**E5. Behalten, Verwerfen und Grenzen.** `Esc`/`q` ohne Entscheidung verliert keine
+Änderungen. `k` zeigt den erhaltenen Cache-Pfad; `d` verlangt eine separate
+Bestätigung. Mehr als 10 MiB, Verzeichnisse, Symlinks und ungemappte Pfade starten
+keine normale Bearbeitung. Fehlgeschlagene oder unklare Uploads dürfen weder Erfolg
+melden noch die Arbeitskopie löschen. Auf diesem Testpfad kein verlässliches
+sofortiges Rückgängigmachen bereits begonnener Transfers erwarten.
+
 ## Aufräumen
 
 ```bash

@@ -3,6 +3,13 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_rust:
+        description: 'Run Rust checks (automatic Rust CI is paused)'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   test:
@@ -27,6 +34,7 @@ jobs:
         run: go build ./...
 
   rust:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_rust }}
     strategy:
       fail-fast: false
       matrix:

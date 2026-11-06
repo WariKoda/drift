@@ -5,6 +5,20 @@
 > and its design notes are retained for a possible future return; existing
 > native acceptance and release gates remain open.
 
+Automatic Rust CI is paused too: pushes and pull requests still run Go CI and
+CodeQL, but skip the Rust matrix. To run all Rust checks explicitly, select
+**Actions → CI → Run workflow → Run Rust checks**, or use:
+
+```bash
+gh workflow run ci.yml --ref main -f run_rust=true
+```
+
+The separate **GUI test artifacts (manual)** workflow remains available and
+unchanged. The Rust test, lint and release-build steps are retained; restoring
+automatic checks requires changing the `rust` job's manual-only condition in
+`.github/workflows/ci.yml`. Skipping automatic CI does not resolve the open Rust
+acceptance gates.
+
 See the [Rust/GPUI port plan](../docs/rust-port-plan.md) for milestones and the
 System/Omarchy/Dark/Light preference and the still-blocked Monokai palettes
 ([theme gate](../docs/rust-gui-theme-blockers.md)).

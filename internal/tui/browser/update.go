@@ -179,9 +179,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
+		if m.editPending {
+			return m, nil
+		}
 		return m.updateMouse(msg)
 
 	case tea.KeyMsg:
+		if m.editPending {
+			return m, nil
+		}
 		// Overlays capture keys first.
 		if m.showHelp {
 			if msg.String() == keyQuestion || msg.String() == keyEsc || msg.String() == keyQ {
@@ -261,6 +267,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// ── Quit ──────────────────────────────────────────
 	case keyQ, keyCtrlC:
 		return m, tea.Quit
+
+	case keyE:
+		cmd := m.requestEdit()
+		return m, cmd
 
 	// ── File preview ───────────────────────────────────
 	case keyP:

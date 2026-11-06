@@ -16,6 +16,7 @@ const (
 	ScreenHostManager            // CRUD list of all hosts
 	ScreenHostForm               // create / edit a host
 	ScreenDiffView               // unified diff
+	ScreenRemoteEditor           // external editor session and upload confirmation
 	ScreenDashboard              // project dashboard (optional landing screen)
 	ScreenProjectForm            // create / edit a project
 	ScreenRegisterPrompt         // offer to register the current unregistered project

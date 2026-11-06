@@ -28,6 +28,7 @@ const (
 	keyR         = "r"
 	keyP         = "p"
 	keyC         = "c"
+	keyE         = "e"
 	keyPgUp      = "pgup"
 	keyPgDown    = "pgdown"
 	keyHome      = "home"
@@ -60,6 +61,7 @@ func HelpText(showHidden, showIgnored bool, width int) string {
 		keyHint("Tab", "pane"),
 		keyHint("q", "quit"),
 		keyHint("@", "remote"),
+		keyHint("e", "edit remote"),
 		keyHint("f", "find"),
 		keyHint("?", "help"),
 	)
@@ -131,6 +133,7 @@ func FullHelp() string {
   f              fuzzy find files across the project, mark with Space
   s              sync marked local/remote files (uses remote pane host when selected)
   @              choose/change host for the remote pane
+  e              edit current remote file in the configured external editor
   .              toggle hidden files
   I              toggle gitignored files
                  highlighted/underlined labels indicate enabled visibility

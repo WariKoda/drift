@@ -63,6 +63,7 @@ func (a *App) connectionEnded(msg msgConnectionEnded) {
 	}
 	browserLost := a.browser.ConnectionLost(msg.conn, msg.err)
 	diffLost := a.diffView.ConnectionLost(msg.conn, msg.err)
+	a.remoteEditor.ConnectionLost(msg.conn, msg.err)
 	if browserLost || diffLost {
 		a.globalError = fmt.Sprintf("Remote disconnected: %v. Reconnect and compare before syncing again.", msg.err)
 	}
@@ -96,6 +97,9 @@ func (a *App) Close() {
 		cmd()
 	}
 	if cmd := a.diffView.Close(); cmd != nil {
+		cmd()
+	}
+	if cmd := a.remoteEditor.Close(); cmd != nil {
 		cmd()
 	}
 }

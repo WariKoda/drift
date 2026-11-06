@@ -82,6 +82,28 @@ fn stored_links_and_optional_zero_remain_raw_after_runtime_resolution() {
 }
 
 #[test]
+fn host_writes_preserve_the_tui_external_editor_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::new(dir.path().into());
+    fs::write(
+        dir.path().join("config.toml"),
+        "[editor]\ncommand = ['zed', '--wait', '{file}']\nterminal = false\n",
+    )
+    .unwrap();
+    let original = store.global().unwrap().editor;
+    assert!(original.is_some());
+    let host = Host {
+        name: "example".into(),
+        hostname: "example.test".into(),
+        ..Host::default()
+    };
+    store.save_host(None, None, host.clone()).unwrap();
+    assert!(store.global().unwrap().editor == original);
+    store.delete_host(None, &host).unwrap();
+    assert!(store.global().unwrap().editor == original);
+}
+
+#[test]
 fn host_catalog_keeps_raw_defaults_and_delete_guards_links_and_stale_records() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::new(dir.path().into());

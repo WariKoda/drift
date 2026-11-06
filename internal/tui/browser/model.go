@@ -73,6 +73,9 @@ type Model struct {
 	activePane           PaneSide
 	remoteHost           *config.Host
 	remoteConn           remote.Client
+	editConn             remote.Client
+	editPending          bool
+	editToken            *string
 	remoteRoot           string
 	remoteEntries        []*fs.FileEntry
 	remoteCursor         int
@@ -204,6 +207,8 @@ func (m Model) StartsNetworkOperation(key tea.KeyMsg) bool {
 	switch key.String() {
 	case keyS, keyAt:
 		return true
+	case keyE:
+		return m.activePane == PaneRemote
 	case keyP:
 		return m.activePane == PaneRemote && !m.preview.active
 	case keyJ, keyK, keyDown, keyUp, keyG, keyShiftG:
@@ -419,6 +424,10 @@ func (m *Model) reload() error {
 // CloseRemote detaches the connection immediately and closes it off the UI thread.
 func (m *Model) CloseRemote() tea.Cmd {
 	conn := m.remoteConn
+	if conn == nil {
+		conn = m.editConn
+	}
+	m.editConn, m.editToken, m.editPending = nil, nil, false
 	_ = m.cancelRemotePreview(false)
 	m.remoteConn = nil
 	m.CancelRemote()
@@ -484,7 +493,7 @@ func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
 }
 
 func (m Model) remoteBusy() bool {
-	return m.remoteLoading || m.remoteReading || m.remotePreviewReading
+	return m.editPending || m.remoteLoading || m.remoteReading || m.remotePreviewReading
 }
 
 func (m Model) cachedPathClass(path string) (fs.PathClass, bool) {

@@ -74,9 +74,18 @@ pub struct TerminalPreferences {
 }
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
+pub struct EditorConfig {
+    pub command: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<bool>,
+}
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct GlobalConfig {
     pub defaults: Defaults,
     pub ui: TerminalPreferences,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor: Option<EditorConfig>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<Host>,
 }

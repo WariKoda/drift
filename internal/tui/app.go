@@ -28,6 +28,7 @@ import (
 	mousepkg "github.com/WariKoda/drift/internal/tui/mouse"
 	"github.com/WariKoda/drift/internal/tui/projectform"
 	"github.com/WariKoda/drift/internal/tui/projectselector"
+	"github.com/WariKoda/drift/internal/tui/remoteeditor"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -41,6 +42,7 @@ const (
 	activityDiffLoad
 	activityHostTest
 	activityDiffView
+	activityRemoteEdit
 )
 
 // App is the root bubbletea Model.
@@ -51,6 +53,8 @@ type App struct {
 	hostForm      hostform.Model
 	hostSel       hostselector.Model
 	diffView      diffview.Model
+	remoteEditor  remoteeditor.Model
+	editRequest   *remoteEditorRequest
 	loader        loading.Model
 	activity      networkActivity
 	globalError   string
@@ -219,6 +223,8 @@ func (a *App) cancelNetworkActivity() {
 		a.hostManager.CancelTest()
 	case activityDiffView:
 		a.diffView.CancelActivity()
+	case activityRemoteEdit:
+		a.remoteEditor.CancelActivity()
 	}
 }
 
@@ -454,6 +460,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	switch result := msg.(type) {
+	case remoteeditor.MsgResult:
+		return a.updateRemoteEditor(result)
+	case remoteeditor.MsgClosed:
+		return a.finishRemoteEditor(result)
+	case browser.MsgEditRequested:
+		return a.startRemoteEditor(result)
 	case msgProjectPrepared:
 		return a.applyPreparedProject(result)
 	case msgProjectOpened:
@@ -498,6 +510,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if a.certPrompt != nil {
 		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
+			if a.state.Screen == ScreenRemoteEditor {
+				a.closeCertificatePrompt()
+				return a, nil
+			}
 			return a, tea.Quit
 		}
 		switch promptMsg := msg.(type) {
@@ -552,6 +568,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if a.state.Screen == ScreenRemoteEditor {
+		switch msg.(type) {
+		case tea.WindowSizeMsg, browser.MsgLocalLoaded, browser.MsgPreviewLoaded, browser.MsgRemoteLoaded,
+			diffview.MsgDiffLoaded, diffview.MsgDiffError:
+		default:
+			return a.updateRemoteEditor(msg)
+		}
+	}
+
 	switch msg := msg.(type) {
 
 	// ── Terminal resize ───────────────────────────────────────────────
@@ -564,6 +589,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hostSel.Width = msg.Width
 		a.hostSel.Height = msg.Height
 		a.diffView.SetSize(msg.Width, msg.Height)
+		a.remoteEditor.SetSize(msg.Width, msg.Height)
 		a.dashboard.SetSize(msg.Width, msg.Height)
 		a.projectForm.SetSize(msg.Width, msg.Height)
 		a.projectSel.SetSize(msg.Width, msg.Height)
@@ -608,6 +634,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cfg = &config.MergedConfig{
 					GlobalDefaults: a.state.Config.GlobalDefaults,
 					UI:             a.state.Config.UI,
+					Editor:         a.state.Config.Editor,
 					GlobalHosts:    append([]config.Host(nil), a.state.Config.GlobalHosts...),
 					Hosts:          make(map[string]config.Host, len(a.state.Config.GlobalHosts)),
 					ProjectRoot:    a.state.WorkingDir,
@@ -744,6 +771,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case browser.MsgRemoteLoaded:
 		accepted := a.browser.AcceptsRemoteResult(msg)
+		if !accepted && msg.Conn != nil && (msg.Conn == a.browser.Connection() || msg.Conn == a.remoteEditor.Connection() || msg.Conn == a.diffView.Connection()) {
+			return a, nil
+		}
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
 		if !accepted {
@@ -1209,6 +1239,8 @@ func (a App) baseView() string {
 		)
 	case ScreenDiffView:
 		return a.diffView.View()
+	case ScreenRemoteEditor:
+		return a.remoteEditor.View()
 	case ScreenHostManager:
 		return a.hostManager.View()
 	case ScreenHostForm:

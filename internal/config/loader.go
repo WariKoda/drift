@@ -74,6 +74,11 @@ func loadGlobal() (*GlobalConfig, error) {
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, err
 	}
+	if cfg.Editor != nil {
+		if err := cfg.Editor.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	for _, host := range cfg.Hosts {
 		if err := ValidateKeepAliveInterval(host.KeepAliveInterval); err != nil {
 			return nil, fmt.Errorf("global host %q: %w", host.Name, err)
@@ -110,6 +115,7 @@ func merge(global *GlobalConfig, project *ProjectConfig, projectRoot, slug strin
 	merged := &MergedConfig{
 		GlobalDefaults: global.Defaults,
 		UI:             global.UI,
+		Editor:         global.Editor,
 		GlobalHosts:    globalHosts,
 		ProjectHosts:   []Host{},
 		ProjectRoot:    projectRoot,

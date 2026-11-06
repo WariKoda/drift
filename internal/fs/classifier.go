@@ -66,7 +66,7 @@ func NewClassifier(ctx context.Context, projectRoot string) (*Classifier, error)
 		cache:       map[classKey]PathClass{},
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-toplevel")
+	cmd := classifierGitCommand(ctx, "-C", root, "rev-parse", "--show-toplevel")
 	output, revErr := cmd.Output()
 	if revErr == nil {
 		classifier.repoRoot = filepath.Clean(strings.TrimSpace(string(output)))
@@ -84,6 +84,13 @@ func NewClassifier(ctx context.Context, projectRoot string) (*Classifier, error)
 		return nil, err
 	}
 	return classifier, nil
+}
+
+func classifierGitCommand(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	// Repository detection parses Git diagnostics, which must not be translated.
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	return cmd
 }
 
 func isNotRepository(err error) bool {
@@ -179,7 +186,7 @@ func (c *Classifier) ClassifyBatch(ctx context.Context, candidates []ClassifyCan
 			return nil, fmt.Errorf("create temporary Git metadata: %w", tempErr)
 		}
 		temporaryGitDir = gitDir
-		initCmd := exec.CommandContext(ctx, "git", "init", "--bare", "--quiet", gitDir)
+		initCmd := classifierGitCommand(ctx, "init", "--bare", "--quiet", gitDir)
 		if initOutput, initErr := initCmd.CombinedOutput(); initErr != nil {
 			removeErr := os.RemoveAll(gitDir)
 			return nil, errors.Join(fmt.Errorf("initialize temporary Git metadata: %w: %s", initErr, strings.TrimSpace(string(initOutput))), removeErr)
@@ -191,7 +198,7 @@ func (c *Classifier) ClassifyBatch(ctx context.Context, candidates []ClassifyCan
 		args = append(args, "--no-index")
 	}
 	args = append(args, "--stdin", "-z", "--verbose", "--non-matching")
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := classifierGitCommand(ctx, args...)
 	var input bytes.Buffer
 	for _, query := range queries {
 		input.WriteString(query)

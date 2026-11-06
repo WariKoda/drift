@@ -15,6 +15,12 @@ All notable changes to this project will be documented in this file.
 - the Rust config store preserves the TUI's optional `[editor]` section during host
   management writes, without adding an editor feature to the paused GUI
 
+### Fixed
+
+- ignore classification outside Git repositories now works with translated Git
+  messages; classifier Git commands use a private C locale without changing the
+  application or external editor environment (#56)
+
 ## [0.2.0-beta.1] - 2026-09-28
 
 First beta. The beta phase focuses on real-world SFTP/FTP/FTPS deployments, sync

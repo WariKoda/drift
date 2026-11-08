@@ -14,6 +14,8 @@ import (
 // Use the same flip value as Flatten so headers, row order and gutters agree.
 // highlight enables addition/removal colours and markers for planned actions.
 func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffset, count int, flip, highlight bool) []string {
+	width, count = max(0, width), max(0, count)
+	scrollOffset = max(0, scrollOffset)
 	out := make([]string, 0, count)
 	if result == nil {
 		for i := 0; i < count; i++ {
@@ -35,11 +37,8 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 		return out
 	}
 
-	numWidth := 4
-	contentWidth := width - 2*numWidth - 4
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	numWidth := result.LineNumberWidth()
+	contentWidth := max(0, width-2*numWidth-4)
 
 	for i := 0; i < count; i++ {
 		idx := scrollOffset + i
@@ -149,12 +148,16 @@ func renderUnifiedLine(dl DiffLine, flip, highlight bool, width, numWidth, conte
 	}
 	gutter := formatLineNum(before, numWidth) + " " + formatLineNum(after, numWidth) + " "
 	line := numStyle.Render(gutter) + textStyle.Bold(true).Render(marker) + textStyle.Render(" "+content)
-	return line + textStyle.Render(strings.Repeat(" ", max(0, width-lipgloss.Width(line))))
+	return pad(line, width) + textStyle.Render("")
 }
 
 func pad(s string, width int) string {
+	width = max(0, width)
 	w := lipgloss.Width(s)
-	if w >= width {
+	if w > width {
+		return ansi.Truncate(s, width, "")
+	}
+	if w == width {
 		return s
 	}
 	return s + strings.Repeat(" ", width-w)
@@ -165,22 +168,18 @@ func truncateRunes(s string, n int) string {
 }
 
 func expandTabs(r []rune, tabWidth int) []rune {
-	var out []rune
+	var out strings.Builder
 	col := 0
-	for _, c := range r {
-		if c == '\r' {
-			continue
+	segments := strings.Split(strings.ReplaceAll(string(r), "\r", ""), "\t")
+	for i, segment := range segments {
+		if i > 0 {
+			spaces := max(1, tabWidth) - col%max(1, tabWidth)
+			out.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
 		}
-		if c == '\t' {
-			spaces := tabWidth - (col % tabWidth)
-			for i := 0; i < spaces; i++ {
-				out = append(out, ' ')
-				col++
-			}
-		} else {
-			out = append(out, c)
-			col++
-		}
+		segment = styles.SafeText(segment)
+		out.WriteString(segment)
+		col += ansi.StringWidth(segment)
 	}
-	return out
+	return []rune(out.String())
 }

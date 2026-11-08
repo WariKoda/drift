@@ -1,7 +1,10 @@
 // Package diff compares local and remote files and produces structured diff results.
 package diff
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // LineKind classifies a line in a unified diff.
 type LineKind int
@@ -41,10 +44,11 @@ type DiffResult struct {
 	// Cached statistics over Lines. Lines is never mutated after Compare
 	// builds it, so these are computed once (lazily) and reused. Scanning the
 	// line slice on every frame/query was a measurable cost for large files.
-	statsReady bool
-	differs    bool
-	added      int
-	removed    int
+	statsReady    bool
+	differs       bool
+	added         int
+	removed       int
+	maxLineNumber int
 }
 
 // ensureStats computes and caches differs/added/removed in a single pass.
@@ -61,6 +65,7 @@ func (r *DiffResult) ensureStats() {
 		r.differs = true
 	}
 	for _, l := range r.Lines {
+		r.maxLineNumber = max(r.maxLineNumber, l.LocalNum, l.RemoteNum)
 		switch l.Kind {
 		case LineAdded:
 			r.added++
@@ -82,6 +87,12 @@ func (r *DiffResult) HasDiff() bool {
 func (r *DiffResult) Counts() (added, removed int) {
 	r.ensureStats()
 	return r.added, r.removed
+}
+
+// LineNumberWidth remains stable across viewport and fold changes.
+func (r *DiffResult) LineNumberWidth() int {
+	r.ensureStats()
+	return max(4, len(strconv.Itoa(r.maxLineNumber)))
 }
 
 // Session pairs a browser selection entry with its loaded DiffResult.

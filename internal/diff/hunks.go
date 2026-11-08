@@ -12,12 +12,14 @@ const (
 	DisplayLine DisplayKind = iota
 	DisplayHunkHeader
 	DisplayFold
+	DisplayPair
 )
 
 // DisplayRow is one viewport row after hunk headers and context folding.
 type DisplayRow struct {
 	Kind      DisplayKind
 	LineIndex int    // Lines index for DisplayLine; change-run start for DisplayHunkHeader
+	PairIndex int    // after-side index for DisplayPair; -1 means an empty cell
 	Header    string // @@ -before,count +after,count @@ for DisplayHunkHeader
 	GapID     int    // start index of the equal run (stable across expand)
 	Hidden    int    // folded equal-line count
@@ -30,6 +32,11 @@ func (r DisplayRow) SourceLine() int {
 	switch r.Kind {
 	case DisplayFold:
 		return r.FoldStart
+	case DisplayPair:
+		if r.LineIndex < 0 {
+			return r.PairIndex
+		}
+		return r.LineIndex
 	default:
 		return r.LineIndex
 	}
@@ -105,8 +112,8 @@ func IndexOfSourceLine(rows []DisplayRow, lineIdx int) int {
 	best := 0
 	for i, r := range rows {
 		switch r.Kind {
-		case DisplayLine:
-			if r.LineIndex == lineIdx {
+		case DisplayLine, DisplayPair:
+			if r.LineIndex == lineIdx || (r.Kind == DisplayPair && r.PairIndex == lineIdx) {
 				return i
 			}
 			if r.LineIndex < lineIdx {

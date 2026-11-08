@@ -301,6 +301,11 @@ func removeHost(hosts []Host, name string) []Host {
 }
 
 func writeGlobal(cfg GlobalConfig) error {
+	if cfg.UI.Diff != nil {
+		if err := cfg.UI.Diff.Validate(); err != nil {
+			return err
+		}
+	}
 	if cfg.Editor != nil {
 		if err := cfg.Editor.Validate(); err != nil {
 			return err

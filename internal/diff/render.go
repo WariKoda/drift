@@ -14,6 +14,7 @@ type RenderOptions struct {
 	Flip, Highlight bool
 	Spans           map[int][]TextSpan
 	Offset          int
+	Split           bool
 }
 
 // RenderUnifiedRows renders flattened display rows (hunk headers, folds, lines).
@@ -58,13 +59,19 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 			out = append(out, renderHunkHeader(rows[idx].Header, width))
 		case DisplayFold:
 			out = append(out, renderFold(rows[idx].Hidden, width))
+		case DisplayPair:
+			out = append(out, renderSplitRow(result, rows[idx].LineIndex, rows[idx].PairIndex, width, numWidth, options))
 		default:
 			li := rows[idx].LineIndex
 			if li < 0 || li >= len(result.Lines) {
 				out = append(out, strings.Repeat(" ", width))
 				continue
 			}
-			out = append(out, renderUnifiedLine(result.Lines[li], options, width, numWidth, contentWidth, options.Spans[li]))
+			if options.Split {
+				out = append(out, renderSplitRow(result, li, li, width, numWidth, options))
+			} else {
+				out = append(out, renderUnifiedLine(result.Lines[li], options, width, numWidth, contentWidth, options.Spans[li]))
+			}
 		}
 	}
 	return out

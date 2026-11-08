@@ -283,6 +283,9 @@ setting does not change the global config.
 | ----- | -------- |
 | `j` / `k` or `↑` / `↓` | Scroll diff content by line |
 | `PgUp` / `PgDn` | Scroll diff content by page |
+| `←` / `→` | Scroll code horizontally without moving the gutters |
+| `v` | Cycle Unified / Split / Auto layout |
+| `?` | Open diff help |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
 | `Home` / `g`, `End` / `G` | Jump to start / end of diff content |
 | `[` / `]` | Jump to the previous / next hunk |
@@ -299,6 +302,22 @@ setting does not change the global config.
 | `i` | Rebuild scope with / without gitignored paths |
 | `r` | Reload ignore rules, scope, and diffs |
 | `q` / `Esc` | Back to browser |
+
+The diff retains each visited file's reading position and expanded context.
+Refresh reconciles those positions against the new content; it never restores
+old transfer decisions. Small changes within a replacement line are emphasized
+in addition to the whole-line action colors. Oversized or unrelated replacements
+keep the plain line diff.
+
+Unified remains the default. Auto switches to split when at least 160 columns
+remain for the diff after the file list. Very narrow windows hide the file list;
+Tab and Shift+Tab still select files. Layout changes are session-only. Set the
+initial layout in the global configuration, never a project or host record:
+
+```toml
+[ui.diff]
+layout = "auto" # unified (default), split, or auto
+```
 
 ### Host Manager
 

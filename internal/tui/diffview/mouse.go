@@ -29,6 +29,9 @@ type hit struct {
 // x > fileListWidth (past the │ divider) is the right pane. Within the right
 // pane only the rows below the path chrome map to diff lines.
 func (m Model) hitTest(x, y int) hit {
+	if x < 0 || x >= m.Width {
+		return hit{zoneNone, -1}
+	}
 	if m.comparisonEmptyState() != comparisonNotEmpty && !m.showErrors {
 		return hit{zoneNone, -1}
 	}
@@ -45,7 +48,7 @@ func (m Model) hitTest(x, y int) hit {
 		}
 		return hit{zoneFileList, idx}
 	}
-	if x == fw {
+	if fw > 0 && x == fw {
 		return hit{zoneNone, -1} // vertical divider
 	}
 
@@ -64,6 +67,9 @@ func (m Model) hitTest(x, y int) hit {
 
 // updateMouse handles wheel and click events for the diff view.
 func (m Model) updateMouse(msg tea.MouseMsg) (next Model, cmd tea.Cmd) {
+	if m.showHelp {
+		return m, nil
+	}
 	anchor, flip, active := m.topSourceLine(), m.remoteBeforeLocal(), m.activeIdx
 	defer func() {
 		next.prepareDisplayRows()

@@ -74,6 +74,11 @@ func loadGlobal() (*GlobalConfig, error) {
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, err
 	}
+	if cfg.UI.Diff != nil {
+		if err := cfg.UI.Diff.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.Editor != nil {
 		if err := cfg.Editor.Validate(); err != nil {
 			return nil, err

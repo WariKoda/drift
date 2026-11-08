@@ -71,6 +71,14 @@ pub struct TerminalPreferences {
     pub show_hidden: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub show_ignored: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<DiffPreferences>,
+}
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct DiffPreferences {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub layout: String,
 }
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]

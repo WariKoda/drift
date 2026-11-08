@@ -184,9 +184,16 @@ type Model struct {
 	display         *displayCache
 	foldRevision    uint64
 	savedScroll     map[int]int
+	savedSource     map[int]int
 	decoration      *decorationRequest
 	spans           map[int][]diff.TextSpan
 	decorationError string
+	preferences     config.DiffPreferences
+	horizontal      int
+	maxColumns      int
+	columnsReady    bool
+	savedHorizontal map[int]int
+	showHelp        bool
 	Width           int
 	Height          int
 }
@@ -365,10 +372,16 @@ func (m *Model) Close() tea.Cmd {
 
 // SetSize updates terminal dimensions and keeps the diff viewport in bounds.
 func (m *Model) SetSize(w, h int) {
+	anchor, split := m.topSourceLine(), m.splitLayout()
 	m.Width = w
 	m.Height = h
+	m.prepareDisplayRows()
 	m.clampFileList()
 	m.clampErrorScroll()
+	if split != m.splitLayout() {
+		m.remapScrollToSource(anchor)
+	}
+	m.clampHorizontal()
 }
 
 // bodyHeight returns the shared vertical space for the file list and diff pane.
@@ -436,6 +449,9 @@ func (m *Model) clampFileListOffset() {
 
 // fileListWidth returns the left sidebar width for the file list.
 func (m Model) fileListWidth() int {
+	if m.Width < 40 {
+		return 0
+	}
 	w := m.Width / 3
 	if w < 22 {
 		w = 22
@@ -456,11 +472,11 @@ func (m Model) fileListWidth() int {
 
 // diffWidth returns the right pane width (path header + unified diff).
 func (m Model) diffWidth() int {
-	w := m.Width - m.fileListWidth() - 1 // 1 for │ divider
-	if w < 10 {
-		return 10
+	width := m.Width - m.fileListWidth()
+	if m.fileListWidth() > 0 {
+		width--
 	}
-	return w
+	return max(0, width)
 }
 
 // activeSession returns the current session or nil.
@@ -481,13 +497,14 @@ func (m Model) displayRows() []diff.DisplayRow {
 	if s == nil || s.Result == nil {
 		return nil
 	}
-	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision {
+	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision && m.display.split == m.splitLayout() {
 		return m.display.rows
 	}
-	return diff.Flatten(s.Result.Lines, diff.DefaultContext, m.expandedFor(m.activeIdx), m.remoteBeforeLocal())
+	return m.rowsFor(m.activeIdx)
 }
 
 type displayCache struct {
+	split    bool
 	result   *diff.DiffResult
 	flip     bool
 	revision uint64
@@ -500,10 +517,10 @@ func (m *Model) prepareDisplayRows() {
 		m.display = nil
 		return
 	}
-	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision {
+	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision && m.display.split == m.splitLayout() {
 		return
 	}
-	m.display = &displayCache{result: s.Result, flip: m.remoteBeforeLocal(), revision: m.foldRevision, rows: m.displayRows()}
+	m.display = &displayCache{result: s.Result, flip: m.remoteBeforeLocal(), revision: m.foldRevision, split: m.splitLayout(), rows: m.displayRows()}
 }
 
 func (m Model) remoteBeforeLocal() bool {

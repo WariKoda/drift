@@ -64,6 +64,30 @@ In drift `assets/` und `src/` markieren. Die Befehle unten laufen in einem
 zweiten Terminal im Repository, `.state` steht für
 `scripts/manual-test/.state`.
 
+## Diff-Darstellung
+
+Diese Prüfungen sind zusätzlich zu den Protokolltests nötig und noch nicht
+interaktiv abgenommen:
+
+- Eine Textdatei mit mehr als 10.000 Zeilen vergleichen. Zeilennummern dürfen
+  den rechten Rand nicht verschieben, auch nicht nach dem Aufklappen von Kontext.
+- Tabs nach `日本`, `é` und `👩‍💻` vergleichen. Vierer-Tabstopps müssen sich
+  an Terminalspalten ausrichten; Steuerzeichen dürfen nicht ausgeführt werden.
+- Mit `v` Unified, Split und Auto durchschalten. Das Fenster vergrößern und
+  verkleinern. Auto berücksichtigt die verbleibende Diff-Breite. Local/Remote,
+  Vorher/Nachher und die mit Space gewählte Aktion müssen zusammenpassen.
+- Eine lange Zeile mit einem Unterschied am Ende über die Pfeiltasten erreichen.
+  Zeilennummern bleiben stehen. `?` öffnen: Navigation und Sync dürfen dahinter
+  keine Wirkung haben. Mit `?`, Escape oder `q` schließen.
+- Kontext aufklappen, scrollen, die Datei wechseln und zurückkehren. Danach `r`
+  und einen erfolgreichen Sync prüfen. Zugeordnete Lesepositionen bleiben;
+  verschwundene Dateien und geänderte Bereiche bekommen einen sicheren Rückfall.
+- Eine Konfigurationszeile wie `timeout = 30` gegen `timeout = 60` vergleichen.
+  Der geänderte Wert wird zusätzlich betont. Unicode-Zeichen bleiben vollständig;
+  sehr lange oder ungleich große Änderungsblöcke bleiben beim Ganzzeilen-Diff.
+- Während der Aufbereitung schnell Datei, Projekt und Host wechseln sowie die
+  Ansicht schließen. Kein spätes Ergebnis darf in einem neuen Vergleich landen.
+
 ## SFTP
 
 **S1. Erstvergleich und Upload.** `s`, Host `local-sftp`.

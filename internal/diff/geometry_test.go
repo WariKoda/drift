@@ -16,7 +16,7 @@ func TestLineNumbersFitAndRemainStable(t *testing.T) {
 		for _, flip := range []bool{false, true} {
 			for _, highlight := range []bool{false, true} {
 				for _, width := range []int{0, 1, 10, 80} {
-					rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, flip), width, 0, 6, flip, highlight)
+					rows := RenderUnifiedRows(result, Flatten(result.Lines, DefaultContext, nil, flip), width, 0, 6, RenderOptions{Flip: flip, Highlight: highlight})
 					for _, row := range rows {
 						if ansi.StringWidth(row) > width {
 							t.Fatalf("number=%d width=%d: %q", number, width, row)

@@ -16,7 +16,16 @@ import (
 type MsgBackToBrowser struct{}
 
 func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
-	defer func() { next.prepareDisplayRows() }()
+	defer func() {
+		next.prepareDisplayRows()
+		if extra := next.startDecoration(); extra != nil {
+			if cmd == nil {
+				cmd = extra
+			} else {
+				cmd = tea.Batch(cmd, extra)
+			}
+		}
+	}()
 	if m.closed {
 		return m, nil
 	}
@@ -24,6 +33,9 @@ func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 		m.ConnectionLost(m.conn, m.conn.Err())
 	}
 	switch msg := msg.(type) {
+
+	case MsgDecorated:
+		m.acceptDecoration(msg)
 
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width

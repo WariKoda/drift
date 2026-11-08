@@ -9,11 +9,18 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// RenderOptions contains only presentation choices for an immutable comparison.
+type RenderOptions struct {
+	Flip, Highlight bool
+	Spans           map[int][]TextSpan
+	Offset          int
+}
+
 // RenderUnifiedRows renders flattened display rows (hunk headers, folds, lines).
 // scrollOffset is the first DisplayRow index; count is the number of viewport rows.
 // Use the same flip value as Flatten so headers, row order and gutters agree.
 // highlight enables addition/removal colours and markers for planned actions.
-func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffset, count int, flip, highlight bool) []string {
+func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffset, count int, options RenderOptions) []string {
 	width, count = max(0, width), max(0, count)
 	scrollOffset = max(0, scrollOffset)
 	out := make([]string, 0, count)
@@ -57,7 +64,7 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 				out = append(out, strings.Repeat(" ", width))
 				continue
 			}
-			out = append(out, renderUnifiedLine(result.Lines[li], flip, highlight, width, numWidth, contentWidth))
+			out = append(out, renderUnifiedLine(result.Lines[li], options, width, numWidth, contentWidth, options.Spans[li]))
 		}
 	}
 	return out
@@ -118,9 +125,9 @@ func formatLineNum(n, width int) string {
 	return fmt.Sprintf("%*d", width, n)
 }
 
-func renderUnifiedLine(dl DiffLine, flip, highlight bool, width, numWidth, contentWidth int) string {
-	act := unifiedAction(dl.Kind, flip)
-	if !highlight {
+func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, contentWidth int, spans []TextSpan) string {
+	act := unifiedAction(dl.Kind, options.Flip)
+	if !options.Highlight {
 		act = actEqual
 	}
 
@@ -139,11 +146,11 @@ func renderUnifiedLine(dl DiffLine, flip, highlight bool, width, numWidth, conte
 		marker = "-"
 	}
 
-	content := truncateRunes(dl.Text, contentWidth)
+	content := renderText(dl.Text, spans, textStyle, options, contentWidth)
 	content = content + strings.Repeat(" ", contentWidth-lipgloss.Width(content))
 
 	before, after := dl.LocalNum, dl.RemoteNum
-	if flip {
+	if options.Flip {
 		before, after = after, before
 	}
 	gutter := formatLineNum(before, numWidth) + " " + formatLineNum(after, numWidth) + " "

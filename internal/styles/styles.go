@@ -53,6 +53,7 @@ var (
 	DiffHunkHeader  lipgloss.Style
 	DiffAdded       lipgloss.Style
 	DiffRemoved     lipgloss.Style
+	DiffEmphasis    lipgloss.Style
 )
 
 func init() {
@@ -106,6 +107,7 @@ func ApplyPalette(p Palette) {
 		Padding(1, 2)
 	DiffAdded = lipgloss.NewStyle().Foreground(ColorDiffAddedText).Background(ColorDiffAddedBg)
 	DiffRemoved = lipgloss.NewStyle().Foreground(ColorDiffRemovedText).Background(ColorDiffRemovedBg)
+	DiffEmphasis = lipgloss.NewStyle().Bold(true).Underline(true)
 	DiffFold = lipgloss.NewStyle().Foreground(ColorMuted)
 	DiffHunkHeader = lipgloss.NewStyle().Foreground(ColorSep)
 }

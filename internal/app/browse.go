@@ -23,12 +23,16 @@ type BrowseResult struct {
 // BrowseRemote connects and lists the host root. Failure closes the connection;
 // cancellation must interrupt a stalled directory listing, not just the dial.
 func BrowseRemote(ctx context.Context, host config.Host, trust *tlstrust.Manager, required *tlstrust.Challenge) (BrowseResult, error) {
+	if err := ctx.Err(); err != nil {
+		return BrowseResult{}, fmt.Errorf("connect to %s: %w", host.Hostname, err)
+	}
 	root := "/"
 	if host.RootPath != "" {
 		root = path.Clean(host.RootPath)
 	}
 	conn, err := remote.Connect(ctx, host, trust, required)
 	if err != nil {
+		err = errors.Join(ctx.Err(), err)
 		log.Error("remote browser connect failed", "host", host.Name, "hostname", host.Hostname, "err", err)
 		return BrowseResult{}, fmt.Errorf("connect to %s: %w", host.Hostname, err)
 	}

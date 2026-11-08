@@ -441,7 +441,7 @@ func TestNewScrollsToFirstTextualDifference(t *testing.T) {
 	}
 }
 
-func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
+func TestFileNavigationStartsNewFilesAndRestoresVisitedFiles(t *testing.T) {
 	model := Model{
 		sessions: []diff.Session{
 			{Result: &diff.DiffResult{ContentDiff: true, Lines: linesWithDifference(20, 2)}},
@@ -451,6 +451,7 @@ func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
 		scroll: 5,
 	}
 
+	wantReturn := min(model.scroll, max(0, model.totalLines()-model.viewportHeight()))
 	model, _ = model.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if model.activeIdx != 1 {
 		t.Fatalf("Tab selected file %d, want 1", model.activeIdx)
@@ -464,8 +465,8 @@ func TestFileNavigationScrollsToFirstDifference(t *testing.T) {
 	if model.activeIdx != 0 {
 		t.Fatalf("Shift+Tab selected file %d, want 0", model.activeIdx)
 	}
-	if model.scroll != clampedHeader(linesWithDifference(20, 2), 13) {
-		t.Fatalf("Shift+Tab scroll = %d, want first hunk header at %d", model.scroll, clampedHeader(linesWithDifference(20, 2), 13))
+	if model.scroll != wantReturn {
+		t.Fatalf("Shift+Tab scroll = %d, want saved position %d", model.scroll, wantReturn)
 	}
 }
 

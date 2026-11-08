@@ -147,7 +147,12 @@ func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 			return *a, nil
 		}
 		tracker := progress.NewTracker("Connecting…")
-		cmd := diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(pending.host, nil, &pending.challenge), tracker)
+		view := a.pendingDiffView
+		requestID := a.beginDiffRequest()
+		if view != nil {
+			a.pendingDiffView, a.pendingDiffViewID = view, requestID
+		}
+		cmd := diffview.LoadCmd(requestID, a.loadRequest(pending.host, nil, &pending.challenge), tracker)
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker))
 	case trustOperationRemoteEdit:
 		if a.state.Screen != ScreenRemoteEditor {

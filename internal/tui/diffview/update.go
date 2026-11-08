@@ -182,7 +182,13 @@ func (m Model) remoteBusy() bool {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
-	defer func() { next.prepareDisplayRows() }()
+	anchor, flip, active := m.topSourceLine(), m.remoteBeforeLocal(), m.activeIdx
+	defer func() {
+		next.prepareDisplayRows()
+		if next.activeIdx == active && next.remoteBeforeLocal() != flip {
+			next.remapScrollToSource(anchor)
+		}
+	}()
 	if m.showErrors {
 		switch msg.String() {
 		case "e", "q", "esc":
@@ -211,18 +217,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 	// ── File list navigation ───────────────────────────────────────────
 	case "tab", "n":
 		if m.activeIdx < len(m.sessions)-1 {
-			m.activeIdx++
-			m.resetFolds(m.activeIdx)
-			m.clampFileList()
-			m.scrollToFirstDifference()
+			m.selectFile(m.activeIdx + 1)
 		}
 
 	case "shift+tab", "p":
 		if m.activeIdx > 0 {
-			m.activeIdx--
-			m.resetFolds(m.activeIdx)
-			m.clampFileList()
-			m.scrollToFirstDifference()
+			m.selectFile(m.activeIdx - 1)
 		}
 
 	// ── Sync direction — current file (Space) or all files (A) ───────────

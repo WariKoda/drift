@@ -183,6 +183,7 @@ type Model struct {
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
 	display         *displayCache
 	foldRevision    uint64
+	savedScroll     map[int]int
 	Width           int
 	Height          int
 }

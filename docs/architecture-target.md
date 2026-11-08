@@ -22,6 +22,8 @@ Bereits umgesetzt:
 - FTPS-Zertifikatsvertrauen liegt in `internal/tlstrust` und wird vom Root-Modell verwaltet
 - Session-Aufbau liegt als `app.Load` in `internal/app`; Refresh und jeder abgeschlossene Sync bauen den Vergleich darüber neu auf, die Sync-Ausführung als `sync.Run` in `internal/sync`; `diffview` übersetzt nur noch Ergebnisse in Messages
 - Fortschritt und Abbruch laufen über `progress.Tracker` in `internal/progress`, ohne Bubble-Tea-Abhängigkeit
+- Architekturtests prüfen die bestehenden Import- und Aufrufgrenzen; Browser-Verbindungsaufbau und Hosttests liegen in `internal/app`
+- gecachte Anzeigezeilen, Lesepositionen sowie Wort- und Syntaxmarkierungen bleiben getrennt von Vergleich und Transfers; Details unter [Diff-Darstellung](diff-presentation.md)
 
 Einschränkung:
 

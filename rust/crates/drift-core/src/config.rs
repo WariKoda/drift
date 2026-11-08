@@ -79,6 +79,8 @@ pub struct TerminalPreferences {
 pub struct DiffPreferences {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub layout: String,
+    #[serde(skip_serializing_if = "is_false")]
+    pub syntax: bool,
 }
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]

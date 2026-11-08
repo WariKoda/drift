@@ -46,6 +46,18 @@ or host records.
 
 Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`); every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
 
+`internal/architecture/architecture_test.go` enforces these import and call
+boundaries over production Go files. Browser connection/listing and host tests
+use `app.BrowseRemote` and `app.TestHost`, not direct screen connections.
+
+Diff presentation is documented in `docs/diff-presentation.md`. Keep display rows,
+word/syntax spans and reading snapshots outside `DiffResult` and transfer state.
+The diffview caches one active row plan; syntax tokens use a bounded single-entry,
+palette-independent cache. Decoration commands consume immutable comparison lines,
+never perform I/O, and reject stale request identities. Global `[ui.diff]`
+preferences must survive both Go and Rust store writes; they never change sync
+policy. Refresh restores reading state only, bound to the reload request.
+
 Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
 
 Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project (or the remote editor's separate private working directory) and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.

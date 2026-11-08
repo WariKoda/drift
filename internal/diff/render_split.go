@@ -40,7 +40,14 @@ func renderSplitCell(result *DiffResult, index, width, digits int, before bool, 
 	}
 	gutter := formatLineNum(number, digits) + " " + marker + " "
 	contentWidth := max(0, width-digits-3)
-	content := renderText(line.Text, options.Spans[index], style, options, contentWidth)
+	var syntax []SyntaxSpan
+	if options.Syntax != nil {
+		syntax = options.Syntax.Remote[index]
+		if before != options.Flip {
+			syntax = options.Syntax.Local[index]
+		}
+	}
+	content := renderText(line.Text, options.Spans[index], syntax, style, options, contentWidth)
 	content += strings.Repeat(" ", max(0, contentWidth-lipgloss.Width(content)))
 	return pad(style.Render(gutter)+style.Render(content), width)
 }

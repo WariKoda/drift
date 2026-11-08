@@ -317,7 +317,15 @@ initial layout in the global configuration, never a project or host record:
 ```toml
 [ui.diff]
 layout = "auto" # unified (default), split, or auto
+syntax = true   # optional; default false
 ```
+
+Syntax highlighting uses Chroma on the source already present in the comparison.
+It never reloads files or runs project code. Unknown languages, files exceeding
+its work limits, and cancelled work keep the ordinary diff. Action backgrounds,
+markers, and intraline emphasis remain visible. See
+[diff presentation](docs/diff-presentation.md) for limits and measurements and
+[third-party notices](THIRD_PARTY_NOTICES.md) for dependency licenses.
 
 ### Host Manager
 

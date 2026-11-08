@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - optional split and responsive auto diff layouts (`v`), horizontal code scrolling
   with arrow keys, and diff help (`?`); initial layout is a global `[ui.diff]` preference
+- optional, asynchronous Chroma syntax highlighting (`ui.diff.syntax = true`),
+  with a single-entry token cache and plain-text fallback for unknown or oversized files
 - bounded, asynchronous intraline emphasis for related replacement lines
 - diff reading positions and unchanged expanded context survive file navigation
   and refresh without restoring transfer decisions

@@ -82,6 +82,8 @@ type App struct {
 	diffSeq           uint64
 	pendingDiffStatus string
 	pendingDiffErrors []internalsync.Failure
+	pendingDiffView   *diffview.ViewSnapshot
+	pendingDiffViewID uint64
 
 	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
@@ -217,6 +219,7 @@ func (a *App) cancelNetworkActivity() {
 	switch kind {
 	case activityDiffLoad:
 		a.diffRequest = 0
+		a.pendingDiffView, a.pendingDiffViewID = nil, 0
 	case activityRemoteLoad:
 		a.browser.CancelRemote()
 	case activityHostTest:
@@ -231,6 +234,7 @@ func (a *App) cancelNetworkActivity() {
 // beginDiffRequest issues the ID for a new diff request and makes it the only
 // one whose result the app will accept.
 func (a *App) beginDiffRequest() uint64 {
+	a.pendingDiffView, a.pendingDiffViewID = nil, 0
 	a.diffSeq++
 	a.diffRequest = a.diffSeq
 	return a.diffRequest
@@ -239,6 +243,7 @@ func (a *App) beginDiffRequest() uint64 {
 // abandonDiffRequest gives up on the pending diff request. Its result is
 // discarded and its connection closed once it arrives.
 func (a *App) abandonDiffRequest() {
+	a.pendingDiffView, a.pendingDiffViewID = nil, 0
 	if a.diffRequest == 0 {
 		return
 	}
@@ -852,6 +857,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.TermHeight,
 		)
 		a.diffView.SetScope(msg.Scope, msg.Options)
+		if a.pendingDiffView != nil && a.pendingDiffViewID == msg.RequestID {
+			a.diffView.RestoreView(*a.pendingDiffView)
+		}
+		a.pendingDiffView, a.pendingDiffViewID = nil, 0
 		if a.pendingDiffStatus != "" || len(a.pendingDiffErrors) > 0 {
 			a.diffView.SetSyncResult(a.pendingDiffStatus, a.pendingDiffErrors)
 			a.pendingDiffStatus = ""
@@ -879,6 +888,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.openCertificatePrompt(trustOperationDiffLoad, msg.Host, msg.Err) {
 			return a, nil
 		}
+		a.pendingDiffView, a.pendingDiffViewID = nil, 0
 		if !progress.IsCanceled(msg.Err) {
 			a.globalError = "Diff comparison failed: " + msg.Err.Error()
 		}
@@ -911,11 +921,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		host := *a.state.SelectedHost
+		view := a.diffView.SnapshotView()
 		closeDiff := a.diffView.Close()
 		a.watchConnection(nil)
 		a.state.Screen = ScreenBrowser
 		tracker := progress.NewTracker("Connecting…")
-		load := diffview.LoadCmd(a.beginDiffRequest(), a.loadRequest(host, nil, nil), tracker)
+		requestID := a.beginDiffRequest()
+		a.pendingDiffView, a.pendingDiffViewID = &view, requestID
+		load := diffview.LoadCmd(requestID, a.loadRequest(host, nil, nil), tracker)
 		return a, tea.Sequence(closeDiff, tea.Batch(load,
 			a.startNetworkActivity(activityDiffLoad, "Rebuilding sync scope…", tracker)))
 

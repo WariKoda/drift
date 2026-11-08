@@ -63,7 +63,14 @@ func (m Model) hitTest(x, y int) hit {
 }
 
 // updateMouse handles wheel and click events for the diff view.
-func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
+func (m Model) updateMouse(msg tea.MouseMsg) (next Model, cmd tea.Cmd) {
+	anchor, flip, active := m.topSourceLine(), m.remoteBeforeLocal(), m.activeIdx
+	defer func() {
+		next.prepareDisplayRows()
+		if next.activeIdx == active && next.remoteBeforeLocal() != flip {
+			next.remapScrollToSource(anchor)
+		}
+	}()
 	h := m.hitTest(msg.X, msg.Y)
 
 	if delta := mouse.WheelDelta(msg); delta != 0 {
@@ -105,10 +112,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 	}
 
 	if h.index != m.activeIdx {
-		m.activeIdx = h.index
-		m.resetFolds(m.activeIdx)
-		m.clampFileList()
-		m.scrollToFirstDifference()
+		m.selectFile(h.index)
 		// Count this as the first click of a possible double click, but do not
 		// let it complete one: the row only just became active.
 		m.clicks.Register(msg.X, msg.Y)

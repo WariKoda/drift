@@ -181,6 +181,8 @@ type Model struct {
 	root            *fs.Root     // confines every local read, write and delete to the project
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
+	display         *displayCache
+	foldRevision    uint64
 	Width           int
 	Height          int
 }
@@ -203,6 +205,7 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 		expandedGaps: map[int]map[int]struct{}{},
 		activityWait: &commandLifetime{},
 	}
+	model.prepareDisplayRows()
 	model.scrollToFirstDifference()
 	return model
 }
@@ -471,7 +474,29 @@ func (m Model) displayRows() []diff.DisplayRow {
 	if s == nil || s.Result == nil {
 		return nil
 	}
+	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision {
+		return m.display.rows
+	}
 	return diff.Flatten(s.Result.Lines, diff.DefaultContext, m.expandedFor(m.activeIdx), m.remoteBeforeLocal())
+}
+
+type displayCache struct {
+	result   *diff.DiffResult
+	flip     bool
+	revision uint64
+	rows     []diff.DisplayRow
+}
+
+func (m *Model) prepareDisplayRows() {
+	s := m.activeSession()
+	if s == nil || s.Result == nil {
+		m.display = nil
+		return
+	}
+	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision {
+		return
+	}
+	m.display = &displayCache{result: s.Result, flip: m.remoteBeforeLocal(), revision: m.foldRevision, rows: m.displayRows()}
 }
 
 func (m Model) remoteBeforeLocal() bool {
@@ -489,6 +514,7 @@ func (m Model) expandedFor(sessionIdx int) map[int]struct{} {
 }
 
 func (m *Model) resetFolds(sessionIdx int) {
+	m.foldRevision++
 	if m.expandedGaps != nil {
 		delete(m.expandedGaps, sessionIdx)
 	}
@@ -516,6 +542,7 @@ func (m *Model) gapExpanded(gapID int) bool {
 }
 
 func (m *Model) setGapExpanded(gapID int, open bool) {
+	m.foldRevision++
 	if !open {
 		if set := m.expandedFor(m.activeIdx); set != nil {
 			delete(set, gapID)
@@ -526,6 +553,7 @@ func (m *Model) setGapExpanded(gapID int, open bool) {
 }
 
 func (m *Model) remapScrollToSource(lineIdx int) {
+	m.prepareDisplayRows()
 	m.scroll = diff.IndexOfSourceLine(m.displayRows(), lineIdx)
 	m.clampScroll()
 }
@@ -642,6 +670,7 @@ func (m *Model) toggleAllFolds() {
 			m.expandedGaps = map[int]map[int]struct{}{}
 		}
 		m.expandedGaps[m.activeIdx] = set
+		m.foldRevision++
 	}
 	m.remapScrollToSource(anchor)
 }

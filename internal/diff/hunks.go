@@ -58,7 +58,20 @@ func Flatten(lines []DiffLine, context int, expanded map[int]struct{}, flip bool
 	}
 
 	foldBudget := 2 * context
-	out := make([]DisplayRow, 0, len(lines)+len(runs))
+	capacity := 0
+	for i, r := range runs {
+		length := r.end - r.start
+		_, shown := expanded[r.start]
+		if !r.equal {
+			capacity += length + 1
+		} else if shown || length <= foldBudget {
+			capacity += length
+		} else {
+			prefix, suffix := equalContext(runs, i, context)
+			capacity += min(length, prefix+suffix) + 1
+		}
+	}
+	out := make([]DisplayRow, 0, capacity)
 	var leading []DisplayRow
 	for i, r := range runs {
 		if r.equal {

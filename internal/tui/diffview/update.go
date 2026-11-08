@@ -15,7 +15,8 @@ import (
 // MsgBackToBrowser is sent when the user quits the diff view.
 type MsgBackToBrowser struct{}
 
-func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
+	defer func() { next.prepareDisplayRows() }()
 	if m.closed {
 		return m, nil
 	}
@@ -180,7 +181,8 @@ func (m Model) remoteBusy() bool {
 	return m.syncing || m.quickSyncing
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
+	defer func() { next.prepareDisplayRows() }()
 	if m.showErrors {
 		switch msg.String() {
 		case "e", "q", "esc":

@@ -19,6 +19,7 @@ type MsgDecorated struct {
 	request *decorationRequest
 	spans   map[int][]diff.TextSpan
 	err     error
+	columns int
 }
 
 func (m *Model) startDecoration() tea.Cmd {
@@ -37,20 +38,26 @@ func (m *Model) startDecoration() tea.Cmd {
 		m.decoration.cancel()
 	}
 	m.spans = nil
+	m.maxColumns = 0
+	m.columnsReady = false
 	m.decorationError = ""
 	ctx, cancel := context.WithCancel(context.Background())
 	request := &decorationRequest{result: result, cancel: cancel}
 	m.decoration = request
 	added, removed := result.Counts()
-	if result.Binary || added == 0 || removed == 0 {
+	if result.Binary || len(result.Lines) == 0 {
 		cancel()
 		return nil
 	}
 	lines := result.Lines
 	return func() tea.Msg {
 		defer cancel()
-		spans, err := diff.WordHighlights(ctx, lines)
-		return MsgDecorated{request: request, spans: spans, err: err}
+		columns, err := diff.MeasureColumns(ctx, lines)
+		var spans map[int][]diff.TextSpan
+		if err == nil && added > 0 && removed > 0 {
+			spans, err = diff.WordHighlights(ctx, lines)
+		}
+		return MsgDecorated{request: request, spans: spans, columns: columns, err: err}
 	}
 }
 
@@ -67,4 +74,6 @@ func (m *Model) acceptDecoration(msg MsgDecorated) {
 		return
 	}
 	m.spans = msg.spans
+	m.maxColumns, m.columnsReady = msg.columns, true
+	m.clampHorizontal()
 }

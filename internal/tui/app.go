@@ -860,6 +860,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.state.TermWidth,
 			a.state.TermHeight,
 		)
+		if a.state.Config != nil && a.state.Config.UI.Diff != nil {
+			a.diffView.SetPreferences(*a.state.Config.UI.Diff)
+		}
 		a.diffView.SetScope(msg.Scope, msg.Options)
 		if a.pendingDiffView != nil && a.pendingDiffViewID == msg.RequestID {
 			a.diffView.RestoreView(*a.pendingDiffView)

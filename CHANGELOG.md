@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- optional split and responsive auto diff layouts (`v`), horizontal code scrolling
+  with arrow keys, and diff help (`?`); initial layout is a global `[ui.diff]` preference
+- bounded, asynchronous intraline emphasis for related replacement lines
+- diff reading positions and unchanged expanded context survive file navigation
+  and refresh without restoring transfer decisions
 - `e` in the remote browser opens the current file in a globally configured external
   terminal or GUI editor, including Nano, Neovim, Zed and VS Code; GUI launchers need
   a wait option
@@ -17,6 +22,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- diff gutters fit five- and six-digit line numbers, tabs follow terminal-cell
+  widths for Unicode, and narrow diff rows stay within the pane
+- folded diff rows are cached instead of rebuilt on each frame
 - ignore classification outside Git repositories now works with translated Git
   messages; classifier Git commands use a private C locale without changing the
   application or external editor environment (#56)

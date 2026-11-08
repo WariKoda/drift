@@ -18,6 +18,11 @@ type MsgBackToBrowser struct{}
 func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 	defer func() {
 		next.prepareDisplayRows()
+		switch msg.(type) {
+		case tea.KeyMsg, tea.MouseMsg:
+		default:
+			return
+		}
 		if extra := next.startDecoration(); extra != nil {
 			if cmd == nil {
 				cmd = extra
@@ -38,10 +43,7 @@ func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 		m.acceptDecoration(msg)
 
 	case tea.WindowSizeMsg:
-		m.Width = msg.Width
-		m.Height = msg.Height
-		m.clampFileList()
-		m.clampErrorScroll()
+		m.SetSize(msg.Width, msg.Height)
 
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
@@ -201,6 +203,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 			next.remapScrollToSource(anchor)
 		}
 	}()
+	if m.showHelp {
+		if msg.String() == "?" || msg.String() == "q" || msg.String() == "esc" {
+			m.showHelp = false
+		}
+		return m, nil
+	}
 	if m.showErrors {
 		switch msg.String() {
 		case "e", "q", "esc":
@@ -225,6 +233,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.ConnectionLost(m.conn, m.conn.Err())
 	}
 	switch msg.String() {
+	case "?":
+		m.showHelp = true
+	case "v":
+		switch m.preferences.Layout {
+		case "", "unified":
+			m.preferences.Layout = "split"
+		case "split":
+			m.preferences.Layout = "auto"
+		default:
+			m.preferences.Layout = "unified"
+		}
+		m.prepareDisplayRows()
+		m.remapScrollToSource(anchor)
+		m.clampHorizontal()
+	case "left":
+		m.horizontal -= 8
+		m.clampHorizontal()
+	case "right":
+		if m.columnsReady {
+			m.horizontal += 8
+			m.clampHorizontal()
+		}
 
 	// ── File list navigation ───────────────────────────────────────────
 	case "tab", "n":

@@ -54,13 +54,13 @@ func (m Model) View() string {
 	s := m.activeSession()
 
 	// ── Header ───────────────────────────────────────────────────────
-	sb.WriteString(m.renderHeader())
+	sb.WriteString(pad(m.renderHeader(), max(0, m.Width)))
 	sb.WriteByte('\n')
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 
 	// ── Body: comparison result or file list | diff ──────────────────
-	if state := m.comparisonEmptyState(); state != comparisonNotEmpty && !m.showErrors {
+	if state := m.comparisonEmptyState(); state != comparisonNotEmpty && !m.showErrors && !m.showHelp {
 		for _, row := range m.renderComparisonSplash(state) {
 			sb.WriteString(row)
 			sb.WriteByte('\n')
@@ -84,7 +84,9 @@ func (m Model) View() string {
 				r = strings.Repeat(" ", dw)
 			}
 			sb.WriteString(l)
-			sb.WriteString(dividerStyle.Render("│"))
+			if fw > 0 {
+				sb.WriteString(dividerStyle.Render("│"))
+			}
 			sb.WriteString(r)
 			sb.WriteByte('\n')
 		}
@@ -93,7 +95,7 @@ func (m Model) View() string {
 	// ── Bottom ────────────────────────────────────────────────────────
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
-	sb.WriteString(m.renderStatus(s))
+	sb.WriteString(pad(m.renderStatus(s), max(0, m.Width)))
 
 	return sb.String()
 }
@@ -190,6 +192,8 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	vh := m.viewportHeight()
 	var content []string
 	switch {
+	case m.showHelp:
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[[/]] previous / next hunk", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
 	case s == nil:
@@ -201,7 +205,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	default:
-		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, diff.RenderOptions{Flip: m.remoteBeforeLocal(), Highlight: planned, Spans: m.spans})
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, diff.RenderOptions{Flip: m.remoteBeforeLocal(), Highlight: planned, Spans: m.spans, Split: m.splitLayout(), Offset: m.horizontal})
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}
@@ -460,6 +464,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 		} else {
 			keys = styles.KeyHints("[i]include ignored  [s/S]sync  [r]refresh  [q]back", styles.Muted)
 		}
+		keys = styles.KeyHints("[?]help [v]layout  ", styles.Muted) + keys
 		if len(m.syncErrors) > 0 {
 			keys = styles.KeyHints("[e]errors  ", styles.Err) + keys
 		}
@@ -529,8 +534,12 @@ func sepLine(width int) string {
 }
 
 func pad(s string, width int) string {
+	width = max(0, width)
 	w := lipgloss.Width(s)
-	if w >= width {
+	if w > width {
+		return ansi.Truncate(s, width, "")
+	}
+	if w == width {
 		return s
 	}
 	return s + strings.Repeat(" ", width-w)

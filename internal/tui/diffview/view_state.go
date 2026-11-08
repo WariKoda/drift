@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 
+	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
 )
 
@@ -14,15 +15,17 @@ type lineAnchor struct {
 	header  bool
 }
 type fileViewState struct {
-	anchor lineAnchor
-	gaps   [][32]byte
+	anchor     lineAnchor
+	gaps       [][32]byte
+	horizontal int
 }
 
 // ViewSnapshot contains only reading state, never transfers or sync decisions.
 // The root binds it to one refresh request and discards it on scope replacement.
 type ViewSnapshot struct {
-	active fileKey
-	files  map[fileKey]fileViewState
+	active      fileKey
+	files       map[fileKey]fileViewState
+	preferences config.DiffPreferences
 }
 
 func (m Model) topSourceLine() int {
@@ -41,12 +44,26 @@ func (m *Model) selectFile(index int) {
 		m.savedScroll = make(map[int]int)
 	}
 	m.savedScroll[m.activeIdx] = m.scroll
+	if m.savedSource == nil {
+		m.savedSource = make(map[int]int)
+	}
+	if m.savedHorizontal == nil {
+		m.savedHorizontal = make(map[int]int)
+	}
+	m.savedSource[m.activeIdx] = m.topSourceLine()
+	m.savedHorizontal[m.activeIdx] = m.horizontal
+	m.horizontal = m.savedHorizontal[index]
+	m.columnsReady = false
+	m.spans = nil
 	m.activeIdx = index
 	m.foldRevision++
 	m.prepareDisplayRows()
 	m.clampFileList()
 	if scroll, ok := m.savedScroll[index]; ok {
 		m.scroll = scroll
+		if source, ok := m.savedSource[index]; ok {
+			m.scroll = diff.IndexOfSourceLine(m.displayRows(), source)
+		}
 		m.clampScroll()
 	} else {
 		m.scrollToFirstDifference()
@@ -77,7 +94,7 @@ func gapFingerprint(lines []diff.DiffLine, start int) [32]byte {
 }
 
 func (m Model) SnapshotView() ViewSnapshot {
-	snapshot := ViewSnapshot{files: make(map[fileKey]fileViewState)}
+	snapshot := ViewSnapshot{files: make(map[fileKey]fileViewState), preferences: m.preferences}
 	for i, session := range m.sessions {
 		if session.Result == nil {
 			continue
@@ -89,8 +106,10 @@ func (m Model) SnapshotView() ViewSnapshot {
 		if !visited {
 			continue
 		}
-		flip := i < len(m.syncDirs) && (m.syncDirs[i] == DirUpload || m.syncDirs[i] == DirDeleteRemote)
-		rows := diff.Flatten(session.Result.Lines, diff.DefaultContext, m.expandedFor(i), flip)
+		rows := m.rowsFor(i)
+		if source, ok := m.savedSource[i]; ok && i != m.activeIdx {
+			scroll = diff.IndexOfSourceLine(rows, source)
+		}
 		if i == m.activeIdx {
 			rows = m.displayRows()
 		}
@@ -102,7 +121,11 @@ func (m Model) SnapshotView() ViewSnapshot {
 		if index < 0 || index >= len(session.Result.Lines) {
 			continue
 		}
-		state := fileViewState{anchor: lineAnchor{line: session.Result.Lines[index], context: lineContext(session.Result.Lines, index), header: row.Kind == diff.DisplayHunkHeader}}
+		horizontal := m.savedHorizontal[i]
+		if i == m.activeIdx {
+			horizontal = m.horizontal
+		}
+		state := fileViewState{anchor: lineAnchor{line: session.Result.Lines[index], context: lineContext(session.Result.Lines, index), header: row.Kind == diff.DisplayHunkHeader}, horizontal: horizontal}
 		for gap := range m.expandedFor(i) {
 			state.gaps = append(state.gaps, gapFingerprint(session.Result.Lines, gap))
 		}
@@ -116,7 +139,10 @@ func (m Model) SnapshotView() ViewSnapshot {
 }
 
 func (m *Model) RestoreView(snapshot ViewSnapshot) {
+	m.preferences = snapshot.preferences
 	m.savedScroll = make(map[int]int)
+	m.savedSource = make(map[int]int)
+	m.savedHorizontal = make(map[int]int)
 	for i, session := range m.sessions {
 		key := fileKey{session.LocalPath, session.RemotePath}
 		state, ok := snapshot.files[key]
@@ -144,8 +170,7 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 			}
 		}
 		if index >= 0 {
-			flip := i < len(m.syncDirs) && (m.syncDirs[i] == DirUpload || m.syncDirs[i] == DirDeleteRemote)
-			rows := diff.Flatten(lines, diff.DefaultContext, m.expandedFor(i), flip)
+			rows := m.rowsFor(i)
 			scroll := diff.IndexOfSourceLine(rows, index)
 			if state.anchor.header {
 				for j, row := range rows {
@@ -156,6 +181,8 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 				}
 			}
 			m.savedScroll[i] = scroll
+			m.savedSource[i] = index
+			m.savedHorizontal[i] = state.horizontal
 		}
 		if key == snapshot.active {
 			m.activeIdx = i
@@ -164,6 +191,8 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 	m.foldRevision++
 	m.prepareDisplayRows()
 	m.clampFileList()
+	m.horizontal = m.savedHorizontal[m.activeIdx]
+	m.clampHorizontal()
 	if scroll, ok := m.savedScroll[m.activeIdx]; ok {
 		m.scroll = scroll
 		m.clampScroll()

@@ -187,6 +187,8 @@ type Model struct {
 	savedSource     map[int]int
 	decoration      *decorationRequest
 	spans           map[int][]diff.TextSpan
+	syntax          *diff.SyntaxHighlights
+	syntaxCache     *diff.SyntaxCache
 	decorationError string
 	preferences     config.DiffPreferences
 	horizontal      int
@@ -373,14 +375,15 @@ func (m *Model) Close() tea.Cmd {
 // SetSize updates terminal dimensions and keeps the diff viewport in bounds.
 func (m *Model) SetSize(w, h int) {
 	anchor, split := m.topSourceLine(), m.splitLayout()
-	m.Width = w
-	m.Height = h
+	m.Width = max(0, w)
+	m.Height = max(0, h)
 	m.prepareDisplayRows()
 	m.clampFileList()
 	m.clampErrorScroll()
 	if split != m.splitLayout() {
 		m.remapScrollToSource(anchor)
 	}
+	m.clampScroll()
 	m.clampHorizontal()
 }
 

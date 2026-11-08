@@ -109,7 +109,7 @@ fn host_writes_preserve_tui_diff_preferences() {
     let store = Store::new(dir.path().into());
     fs::write(
         dir.path().join("config.toml"),
-        "[ui.diff]\nlayout = 'auto'\n",
+        "[ui.diff]\nlayout = 'auto'\nsyntax = true\n",
     )
     .unwrap();
     let original = store.global().unwrap().ui.diff;

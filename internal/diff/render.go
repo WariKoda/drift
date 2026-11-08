@@ -15,6 +15,7 @@ type RenderOptions struct {
 	Spans           map[int][]TextSpan
 	Offset          int
 	Split           bool
+	Syntax          *SyntaxHighlights
 }
 
 // RenderUnifiedRows renders flattened display rows (hunk headers, folds, lines).
@@ -70,7 +71,15 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 			if options.Split {
 				out = append(out, renderSplitRow(result, li, li, width, numWidth, options))
 			} else {
-				out = append(out, renderUnifiedLine(result.Lines[li], options, width, numWidth, contentWidth, options.Spans[li]))
+				var syntax []SyntaxSpan
+				line := result.Lines[li]
+				if options.Syntax != nil {
+					syntax = options.Syntax.Remote[li]
+					if line.Kind == LineRemoved || line.Kind == LineEqual && options.Flip {
+						syntax = options.Syntax.Local[li]
+					}
+				}
+				out = append(out, renderUnifiedLine(line, options, width, numWidth, contentWidth, options.Spans[li], syntax))
 			}
 		}
 	}
@@ -132,7 +141,7 @@ func formatLineNum(n, width int) string {
 	return fmt.Sprintf("%*d", width, n)
 }
 
-func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, contentWidth int, spans []TextSpan) string {
+func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, contentWidth int, spans []TextSpan, syntax []SyntaxSpan) string {
 	act := unifiedAction(dl.Kind, options.Flip)
 	if !options.Highlight {
 		act = actEqual
@@ -153,7 +162,7 @@ func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, cont
 		marker = "-"
 	}
 
-	content := renderText(dl.Text, spans, textStyle, options, contentWidth)
+	content := renderText(dl.Text, spans, syntax, textStyle, options, contentWidth)
 	content = content + strings.Repeat(" ", contentWidth-lipgloss.Width(content))
 
 	before, after := dl.LocalNum, dl.RemoteNum

@@ -16,7 +16,7 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if cfg.UI.Diff != nil {
 		t.Fatal("missing settings must retain default layout")
 	}
-	cfg.UI.Diff = &DiffPreferences{Layout: "auto"}
+	cfg.UI.Diff = &DiffPreferences{Layout: "auto", Syntax: true}
 	if err := SaveGlobalHost(cfg, Host{Name: "test", Hostname: "example.test"}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.UI.Diff == nil || loaded.UI.Diff.Layout != "auto" {
+	if loaded.UI.Diff == nil || loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax {
 		t.Fatal("global write lost diff preferences")
 	}
 	if err := os.MkdirAll(filepath.Join(Dir(), "projects"), 0700); err != nil {
@@ -37,7 +37,7 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.UI.Diff.Layout != "auto" {
+	if loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax {
 		t.Fatal("project settings overrode global diff preferences")
 	}
 }

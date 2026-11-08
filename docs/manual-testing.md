@@ -85,6 +85,12 @@ interaktiv abgenommen:
 - Eine Konfigurationszeile wie `timeout = 30` gegen `timeout = 60` vergleichen.
   Der geänderte Wert wird zusätzlich betont. Unicode-Zeichen bleiben vollständig;
   sehr lange oder ungleich große Änderungsblöcke bleiben beim Ganzzeilen-Diff.
+- Im isolierten globalen Store `[ui.diff]` mit `syntax = true` setzen und drift
+  neu starten. Go, PHP, JavaScript und eine unbekannte Dateiendung vergleichen.
+  Mehrzeilige Kommentare auf beiden Seiten müssen ihren jeweiligen Kontext
+  behalten. Mit `syntax = false` bleibt derselbe Vergleich ohne Syntaxfarben.
+  Dateien über 128 KiB kombiniertem Quelltext oder mit Zeilen über 2.048 Bytes
+  behalten den normalen Diff; Upload- und Download-Prüfsummen bleiben gleich.
 - Während der Aufbereitung schnell Datei, Projekt und Host wechseln sowie die
   Ansicht schließen. Kein spätes Ergebnis darf in einem neuen Vergleich landen.
 

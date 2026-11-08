@@ -55,6 +55,7 @@ func (m *Model) selectFile(index int) {
 	m.horizontal = m.savedHorizontal[index]
 	m.columnsReady = false
 	m.spans = nil
+	m.syntax = nil
 	m.activeIdx = index
 	m.foldRevision++
 	m.prepareDisplayRows()
@@ -165,8 +166,11 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 		index := -1
 		for j, line := range lines {
 			if line.Kind == state.anchor.line.Kind && line.Text == state.anchor.line.Text && lineContext(lines, j) == state.anchor.context {
+				if index >= 0 {
+					index = -1
+					break
+				}
 				index = j
-				break
 			}
 		}
 		if index >= 0 {

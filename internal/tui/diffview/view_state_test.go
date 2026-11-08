@@ -59,6 +59,23 @@ func TestVisitedFileKeepsFoldsAndScroll(t *testing.T) {
 	}
 }
 
+func TestSnapshotAmbiguousAnchorFallsBack(t *testing.T) {
+	result := stateFixture()
+	for i := range result.Lines {
+		result.Lines[i].Text = "repeated"
+	}
+	m := New([]diff.Session{{LocalPath: "file", Result: result}}, config.Host{}, nil, nil, 120, 20)
+	m.toggleAllFolds()
+	m.remapScrollToSource(40)
+	fresh := New([]diff.Session{{LocalPath: "file", Result: result}}, config.Host{}, nil, nil, 120, 20)
+	fresh.RestoreView(m.SnapshotView())
+	got := fresh.scroll
+	fresh.scrollToFirstDifference()
+	if got != fresh.scroll {
+		t.Fatal("ambiguous anchor chose an arbitrary duplicate")
+	}
+}
+
 func TestSnapshotRemovedFileAndChangedContentFallback(t *testing.T) {
 	m := New([]diff.Session{{LocalPath: "a", Result: stateFixture()}}, config.Host{}, nil, nil, 120, 20)
 	m.toggleAllFolds()

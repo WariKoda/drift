@@ -54,6 +54,11 @@ var (
 	DiffAdded       lipgloss.Style
 	DiffRemoved     lipgloss.Style
 	DiffEmphasis    lipgloss.Style
+	SyntaxKeyword   lipgloss.Style
+	SyntaxString    lipgloss.Style
+	SyntaxNumber    lipgloss.Style
+	SyntaxComment   lipgloss.Style
+	SyntaxName      lipgloss.Style
 )
 
 func init() {
@@ -108,6 +113,11 @@ func ApplyPalette(p Palette) {
 	DiffAdded = lipgloss.NewStyle().Foreground(ColorDiffAddedText).Background(ColorDiffAddedBg)
 	DiffRemoved = lipgloss.NewStyle().Foreground(ColorDiffRemovedText).Background(ColorDiffRemovedBg)
 	DiffEmphasis = lipgloss.NewStyle().Bold(true).Underline(true)
+	SyntaxKeyword = lipgloss.NewStyle().Foreground(ColorKey)
+	SyntaxString = lipgloss.NewStyle().Foreground(ColorMatch)
+	SyntaxNumber = lipgloss.NewStyle().Foreground(ColorWarn)
+	SyntaxComment = lipgloss.NewStyle().Foreground(ColorMuted).Italic(true)
+	SyntaxName = lipgloss.NewStyle().Foreground(ColorDir)
 	DiffFold = lipgloss.NewStyle().Foreground(ColorMuted)
 	DiffHunkHeader = lipgloss.NewStyle().Foreground(ColorSep)
 }

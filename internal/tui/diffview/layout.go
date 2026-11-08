@@ -9,6 +9,13 @@ const autoSplitColumns = 160
 
 func (m *Model) SetPreferences(preferences config.DiffPreferences) {
 	anchor := m.topSourceLine()
+	if m.preferences.Syntax != preferences.Syntax {
+		if m.decoration != nil {
+			m.decoration.cancel()
+			m.decoration = nil
+		}
+		m.syntax = nil
+	}
 	m.preferences = preferences
 	m.prepareDisplayRows()
 	m.remapScrollToSource(anchor)

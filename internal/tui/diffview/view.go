@@ -205,7 +205,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	default:
-		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, diff.RenderOptions{Flip: m.remoteBeforeLocal(), Highlight: planned, Spans: m.spans, Split: m.splitLayout(), Offset: m.horizontal})
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, diff.RenderOptions{Flip: m.remoteBeforeLocal(), Highlight: planned, Spans: m.spans, Split: m.splitLayout(), Offset: m.horizontal, Syntax: m.syntax})
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}

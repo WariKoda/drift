@@ -288,7 +288,7 @@ setting does not change the global config.
 | `?` | Open diff help |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
 | `Home` / `g`, `End` / `G` | Jump to start / end of diff content |
-| `[` / `]` | Jump to the previous / next hunk |
+| `[` / `]` | Jump to the previous / next hunk, continuing across files |
 | `Enter` / `l` | Expand or collapse the first fold in view |
 | `h` | Collapse the fold around the top of the viewport |
 | `c` | Expand or collapse every fold in the file |
@@ -308,6 +308,12 @@ Refresh reconciles those positions against the new content; it never restores
 old transfer decisions. Small changes within a replacement line are emphasized
 in addition to the whole-line action colors. Oversized or unrelated replacements
 keep the plain line diff.
+
+Hunk navigation crosses file boundaries: `]` enters the next file at its first
+hunk, `[` enters the previous file at its last. Files without textual hunks
+(including identical, binary, and failed comparisons) are skipped. Navigation
+stops at either end without wrapping. Ordinary scrolling stays within the file;
+Tab and Shift+Tab still reach every file and restore its saved reading position.
 
 Unified remains the default. Auto switches to split when at least 160 columns
 remain for the diff after the file list. Very narrow windows hide the file list;

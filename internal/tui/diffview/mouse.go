@@ -89,6 +89,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (next Model, cmd tea.Cmd) {
 				m.errorOffset += delta
 				m.clampErrorScroll()
 			} else {
+				m.hunk = nil
 				m.scroll += delta
 				m.clampScroll()
 			}

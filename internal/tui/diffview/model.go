@@ -182,6 +182,7 @@ type Model struct {
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
 	display         *displayCache
+	hunk            *hunkPosition
 	foldRevision    uint64
 	savedScroll     map[int]int
 	savedSource     map[int]int
@@ -518,11 +519,13 @@ func (m *Model) prepareDisplayRows() {
 	s := m.activeSession()
 	if s == nil || s.Result == nil {
 		m.display = nil
+		m.hunk = nil
 		return
 	}
 	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision && m.display.split == m.splitLayout() {
 		return
 	}
+	m.hunk = nil
 	m.display = &displayCache{result: s.Result, flip: m.remoteBeforeLocal(), revision: m.foldRevision, split: m.splitLayout(), rows: m.displayRows()}
 }
 

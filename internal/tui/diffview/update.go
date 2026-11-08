@@ -233,6 +233,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.ConnectionLost(m.conn, m.conn.Err())
 	}
 	switch msg.String() {
+	case "j", "down", "J", "k", "up", "K", "ctrl+d", "ctrl+u", "pgdown", "pgup", "home", "g", "end", "G":
+		m.hunk = nil
+	}
+	switch msg.String() {
 	case "?":
 		m.showHelp = true
 	case "v":
@@ -318,9 +322,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 
 	// ── Jump to next/prev diff hunk ────────────────────────────────────
 	case "]":
-		m.jumpNextHunk()
+		m.jumpHunk(1)
 	case "[":
-		m.jumpPrevHunk()
+		m.jumpHunk(-1)
 
 	case "enter", "l":
 		m.toggleFirstVisibleFold()
@@ -399,24 +403,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) jumpNextHunk() {
-	rows := m.displayRows()
-	for i := m.scroll + 1; i < len(rows); i++ {
-		if rows[i].Kind == diff.DisplayHunkHeader {
-			m.scroll = i
-			m.clampScroll()
-			return
-		}
-	}
+// A reached hunk can lie below the clamped viewport top. Remember its logical
+// position so repeated jumps advance even when the whole file fits on screen.
+type hunkPosition struct {
+	plan        *displayCache
+	row, scroll int
 }
 
-func (m *Model) jumpPrevHunk() {
-	rows := m.displayRows()
-	for i := m.scroll - 1; i >= 0; i-- {
-		if rows[i].Kind == diff.DisplayHunkHeader {
-			m.scroll = i
-			m.clampScroll()
-			return
+func (m *Model) jumpHunk(direction int) {
+	m.prepareDisplayRows()
+	for index := m.activeIdx; index >= 0 && index < len(m.sessions); index += direction {
+		session := &m.sessions[index]
+		if session.Err != nil || session.Result == nil || session.Result.Binary {
+			continue
+		}
+		added, removed := session.Result.Counts()
+		if added == 0 && removed == 0 {
+			continue
+		}
+		changedFile := index != m.activeIdx
+		if changedFile {
+			m.selectFile(index)
+		}
+		rows := m.displayRows()
+		from := min(m.scroll, len(rows))
+		if changedFile {
+			from = -1
+			if direction < 0 {
+				from = len(rows)
+			}
+		} else if m.hunk != nil && m.hunk.plan == m.display && m.hunk.scroll == m.scroll {
+			from = m.hunk.row
+		}
+		for row := from + direction; row >= 0 && row < len(rows); row += direction {
+			if rows[row].Kind == diff.DisplayHunkHeader {
+				m.scroll = row
+				m.clampScroll()
+				m.hunk = &hunkPosition{plan: m.display, row: row, scroll: m.scroll}
+				return
+			}
 		}
 	}
 }

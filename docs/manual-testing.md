@@ -79,6 +79,12 @@ interaktiv abgenommen:
 - Eine lange Zeile mit einem Unterschied am Ende über die Pfeiltasten erreichen.
   Zeilennummern bleiben stehen. `?` öffnen: Navigation und Sync dürfen dahinter
   keine Wirkung haben. Mit `?`, Escape oder `q` schließen.
+- Mit `]` alle Hunks mehrerer Dateien durchgehen und mit `[` zurückspringen.
+  Dateiüberschrift und Seitenleiste müssen folgen. Auch in einem großen Fenster,
+  in das eine ganze Datei passt, muss es nach deren letztem Hunk weitergehen.
+  Identische, binäre und fehlgeschlagene Vergleiche werden übersprungen, bleiben
+  aber per Tab erreichbar. Am Anfang und Ende darf kein Umlauf stattfinden.
+  Pfeiltasten, PgUp/PgDn und Mausrad bleiben innerhalb der aktuellen Datei.
 - Kontext aufklappen, scrollen, die Datei wechseln und zurückkehren. Danach `r`
   und einen erfolgreichen Sync prüfen. Zugeordnete Lesepositionen bleiben;
   verschwundene Dateien und geänderte Bereiche bekommen einen sicheren Rückfall.

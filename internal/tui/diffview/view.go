@@ -193,7 +193,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	var content []string
 	switch {
 	case m.showHelp:
-		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[[/]] previous / next hunk", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
 	case s == nil:

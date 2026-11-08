@@ -53,6 +53,26 @@ func TestBrowseRemoteFailures(t *testing.T) {
 	}
 }
 
+func TestBrowseRemoteCancellationDuringLogin(t *testing.T) {
+	server := ftptest.Start(t, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server.SetDenyCommand(func(command, _ string) bool {
+		if command == "USER" {
+			cancel()
+			return true
+		}
+		return false
+	})
+	result, err := BrowseRemote(ctx, server.Host(t), nil, nil)
+	if !errors.Is(err, context.Canceled) || result.Conn != nil {
+		t.Fatalf("cancellation during login retained a connection or lost its cause: %+v, %v", result, err)
+	}
+	if server.CommandCount("USER") != 1 {
+		t.Fatal("test did not cancel during the real FTP login")
+	}
+}
+
 func TestBrowseRemoteReturnsCertificateChallenge(t *testing.T) {
 	server := ftptest.StartTLS(t, 1)
 	_, err := BrowseRemote(context.Background(), server.Host(t), nil, nil)

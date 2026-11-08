@@ -3,13 +3,11 @@ package hostmanager
 import (
 	"context"
 	"fmt"
-	"path"
 	"time"
 
+	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
-	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
-	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -27,43 +25,12 @@ type MsgTrustReset struct {
 	Err  error
 }
 
-// testCmd dials SSH+SFTP for host and immediately closes, returning the result.
+// testCmd wraps the application connection test in its screen result.
 func testCmd(host config.Host, parent context.Context, id uint64, trust *tlstrust.Manager, required *tlstrust.Challenge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 		defer cancel()
-		conn, err := remote.Connect(ctx, host, trust, required)
-		if err != nil {
-			log.Error("host connection test failed", "host", host.Name, "hostname", host.Hostname, "err", err)
-			return MsgTestResult{Host: host, Err: err, ID: id}
-		}
-		root := host.RootPath
-		if root == "" {
-			root = "/"
-		} else {
-			root = path.Clean(root)
-		}
-
-		// remote.Client operations do not take a context. Close the transport when
-		// the test deadline expires so a stuck listing cannot outlive the command.
-		detach := remote.CloseOnContextDone(ctx, conn)
-		_, listErr := conn.ReadDir(root)
-		detach()
-		if listErr != nil {
-			_ = conn.Close()
-			if ctx.Err() != nil {
-				listErr = ctx.Err()
-			}
-			log.Error("host root listing failed", "host", host.Name, "remote", root, "err", listErr)
-			return MsgTestResult{Host: host, Err: fmt.Errorf("list %s: %w", root, listErr), ID: id}
-		}
-		if err := conn.Close(); err != nil {
-			return MsgTestResult{Host: host, Err: fmt.Errorf("close connection: %w", err), ID: id}
-		}
-		if err := conn.Err(); err != nil {
-			return MsgTestResult{Host: host, Err: err, ID: id}
-		}
-		return MsgTestResult{Host: host, ID: id}
+		return MsgTestResult{Host: host, Err: app.TestHost(ctx, host, trust, required), ID: id}
 	}
 }
 

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"sync"
 	"time"
 
+	"github.com/WariKoda/drift/internal/app"
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/log"
@@ -92,44 +92,14 @@ func loadRemoteCmd(host config.Host, parent context.Context, id uint64, session 
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
 
-		conn, err := remote.Connect(ctx, host, trust, required)
+		result, err := app.BrowseRemote(ctx, host, trust, required)
 		if err != nil {
-			log.Error("remote browser connect failed", "host", host.Name, "hostname", host.Hostname, "err", err)
-			msg.Err = fmt.Errorf("connect to %s: %w", host.Hostname, err)
+			msg.Err = err
 			return msg
 		}
-		// Until this command hands back a successful result, cancellation owns
-		// the connection too. In particular it must interrupt a stalled listing.
-		closed := make(chan struct{})
-		cancelClose := context.AfterFunc(ctx, func() {
-			defer close(closed)
-			if err := conn.Close(); err != nil {
-				log.Error("close cancelled browser load", "err", err)
-			}
-		})
-		detach := sync.OnceFunc(func() {
-			if !cancelClose() {
-				<-closed
-			}
-		})
-		defer detach()
-		entries, readErr := conn.ReadDir(root)
-		detach()
-		err = ctx.Err()
-		if err == nil {
-			err = readErr
-		}
-		if err == nil {
-			err = conn.Err()
-		}
-		if err != nil {
-			log.Error("remote browser root read failed", "host", host.Name, "remote", root, "err", err)
-			_ = conn.Close()
-			msg.Err = fmt.Errorf("read %s: %w", root, err)
-			return msg
-		}
+		conn := result.Conn
 		classifierModel := Model{WorkDir: workDir, classifier: classifier, config: cfg}
-		entries, err = classifierModel.classifyRemote(entries, host)
+		entries, err := classifierModel.classifyRemote(result.Entries, host)
 		if err != nil {
 			log.Error("remote browser classification failed", "remote", root, "err", err)
 			if closeErr := conn.Close(); closeErr != nil {

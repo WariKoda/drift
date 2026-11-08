@@ -38,6 +38,18 @@ Besuchte Dateien behalten Falten, Quellanker und horizontalen Versatz. Eine neue
 Datei beginnt am ersten Unterschied. Resize und Layoutwechsel ordnen den oberen
 Quellanker dem neuen Anzeigeplan zu.
 
+`]` und `[` springen über Dateigrenzen hinweg zum nächsten beziehungsweise
+vorherigen Hunk. Beim Dateiwechsel zählt der erste beziehungsweise letzte Hunk,
+nicht die gespeicherte Leseposition. Vergleiche mit Fehlern, ohne Ergebnis oder
+ohne Text-Hunks werden übersprungen, ebenso Binärdateien. Die Navigation läuft
+am Anfang und Ende nicht um; normales Scrollen bleibt innerhalb einer Datei.
+
+Das zuletzt erreichte Hunk-Ziel wird getrennt vom begrenzten Scrollversatz
+gehalten. Dadurch geht der nächste Sprung weiter, auch wenn ein kurzer Vergleich
+vollständig ins Fenster passt. Manuelles vertikales Scrollen oder ein neuer
+Anzeigeplan verwerfen dieses temporäre Ziel. Es gehört nicht zum Refresh-Snapshot
+und hält keinen alten Anzeigeplan über dessen Austausch hinaus fest.
+
 `ViewSnapshot` enthält ausschließlich Lesezustand und Darstellungspräferenzen.
 Dateien werden über ihr lokales/entferntes Pfadpaar zugeordnet. Beim Refresh
 müssen Art, Text und der Kontext um einen Anker eindeutig passen. Erweiterte

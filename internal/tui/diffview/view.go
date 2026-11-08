@@ -201,7 +201,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	default:
-		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, m.remoteBeforeLocal(), planned)
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, diff.RenderOptions{Flip: m.remoteBeforeLocal(), Highlight: planned, Spans: m.spans})
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}
@@ -463,6 +463,9 @@ func (m Model) renderStatus(s *diff.Session) string {
 		if len(m.syncErrors) > 0 {
 			keys = styles.KeyHints("[e]errors  ", styles.Err) + keys
 		}
+	}
+	if m.decorationError != "" {
+		info = styles.Err.Render(styles.SafeText(m.decorationError))
 	}
 	if m.syncStatus != "" && !m.remoteBusy() {
 		info = styles.KeyHints(m.syncStatus, styles.File)

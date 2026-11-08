@@ -184,6 +184,9 @@ type Model struct {
 	display         *displayCache
 	foldRevision    uint64
 	savedScroll     map[int]int
+	decoration      *decorationRequest
+	spans           map[int][]diff.TextSpan
+	decorationError string
 	Width           int
 	Height          int
 }
@@ -226,7 +229,7 @@ func (m *Model) SetSyncResult(status string, failures []syncpolicy.Failure) {
 }
 
 // Init satisfies the sub-model convention.
-func (m Model) Init() tea.Cmd { return nil }
+func (m *Model) Init() tea.Cmd { return m.startDecoration() }
 
 // LoadingActivity exposes the current network activity to the root indicator.
 func (m Model) LoadingActivity() (string, *progress.Tracker, bool) {
@@ -322,6 +325,9 @@ func (m Model) connectionError() error {
 // Close detaches ownership and cancels pending work immediately. Network close
 // may wait for an active operation, so resource cleanup belongs in the command.
 func (m *Model) Close() tea.Cmd {
+	if m.decoration != nil {
+		m.decoration.cancel()
+	}
 	m.CancelActivity()
 	conn, root, host := m.conn, m.root, m.host.Name
 	wait := m.activityWait

@@ -465,6 +465,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	switch result := msg.(type) {
+	case diffview.MsgDecorated:
+		var cmd tea.Cmd
+		a.diffView, cmd = a.diffView.Update(result)
+		return a, cmd
 	case remoteeditor.MsgResult:
 		return a.updateRemoteEditor(result)
 	case remoteeditor.MsgClosed:
@@ -876,7 +880,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.globalError = fmt.Sprintf("Comparison failed for %d file(s)", failed)
 		}
 		a.state.Screen = ScreenDiffView
-		return a, a.watchConnection(msg.Conn)
+		return a, tea.Batch(a.watchConnection(msg.Conn), a.diffView.Init())
 
 	case diffview.MsgDiffError:
 		log.Error("diff load failed", "host", msg.Host.Name, "err", msg.Err)

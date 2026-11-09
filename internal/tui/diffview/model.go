@@ -157,7 +157,9 @@ type Model struct {
 	sessions        []diff.Session
 	syncDirs        []SyncDir // planned direction per session (index-aligned)
 	activeIdx       int
-	fileListOffset  int // scroll offset into the file list
+	fileListOffset  int // first visible sidebar row, headings included
+	fileListColumns int // sidebar width chosen with [<]/[>]; 0 is automatic
+	listing         *fileListing
 	scroll          int
 	syncing         bool                 // true while bulk sync is in flight
 	quickSyncing    bool                 // true while quick upload/download is in flight
@@ -219,6 +221,7 @@ func New(sessions []diff.Session, host config.Host, conn remote.Client, root *fs
 		expandedGaps: map[int]map[int]struct{}{},
 		activityWait: &commandLifetime{},
 	}
+	model.listing = model.buildFileList()
 	model.prepareDisplayRows()
 	model.scrollToFirstDifference()
 	return model
@@ -414,7 +417,8 @@ func (m Model) viewportHeight() int {
 	return h
 }
 
-// clampFileList keeps activeIdx in bounds and the file list scrolled to show it.
+// clampFileList keeps activeIdx in bounds and the file list scrolled to show
+// it, together with its directory heading when the file opens a group.
 func (m *Model) clampFileList() {
 	if len(m.sessions) == 0 {
 		return
@@ -425,12 +429,18 @@ func (m *Model) clampFileList() {
 	if m.activeIdx >= len(m.sessions) {
 		m.activeIdx = len(m.sessions) - 1
 	}
-	fh := m.fileListHeight()
-	if m.activeIdx < m.fileListOffset {
-		m.fileListOffset = m.activeIdx
+	list := m.fileList()
+	row := list.rowOf[m.activeIdx]
+	top := row
+	if top > 0 && list.rows[top-1].session < 0 {
+		top--
 	}
-	if m.activeIdx >= m.fileListOffset+fh {
-		m.fileListOffset = m.activeIdx - fh + 1
+	fh := m.fileListHeight()
+	if top < m.fileListOffset {
+		m.fileListOffset = top
+	}
+	if row >= m.fileListOffset+fh {
+		m.fileListOffset = row - fh + 1
 	}
 	m.clampScroll()
 }
@@ -439,7 +449,7 @@ func (m *Model) clampFileList() {
 // back to activeIdx. The wheel moves the viewport on its own, so the regular
 // clampFileList — which exists to follow the cursor — must not run after it.
 func (m *Model) clampFileListOffset() {
-	max := len(m.sessions) - m.fileListHeight()
+	max := len(m.fileList().rows) - m.fileListHeight()
 	if max < 0 {
 		max = 0
 	}
@@ -456,22 +466,12 @@ func (m Model) fileListWidth() int {
 	if m.Width < 40 {
 		return 0
 	}
-	w := m.Width / 3
-	if w < 22 {
-		w = 22
-	}
-	if w > 40 {
-		w = 40
+	w := min(max(m.Width/3, 22), 40)
+	if m.fileListColumns > 0 {
+		w = m.fileListColumns
 	}
 	// Leave enough room for the diff gutter and a few content columns.
-	max := m.Width - 1 - 20
-	if max < 10 {
-		max = 10
-	}
-	if w > max {
-		w = max
-	}
-	return w
+	return min(max(w, 16), m.Width-1-20)
 }
 
 // diffWidth returns the right pane width (path header + unified diff).
@@ -530,10 +530,7 @@ func (m *Model) prepareDisplayRows() {
 }
 
 func (m Model) remoteBeforeLocal() bool {
-	if m.activeIdx < 0 || m.activeIdx >= len(m.syncDirs) {
-		return false
-	}
-	return m.syncDirs[m.activeIdx] == DirUpload || m.syncDirs[m.activeIdx] == DirDeleteRemote
+	return m.sessionFlip(m.activeIdx)
 }
 
 func (m Model) expandedFor(sessionIdx int) map[int]struct{} {

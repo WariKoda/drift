@@ -30,35 +30,37 @@ var (
 )
 
 var (
-	Dir             lipgloss.Style
-	ActiveHint      lipgloss.Style
-	ActivePane      lipgloss.Style
-	File            lipgloss.Style
-	Link            lipgloss.Style
-	Marked          lipgloss.Style
-	Muted           lipgloss.Style
-	Header          lipgloss.Style
-	Sep             lipgloss.Style
-	Badge           lipgloss.Style
-	Key             lipgloss.Style
-	Warn            lipgloss.Style
-	Err             lipgloss.Style
-	CursorRow       lipgloss.Style
-	CurrentEntry    lipgloss.Style
-	InputCursor     lipgloss.Style
-	Accent          lipgloss.Style
-	LoadingBackdrop lipgloss.Style
-	LoadingBox      lipgloss.Style
-	DiffFold        lipgloss.Style
-	DiffHunkHeader  lipgloss.Style
-	DiffAdded       lipgloss.Style
-	DiffRemoved     lipgloss.Style
-	DiffEmphasis    lipgloss.Style
-	SyntaxKeyword   lipgloss.Style
-	SyntaxString    lipgloss.Style
-	SyntaxNumber    lipgloss.Style
-	SyntaxComment   lipgloss.Style
-	SyntaxName      lipgloss.Style
+	Dir              lipgloss.Style
+	ActiveHint       lipgloss.Style
+	ActivePane       lipgloss.Style
+	File             lipgloss.Style
+	Link             lipgloss.Style
+	Marked           lipgloss.Style
+	Muted            lipgloss.Style
+	Header           lipgloss.Style
+	Sep              lipgloss.Style
+	Badge            lipgloss.Style
+	Key              lipgloss.Style
+	Warn             lipgloss.Style
+	Err              lipgloss.Style
+	CursorRow        lipgloss.Style
+	CurrentEntry     lipgloss.Style
+	InputCursor      lipgloss.Style
+	Accent           lipgloss.Style
+	LoadingBackdrop  lipgloss.Style
+	LoadingBox       lipgloss.Style
+	DiffFold         lipgloss.Style
+	DiffHunkHeader   lipgloss.Style
+	DiffAdded        lipgloss.Style
+	DiffRemoved      lipgloss.Style
+	DiffAddedCount   lipgloss.Style
+	DiffRemovedCount lipgloss.Style
+	DiffEmphasis     lipgloss.Style
+	SyntaxKeyword    lipgloss.Style
+	SyntaxString     lipgloss.Style
+	SyntaxNumber     lipgloss.Style
+	SyntaxComment    lipgloss.Style
+	SyntaxName       lipgloss.Style
 )
 
 func init() {
@@ -112,6 +114,8 @@ func ApplyPalette(p Palette) {
 		Padding(1, 2)
 	DiffAdded = lipgloss.NewStyle().Foreground(ColorDiffAddedText).Background(ColorDiffAddedBg)
 	DiffRemoved = lipgloss.NewStyle().Foreground(ColorDiffRemovedText).Background(ColorDiffRemovedBg)
+	DiffAddedCount = lipgloss.NewStyle().Foreground(p.DiffAddedFg)
+	DiffRemovedCount = lipgloss.NewStyle().Foreground(p.DiffRemovedFg)
 	DiffEmphasis = lipgloss.NewStyle().Bold(true).Underline(true)
 	SyntaxKeyword = lipgloss.NewStyle().Foreground(ColorKey)
 	SyntaxString = lipgloss.NewStyle().Foreground(ColorMatch)

@@ -79,6 +79,12 @@ interaktiv abgenommen:
 - Eine lange Zeile mit einem Unterschied am Ende über die Pfeiltasten erreichen.
   Zeilennummern bleiben stehen. `?` öffnen: Navigation und Sync dürfen dahinter
   keine Wirkung haben. Mit `?`, Escape oder `q` schließen.
+- Einen Ordner mit Dateien in mehreren Unterverzeichnissen vergleichen, darunter
+  rein lokale, rein entfernte, binäre und nicht lesbare Dateien. Jedes
+  Verzeichnis erscheint einmal; Status (`~`, `L`, `R`, `B`, `!`), Zahlen und
+  Aktion passen zur Diff-Anzeige. Mit Space Upload wählen: `+`/`-` tauschen in
+  Seitenleiste und Statuszeile gleichzeitig. Mit `<` und `>` die Seitenleiste
+  verkleinern und vergrößern; Klicks auf Verzeichniszeilen wählen nichts aus.
 - Mit `]` alle Hunks mehrerer Dateien durchgehen und mit `[` zurückspringen.
   Dateiüberschrift und Seitenleiste müssen folgen. Auch in einem großen Fenster,
   in das eine ganze Datei passt, muss es nach deren letztem Hunk weitergehen.

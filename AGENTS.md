@@ -44,7 +44,7 @@ unconfined recursive delete. `[editor]` is global user configuration only and mu
 survive both Go and Rust store writes. Never execute editor commands from project
 or host records.
 
-Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`); every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
+Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`), which returns them sorted as a directory tree for the grouped file list; every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
 
 `internal/architecture/architecture_test.go` enforces these import and call
 boundaries over production Go files. Browser connection/listing and host tests

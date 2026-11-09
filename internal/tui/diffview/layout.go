@@ -30,7 +30,7 @@ func (m Model) rowsFor(index int) []diff.DisplayRow {
 	if index < 0 || index >= len(m.sessions) || m.sessions[index].Result == nil {
 		return nil
 	}
-	flip := index < len(m.syncDirs) && (m.syncDirs[index] == DirUpload || m.syncDirs[index] == DirDeleteRemote)
+	flip := m.sessionFlip(index)
 	lines := m.sessions[index].Result.Lines
 	rows := diff.Flatten(lines, diff.DefaultContext, m.expandedFor(index), flip)
 	if m.splitLayout() {

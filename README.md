@@ -293,6 +293,7 @@ setting does not change the global config.
 | `h` | Collapse the fold around the top of the viewport |
 | `c` | Expand or collapse every fold in the file |
 | `Tab` / `Shift+Tab` | Select next / previous file |
+| `<` / `>` | Narrow / widen the file list for this session |
 | `Space` | Cycle sync direction for current file |
 | `A` | Cycle sync direction for all files |
 | `s` | Sync current file |
@@ -308,6 +309,13 @@ Refresh reconciles those positions against the new content; it never restores
 old transfer decisions. Small changes within a replacement line are emphasized
 in addition to the whole-line action colors. Oversized or unrelated replacements
 keep the plain line diff.
+
+The file list groups comparisons by directory, relative to the project (or the
+host root path for files outside it). Each file shows its comparison status
+(`~` changed, `L` local only, `R` remote only, `B` binary, `!` error), its
+added/removed line counts in the same before/after order as the diff, and the
+planned sync action in the last column. Status and action stay separate:
+"local only" describes the comparison, the action is your decision.
 
 Hunk navigation crosses file boundaries: `]` enters the next file at its first
 hunk, `[` enters the previous file at its last. Files without textual hunks

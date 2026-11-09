@@ -32,6 +32,20 @@ aber keinen Hunk-Code und keine TypeScript- oder OpenTUI-Abhängigkeit.
 Es gibt keinen globalen Cache aller Anzeigepläne. `DiffResult` hält weder
 Anzeigezeilen noch Wortmarkierungen oder Syntaxfarben.
 
+## Dateiliste
+
+`app.Load` sortiert die Vergleiche als Verzeichnisbaum: zuerst die Dateien eines
+Verzeichnisses, dann dessen Unterverzeichnisse. Vorher hing die Reihenfolge vom
+Scan ab; rein lokale Dateien standen am Ende. Die Seitenleiste fügt bei jedem
+Verzeichniswechsel eine Überschrift ein. Pfade sind relativ zum Projekt, sonst
+zum Host-Wurzelpfad, sonst absolut. Die Liste entsteht einmal pro Modell.
+
+Status (`~`, `L`, `R`, `B`, `!`) beschreibt den Vergleich, die letzte Spalte die
+geplante Aktion. Die Zeilenzahlen folgen derselben Vorher/Nachher-Reihenfolge
+wie die Diff-Zeilen der jeweiligen Datei; bei Upload-Vorschau tauschen `+` und
+`-`. Reicht der Platz nicht für mindestens vier Zeichen Dateiname, entfallen die
+Zahlen. `<` und `>` ändern die Breite nur für die Sitzung.
+
 ## Leseposition und Refresh
 
 Besuchte Dateien behalten Falten, Quellanker und horizontalen Versatz. Eine neue

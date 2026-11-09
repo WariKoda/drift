@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -237,7 +241,27 @@ func sessionsFromResults(results []*diff.Session) []diff.Session {
 			sessions = append(sessions, *result)
 		}
 	}
+	sortSessions(sessions)
 	return sessions
+}
+
+// sortSessions orders comparisons as a directory tree, files before
+// subdirectories, so the diff view lists every directory once. Walks append
+// local-only files after the remote walk; scan order is not meaningful.
+func sortSessions(sessions []diff.Session) {
+	key := func(session diff.Session) string {
+		if session.LocalPath != "" {
+			return filepath.ToSlash(session.LocalPath)
+		}
+		return session.RemotePath
+	}
+	slices.SortStableFunc(sessions, func(a, b diff.Session) int {
+		left, right := key(a), key(b)
+		if order := slices.Compare(strings.Split(path.Dir(left), "/"), strings.Split(path.Dir(right), "/")); order != 0 {
+			return order
+		}
+		return strings.Compare(path.Base(left), path.Base(right))
+	})
 }
 
 func isFTPProtocol(protocol string) bool {

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0-beta.2] - 2026-11-09
+
+This release updates the Go TUI. Rust/GPUI development remains paused; there is
+no GUI release in this version. Manual terminal/GUI acceptance checks for the
+external editor remain open; automated tests cover real SFTP, FTP and FTPS
+connections and editor subprocesses.
+
 ### Added
 
 - the diff file list groups files by directory and shows each comparison's status
@@ -40,6 +47,8 @@ All notable changes to this project will be documented in this file.
   file; errors and unknown transfer outcomes retain the copy without automatic retry
 - the Rust config store preserves the TUI's optional `[editor]` section during host
   management writes, without adding an editor feature to the paused GUI
+- configuration and project writes use a shared process lock and reject stale
+  host edits instead of overwriting another drift instance's changes
 
 ### Changed
 
@@ -47,6 +56,10 @@ All notable changes to this project will be documented in this file.
   files appear next to their directory instead of at the end
 - the diff status bar's `+`/`-` counts follow the preview direction, matching the
   diff rows during upload previews
+- local directory expansion, refresh and project switching run asynchronously;
+  cancelled or superseded results cannot replace the active browser session
+- remote browser rows are projected once per frame, reducing rendering work for
+  large directories
 
 ### Fixed
 
@@ -59,6 +72,21 @@ All notable changes to this project will be documented in this file.
 - ignore classification outside Git repositories now works with translated Git
   messages; classifier Git commands use a private C locale without changing the
   application or external editor environment (#56)
+- filenames, paths and error messages escape terminal control characters; help
+  and sync-error overlays consume input without triggering browser actions
+- host edits invalidate obsolete connections and remote marks; project path
+  edits replace the browser only after the new session is ready
+- completed deletions and transfers reconcile browser marks and refresh the local
+  tree, including confirmed deletions before cancellation or connection loss
+- text inputs move and delete by grapheme cluster; browser and form widths use
+  terminal cells for Unicode and keep narrow panes within their bounds
+- remote directory reads time out after 30 seconds and support cancellation;
+  cancelled connection setup retains the cancellation result
+- project-to-server promotion rolls back the global write if the project write
+  fails, and reports rollback failures
+- SFTP reads preserve close errors, SSH-agent fallback sockets close with their
+  connections, and FTP timestamp failures remain visible unless the server
+  explicitly reports the command as unsupported
 
 ## [0.2.0-beta.1] - 2026-09-28
 

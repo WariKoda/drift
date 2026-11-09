@@ -292,6 +292,8 @@ setting does not change the global config.
 | `Enter` / `l` | Expand or collapse the first fold in view |
 | `h` | Collapse the fold around the top of the viewport |
 | `c` | Expand or collapse every fold in the file |
+| `L` | Show 10 more unchanged lines on each changed side of the first fold in view |
+| `+` / `-` | More / less context around every change (0, 1, 3, 5, 10, 25 lines) |
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `<` / `>` | Narrow / widen the file list for this session |
 | `f` | Show / hide the full local and remote paths |

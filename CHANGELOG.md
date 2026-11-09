@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - an all-files diff view (`m`, or `[ui.diff] continuous = true`) shows every file
   below its own title in one scrollable list; the file at the top is the target of
   the sync keys, and `z` folds a file to its title
+- `L` reveals ten more unchanged lines at the first fold in view, and `+` / `-` change
+  the context around every change for the session; both survive a refresh
 - `]` / `[` hunk navigation continues across files, skipping comparisons without
   textual hunks and stopping at the first/last file without wrapping
 - optional split and responsive auto diff layouts (`v`), horizontal code scrolling

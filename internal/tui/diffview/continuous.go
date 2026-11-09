@@ -299,15 +299,21 @@ func (m Model) visibleSpans() map[int][2]int {
 	return spans
 }
 
-func (m *Model) toggleFirstVisibleStreamFold() {
+func (m Model) firstVisibleStreamFold() (int, diff.DisplayRow, bool) {
 	plan := m.streamPlan()
 	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.viewportHeight(); row++ {
 		r := plan.rows[row]
 		if r.kind == streamLine && plan.files[r.session][r.index].Kind == diff.DisplayFold {
-			m.setGapExpandedIn(r.session, plan.files[r.session][r.index].GapID, !m.gapExpandedIn(r.session, plan.files[r.session][r.index].GapID))
-			m.prepareDisplayRows()
-			return
+			return r.session, plan.files[r.session][r.index], true
 		}
+	}
+	return 0, diff.DisplayRow{}, false
+}
+
+func (m *Model) toggleFirstVisibleStreamFold() {
+	if session, row, ok := m.firstVisibleStreamFold(); ok {
+		m.setGapExpandedIn(session, row.GapID, !m.gapExpandedIn(session, row.GapID))
+		m.prepareDisplayRows()
 	}
 }
 

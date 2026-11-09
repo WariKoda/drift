@@ -41,6 +41,10 @@ type Palette struct {
 	DiffRemovedBg   lipgloss.TerminalColor
 	DiffRemovedText lipgloss.TerminalColor
 	DiffMissingBg   lipgloss.TerminalColor
+	// DiffAddedFg and DiffRemovedFg mark changes on the normal background,
+	// where the *Text colours meant for diff backgrounds may be unreadable.
+	DiffAddedFg   lipgloss.TerminalColor
+	DiffRemovedFg lipgloss.TerminalColor
 }
 
 type omarchyColors struct {
@@ -159,6 +163,8 @@ func defaultPalette() Palette {
 		DiffRemovedBg:   lipgloss.AdaptiveColor{Light: "#FFEBEE", Dark: "#4A1010"},
 		DiffRemovedText: lipgloss.AdaptiveColor{Light: "#B71C1C", Dark: "#F38BA8"},
 		DiffMissingBg:   lipgloss.AdaptiveColor{Light: "#F5F5F5", Dark: "#1E1E1E"},
+		DiffAddedFg:     lipgloss.AdaptiveColor{Light: "#1B5E20", Dark: "#A6E3A1"},
+		DiffRemovedFg:   lipgloss.AdaptiveColor{Light: "#B71C1C", Dark: "#F38BA8"},
 	}
 }
 
@@ -185,6 +191,8 @@ func ansiPalette() Palette {
 		DiffRemovedBg:   lipgloss.Color("1"),
 		DiffRemovedText: lipgloss.Color("15"),
 		DiffMissingBg:   lipgloss.Color("8"),
+		DiffAddedFg:     lipgloss.Color("2"),
+		DiffRemovedFg:   lipgloss.Color("1"),
 	}
 }
 
@@ -239,6 +247,8 @@ func paletteFromOmarchy(c omarchyColors) (Palette, error) {
 		DiffRemovedBg:   lipgloss.Color(mixHex(background, red, 0.22)),
 		DiffRemovedText: lipgloss.Color(red),
 		DiffMissingBg:   lipgloss.Color(mixHex(background, muted, 0.28)),
+		DiffAddedFg:     lipgloss.Color(green),
+		DiffRemovedFg:   lipgloss.Color(red),
 	}, nil
 }
 

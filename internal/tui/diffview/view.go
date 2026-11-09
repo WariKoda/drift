@@ -193,7 +193,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	var content []string
 	switch {
 	case m.showHelp:
-		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
 	case s == nil:
@@ -230,110 +230,6 @@ func (m Model) renderPathHeader(localPath, remotePath string, width int) string 
 	left := truncLeft(styles.SafeText(localPath), half)
 	right := truncLeft(styles.SafeText(remotePath), half)
 	return pad(styles.Muted.Render(left+sep+right), width)
-}
-
-// renderFileListRows returns bodyHeight padded rows for the left sidebar.
-func (m Model) renderFileListRows() []string {
-	fw := m.fileListWidth()
-	fh := m.fileListHeight()
-	rows := make([]string, 0, fh)
-
-	end := m.fileListOffset + fh
-	if end > len(m.sessions) {
-		end = len(m.sessions)
-	}
-
-	for i := m.fileListOffset; i < end; i++ {
-		rows = append(rows, m.renderFileRow(i, fw))
-	}
-	for len(rows) < fh {
-		rows = append(rows, strings.Repeat(" ", fw))
-	}
-	return rows
-}
-
-func (m Model) renderFileRow(i, width int) string {
-	s := &m.sessions[i]
-	active := i == m.activeIdx
-
-	var cursor string
-	if active {
-		cursor = styles.Key.Render("▶") + " "
-	} else {
-		cursor = "  "
-	}
-
-	var dirChar string
-	dir := DirNone
-	if i < len(m.syncDirs) {
-		dir = m.syncDirs[i]
-	}
-	switch dir {
-	case DirUpload:
-		dirChar = styles.Marked.Render("↑")
-	case DirDownload:
-		dirChar = styles.Dir.Render("↓")
-	case DirDeleteLocal, DirDeleteRemote:
-		dirChar = styles.Err.Render("✗")
-	default:
-		dirChar = styles.Muted.Render("—")
-	}
-
-	if m.completed[i] && dir == DirNone {
-		dirChar = styles.Marked.Render("✓")
-	}
-
-	var nameStyle lipgloss.Style
-	if active {
-		nameStyle = styles.File
-	} else {
-		nameStyle = styles.Muted
-	}
-
-	name := styles.SafeText(fileListName(s))
-	// cursor(2) + name + space + dir(1)
-	nameMax := width - 4
-	if nameMax < 2 {
-		nameMax = 2
-	}
-	name = truncLeft(name, nameMax)
-
-	return pad(cursor+nameStyle.Render(name)+" "+dirChar, width)
-}
-
-// fileListName picks the path shown in the narrow sidebar.
-func fileListName(s *diff.Session) string {
-	if s.Result != nil && s.Result.RemoteOnly {
-		return shortPath(s.RemotePath)
-	}
-	if s.LocalPath != "" {
-		return shortPath(s.LocalPath)
-	}
-	return shortPath(s.RemotePath)
-}
-
-// sessionStatus returns the diff status string for a session.
-func sessionStatus(s *diff.Session) string {
-	if s.Err != nil {
-		return styles.Err.Render("error")
-	}
-	if s.Result == nil {
-		return styles.Muted.Render("loading…")
-	}
-	r := s.Result
-	switch {
-	case r.LocalOnly:
-		return styles.Warn.Render("local only")
-	case r.RemoteOnly:
-		return styles.Warn.Render("remote only")
-	case r.Binary:
-		return styles.Muted.Render("binary")
-	case !r.HasDiff():
-		return styles.Muted.Render("identical")
-	default:
-		added, removed := r.Counts()
-		return styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
-	}
 }
 
 // renderErrorListRows renders bulk-sync errors for the right pane.
@@ -445,7 +341,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 		} else if s.Result.ContentDiff {
 			info = styles.File.Render("content differs")
 		} else {
-			added, removed := s.Result.Counts()
+			added, removed := m.displayCounts(m.activeIdx)
 			info = styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
 		}
 	}
@@ -543,14 +439,6 @@ func pad(s string, width int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", width-w)
-}
-
-func shortPath(p string) string {
-	parts := strings.Split(p, "/")
-	if len(parts) > 2 {
-		return "…/" + strings.Join(parts[len(parts)-2:], "/")
-	}
-	return p
 }
 
 // truncLeft shortens p to max display columns, keeping the tail (the part that

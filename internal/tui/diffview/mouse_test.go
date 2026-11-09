@@ -9,7 +9,9 @@ import (
 )
 
 // testDiffModel builds a diff view sized 80x24 with n loaded sessions.
-// Body fills y=2…21 (20 rows); file list is left of x=fileListWidth.
+// Body fills y=2…21 (20 rows); file list is left of x=fileListWidth. All
+// sessions share one directory, so sidebar row 0 is its heading and session i
+// sits on row i+1.
 func testDiffModel(n int) Model {
 	sessions := make([]diff.Session, n)
 	for i := range sessions {
@@ -41,16 +43,20 @@ func TestDiffHitTest(t *testing.T) {
 		wantIndex      int
 	}{
 		{
-			name: "first file row", sessions: 5, x: 0, y: bodyTop,
+			name: "a directory heading belongs to the list but selects nothing", sessions: 5, x: 0, y: bodyTop,
+			wantZone: zoneFileList, wantIndex: -1,
+		},
+		{
+			name: "first file row", sessions: 5, x: 0, y: bodyTop + 1,
 			wantZone: zoneFileList, wantIndex: 0,
 		},
 		{
-			name: "file row near bottom of body", sessions: 20, x: 1, y: bodyTop + 4,
+			name: "file row near bottom of body", sessions: 20, x: 1, y: bodyTop + 5,
 			wantZone: zoneFileList, wantIndex: 4,
 		},
 		{
-			name: "a scrolled file list adds its offset", sessions: 30, fileListOffset: 3, x: 0, y: bodyTop,
-			wantZone: zoneFileList, wantIndex: 3,
+			name: "a scrolled file list adds its offset in sidebar rows", sessions: 30, fileListOffset: 3, x: 0, y: bodyTop,
+			wantZone: zoneFileList, wantIndex: 2,
 		},
 		{
 			name: "the header row is not selectable", sessions: 5, x: 0, y: 0,
@@ -130,8 +136,8 @@ func TestDiffHitTestContentBand(t *testing.T) {
 
 	t.Run("left of the divider stays the file list even on content rows", func(t *testing.T) {
 		got := m.hitTest(0, top)
-		if got.zone != zoneFileList || got.index != pathChrome {
-			t.Errorf("hitTest = {%v, %d}, want {zoneFileList, %d}", got.zone, got.index, pathChrome)
+		if got.zone != zoneFileList || got.index != pathChrome-1 {
+			t.Errorf("hitTest = {%v, %d}, want {zoneFileList, %d}", got.zone, got.index, pathChrome-1)
 		}
 	})
 }
@@ -147,8 +153,8 @@ func TestDiffHitTestIgnoresComparisonSplash(t *testing.T) {
 
 func TestDiffHitTestBlankFileRow(t *testing.T) {
 	m := testDiffModel(2)
-	// Body is taller than two sessions; rows past the last session are blank.
-	if got := m.hitTest(0, bodyTop+2); got.zone == zoneFileList {
+	// Body is taller than a heading and two sessions; later rows are blank.
+	if got := m.hitTest(0, bodyTop+3); got.zone == zoneFileList {
 		t.Errorf("row below the last session should not be a file row, got %v", got)
 	}
 }
@@ -203,7 +209,7 @@ func TestClampFileListOffsetDoesNotFollowCursor(t *testing.T) {
 
 	m.fileListOffset = 99
 	m.clampFileListOffset()
-	if want := 40 - m.fileListHeight(); m.fileListOffset != want {
+	if want := 41 - m.fileListHeight(); m.fileListOffset != want {
 		t.Errorf("offset = %d, want %d", m.fileListOffset, want)
 	}
 

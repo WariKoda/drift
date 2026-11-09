@@ -129,7 +129,7 @@ func TestHunkNavigationSkipsSessionsWithoutRenderableHunks(t *testing.T) {
 	if m.activeIdx != last {
 		t.Fatalf("file=%d want %d", m.activeIdx, last)
 	}
-	if last < m.fileListOffset || last >= m.fileListOffset+m.fileListHeight() {
+	if row := m.fileList().rowOf[last]; row < m.fileListOffset || row >= m.fileListOffset+m.fileListHeight() {
 		t.Fatal("file list did not follow the selected hunk's file")
 	}
 	m.toggleAllFolds()

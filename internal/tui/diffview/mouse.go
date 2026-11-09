@@ -17,7 +17,8 @@ const (
 
 // hit is the result of a hit test: which band, and which index within it.
 // index is the session index for zoneFileList and the diff line for
-// zoneContent; it is -1 when the band has no item at that row.
+// zoneContent; it is -1 when the band has no item at that row, such as a
+// directory heading in the file list.
 type hit struct {
 	zone  zone
 	index int
@@ -42,11 +43,11 @@ func (m Model) hitTest(x, y int) hit {
 
 	fw := m.fileListWidth()
 	if x < fw {
-		idx := y - bodyTop + m.fileListOffset
-		if idx < 0 || idx >= len(m.sessions) {
+		row := y - bodyTop + m.fileListOffset
+		if row < 0 || row >= len(m.fileList().rows) {
 			return hit{zoneNone, -1} // blank row past the last session
 		}
-		return hit{zoneFileList, idx}
+		return hit{zoneFileList, m.sessionAtRow(row)}
 	}
 	if fw > 0 && x == fw {
 		return hit{zoneNone, -1} // vertical divider
@@ -114,7 +115,7 @@ func (m Model) updateMouse(msg tea.MouseMsg) (next Model, cmd tea.Cmd) {
 		return m, nil
 	}
 
-	if h.zone != zoneFileList {
+	if h.zone != zoneFileList || h.index < 0 {
 		return m, nil
 	}
 

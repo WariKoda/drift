@@ -75,7 +75,7 @@ func TestConnectionLostMatchesOwnerAndPreservesView(t *testing.T) {
 			t.Fatalf("%q changed sync state on the disconnected screen", key)
 		}
 	}
-	click := tea.MouseMsg{X: 1, Y: bodyTop, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+	click := tea.MouseMsg{X: 1, Y: bodyTop + model.fileList().rowOf[0] - model.fileListOffset, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
 	model, _ = model.updateMouse(click)
 	model, cmd := model.updateMouse(click)
 	if cmd != nil || model.syncDirs[0] != DirNone {
@@ -89,7 +89,7 @@ func TestConnectionLostMatchesOwnerAndPreservesView(t *testing.T) {
 	if view := model.View(); !strings.Contains(view, "Disconnected: keep-alive peer closed") || !strings.Contains(view, "Reopen comparison") {
 		t.Fatalf("persistent disconnect reason missing: %s", view)
 	}
-	if !strings.Contains(model.renderFileRow(0, 40), "✓") {
+	if !strings.Contains(model.renderFileRow(0, "file.txt", 40), "✓") {
 		t.Fatal("confirmed success is not visible in the file list")
 	}
 }

@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- the diff file list groups files by directory and shows each comparison's status
+  and added/removed line counts beside the planned sync action; `<` / `>` resize it
+  for the session
 - `]` / `[` hunk navigation continues across files, skipping comparisons without
   textual hunks and stopping at the first/last file without wrapping
 - optional split and responsive auto diff layouts (`v`), horizontal code scrolling
@@ -23,6 +26,13 @@ All notable changes to this project will be documented in this file.
   file; errors and unknown transfer outcomes retain the copy without automatic retry
 - the Rust config store preserves the TUI's optional `[editor]` section during host
   management writes, without adding an editor feature to the paused GUI
+
+### Changed
+
+- comparisons are ordered as a directory tree instead of scan order, so local-only
+  files appear next to their directory instead of at the end
+- the diff status bar's `+`/`-` counts follow the preview direction, matching the
+  diff rows during upload previews
 
 ### Fixed
 

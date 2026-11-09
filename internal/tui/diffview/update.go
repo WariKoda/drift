@@ -274,11 +274,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.resizeFileList(-fileListStep)
 	case ">":
 		m.resizeFileList(fileListStep)
+	case "w":
+		m.toggleWrap()
 	case "left":
 		m.horizontal -= 8
 		m.clampHorizontal()
 	case "right":
-		if _, ready := m.columnLimit(); ready {
+		if _, ready := m.columnLimit(); ready && !m.wrapping() {
 			m.horizontal += 8
 			m.clampHorizontal()
 		}
@@ -321,19 +323,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.clampScroll()
 
 	case "ctrl+d":
-		m.scroll += max(1, m.viewportHeight()/2)
+		m.scroll += max(1, m.rowsOnScreen()/2)
 		m.clampScroll()
 
 	case "ctrl+u":
-		m.scroll -= max(1, m.viewportHeight()/2)
+		m.scroll -= max(1, m.rowsOnScreen()/2)
 		m.clampScroll()
 
 	case "pgdown":
-		m.scroll += m.viewportHeight()
+		m.scroll += m.rowsOnScreen()
 		m.clampScroll()
 
 	case "pgup":
-		m.scroll -= m.viewportHeight()
+		m.scroll -= m.rowsOnScreen()
 		m.clampScroll()
 
 	case "home", "g":
@@ -365,6 +367,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.toggleAllFolds()
 	case "L":
 		m.revealFirstVisibleFold()
+	case "o":
+		m.toggleLong(m.activeIdx)
 	case "+", "=":
 		m.shiftContext(1)
 	case "-":
@@ -456,7 +460,7 @@ func (m *Model) jumpHunk(direction int) {
 	m.prepareDisplayRows()
 	for index := m.activeIdx; index >= 0 && index < len(m.sessions); index += direction {
 		session := &m.sessions[index]
-		if session.Err != nil || session.Result == nil || session.Result.Binary {
+		if session.Err != nil || session.Result == nil || session.Result.Binary || m.longHidden(index) {
 			continue
 		}
 		added, removed := session.Result.Counts()

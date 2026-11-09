@@ -63,13 +63,13 @@ func (m Model) hitTest(x, y int) hit {
 		return hit{zoneContent, -1}
 	}
 	if m.continuous() {
-		return hit{zoneContent, y - top + m.scroll}
+		return hit{zoneContent, m.rowAt(y - top)}
 	}
 	s := m.activeSession()
 	if s == nil || s.Err != nil || s.Result == nil {
 		return hit{zoneContent, -1}
 	}
-	return hit{zoneContent, y - top + m.scroll}
+	return hit{zoneContent, m.rowAt(y - top)}
 }
 
 // updateMouse handles wheel and click events for the diff view.

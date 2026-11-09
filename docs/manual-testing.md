@@ -109,6 +109,14 @@ interaktiv abgenommen:
   Funktion bzw. einem Abschnitt vergleichen. Der Hunk-Kopf nennt die Zeile
   davor (Funktion ohne Einrückung bzw. Überschrift); im schmalen Fenster
   bleiben die Zeilenbereiche vollständig.
+- Ein minifiziertes JavaScript-Bundle mit einer geänderten Zeile vergleichen.
+  Die Datei erscheint als Zusammenfassung mit Zahlen und Aktion; `o` zeigt den
+  Diff, erneut `o` blendet ihn aus. Ein Sync überträgt die Datei unverändert.
+- Mit `w` den Umbruch einschalten. Lange Zeilen mit Tabs, `日本`, `é` und
+  `👩‍💻` brechen ohne zerteilte Zeichen um; nur die erste Zeile hat Nummern.
+  In Split und in der Gesamtansicht bleiben beide Seiten ausgerichtet. `G` und
+  PgDn erreichen das Ende der letzten Zeile; Klick auf eine Faltung unter
+  einer umbrochenen Zeile trifft die Faltung.
 - Kontext aufklappen, scrollen, die Datei wechseln und zurückkehren. Danach `r`
   und einen erfolgreichen Sync prüfen. Zugeordnete Lesepositionen bleiben;
   verschwundene Dateien und geänderte Bereiche bekommen einen sicheren Rückfall.

@@ -188,6 +188,7 @@ type Model struct {
 	display         *displayCache
 	stream          *streamPlan  // all-files layout in continuous mode
 	collapsed       map[int]bool // sessions reduced to their title in continuous mode
+	longOpen        map[int]bool // long-line files whose diff was opened with [o]
 	hunk            *hunkPosition
 	foldRevision    uint64
 	savedScroll     map[int]int
@@ -610,7 +611,7 @@ func (m *Model) toggleGap(gapID int) {
 
 func (m *Model) firstVisibleFold() (diff.DisplayRow, bool) {
 	rows := m.displayRows()
-	end := m.scroll + m.viewportHeight()
+	end := m.scroll + m.rowsOnScreen()
 	if end > len(rows) {
 		end = len(rows)
 	}
@@ -636,7 +637,7 @@ func (m *Model) collapseVisibleFold() {
 		return
 	}
 	top := min(max(0, m.scroll), len(rows)-1)
-	bottom := min(m.scroll+m.viewportHeight()-1, len(rows)-1)
+	bottom := min(m.scroll+m.rowsOnScreen()-1, len(rows)-1)
 	anchor := rows[top].SourceLine()
 	if m.collapseFoldIn(m.activeIdx, rows, top, bottom) {
 		m.remapScrollToSource(anchor)
@@ -720,10 +721,7 @@ func (m *Model) toggleAllFolds() {
 }
 
 func (m *Model) clampScroll() {
-	max := m.totalLines() - m.viewportHeight()
-	if max < 0 {
-		max = 0
-	}
+	max := m.scrollLimit()
 	if m.scroll > max {
 		m.scroll = max
 	}

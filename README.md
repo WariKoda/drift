@@ -284,6 +284,7 @@ setting does not change the global config.
 | `j` / `k` or `↑` / `↓` | Scroll diff content by line |
 | `PgUp` / `PgDn` | Scroll diff content by page |
 | `←` / `→` | Scroll code horizontally without moving the gutters |
+| `w` | Wrap long lines instead of clipping them |
 | `v` | Cycle Unified / Split / Auto layout |
 | `?` | Open diff help |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
@@ -294,6 +295,7 @@ setting does not change the global config.
 | `c` | Expand or collapse every fold in the file |
 | `L` | Show 10 more unchanged lines on each changed side of the first fold in view |
 | `+` / `-` | More / less context around every change (0, 1, 3, 5, 10, 25 lines) |
+| `o` | Show / hide the diff of a file whose changed lines are 4 KiB or longer |
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `<` / `>` | Narrow / widen the file list for this session |
 | `f` | Show / hide the full local and remote paths |
@@ -339,6 +341,10 @@ the nearest line before the hunk that starts with a letter, `_` or `$` (Git's
 default rule), or the nearest heading in Markdown files. Otherwise the header
 shows only the line ranges.
 
+A file with a changed line of 4 KiB or more, such as a minified bundle, opens
+as a short summary; `o` shows its diff. This only affects the display: the file
+keeps its sync action and is transferred like any other.
+
 Hunk navigation crosses file boundaries: `]` enters the next file at its first
 hunk, `[` enters the previous file at its last. Files without textual hunks
 (including identical, binary, and failed comparisons) are skipped. Navigation
@@ -355,6 +361,7 @@ initial layout in the global configuration, never a project or host record:
 layout = "auto" # unified (default), split, or auto
 syntax = true   # optional; default false
 continuous = true # optional: all files in one view; default false
+wrap = true       # optional: wrap long lines; default false
 ```
 
 Syntax highlighting uses Chroma on the source already present in the comparison.

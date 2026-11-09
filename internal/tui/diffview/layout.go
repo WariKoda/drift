@@ -26,7 +26,7 @@ func (m Model) splitLayout() bool {
 }
 
 func (m Model) rowsFor(index int) []diff.DisplayRow {
-	if index < 0 || index >= len(m.sessions) || m.sessions[index].Result == nil {
+	if index < 0 || index >= len(m.sessions) || m.sessions[index].Result == nil || m.longHidden(index) {
 		return nil
 	}
 	flip := m.sessionFlip(index)

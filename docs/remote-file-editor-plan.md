@@ -1,7 +1,8 @@
-# Implementierungsplan: Remote-Dateien im externen Editor bearbeiten
+# Remote-Dateien im externen Editor bearbeiten
 
-Status: im Feature-Branch implementiert; manuelle Terminal-/GUI-Abnahme noch offen.
-Dieser Plan ersetzt den früheren Entwurf eines eingebauten Editors und beschreibt
+Status: umgesetzt und seit dem 6. November 2026 in `main` (Merge-Commit `bbda0c4`);
+manuelle Terminal-/GUI-Abnahme noch offen.
+Dieses Dokument ersetzt den früheren Entwurf eines eingebauten Editors und beschreibt
 die umgesetzten Regeln.
 Geltungsbereich: Go-TUI; kein neues Editor-Feature für die pausierte Rust-GUI.
 
@@ -142,10 +143,10 @@ Regeln:
 - Arbeitsverzeichnis ist das private Sitzungsverzeichnis, nicht das Projekt.
 - Kein hartcodierter Default-Editor. Ohne Konfiguration zeigt `e` eine Anleitung.
 - Kein implizites Parsen von `$VISUAL` oder `$EDITOR` in der ersten Version.
-- Einrichtung zunächst über TOML; ein Einstellungsdialog ist kein Teil dieses Plans.
+- Einrichtung über TOML; ein Einstellungsdialog ist nicht enthalten.
 
-Die Go-Typen gehören nach `internal/config/config.go`. Loader, Laufzeitkonfiguration
-und Writer müssen den Abschnitt erhalten, auch bei Host-Verwaltungsoperationen und
+Die Go-Typen liegen in `internal/config/config.go`. Loader, Laufzeitkonfiguration
+und Writer erhalten den Abschnitt, auch bei Host-Verwaltungsoperationen und
 beim Schreiben einer vorher nicht vorhandenen globalen Datei. Ohne Abschnitt bleibt
 das bisherige Verhalten unverändert.
 
@@ -175,7 +176,7 @@ nicht bedingungslos entfernt werden.
   `fs.Root.Open` über den bestehenden Sync-Pfad. Reader- und Close-Fehler auswerten.
 - Typ und Größe vor und nach der Bearbeitung prüfen. Symlink-Escapes, Geräte,
   Verzeichnisse und andere nichtreguläre lokale Dateien ablehnen.
-- Planvorgabe für den ersten Ausbau: höchstens 10 MiB pro Datei. Beim Download
+- Höchstens 10 MiB pro Datei. Beim Download
   begrenzt lesen und eine Überschreitung als Fehler behandeln, nicht als gekürzte
   Datei. Dasselbe Limit gilt für bearbeiteten Inhalt und erneute Remote-Prüfung.
 - Originalinhalt beziehungsweise SHA-256-Vergleichsbasis unabhängig von der
@@ -357,6 +358,9 @@ Quit-Logik übergangen werden.
 
 ## Umsetzungsschritte und Abnahme
 
+Die folgenden Schritte sind umgesetzt. Die Abnahmekriterien bleiben als
+Prüfreferenz erhalten; die manuelle Terminal-/GUI-Abnahme steht noch aus.
+
 ### 1. Konfiguration und sicherer Prozessaufruf
 
 - Go-Konfiguration und Writer um den optionalen Editor-Abschnitt ergänzen.
@@ -430,7 +434,7 @@ Prozess-Tests einen echten kurzlebigen Hilfsprozess verwenden, keinen Remote-Moc
 | Browser/Terminal | Cursor, Scrollposition, Expanded-State und Markierungen erhalten; gezielte Metadaten-/Preview-Aktualisierung; Resize, Alt-Screen, Maus an/aus, Rückkehr nach Editor-Fehler. |
 | Daten/Logging | Keine Projektdatei verändert; Arbeitskopie bei Fehlern erhalten; keine Inhalte/Zugangsdaten im Log; Logging standardmäßig aus; keine GUI-Prozessausgabe in der TUI. |
 
-Nach der späteren Implementierung:
+Automatisierte Prüfungen:
 
 ```sh
 go test ./...

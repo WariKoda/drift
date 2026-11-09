@@ -1,4 +1,9 @@
-# drift
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo/drift-logo-on-dark.svg">
+    <img alt="drift" src=".github/assets/logo/drift-logo-on-light.svg" width="330">
+  </picture>
+</h1>
 
 drift is a terminal app for comparing and syncing a local project with a remote host
 over SFTP, FTP or FTPS. It works like PHPStorm's "Browse Remote Host" and "Sync with

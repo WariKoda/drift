@@ -139,8 +139,10 @@ func TestDashboardLayoutMatchesView(t *testing.T) {
 	})
 
 	t.Run("logoRowCount matches the rendered logo", func(t *testing.T) {
-		if got := len(logoLines()); got != logoRowCount {
-			t.Errorf("logoLines has %d rows, logoRowCount=%d", got, logoRowCount)
+		for _, width := range []int{120, 40} {
+			if got := len(logoLines(width)); got != logoRowCount {
+				t.Errorf("logoLines(%d) has %d rows, logoRowCount=%d", width, got, logoRowCount)
+			}
 		}
 	})
 }

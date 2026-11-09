@@ -24,7 +24,8 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `remoteeditor`      | External-editor session + upload confirmation         |
 
 The `textfield` package holds the shared single-line input widget used by `hostform`
-and `projectform`. The project registry (slug, name, path, timestamps) lives in
+and `projectform`. The dashboard draws the logo from `internal/logo`; the SVG and PNG
+versions live in `.github/assets/logo/`. The project registry (slug, name, path, timestamps) lives in
 `internal/project` and is persisted to `~/.config/drift/projects.toml`; per-project hosts
 stay in `<config.Dir()>/projects/<slug>.toml`. Selecting a project on the dashboard or in
 the project switcher (`P`) re-roots the app via `App.openProject`

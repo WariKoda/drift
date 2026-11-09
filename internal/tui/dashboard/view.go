@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/WariKoda/drift/internal/logo"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -17,26 +18,14 @@ var (
 	accentStyle = styles.Accent
 )
 
-// glyphs holds 5-row block-letter art for the title.
-var glyphs = map[rune][5]string{
-	'D': {"██████ ", "██   ██", "██   ██", "██   ██", "██████ "},
-	'R': {"██████ ", "██   ██", "██████ ", "██  ██ ", "██   ██"},
-	'I': {"██", "██", "██", "██", "██"},
-	'F': {"██████", "██    ", "█████ ", "██    ", "██    "},
-	'T': {"███████", "  ██   ", "  ██   ", "  ██   ", "  ██   "},
-}
-
-func logoLines() []string {
-	const word = "DRIFT"
-	rows := make([]string, 5)
-	for i := 0; i < 5; i++ {
-		var parts []string
-		for _, c := range word {
-			parts = append(parts, glyphs[c][i])
-		}
-		rows[i] = strings.Join(parts, " ")
+// logoLines returns the wordmark, or the icon alone when the wordmark does
+// not fit. Both are logoRowCount rows tall, so the layout stays the same.
+func logoLines(width int) []string {
+	wordmark := logo.Lines(logo.Wordmark)
+	if lipgloss.Width(wordmark[0]) <= width {
+		return wordmark
 	}
-	return rows
+	return logo.Lines(logo.Icon)
 }
 
 func (m Model) View() string {
@@ -56,7 +45,7 @@ func (m Model) View() string {
 	for i := 0; i < headerBlankTop; i++ {
 		lines = append(lines, "")
 	}
-	for _, l := range logoLines() {
+	for _, l := range logoLines(w) {
 		lines = append(lines, center(logoStyle.Render(l)))
 	}
 	for i := 0; i < headerBlankBot; i++ {

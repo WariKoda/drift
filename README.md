@@ -295,6 +295,8 @@ setting does not change the global config.
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `<` / `>` | Narrow / widen the file list for this session |
 | `f` | Show / hide the full local and remote paths |
+| `m` | Switch between one file and all files in one scrollable view |
+| `z` | In the all-files view, fold the current file to its title |
 | `Space` | Cycle sync direction for current file |
 | `A` | Cycle sync direction for all files |
 | `s` | Sync current file |
@@ -323,6 +325,13 @@ label such as `remote only`, the line counts, and the before → after orientati
 of the line numbers (`Compare only` when no action is planned). `f` adds the full
 local and remote paths in before/after order.
 
+`m` shows all files one below the other, each under its own title. Ordinary
+scrolling then runs from one file into the next, and the file at the top becomes
+the current file for Space, `s`, `u` and `d`; it is named in the fixed title
+above the diff and marked in its section. Tab, a file list click or `]`/`[` pick
+the current file directly. `z` or a click on a section title folds a file to its
+title. Set `continuous = true` under `[ui.diff]` to start in this view.
+
 Hunk navigation crosses file boundaries: `]` enters the next file at its first
 hunk, `[` enters the previous file at its last. Files without textual hunks
 (including identical, binary, and failed comparisons) are skipped. Navigation
@@ -338,6 +347,7 @@ initial layout in the global configuration, never a project or host record:
 [ui.diff]
 layout = "auto" # unified (default), split, or auto
 syntax = true   # optional; default false
+continuous = true # optional: all files in one view; default false
 ```
 
 Syntax highlighting uses Chroma on the source already present in the comparison.

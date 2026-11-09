@@ -18,7 +18,7 @@ func TestSyntaxPreferenceInvalidatesPendingDecoration(t *testing.T) {
 	}
 	m.SetPreferences(config.DiffPreferences{})
 	m.acceptDecoration(old)
-	if m.syntax != nil {
+	if m.decorationFor(0) != nil {
 		t.Fatal("late tokens accepted after disabling syntax")
 	}
 	cmd = m.Init()
@@ -27,7 +27,7 @@ func TestSyntaxPreferenceInvalidatesPendingDecoration(t *testing.T) {
 		t.Fatal("disabled syntax did work")
 	}
 	m.acceptDecoration(current)
-	if !m.columnsReady || m.syntax != nil {
+	if _, ready := m.columnLimit(); !ready || m.decorationFor(0).syntax != nil {
 		t.Fatal("plain layout did not retain geometry")
 	}
 }
@@ -43,18 +43,17 @@ func TestDecorationRejectsStaleAndClosedRequests(t *testing.T) {
 	m.selectFile(1)
 	next := m.startDecoration()
 	m.acceptDecoration(first)
-	if len(m.spans) != 0 {
+	if m.decorationFor(0) != nil || m.decorationFor(1) != nil {
 		t.Fatal("stale highlight accepted")
 	}
 	second := next().(MsgDecorated)
 	m.acceptDecoration(second)
-	if len(m.spans) == 0 {
+	if m.decorationFor(1) == nil || len(m.decorationFor(1).spans) == 0 {
 		t.Fatal("current highlight missing")
 	}
 	m.Close()
-	before := m.spans
 	m, _ = m.Update(first)
-	if len(m.spans) != len(before) {
+	if m.decorationFor(0) != nil {
 		t.Fatal("closed model changed decoration")
 	}
 }

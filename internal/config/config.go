@@ -106,8 +106,9 @@ type UI struct {
 
 // DiffPreferences are global terminal display choices, never transfer policy.
 type DiffPreferences struct {
-	Layout string `toml:"layout,omitempty"`
-	Syntax bool   `toml:"syntax,omitempty"`
+	Layout     string `toml:"layout,omitempty"`
+	Syntax     bool   `toml:"syntax,omitempty"`
+	Continuous bool   `toml:"continuous,omitempty"` // all files in one scrollable view
 }
 
 func (d DiffPreferences) Validate() error {

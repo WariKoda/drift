@@ -18,7 +18,7 @@ func TestFileTitleShowsRelativePathStatusAndCounts(t *testing.T) {
 		Result:     &diff.DiffResult{RemoteOnly: true, Lines: countsFixture(3, 0).Lines},
 	}}, config.Host{}, nil, root, 140, 20)
 	m.syncDirs[0] = DirDownload
-	title := strings.TrimSpace(stripANSI(m.renderFileTitle(m.activeSession(), m.diffWidth())))
+	title := strings.TrimSpace(stripANSI(m.renderFileTitle(m.activeIdx, m.diffWidth())))
 	if !strings.HasPrefix(title, "src/new.go · remote only") || !strings.HasSuffix(title, "+3  Local → Remote (before → after)") {
 		t.Fatalf("title = %q", title)
 	}
@@ -31,7 +31,7 @@ func TestFileTitleFitsEveryWidth(t *testing.T) {
 	}}, config.Host{}, nil, nil, 140, 20)
 	m.syncDirs[0] = DirUpload
 	for width := 1; width <= 140; width++ {
-		row := m.renderFileTitle(m.activeSession(), width)
+		row := m.renderFileTitle(m.activeIdx, width)
 		if got := lipgloss.Width(row); got != width {
 			t.Fatalf("width %d rendered %d cells: %q", width, got, stripANSI(row))
 		}

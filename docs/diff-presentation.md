@@ -32,6 +32,36 @@ aber keinen Hunk-Code und keine TypeScript- oder OpenTUI-Abhängigkeit.
 Es gibt keinen globalen Cache aller Anzeigepläne. `DiffResult` hält weder
 Anzeigezeilen noch Wortmarkierungen oder Syntaxfarben.
 
+## Alle Dateien in einer Ansicht
+
+`m` schaltet zwischen einer Datei und allen Dateien um; `continuous = true` in
+`[ui.diff]` legt den Start fest. Der Gesamtplan (`streamPlan`) reiht je Datei
+eine Titelzeile, ihre Anzeigezeilen oder Hinweise (binär, Fehler) und eine
+Leerzeile aneinander. Er wird nur neu gebaut, wenn sich Falten, eingeklappte
+Abschnitte, Layout, eine Vorschau-Richtung oder ein Dateifehler ändern. Vor dem
+Neubau wird die oberste Zeile als Anker (Datei, Zeilenart, Quellzeile) gemerkt
+und danach wieder nach oben gestellt.
+
+Gezeichnet werden nur die sichtbaren Zeilen; aufeinanderfolgende Zeilen einer
+Datei gehen gemeinsam durch `RenderUnifiedRows`, jeweils mit Richtung, Aktion,
+Wort- und Syntaxdaten dieser Datei. Der horizontale Versatz gilt für alle
+Abschnitte gemeinsam.
+
+Die aktive Datei steht im festen Titel über dem Diff und ist in ihrer
+Abschnittsüberschrift markiert. Manuelles Scrollen macht die oberste Datei aktiv,
+aber nur, wenn sich die Ansicht tatsächlich bewegt hat. Tab, Klick in die
+Dateiliste und `]`/`[` setzen die aktive Datei ausdrücklich, auch wenn der Abschnitt
+wegen des Endes der Liste nicht ganz oben stehen kann. Space, `s`, `u` und `d`
+wirken auf diese Datei. `z` oder ein Klick auf eine Abschnittsüberschrift klappt
+die Datei auf ihren Titel zusammen; das ist Lesezustand und ändert keine Aktion.
+
+Wort- und Syntaxdaten werden je Ergebnis gehalten, für höchstens 32 Dateien;
+darüber hinaus bleiben nur die aktive und die sichtbaren Dateien. Es läuft immer
+höchstens eine Aufbereitung. Ihr Ergebnis startet die nächste fehlende sichtbare
+Datei; eine Anfrage für eine Datei, die den Bildschirm verlassen hat, wird
+abgebrochen. Auch in der Einzeldateiansicht sind die Daten einer zuvor besuchten
+Datei dadurch beim Zurückwechseln sofort wieder da.
+
 ## Dateiliste
 
 `app.Load` sortiert die Vergleiche als Verzeichnisbaum: zuerst die Dateien eines
@@ -113,10 +143,11 @@ Nur die globale Benutzerkonfiguration legt die Ausgangswerte fest:
 [ui.diff]
 layout = "unified" # unified, split oder auto
 syntax = false
+continuous = false # alle Dateien in einer Ansicht
 ```
 
 Die Tasten ändern den Sitzungszustand, schreiben aber keine Konfiguration.
-Go- und Rust-Store-Schreibvorgänge erhalten beide Felder. Projekt- und Hostdaten
+Go- und Rust-Store-Schreibvorgänge erhalten alle drei Felder. Projekt- und Hostdaten
 können sie nicht überschreiben. Zeilenumbruch ist nicht implementiert.
 
 ## Optionale Syntaxfarben
@@ -176,6 +207,12 @@ Die Vorherwerte stammen aus der externen Untersuchung, die Nachherwerte aus
 79 KiB und 0,30 ms je Frame. `Flatten` bleibt linear, läuft aber nicht mehr je
 Frame; 20.000 Zeilen benötigten rund 270 KiB pro Plan statt zuvor 1,43 MB.
 
+Für die Gesamtansicht (`BenchmarkContinuous`, je Datei 1.000 Zeilen mit einer
+Änderung je 100 Zeilen, 120×40 Zellen): Ein Frame kostete bei 20 Dateien rund
+0,36 ms und 91 KiB, bei 200 Dateien rund 0,42 ms und 99 KiB. Der Neubau des
+Gesamtplans kostete bei 20 Dateien rund 0,16 ms und 0,4 MB, bei 200 Dateien
+rund 1,4 ms und 4,8 MB; er läuft nur nach den oben genannten Änderungen.
+
 Der separate Chroma-Vorversuch erkannte 297 Lexer. Für 34 KB synthetischen Text
 lagen Go, PHP, JavaScript, Rust und TOML bei ungefähr 16–30 ms, Python bei 83–87 ms.
 Das sind Tokenisierungsmessungen, keine Sprachkorrektheits- oder UI-Tests.
@@ -196,7 +233,7 @@ go test -race ./...
 go vet ./...
 go build ./...
 go test ./internal/tui/diffview -run '^$' \
-  -bench 'Benchmark(DiffView|Flatten)$' -benchmem
+  -bench 'Benchmark(DiffView|Flatten|Continuous)$' -benchmem
 go test ./internal/diff -run '^$' -bench BenchmarkSyntaxHighlights -benchmem
 cd rust
 cargo fmt --all -- --check

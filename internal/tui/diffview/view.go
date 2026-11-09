@@ -181,15 +181,16 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	rows := make([]string, 0, bh)
 
 	rows = append(rows, m.renderFileHeader(s, dw)...)
-	planned := m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) && m.syncDirs[m.activeIdx] != DirNone
 
 	vh := m.viewportHeight()
 	var content []string
 	switch {
 	case m.showHelp:
-		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "[m] one file / all files, [z] fold the current file there", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
+	case m.continuous():
+		content = m.renderStreamRows(vh, dw)
 	case s == nil:
 		content = blankRows(vh, dw)
 	case s.Err != nil:
@@ -199,7 +200,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	default:
-		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, diff.RenderOptions{Flip: m.remoteBeforeLocal(), Highlight: planned, Spans: m.spans, Split: m.splitLayout(), Offset: m.horizontal, Syntax: m.syntax})
+		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, m.renderOptions(m.activeIdx))
 		for len(content) < vh {
 			content = append(content, strings.Repeat(" ", dw))
 		}
@@ -221,7 +222,7 @@ func (m Model) renderFileHeader(s *diff.Session, width int) []string {
 		}
 		return append(rows, sepLine(width))
 	}
-	rows = append(rows, m.renderFileTitle(s, width))
+	rows = append(rows, m.renderFileTitle(m.activeIdx, width))
 	if m.showPaths {
 		labels, paths := [2]string{"Local ", "Remote"}, [2]string{s.LocalPath, s.RemotePath}
 		if m.remoteBeforeLocal() {
@@ -238,16 +239,29 @@ func (m Model) renderFileHeader(s *diff.Session, width int) []string {
 	return append(rows, sepLine(width))
 }
 
+// renderOptions styles one session's rows with its own direction and data.
+func (m Model) renderOptions(index int) diff.RenderOptions {
+	options := diff.RenderOptions{Flip: m.sessionFlip(index), Highlight: m.syncDir(index) != DirNone, Split: m.splitLayout(), Offset: m.horizontal}
+	if decoration := m.decorationFor(index); decoration != nil {
+		options.Spans, options.Syntax = decoration.spans, decoration.syntax
+	}
+	return options
+}
+
 // renderFileTitle keeps the before/after orientation over the line counts and
 // both over the path, which is shortened from the left.
-func (m Model) renderFileTitle(s *diff.Session, width int) string {
+func (m Model) renderFileTitle(index, width int) string {
+	if index < 0 || index >= len(m.sessions) {
+		return strings.Repeat(" ", max(0, width))
+	}
+	s := &m.sessions[index]
 	before, after := "Local", "Remote"
-	if m.remoteBeforeLocal() {
+	if m.sessionFlip(index) {
 		before, after = after, before
 	}
 	short := before + " → " + after
 	long := short + " (before → after)"
-	if m.activeIdx < 0 || m.activeIdx >= len(m.syncDirs) || m.syncDirs[m.activeIdx] == DirNone {
+	if m.syncDir(index) == DirNone {
 		long = "Compare only · " + short
 	}
 	title := styles.SafeText(m.displayPath(s))
@@ -255,7 +269,7 @@ func (m Model) renderFileTitle(s *diff.Session, width int) string {
 	if label != "" {
 		title += " · " + label
 	}
-	counts := m.countsLabel(m.activeIdx)
+	counts := m.countsLabel(index)
 	gap := ""
 	if counts != "" {
 		gap = "  "
@@ -312,6 +326,10 @@ func (m *Model) clampErrorScroll() {
 }
 
 func (m Model) renderSummaryRows(r *diff.DiffResult, height, width int) []string {
+	return paddedContentRows(summaryLines(r), height, width)
+}
+
+func summaryLines(r *diff.DiffResult) []string {
 	var lines []string
 	switch {
 	case r.LocalOnly:
@@ -334,7 +352,7 @@ func (m Model) renderSummaryRows(r *diff.DiffResult, height, width int) []string
 		}
 		lines = append(lines, local, remote)
 	}
-	return paddedContentRows(lines, height, width)
+	return lines
 }
 
 func paddedContentRows(lines []string, height, width int) []string {
@@ -405,8 +423,8 @@ func (m Model) renderStatus(s *diff.Session) string {
 			keys = styles.KeyHints("[e]errors  ", styles.Err) + keys
 		}
 	}
-	if m.decorationError != "" {
-		info = styles.Err.Render(styles.SafeText(m.decorationError))
+	if decoration := m.decorationFor(m.activeIdx); decoration != nil && decoration.err != nil {
+		info = styles.Err.Render(styles.SafeText("Highlighting unavailable: " + decoration.err.Error()))
 	}
 	if m.syncStatus != "" && !m.remoteBusy() {
 		info = styles.KeyHints(m.syncStatus, styles.File)

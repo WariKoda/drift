@@ -59,8 +59,14 @@ func (m Model) hitTest(x, y int) hit {
 		return hit{zoneNone, -1}
 	}
 
+	if m.showErrors {
+		return hit{zoneContent, -1}
+	}
+	if m.continuous() {
+		return hit{zoneContent, y - top + m.scroll}
+	}
 	s := m.activeSession()
-	if m.showErrors || s == nil || s.Err != nil || s.Result == nil {
+	if s == nil || s.Err != nil || s.Result == nil {
 		return hit{zoneContent, -1}
 	}
 	return hit{zoneContent, y - top + m.scroll}
@@ -91,8 +97,12 @@ func (m Model) updateMouse(msg tea.MouseMsg) (next Model, cmd tea.Cmd) {
 				m.clampErrorScroll()
 			} else {
 				m.hunk = nil
+				before := m.scroll
 				m.scroll += delta
 				m.clampScroll()
+				if m.continuous() && m.scroll != before {
+					m.followScroll()
+				}
 			}
 		}
 		return m, nil
@@ -104,6 +114,22 @@ func (m Model) updateMouse(msg tea.MouseMsg) (next Model, cmd tea.Cmd) {
 
 	// The error overlay is modal: nothing behind it is clickable.
 	if m.showErrors {
+		return m, nil
+	}
+
+	if h.zone == zoneContent && h.index >= 0 && m.continuous() {
+		plan := m.streamPlan()
+		if h.index < len(plan.rows) {
+			switch row := plan.rows[h.index]; row.kind {
+			case streamTitle:
+				m.toggleSection(row.session)
+			case streamLine:
+				if display := plan.files[row.session][row.index]; display.Kind == diff.DisplayFold {
+					m.setGapExpandedIn(row.session, display.GapID, !m.gapExpandedIn(row.session, display.GapID))
+					m.prepareDisplayRows()
+				}
+			}
+		}
 		return m, nil
 	}
 

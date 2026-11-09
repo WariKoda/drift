@@ -52,9 +52,13 @@ use `app.BrowseRemote` and `app.TestHost`, not direct screen connections.
 
 Diff presentation is documented in `docs/diff-presentation.md`. Keep display rows,
 word/syntax spans and reading snapshots outside `DiffResult` and transfer state.
-The diffview caches one active row plan; syntax tokens use a bounded single-entry,
-palette-independent cache. Decoration commands consume immutable comparison lines,
-never perform I/O, and reject stale request identities. Global `[ui.diff]`
+The diffview caches one active row plan, plus one all-files plan in continuous
+mode; syntax tokens use a bounded single-entry, palette-independent cache. Word and
+syntax data is kept per result for at most `maxDecorations` files, computed by one
+request at a time. Decoration commands consume immutable comparison lines, never
+perform I/O, and reject stale request identities. In continuous mode the sync keys
+act on the active file: the one at the top after manual scrolling, or the one
+chosen with Tab, a file list click or a hunk jump. Global `[ui.diff]`
 preferences must survive both Go and Rust store writes; they never change sync
 policy. Refresh restores reading state only, bound to the reload request.
 

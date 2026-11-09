@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
   for the session
 - the diff pane's file title fits on one line with relative path, status, line counts
   and before/after orientation; `f` shows the full local and remote paths
+- an all-files diff view (`m`, or `[ui.diff] continuous = true`) shows every file
+  below its own title in one scrollable list; the file at the top is the target of
+  the sync keys, and `z` folds a file to its title
 - `]` / `[` hunk navigation continues across files, skipping comparisons without
   textual hunks and stopping at the first/last file without wrapping
 - optional split and responsive auto diff layouts (`v`), horizontal code scrolling
@@ -38,6 +41,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `h` collapses expanded context directly below a hunk header at the top of the view
+- word and syntax highlighting of a previously visited file is reused instead of
+  recomputed when returning to it
 - diff gutters fit five- and six-digit line numbers, tabs follow terminal-cell
   widths for Unicode, and narrow diff rows stay within the pane
 - folded diff rows are cached instead of rebuilt on each frame

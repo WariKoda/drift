@@ -89,6 +89,13 @@ interaktiv abgenommen:
   beziehungsweise bei Upload `Remote → Local`. Das Fenster schmal ziehen: Die
   Orientierung bleibt sichtbar, der Pfad wird links gekürzt. `f` blendet beide
   vollständigen Pfade ein und aus, ohne die Mausziele im Diff zu verschieben.
+- Mit `m` alle Dateien untereinander anzeigen. Mit `j`, PgDn und Mausrad über
+  Dateigrenzen scrollen: Titel und Seitenleiste wechseln zur obersten Datei.
+  Space und `s` wirken nur auf diese Datei. Tab zur letzten, kurzen Datei:
+  Sie bleibt aktiv, auch wenn sie nicht ganz oben stehen kann und `j` nichts
+  bewegt. `z` und Klick auf eine Abschnittsüberschrift klappen Dateien ein und
+  aus. Mit `]`/`[` alle Hunks durchgehen. Syntaxfarben und Wortbetonung
+  erscheinen in allen sichtbaren Dateien. Mit `m` zurück: dieselbe Stelle.
 - Mit `]` alle Hunks mehrerer Dateien durchgehen und mit `[` zurückspringen.
   Dateiüberschrift und Seitenleiste müssen folgen. Auch in einem großen Fenster,
   in das eine ganze Datei passt, muss es nach deren letztem Hunk weitergehen.

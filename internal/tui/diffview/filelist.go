@@ -143,7 +143,7 @@ func (m Model) renderFileListRows() []string {
 			if row.dir == "." {
 				dir = "./"
 			}
-			rows = append(rows, pad(styles.Muted.Render(truncLeft(styles.SafeText(dir), width)), width))
+			rows = append(rows, pad(styles.Dir.Render("[/] "+truncLeft(styles.SafeText(dir), width-4)), width))
 			continue
 		}
 		rows = append(rows, m.renderFileRow(row.session, list.names[row.session], width))

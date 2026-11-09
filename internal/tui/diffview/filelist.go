@@ -95,27 +95,31 @@ func (m Model) displayCounts(index int) (added, removed int) {
 	return added, removed
 }
 
-// fileStatus describes the comparison, never the planned sync action.
-func fileStatus(s *diff.Session) (string, lipgloss.Style) {
+// fileStatus describes the comparison, never the planned sync action. A plain
+// textual change has no label.
+func fileStatus(s *diff.Session) (mark, label string, style lipgloss.Style) {
 	switch {
 	case s.Err != nil:
-		return "!", styles.Err
+		return "!", "error", styles.Err
 	case s.Result == nil:
-		return "…", styles.Muted
+		return "…", "loading", styles.Muted
 	case s.Result.LocalOnly:
-		return "L", styles.Warn
+		return "L", "local only", styles.Warn
 	case s.Result.RemoteOnly:
-		return "R", styles.Warn
+		return "R", "remote only", styles.Warn
 	case s.Result.Binary:
-		return "B", styles.Muted
+		return "B", "binary", styles.Muted
 	case !s.Result.HasDiff():
-		return "=", styles.Muted
+		return "=", "identical", styles.Muted
 	default:
-		return "~", styles.File
+		return "~", "", styles.File
 	}
 }
 
 func (m Model) countsLabel(index int) string {
+	if index < 0 || index >= len(m.sessions) {
+		return ""
+	}
 	added, removed := m.displayCounts(index)
 	var parts []string
 	if added > 0 {
@@ -155,7 +159,7 @@ func (m Model) renderFileRow(i int, name string, width int) string {
 	if i == m.activeIdx {
 		cursor, nameStyle = styles.Key.Render("▶")+" ", styles.File
 	}
-	status, statusStyle := fileStatus(&m.sessions[i])
+	status, _, statusStyle := fileStatus(&m.sessions[i])
 
 	action := styles.Muted.Render("—")
 	dir := DirNone

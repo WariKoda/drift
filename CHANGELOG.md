@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - the diff file list groups files by directory and shows each comparison's status
   and added/removed line counts beside the planned sync action; `<` / `>` resize it
   for the session
+- the diff pane's file title fits on one line with relative path, status, line counts
+  and before/after orientation; `f` shows the full local and remote paths
 - `]` / `[` hunk navigation continues across files, skipping comparisons without
   textual hunks and stopping at the first/last file without wrapping
 - optional split and responsive auto diff layouts (`v`), horizontal code scrolling

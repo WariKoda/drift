@@ -20,7 +20,7 @@ var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 //
 // Right pane within the body (top to bottom):
 //
-//	pathChrome    path header, line-number legend, separator
+//	chromeRows()  file title, optional full local/remote paths, separator
 //	viewport…     unified diff content
 //
 // hitTest in mouse.go maps clicks back through these, so a change here must be
@@ -28,7 +28,8 @@ var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 const (
 	headerLines = 2
 	footerLines = 2
-	pathChrome  = 3 // path header + line-number legend + separator inside the right pane
+	pathChrome  = 2 // file title + separator inside the right pane
+	pathRows    = 2 // full local and remote paths, shown with [f]
 )
 
 // bodyTop is the first screen row of the side-by-side body.
@@ -45,7 +46,14 @@ const (
 // contentTop returns the first screen row occupied by the diff content
 // (below the right-pane path chrome).
 func (m Model) contentTop() int {
-	return bodyTop + pathChrome
+	return bodyTop + m.chromeRows()
+}
+
+func (m Model) chromeRows() int {
+	if m.showPaths {
+		return pathChrome + pathRows
+	}
+	return pathChrome
 }
 
 func (m Model) View() string {
@@ -172,28 +180,14 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	bh := m.bodyHeight()
 	rows := make([]string, 0, bh)
 
-	localPath, remotePath := "", ""
-	if s != nil {
-		localPath, remotePath = s.LocalPath, s.RemotePath
-	}
-	rows = append(rows, m.renderPathHeader(localPath, remotePath, dw))
-	before, after := "Local", "Remote"
-	if m.remoteBeforeLocal() {
-		before, after = after, before
-	}
-	legend := fmt.Sprintf("Line numbers: %s → %s (before → after)", before, after)
+	rows = append(rows, m.renderFileHeader(s, dw)...)
 	planned := m.activeIdx >= 0 && m.activeIdx < len(m.syncDirs) && m.syncDirs[m.activeIdx] != DirNone
-	if !planned {
-		legend = "No action · Compare only · Lines: Local → Remote"
-	}
-	rows = append(rows, pad(styles.Muted.Render(ansi.Truncate(legend, dw, "")), dw))
-	rows = append(rows, sepLine(dw))
 
 	vh := m.viewportHeight()
 	var content []string
 	switch {
 	case m.showHelp:
-		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
 	case s == nil:
@@ -217,19 +211,65 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	return rows
 }
 
-// renderPathHeader follows the same before/after order as the line-number columns.
-func (m Model) renderPathHeader(localPath, remotePath string, width int) string {
-	sep := " │ "
-	half := (width - len(sep)) / 2
-	if half < 1 {
-		half = 1
+// renderFileHeader returns chromeRows rows: the file title, the optional full
+// paths in before/after order, and a separator.
+func (m Model) renderFileHeader(s *diff.Session, width int) []string {
+	rows := make([]string, 0, m.chromeRows())
+	if s == nil {
+		for len(rows) < m.chromeRows()-1 {
+			rows = append(rows, strings.Repeat(" ", width))
+		}
+		return append(rows, sepLine(width))
 	}
+	rows = append(rows, m.renderFileTitle(s, width))
+	if m.showPaths {
+		labels, paths := [2]string{"Local ", "Remote"}, [2]string{s.LocalPath, s.RemotePath}
+		if m.remoteBeforeLocal() {
+			labels[0], labels[1], paths[0], paths[1] = labels[1], labels[0], paths[1], paths[0]
+		}
+		for i := range labels {
+			value := styles.SafeText(paths[i])
+			if value == "" {
+				value = "—"
+			}
+			rows = append(rows, pad(styles.Muted.Render(labels[i]+" ")+styles.File.Render(truncLeft(value, max(1, width-7))), width))
+		}
+	}
+	return append(rows, sepLine(width))
+}
+
+// renderFileTitle keeps the before/after orientation over the line counts and
+// both over the path, which is shortened from the left.
+func (m Model) renderFileTitle(s *diff.Session, width int) string {
+	before, after := "Local", "Remote"
 	if m.remoteBeforeLocal() {
-		localPath, remotePath = remotePath, localPath
+		before, after = after, before
 	}
-	left := truncLeft(styles.SafeText(localPath), half)
-	right := truncLeft(styles.SafeText(remotePath), half)
-	return pad(styles.Muted.Render(left+sep+right), width)
+	short := before + " → " + after
+	long := short + " (before → after)"
+	if m.activeIdx < 0 || m.activeIdx >= len(m.syncDirs) || m.syncDirs[m.activeIdx] == DirNone {
+		long = "Compare only · " + short
+	}
+	title := styles.SafeText(m.displayPath(s))
+	_, label, _ := fileStatus(s)
+	if label != "" {
+		title += " · " + label
+	}
+	counts := m.countsLabel(m.activeIdx)
+	gap := ""
+	if counts != "" {
+		gap = "  "
+	}
+	right := ""
+	for _, candidate := range []string{counts + gap + styles.Muted.Render(long), counts + gap + styles.Muted.Render(short), styles.Muted.Render(short)} {
+		if width-lipgloss.Width(candidate)-1 >= min(ansi.StringWidth(title), 16) {
+			right = candidate
+			break
+		}
+	}
+	left := truncLeft(title, max(1, width-lipgloss.Width(right)-1))
+	space := max(1, width-ansi.StringWidth(left)-lipgloss.Width(right))
+	return pad(styles.File.Render(left)+strings.Repeat(" ", space)+right, width)
 }
 
 // renderErrorListRows renders bulk-sync errors for the right pane.

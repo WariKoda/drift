@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
   the sync keys, and `z` folds a file to its title
 - `L` reveals ten more unchanged lines at the first fold in view, and `+` / `-` change
   the context around every change for the session; both survive a refresh
+- hunk headers show the nearest preceding function-like line (Git's default rule) or
+  Markdown heading from the already loaded comparison
 - `]` / `[` hunk navigation continues across files, skipping comparisons without
   textual hunks and stopping at the first/last file without wrapping
 - optional split and responsive auto diff layouts (`v`), horizontal code scrolling

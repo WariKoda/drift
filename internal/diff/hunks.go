@@ -21,6 +21,7 @@ type DisplayRow struct {
 	LineIndex int    // Lines index for DisplayLine; change-run start for DisplayHunkHeader
 	PairIndex int    // after-side index for DisplayPair; -1 means an empty cell
 	Header    string // @@ -before,count +after,count @@ for DisplayHunkHeader
+	Label     string // nearest heading before the hunk, set by LabelHunks
 	GapID     int    // start index of the equal run (stable across expand)
 	Hidden    int    // folded equal-line count
 	FoldStart int    // first hidden Lines index (inclusive)

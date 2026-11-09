@@ -32,6 +32,7 @@ func (m Model) rowsFor(index int) []diff.DisplayRow {
 	flip := m.sessionFlip(index)
 	lines := m.sessions[index].Result.Lines
 	rows := diff.FlattenWith(lines, m.context(), m.expandedFor(index), m.revealed[index], flip)
+	diff.LabelHunks(lines, rows, flip, sessionName(&m.sessions[index]))
 	if m.splitLayout() {
 		rows = diff.SplitDisplayRows(lines, rows, flip)
 	}

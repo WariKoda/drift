@@ -57,7 +57,7 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 		}
 		switch rows[idx].Kind {
 		case DisplayHunkHeader:
-			out = append(out, renderHunkHeader(rows[idx].Header, width))
+			out = append(out, renderHunkHeader(rows[idx].Header, rows[idx].Label, width))
 		case DisplayFold:
 			out = append(out, renderFold(rows[idx].Hidden, width))
 		case DisplayPair:
@@ -86,8 +86,13 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 	return out
 }
 
-func renderHunkHeader(header string, width int) string {
+// renderHunkHeader shortens the label first; the line ranges stay complete
+// whenever they fit.
+func renderHunkHeader(header, label string, width int) string {
 	inner := " " + header + " "
+	if room := width - lipgloss.Width(inner) - 5; label != "" && room >= 4 {
+		inner += ansi.Truncate(string(expandTabs([]rune(label), 4)), room, "…") + " "
+	}
 	innerW := lipgloss.Width(inner)
 	if innerW >= width {
 		return pad(styles.DiffHunkHeader.Render(truncateRunes(inner, width)), width)

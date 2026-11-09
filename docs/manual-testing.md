@@ -105,6 +105,10 @@ interaktiv abgenommen:
 - Mit `+` und `-` die Kontextzeilen über alle Stufen ändern; die Stelle bleibt
   sichtbar. An einer Faltung mehrmals `L` drücken, bis sie verschwindet. `h`
   und `c` nehmen das zurück. Nach `r` bleiben Stufe und gezeigter Kontext.
+- In einer JavaScript-, PHP- und Markdown-Datei eine Änderung tief in einer
+  Funktion bzw. einem Abschnitt vergleichen. Der Hunk-Kopf nennt die Zeile
+  davor (Funktion ohne Einrückung bzw. Überschrift); im schmalen Fenster
+  bleiben die Zeilenbereiche vollständig.
 - Kontext aufklappen, scrollen, die Datei wechseln und zurückkehren. Danach `r`
   und einen erfolgreichen Sync prüfen. Zugeordnete Lesepositionen bleiben;
   verschwundene Dateien und geänderte Bereiche bekommen einen sicheren Rückfall.

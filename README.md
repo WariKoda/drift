@@ -7,7 +7,7 @@ Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
 ![drift screenshot](.github/assets/screenshots/drift-browser.png)
 
 > [!WARNING]
-> **Alpha:** drift is in an early public stage. Expect rough edges, incomplete polish, and breaking changes between releases.
+> **Beta:** drift is in public testing. Expect rough edges and possible breaking changes between releases.
 
 ---
 
@@ -67,20 +67,17 @@ go env -w GOBIN="$HOME/.local/bin"
 make update
 ```
 
-### Rust desktop port (in development)
+### Rust desktop port (paused)
 
 The native `drift-gui` application lives in [`rust/`](rust/README.md) alongside
 the Go TUI. Both are standalone applications in this repository, with independent
 builds, installation and release cycles. The TUI remains a maintained product;
 the GUI implements its own Rust core and requires no Go executable at runtime.
 Both applications use the existing project and host files with coordinated
-writes when the TUI is built from this branch. Certificate-trust persistence in
-Rust is still pending.
-
-The GUI now browses local folders, finds and filters project files, previews
-text and opens or registers projects. Remote browsing and sync are not
-implemented yet. See the Rust README for platform dependencies, build targets,
-shared-store requirements and the remaining milestones.
+writes. Rust/GPUI development is paused while work focuses on the Go TUI; this
+beta release publishes the TUI. The GUI work is retained in the repository.
+See the Rust README and [port plan](docs/rust-port-plan.md) for the implementation
+status, platform dependencies and remaining acceptance checks.
 
 ---
 

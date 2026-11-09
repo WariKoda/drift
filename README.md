@@ -5,9 +5,8 @@
   </picture>
 </h1>
 
-drift is a terminal app for comparing and syncing a local project with a remote host
-over SFTP, FTP or FTPS. It works like PHPStorm's "Browse Remote Host" and "Sync with
-Deployed To", but in the terminal. It runs on Linux and macOS.
+drift compares your local project with a server and syncs the differences, over SFTP,
+FTP or FTPS, from the terminal.
 
 ![The drift file browser with local and remote files side by side](.github/assets/screenshots/drift-browser.png)
 
@@ -30,7 +29,7 @@ Deployed To", but in the terminal. It runs on Linux and macOS.
 
 ## Installation
 
-drift needs Go 1.25 or newer to build, and Git at runtime.
+drift runs on Linux and macOS. It needs Go 1.25 or newer to build, and Git at runtime.
 
 ```bash
 go install github.com/WariKoda/drift@latest

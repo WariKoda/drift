@@ -5,8 +5,8 @@
   </picture>
 </h1>
 
-drift compares your local project with a server and syncs the differences, over SFTP,
-FTP or FTPS, from the terminal.
+drift shows a line-by-line diff of your local project against the server and syncs only
+the changes you approve, over SFTP, FTP or FTPS, in the terminal.
 
 ![The drift file browser with local and remote files side by side](.github/assets/screenshots/drift-browser.png)
 

@@ -109,14 +109,14 @@ fn host_writes_preserve_tui_diff_preferences() {
     let store = Store::new(dir.path().into());
     fs::write(
         dir.path().join("config.toml"),
-        "[ui.diff]\nlayout = 'auto'\nsyntax = true\ncontinuous = true\nwrap = true\n",
+        "[ui.diff]\nlayout = 'auto'\nsyntax = true\ncontinuous = true\nwrap = false\n",
     )
     .unwrap();
     let original = store.global().unwrap().ui.diff;
     assert!(
         original
             .as_ref()
-            .is_some_and(|diff| diff.continuous && diff.wrap)
+            .is_some_and(|diff| diff.continuous && diff.wrap == Some(false))
     );
     let host = Host {
         name: "example".into(),

@@ -16,7 +16,8 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if cfg.UI.Diff != nil {
 		t.Fatal("missing settings must retain default layout")
 	}
-	cfg.UI.Diff = &DiffPreferences{Layout: "auto", Syntax: true, Continuous: true, Wrap: true}
+	off := false
+	cfg.UI.Diff = &DiffPreferences{Layout: "auto", Syntax: true, Continuous: true, Wrap: &off}
 	if err := SaveGlobalHost(cfg, Host{Name: "test", Hostname: "example.test"}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +25,7 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.UI.Diff == nil || loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax || !loaded.UI.Diff.Continuous || !loaded.UI.Diff.Wrap {
+	if loaded.UI.Diff == nil || loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax || !loaded.UI.Diff.Continuous || loaded.UI.Diff.Wrapping() {
 		t.Fatal("global write lost diff preferences")
 	}
 	if err := os.MkdirAll(filepath.Join(Dir(), "projects"), 0700); err != nil {
@@ -63,5 +64,17 @@ func TestDiffPreferencesValidation(t *testing.T) {
 	}
 	if _, err := Load(t.TempDir(), ""); err == nil {
 		t.Fatal("loader accepted invalid layout")
+	}
+}
+
+func TestDiffPreferencesWrapByDefault(t *testing.T) {
+	off, on := false, true
+	for _, tc := range []struct {
+		wrap *bool
+		want bool
+	}{{nil, true}, {&on, true}, {&off, false}} {
+		if got := (DiffPreferences{Wrap: tc.wrap}).Wrapping(); got != tc.want {
+			t.Fatalf("Wrapping() with %v = %v, want %v", tc.wrap, got, tc.want)
+		}
 	}
 }

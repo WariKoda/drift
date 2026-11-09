@@ -284,7 +284,7 @@ setting does not change the global config.
 | `j` / `k` or `↑` / `↓` | Scroll diff content by line |
 | `PgUp` / `PgDn` | Scroll diff content by page |
 | `←` / `→` | Scroll code horizontally without moving the gutters |
-| `w` | Wrap long lines instead of clipping them |
+| `w` | Switch line wrapping off / on (on by default) |
 | `v` | Cycle Unified / Split / Auto layout |
 | `?` | Open diff help |
 | `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
@@ -361,7 +361,7 @@ initial layout in the global configuration, never a project or host record:
 layout = "auto" # unified (default), split, or auto
 syntax = true   # optional; default false
 continuous = true # optional: all files in one view; default false
-wrap = true       # optional: wrap long lines; default false
+wrap = false      # optional: clip long lines and scroll with ←/→; default true
 ```
 
 Syntax highlighting uses Chroma on the source already present in the comparison.

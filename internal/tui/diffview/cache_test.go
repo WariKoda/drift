@@ -114,7 +114,6 @@ func BenchmarkWrappedView(b *testing.B) {
 		result.Lines[i].Text = strings.Repeat("wrapped text ", 15)
 	}
 	m := New([]diff.Session{{Result: result}}, config.Host{}, nil, nil, 120, 40)
-	m.SetPreferences(config.DiffPreferences{Wrap: true})
 	m.scroll = 10000
 	b.ReportAllocs()
 	b.ResetTimer()

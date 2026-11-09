@@ -109,8 +109,12 @@ type DiffPreferences struct {
 	Layout     string `toml:"layout,omitempty"`
 	Syntax     bool   `toml:"syntax,omitempty"`
 	Continuous bool   `toml:"continuous,omitempty"` // all files in one scrollable view
-	Wrap       bool   `toml:"wrap,omitempty"`       // continue long lines instead of clipping
+	Wrap       *bool  `toml:"wrap,omitempty"`       // continue long lines; nil means on
 }
+
+// Wrapping reports whether long lines wrap. Wrapping is on unless the user
+// sets wrap = false.
+func (d DiffPreferences) Wrapping() bool { return d.Wrap == nil || *d.Wrap }
 
 func (d DiffPreferences) Validate() error {
 	switch d.Layout {

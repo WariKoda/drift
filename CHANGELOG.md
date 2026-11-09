@@ -18,8 +18,9 @@ All notable changes to this project will be documented in this file.
   the context around every change for the session; both survive a refresh
 - hunk headers show the nearest preceding function-like line (Git's default rule) or
   Markdown heading from the already loaded comparison
-- optional line wrapping (`w`, or `[ui.diff] wrap = true`) breaks long lines between
-  grapheme clusters, in unified and split layouts and in the all-files view
+- the diff view wraps long lines by default, between grapheme clusters, in unified and
+  split layouts and in the all-files view; `w` switches it off for the session and
+  `[ui.diff] wrap = false` restores clipped lines with horizontal scrolling
 - files with a changed line of 4 KiB or more open as a summary; `o` shows the diff,
   without changing the file's sync action
 - `]` / `[` hunk navigation continues across files, skipping comparisons without

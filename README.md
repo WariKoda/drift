@@ -334,6 +334,11 @@ above the diff and marked in its section. Tab, a file list click or `]`/`[` pick
 the current file directly. `z` or a click on a section title folds a file to its
 title. Set `continuous = true` under `[ui.diff]` to start in this view.
 
+Hunk headers name the code around them when the comparison itself shows it:
+the nearest line before the hunk that starts with a letter, `_` or `$` (Git's
+default rule), or the nearest heading in Markdown files. Otherwise the header
+shows only the line ranges.
+
 Hunk navigation crosses file boundaries: `]` enters the next file at its first
 hunk, `[` enters the previous file at its last. Files without textual hunks
 (including identical, binary, and failed comparisons) are skipped. Navigation

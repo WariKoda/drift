@@ -95,6 +95,21 @@ setzen auch zusätzlich gezeigten Kontext zurück. Kontextstufe und zusätzliche
 Kontext gehören zum Lesezustand und werden beim Refresh wie aufgeklappte
 Bereiche nur bei eindeutig gleichem Inhalt übernommen.
 
+## Beschriftung der Hunk-Köpfe
+
+`diff.LabelHunks` setzt nach `FlattenWith` und vor der Split-Paarung die
+Beschriftung jedes Hunk-Kopfs: die nächste Zeile vor dem Hunk auf der
+Vorher-Seite, die mit einem Buchstaben, `_` oder `$` beginnt (Gits
+Standardregel ohne Sprachtreiber). In `.md`, `.markdown` und `.mdx` zählen nur
+Überschriften `#` bis `######` mit Leerzeichen. Die Zeilen werden einmal von
+vorn gelesen; es gibt keine weiteren Lesezugriffe und keine Sprachanalyse.
+Eingerückte Methoden erkennt die Regel deshalb nicht; dann steht dort die
+nächste passende Zeile darüber oder nichts.
+
+Gespeichert werden höchstens 200 Bytes an einer Zeichengrenze. Beim Zeichnen
+läuft die Beschriftung durch dieselbe Tab- und `SafeText`-Aufbereitung wie
+Code und wird vor den Zeilenbereichen gekürzt.
+
 ## Leseposition und Refresh
 
 Besuchte Dateien behalten Falten, Quellanker und horizontalen Versatz. Eine neue

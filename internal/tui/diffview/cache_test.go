@@ -39,7 +39,9 @@ func TestDisplayCacheReusedAndInvalidated(t *testing.T) {
 	if !m.display.flip {
 		t.Fatal("direction did not invalidate cache")
 	}
-	if !reflect.DeepEqual(m.displayRows(), diff.Flatten(result.Lines, diff.DefaultContext, m.expandedFor(0), true)) {
+	fresh := diff.Flatten(result.Lines, diff.DefaultContext, m.expandedFor(0), true)
+	diff.LabelHunks(result.Lines, fresh, true, "")
+	if !reflect.DeepEqual(m.displayRows(), fresh) {
 		t.Fatal("cache differs from fresh plan")
 	}
 	m.sessions[0].Result = displayFixture(200, 10)

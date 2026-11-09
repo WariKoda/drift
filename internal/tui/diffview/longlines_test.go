@@ -30,7 +30,7 @@ func TestLongLineFileOpensAsSummary(t *testing.T) {
 		t.Fatal("summary dropped the line counts")
 	}
 	m, _ = m.handleKey(keyMsg("o"))
-	if len(m.displayRows()) == 0 || !strings.Contains(stripANSI(m.View()), "aaaa") {
+	if plain := stripANSI(m.View()); len(m.displayRows()) == 0 || !strings.Contains(plain, "aaaa") && !strings.Contains(plain, "bbbb") {
 		t.Fatal("o did not show the diff")
 	}
 	m, _ = m.handleKey(keyMsg("o"))

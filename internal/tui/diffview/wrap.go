@@ -2,7 +2,7 @@ package diffview
 
 import "github.com/WariKoda/drift/internal/diff"
 
-func (m Model) wrapping() bool { return m.preferences.Wrap }
+func (m Model) wrapping() bool { return m.preferences.Wrapping() }
 
 // rowHeight is the number of terminal rows of scrollable row index.
 func (m Model) rowHeight(index int) int {
@@ -68,11 +68,12 @@ func (m Model) rowAt(line int) int {
 			return index
 		}
 	}
-	return m.totalLines()
+	return max(m.scroll, m.totalLines()) + line - used // past the last row, as without wrapping
 }
 
 func (m *Model) toggleWrap() {
-	m.preferences.Wrap = !m.preferences.Wrap
+	wrap := !m.wrapping()
+	m.preferences.Wrap = &wrap
 	m.horizontal = 0
 	m.clampScroll()
 }

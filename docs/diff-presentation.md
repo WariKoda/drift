@@ -181,17 +181,22 @@ Nur die globale Benutzerkonfiguration legt die Ausgangswerte fest:
 layout = "unified" # unified, split oder auto
 syntax = false
 continuous = false # alle Dateien in einer Ansicht
-wrap = false       # lange Zeilen umbrechen
+wrap = true        # lange Zeilen umbrechen; false schneidet ab
 ```
 
 Die Tasten ändern den Sitzungszustand, schreiben aber keine Konfiguration.
-Go- und Rust-Store-Schreibvorgänge erhalten alle vier Felder. Projekt- und
+`wrap` ist als einziges Feld ohne Eintrag an; `DiffPreferences.Wrap` ist deshalb
+ein Zeiger, und `Wrapping()` wertet „nicht gesetzt“ als an. Der Rust-Store führt
+das Feld als `Option<bool>`, damit ein ausdrückliches `wrap = false` beim
+Speichern von Hosts nicht verloren geht. Go- und Rust-Store-Schreibvorgänge
+erhalten alle vier Felder. Projekt- und
 Hostdaten können sie nicht überschreiben.
 
 ## Zeilenumbruch
 
-`w` bricht lange Zeilen um, statt sie abzuschneiden; horizontales Scrollen ist
-dann aus. Der Umbruch arbeitet auf derselben Projektion wie das Zeichnen
+Lange Zeilen werden standardmäßig umbrochen statt abgeschnitten; horizontales
+Scrollen ist dann aus. `w` schaltet den Umbruch für die Sitzung aus und wieder
+ein. Der Umbruch arbeitet auf derselben Projektion wie das Zeichnen
 (`projectText`: Tabs, `SafeText`) und trennt nur zwischen Graphemen, sodass
 breite Zeichen und Emoji nie auf zwei Zeilen verteilt werden. Nur die erste Zeile
 trägt Zeilennummern und Marker. Im Split-Layout bestimmt die höhere Seite die

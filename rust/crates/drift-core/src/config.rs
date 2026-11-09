@@ -83,8 +83,8 @@ pub struct DiffPreferences {
     pub syntax: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub continuous: bool,
-    #[serde(skip_serializing_if = "is_false")]
-    pub wrap: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap: Option<bool>,
 }
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]

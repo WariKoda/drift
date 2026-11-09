@@ -22,6 +22,10 @@ func wrapFixture() *diff.DiffResult {
 
 func TestWrapKeyKeepsGeometryAndDisablesHorizontalScroll(t *testing.T) {
 	m := New([]diff.Session{{LocalPath: "/p/a", Result: wrapFixture()}}, config.Host{}, nil, nil, 100, 16)
+	if !m.wrapping() {
+		t.Fatal("wrapping is not the default")
+	}
+	m.SetPreferences(config.DiffPreferences{Wrap: new(bool)})
 	m, _ = m.Update(m.Init()())
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	if m.horizontal == 0 {
@@ -62,7 +66,6 @@ func TestWrapKeyKeepsGeometryAndDisablesHorizontalScroll(t *testing.T) {
 
 func TestWrappedViewCountsVisibleRowsForFolds(t *testing.T) {
 	m := New([]diff.Session{{LocalPath: "/p/a", Result: wrapFixture()}}, config.Host{}, nil, nil, 100, 12)
-	m.SetPreferences(config.DiffPreferences{Wrap: true})
 	at := diff.IndexOfSourceLine(m.displayRows(), 60)
 	m.scroll = at
 	if m.rowsOnScreen() >= m.viewportHeight() {
@@ -82,7 +85,7 @@ func TestWrappedContinuousViewFillsTheScreen(t *testing.T) {
 	}
 	for _, layout := range []string{"unified", "split"} {
 		m := continuousModel(t, 120, 20, sessions...)
-		m.SetPreferences(config.DiffPreferences{Continuous: true, Wrap: true, Layout: layout})
+		m.SetPreferences(config.DiffPreferences{Continuous: true, Layout: layout})
 		for step := 0; step < 12; step++ {
 			view := m.View()
 			rows := strings.Split(view, "\n")

@@ -48,6 +48,7 @@ func TestLayoutViewFitsNarrowTerminals(t *testing.T) {
 func TestHorizontalScrollAndHelpDoNotChangeDecisions(t *testing.T) {
 	result := &diff.DiffResult{Lines: []diff.DiffLine{{Text: strings.Repeat("a", 200) + "END", Kind: diff.LineAdded, RemoteNum: 1}}}
 	m := New([]diff.Session{{Result: result}}, config.Host{}, nil, nil, 100, 20)
+	m.SetPreferences(config.DiffPreferences{Wrap: new(bool)})
 	cmd := m.Init()
 	m, _ = m.Update(cmd())
 	decision := m.syncDirs[0]

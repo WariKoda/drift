@@ -112,7 +112,9 @@ interaktiv abgenommen:
 - Ein minifiziertes JavaScript-Bundle mit einer geänderten Zeile vergleichen.
   Die Datei erscheint als Zusammenfassung mit Zahlen und Aktion; `o` zeigt den
   Diff, erneut `o` blendet ihn aus. Ein Sync überträgt die Datei unverändert.
-- Mit `w` den Umbruch einschalten. Lange Zeilen mit Tabs, `日本`, `é` und
+- Ohne `[ui.diff]`-Eintrag starten: Lange Zeilen sind umbrochen. Mit `w`
+  ausschalten und mit den Pfeiltasten horizontal scrollen, mit `w` wieder
+  einschalten. Mit `wrap = false` startet drift abgeschnitten. Lange Zeilen mit Tabs, `日本`, `é` und
   `👩‍💻` brechen ohne zerteilte Zeichen um; nur die erste Zeile hat Nummern.
   In Split und in der Gesamtansicht bleiben beide Seiten ausgerichtet. `G` und
   PgDn erreichen das Ende der letzten Zeile; Klick auf eine Faltung unter

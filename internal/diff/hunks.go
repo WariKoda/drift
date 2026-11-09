@@ -48,6 +48,13 @@ func (r DisplayRow) SourceLine() int {
 // flip previews an upload: remote is the old state, local the new state.
 // LineIndex and GapID always refer to the original comparison, even when reordered.
 func Flatten(lines []DiffLine, context int, expanded map[int]struct{}, flip bool) []DisplayRow {
+	return FlattenWith(lines, context, expanded, nil, flip)
+}
+
+// FlattenWith is Flatten with additional context per gap: reveal maps a GapID
+// to lines shown beyond context on each side of the run that borders a change.
+// A run whose context covers it completely is shown without a fold.
+func FlattenWith(lines []DiffLine, context int, expanded map[int]struct{}, reveal map[int]int, flip bool) []DisplayRow {
 	if context < 0 {
 		context = 0
 	}
@@ -64,17 +71,20 @@ func Flatten(lines []DiffLine, context int, expanded map[int]struct{}, flip bool
 		return out
 	}
 
-	foldBudget := 2 * context
+	contexts := make([]int, len(runs))
+	for i, r := range runs {
+		contexts[i] = context + max(0, reveal[r.start])
+	}
 	capacity := 0
 	for i, r := range runs {
 		length := r.end - r.start
 		_, shown := expanded[r.start]
 		if !r.equal {
 			capacity += length + 1
-		} else if shown || length <= foldBudget {
+		} else if shown || length <= 2*contexts[i] {
 			capacity += length
 		} else {
-			prefix, suffix := equalContext(runs, i, context)
+			prefix, suffix := equalContext(runs, i, contexts[i])
 			capacity += min(length, prefix+suffix) + 1
 		}
 	}
@@ -82,13 +92,13 @@ func Flatten(lines []DiffLine, context int, expanded map[int]struct{}, flip bool
 	var leading []DisplayRow
 	for i, r := range runs {
 		if r.equal {
-			prefix, fold, suffix := splitEqualRun(runs, i, context, foldBudget, expanded)
+			prefix, fold, suffix := splitEqualRun(runs, i, contexts[i], expanded)
 			out = append(out, prefix...)
 			out = append(out, fold...)
 			leading = suffix
 			continue
 		}
-		hStart, hEnd := hunkRange(runs, i, context, foldBudget, expanded)
+		hStart, hEnd := hunkRange(runs, i, contexts, expanded)
 		out = append(out, DisplayRow{
 			Kind:      DisplayHunkHeader,
 			LineIndex: r.start,
@@ -176,13 +186,13 @@ func hasChangeRun(runs []run) bool {
 // (prefix), an optional fold, and leading context of the next hunk (suffix).
 // Flatten emits the next @@ header between fold and suffix so the header is
 // the first row of its hunk.
-func splitEqualRun(runs []run, i, context, foldBudget int, expanded map[int]struct{}) (prefix, fold, suffix []DisplayRow) {
+func splitEqualRun(runs []run, i, context int, expanded map[int]struct{}) (prefix, fold, suffix []DisplayRow) {
 	r := runs[i]
 	length := r.end - r.start
 	_, shown := expanded[r.start]
 	preN, sufN := equalContext(runs, i, context)
 
-	if length > foldBudget && !shown {
+	if length > 2*context && !shown {
 		hiddenStart := r.start + preN
 		hiddenEnd := r.end - sufN
 		prefix = lineRows(r.start, hiddenStart)
@@ -240,27 +250,27 @@ func equalContext(runs []run, i, context int) (prefix, suffix int) {
 	}
 }
 
-func hunkRange(runs []run, i, context, foldBudget int, expanded map[int]struct{}) (start, end int) {
+func hunkRange(runs []run, i int, contexts []int, expanded map[int]struct{}) (start, end int) {
 	r := runs[i]
 	start, end = r.start, r.end
 	if i > 0 && runs[i-1].equal {
 		prev := runs[i-1]
 		length := prev.end - prev.start
 		_, shown := expanded[prev.start]
-		if length <= foldBudget || shown {
+		if length <= 2*contexts[i-1] || shown {
 			start = prev.start
 		} else {
-			start = prev.end - context
+			start = prev.end - contexts[i-1]
 		}
 	}
 	if i+1 < len(runs) && runs[i+1].equal {
 		next := runs[i+1]
 		length := next.end - next.start
 		_, shown := expanded[next.start]
-		if length <= foldBudget || shown {
+		if length <= 2*contexts[i+1] || shown {
 			end = next.end
 		} else {
-			end = next.start + context
+			end = next.start + contexts[i+1]
 		}
 	}
 	return start, end

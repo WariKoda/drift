@@ -183,6 +183,8 @@ type Model struct {
 	root            *fs.Root     // confines every local read, write and delete to the project
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
+	revealed        map[int]map[int]int      // session index → GapID → extra context lines
+	contextShift    int                      // [+]/[-] steps away from diff.DefaultContext
 	display         *displayCache
 	stream          *streamPlan  // all-files layout in continuous mode
 	collapsed       map[int]bool // sessions reduced to their title in continuous mode
@@ -550,9 +552,8 @@ func (m Model) expandedFor(sessionIdx int) map[int]struct{} {
 
 func (m *Model) resetFolds(sessionIdx int) {
 	m.foldRevision++
-	if m.expandedGaps != nil {
-		delete(m.expandedGaps, sessionIdx)
-	}
+	delete(m.expandedGaps, sessionIdx)
+	delete(m.revealed, sessionIdx)
 }
 
 func (m *Model) ensureExpanded(sessionIdx int) map[int]struct{} {
@@ -659,12 +660,13 @@ func (m *Model) collapseFoldIn(session int, rows []diff.DisplayRow, top, bottom 
 		}
 		viewStart, viewEnd = min(viewStart, first), max(viewEnd, last)
 	}
-	for _, id := range diff.FoldableGapIDs(s.Result.Lines, diff.DefaultContext) {
-		if !m.gapExpandedIn(session, id) {
+	for _, id := range diff.FoldableGapIDs(s.Result.Lines, m.context()) {
+		if !m.gapExpandedIn(session, id) && m.revealed[session][id] == 0 {
 			continue
 		}
 		end := equalRunEnd(s.Result.Lines, id)
 		if end > viewStart && id <= viewEnd {
+			delete(m.revealed[session], id)
 			m.setGapExpandedIn(session, id, false)
 			return true
 		}
@@ -685,7 +687,7 @@ func (m *Model) toggleAllFolds() {
 	if s == nil || s.Result == nil {
 		return
 	}
-	ids := diff.FoldableGapIDs(s.Result.Lines, diff.DefaultContext)
+	ids := diff.FoldableGapIDs(s.Result.Lines, m.context())
 	if len(ids) == 0 {
 		return
 	}
@@ -694,7 +696,7 @@ func (m *Model) toggleAllFolds() {
 	if m.scroll >= 0 && m.scroll < len(rows) {
 		anchor = rows[m.scroll].SourceLine()
 	}
-	anyOpen := false
+	anyOpen := len(m.revealed[m.activeIdx]) > 0
 	for _, id := range ids {
 		if m.gapExpanded(id) {
 			anyOpen = true

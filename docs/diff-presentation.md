@@ -83,6 +83,18 @@ bleibt, der Pfad wird links gekürzt. `f` zeigt zusätzlich beide absoluten Pfad
 in Vorher/Nachher-Reihenfolge. `chromeRows()` liefert die Höhe dieses Kopfs;
 Viewport, `contentTop()` und Trefferprüfung rechnen damit.
 
+## Kontext
+
+`+` (auch `=`) und `-` wählen für alle Dateien der Sitzung 0, 1, 3, 5, 10 oder 25
+Kontextzeilen; Standard sind drei. `L` zeigt an der ersten sichtbaren Faltung
+zehn weitere Zeilen auf jeder Seite, die an eine Änderung grenzt. Das ist
+zusätzlicher Kontext für diese Lücke (`diff.FlattenWith`, `reveal` je GapID),
+kein neuer Faltzustand: Deckt der Kontext die ganze Lücke ab, verschwindet die
+Faltung. `Enter`, `l` und Klick öffnen weiterhin die ganze Lücke; `h` und `c`
+setzen auch zusätzlich gezeigten Kontext zurück. Kontextstufe und zusätzlicher
+Kontext gehören zum Lesezustand und werden beim Refresh wie aufgeklappte
+Bereiche nur bei eindeutig gleichem Inhalt übernommen.
+
 ## Leseposition und Refresh
 
 Besuchte Dateien behalten Falten, Quellanker und horizontalen Versatz. Eine neue

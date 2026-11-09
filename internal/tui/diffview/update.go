@@ -363,6 +363,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		}
 	case "c":
 		m.toggleAllFolds()
+	case "L":
+		m.revealFirstVisibleFold()
+	case "+", "=":
+		m.shiftContext(1)
+	case "-":
+		m.shiftContext(-1)
 
 	// ── Sync: current file with planned direction ──────────────────────
 	case "s":

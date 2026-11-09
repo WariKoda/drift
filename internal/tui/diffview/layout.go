@@ -31,7 +31,7 @@ func (m Model) rowsFor(index int) []diff.DisplayRow {
 	}
 	flip := m.sessionFlip(index)
 	lines := m.sessions[index].Result.Lines
-	rows := diff.Flatten(lines, diff.DefaultContext, m.expandedFor(index), flip)
+	rows := diff.FlattenWith(lines, m.context(), m.expandedFor(index), m.revealed[index], flip)
 	if m.splitLayout() {
 		rows = diff.SplitDisplayRows(lines, rows, flip)
 	}

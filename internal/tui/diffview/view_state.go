@@ -17,15 +17,17 @@ type lineAnchor struct {
 type fileViewState struct {
 	anchor     lineAnchor
 	gaps       [][32]byte
+	reveals    map[[32]byte]int
 	horizontal int
 }
 
 // ViewSnapshot contains only reading state, never transfers or sync decisions.
 // The root binds it to one refresh request and discards it on scope replacement.
 type ViewSnapshot struct {
-	active      fileKey
-	files       map[fileKey]fileViewState
-	preferences config.DiffPreferences
+	active       fileKey
+	files        map[fileKey]fileViewState
+	preferences  config.DiffPreferences
+	contextShift int
 }
 
 func (m Model) topSourceLine() int {
@@ -96,7 +98,7 @@ func gapFingerprint(lines []diff.DiffLine, start int) [32]byte {
 }
 
 func (m Model) SnapshotView() ViewSnapshot {
-	snapshot := ViewSnapshot{files: make(map[fileKey]fileViewState), preferences: m.preferences}
+	snapshot := ViewSnapshot{files: make(map[fileKey]fileViewState), preferences: m.preferences, contextShift: m.contextShift}
 	for i, session := range m.sessions {
 		if session.Result == nil {
 			continue
@@ -131,6 +133,12 @@ func (m Model) SnapshotView() ViewSnapshot {
 		for gap := range m.expandedFor(i) {
 			state.gaps = append(state.gaps, gapFingerprint(session.Result.Lines, gap))
 		}
+		for gap, lines := range m.revealed[i] {
+			if state.reveals == nil {
+				state.reveals = make(map[[32]byte]int)
+			}
+			state.reveals[gapFingerprint(session.Result.Lines, gap)] = lines
+		}
 		key := fileKey{session.LocalPath, session.RemotePath}
 		snapshot.files[key] = state
 		if i == m.activeIdx {
@@ -157,6 +165,7 @@ func (m Model) fileScroll() int {
 
 func (m *Model) RestoreView(snapshot ViewSnapshot) {
 	m.preferences = snapshot.preferences
+	m.contextShift = snapshot.contextShift
 	m.stream = nil
 	m.savedScroll = make(map[int]int)
 	m.savedSource = make(map[int]int)
@@ -168,15 +177,26 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 			continue
 		}
 		lines := session.Result.Lines
-		if len(state.gaps) > 0 {
+		if len(state.gaps) > 0 || len(state.reveals) > 0 {
 			matches := make(map[[32]byte][]int)
-			for _, gap := range diff.FoldableGapIDs(lines, diff.DefaultContext) {
+			for _, gap := range diff.FoldableGapIDs(lines, m.context()) {
 				fingerprint := gapFingerprint(lines, gap)
 				matches[fingerprint] = append(matches[fingerprint], gap)
 			}
 			for _, fingerprint := range state.gaps {
 				if ids := matches[fingerprint]; len(ids) == 1 {
 					m.ensureExpanded(i)[ids[0]] = struct{}{}
+				}
+			}
+			for fingerprint, extra := range state.reveals {
+				if ids := matches[fingerprint]; len(ids) == 1 {
+					if m.revealed == nil {
+						m.revealed = make(map[int]map[int]int)
+					}
+					if m.revealed[i] == nil {
+						m.revealed[i] = make(map[int]int)
+					}
+					m.revealed[i][ids[0]] = extra
 				}
 			}
 		}

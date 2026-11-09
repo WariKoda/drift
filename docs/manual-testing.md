@@ -102,6 +102,9 @@ interaktiv abgenommen:
   Identische, binäre und fehlgeschlagene Vergleiche werden übersprungen, bleiben
   aber per Tab erreichbar. Am Anfang und Ende darf kein Umlauf stattfinden.
   Pfeiltasten, PgUp/PgDn und Mausrad bleiben innerhalb der aktuellen Datei.
+- Mit `+` und `-` die Kontextzeilen über alle Stufen ändern; die Stelle bleibt
+  sichtbar. An einer Faltung mehrmals `L` drücken, bis sie verschwindet. `h`
+  und `c` nehmen das zurück. Nach `r` bleiben Stufe und gezeigter Kontext.
 - Kontext aufklappen, scrollen, die Datei wechseln und zurückkehren. Danach `r`
   und einen erfolgreichen Sync prüfen. Zugeordnete Lesepositionen bleiben;
   verschwundene Dateien und geänderte Bereiche bekommen einen sicheren Rückfall.

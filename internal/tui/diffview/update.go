@@ -365,6 +365,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.toggleAllFolds()
 	case "L":
 		m.revealFirstVisibleFold()
+	case "o":
+		m.toggleLong(m.activeIdx)
 	case "+", "=":
 		m.shiftContext(1)
 	case "-":
@@ -456,7 +458,7 @@ func (m *Model) jumpHunk(direction int) {
 	m.prepareDisplayRows()
 	for index := m.activeIdx; index >= 0 && index < len(m.sessions); index += direction {
 		session := &m.sessions[index]
-		if session.Err != nil || session.Result == nil || session.Result.Binary {
+		if session.Err != nil || session.Result == nil || session.Result.Binary || m.longHidden(index) {
 			continue
 		}
 		added, removed := session.Result.Counts()

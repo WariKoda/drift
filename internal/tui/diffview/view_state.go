@@ -28,6 +28,7 @@ type ViewSnapshot struct {
 	files        map[fileKey]fileViewState
 	preferences  config.DiffPreferences
 	contextShift int
+	opened       map[fileKey]bool // long-line files shown with [o]
 }
 
 func (m Model) topSourceLine() int {
@@ -98,7 +99,12 @@ func gapFingerprint(lines []diff.DiffLine, start int) [32]byte {
 }
 
 func (m Model) SnapshotView() ViewSnapshot {
-	snapshot := ViewSnapshot{files: make(map[fileKey]fileViewState), preferences: m.preferences, contextShift: m.contextShift}
+	snapshot := ViewSnapshot{files: make(map[fileKey]fileViewState), preferences: m.preferences, contextShift: m.contextShift, opened: make(map[fileKey]bool)}
+	for i, open := range m.longOpen {
+		if open && i < len(m.sessions) {
+			snapshot.opened[fileKey{m.sessions[i].LocalPath, m.sessions[i].RemotePath}] = true
+		}
+	}
 	for i, session := range m.sessions {
 		if session.Result == nil {
 			continue
@@ -167,6 +173,14 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 	m.preferences = snapshot.preferences
 	m.contextShift = snapshot.contextShift
 	m.stream = nil
+	for i, session := range m.sessions {
+		if snapshot.opened[fileKey{session.LocalPath, session.RemotePath}] {
+			if m.longOpen == nil {
+				m.longOpen = make(map[int]bool)
+			}
+			m.longOpen[i] = true
+		}
+	}
 	m.savedScroll = make(map[int]int)
 	m.savedSource = make(map[int]int)
 	m.savedHorizontal = make(map[int]int)

@@ -110,6 +110,16 @@ Gespeichert werden höchstens 200 Bytes an einer Zeichengrenze. Beim Zeichnen
 läuft die Beschriftung durch dieselbe Tab- und `SafeText`-Aufbereitung wie
 Code und wird vor den Zeilenbereichen gekürzt.
 
+## Lange Zeilen
+
+Hat eine geänderte Zeile mindestens 4.096 Bytes (`DiffResult.LongestChange`,
+einmal mit den übrigen Statistiken berechnet), zeigt die Ansicht statt des Diffs
+eine Zusammenfassung. Unveränderte lange Zeilen lösen das nicht aus. `o` öffnet
+und schließt den Diff der aktiven Datei; der Zustand gehört zum Lesezustand und
+bleibt beim Refresh erhalten. Solange der Diff verborgen ist, gibt es keine
+Anzeigezeilen, keine Aufbereitung und keine Hunk-Sprünge in die Datei. Status,
+Zahlen und Sync-Aktion bleiben unverändert.
+
 ## Leseposition und Refresh
 
 Besuchte Dateien behalten Falten, Quellanker und horizontalen Versatz. Eine neue

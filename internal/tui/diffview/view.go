@@ -186,7 +186,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	var content []string
 	switch {
 	case m.showHelp:
-		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "[m] one file / all files, [z] fold the current file there", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[L] 10 more lines at the first fold, [+/-] more / less context", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "[m] one file / all files, [z] fold the current file there", "[o] show / hide the diff of a file with very long lines", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[L] 10 more lines at the first fold, [+/-] more / less context", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
 	case m.continuous():
@@ -199,6 +199,8 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 		content = paddedContentRows([]string{"  " + styles.Muted.Render("loading…")}, vh, dw)
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
+	case m.longHidden(m.activeIdx):
+		content = paddedContentRows(m.longNote(m.activeIdx), vh, dw)
 	default:
 		content = diff.RenderUnifiedRows(s.Result, m.displayRows(), dw, m.scroll, vh, m.renderOptions(m.activeIdx))
 		for len(content) < vh {

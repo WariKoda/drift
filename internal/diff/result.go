@@ -49,6 +49,7 @@ type DiffResult struct {
 	added         int
 	removed       int
 	maxLineNumber int
+	longestChange int
 }
 
 // ensureStats computes and caches differs/added/removed in a single pass.
@@ -74,6 +75,9 @@ func (r *DiffResult) ensureStats() {
 			r.removed++
 			r.differs = true
 		}
+		if l.Kind != LineEqual {
+			r.longestChange = max(r.longestChange, len(l.Text))
+		}
 	}
 }
 
@@ -87,6 +91,12 @@ func (r *DiffResult) HasDiff() bool {
 func (r *DiffResult) Counts() (added, removed int) {
 	r.ensureStats()
 	return r.added, r.removed
+}
+
+// LongestChange returns the byte length of the longest added or removed line.
+func (r *DiffResult) LongestChange() int {
+	r.ensureStats()
+	return r.longestChange
 }
 
 // LineNumberWidth remains stable across viewport and fold changes.

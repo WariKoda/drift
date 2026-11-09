@@ -66,8 +66,9 @@ func (m Model) streamCurrent(plan *streamPlan) bool {
 
 // hasTextRows reports whether a session shows display rows rather than notes,
 // matching the single-file view.
-func hasTextRows(session *diff.Session) bool {
-	return session.Err == nil && session.Result != nil && !session.Result.Binary && len(session.Result.Lines) > 0
+func (m Model) hasTextRows(index int) bool {
+	session := &m.sessions[index]
+	return session.Err == nil && session.Result != nil && !session.Result.Binary && len(session.Result.Lines) > 0 && !m.longHidden(index)
 }
 
 func (m Model) buildStream() *streamPlan {
@@ -85,7 +86,7 @@ func (m Model) buildStream() *streamPlan {
 		plan.start[i] = len(plan.rows)
 		plan.rows = append(plan.rows, streamRow{session: i, kind: streamTitle})
 		if !m.collapsed[i] {
-			if hasTextRows(session) {
+			if m.hasTextRows(i) {
 				plan.files[i] = m.rowsFor(i)
 				for index := range plan.files[i] {
 					plan.rows = append(plan.rows, streamRow{session: i, kind: streamLine, index: index})
@@ -178,7 +179,7 @@ func (m *Model) setContinuous(on bool) {
 		m.prepareDisplayRows()
 		if len(m.sessions) > 0 {
 			m.scroll = m.stream.start[m.activeIdx]
-			if deep && hasTextRows(&m.sessions[m.activeIdx]) {
+			if deep && m.hasTextRows(m.activeIdx) {
 				m.scroll = m.stream.indexOf(streamAnchor{session: m.activeIdx, kind: streamLine, source: source})
 			}
 		}
@@ -337,6 +338,8 @@ func (m Model) noteLines(index int) []string {
 		return []string{"  " + styles.Err.Render(styles.SafeText(session.Err.Error()))}
 	case session.Result == nil:
 		return []string{"  " + styles.Muted.Render("loading…")}
+	case m.longHidden(index):
+		return m.longNote(index)
 	default:
 		return summaryLines(session.Result)
 	}

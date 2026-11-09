@@ -80,7 +80,7 @@ func (m *Model) startDecoration() tea.Cmd {
 	next := -1
 	for _, index := range m.decorationTargets() {
 		result := m.sessions[index].Result
-		if decoratable(result) && m.decorated[result] == nil {
+		if decoratable(result) && !m.longHidden(index) && m.decorated[result] == nil {
 			next = index
 			break
 		}

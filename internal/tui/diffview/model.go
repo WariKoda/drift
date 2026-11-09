@@ -188,6 +188,7 @@ type Model struct {
 	display         *displayCache
 	stream          *streamPlan  // all-files layout in continuous mode
 	collapsed       map[int]bool // sessions reduced to their title in continuous mode
+	longOpen        map[int]bool // long-line files whose diff was opened with [o]
 	hunk            *hunkPosition
 	foldRevision    uint64
 	savedScroll     map[int]int

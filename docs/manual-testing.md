@@ -109,6 +109,9 @@ interaktiv abgenommen:
   Funktion bzw. einem Abschnitt vergleichen. Der Hunk-Kopf nennt die Zeile
   davor (Funktion ohne Einrückung bzw. Überschrift); im schmalen Fenster
   bleiben die Zeilenbereiche vollständig.
+- Ein minifiziertes JavaScript-Bundle mit einer geänderten Zeile vergleichen.
+  Die Datei erscheint als Zusammenfassung mit Zahlen und Aktion; `o` zeigt den
+  Diff, erneut `o` blendet ihn aus. Ein Sync überträgt die Datei unverändert.
 - Kontext aufklappen, scrollen, die Datei wechseln und zurückkehren. Danach `r`
   und einen erfolgreichen Sync prüfen. Zugeordnete Lesepositionen bleiben;
   verschwundene Dateien und geänderte Bereiche bekommen einen sicheren Rückfall.

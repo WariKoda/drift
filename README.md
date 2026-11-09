@@ -294,6 +294,7 @@ setting does not change the global config.
 | `c` | Expand or collapse every fold in the file |
 | `L` | Show 10 more unchanged lines on each changed side of the first fold in view |
 | `+` / `-` | More / less context around every change (0, 1, 3, 5, 10, 25 lines) |
+| `o` | Show / hide the diff of a file whose changed lines are 4 KiB or longer |
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `<` / `>` | Narrow / widen the file list for this session |
 | `f` | Show / hide the full local and remote paths |
@@ -338,6 +339,10 @@ Hunk headers name the code around them when the comparison itself shows it:
 the nearest line before the hunk that starts with a letter, `_` or `$` (Git's
 default rule), or the nearest heading in Markdown files. Otherwise the header
 shows only the line ranges.
+
+A file with a changed line of 4 KiB or more, such as a minified bundle, opens
+as a short summary; `o` shows its diff. This only affects the display: the file
+keeps its sync action and is transferred like any other.
 
 Hunk navigation crosses file boundaries: `]` enters the next file at its first
 hunk, `[` enters the previous file at its last. Files without textual hunks

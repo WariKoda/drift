@@ -181,11 +181,28 @@ Nur die globale Benutzerkonfiguration legt die Ausgangswerte fest:
 layout = "unified" # unified, split oder auto
 syntax = false
 continuous = false # alle Dateien in einer Ansicht
+wrap = false       # lange Zeilen umbrechen
 ```
 
 Die Tasten ändern den Sitzungszustand, schreiben aber keine Konfiguration.
-Go- und Rust-Store-Schreibvorgänge erhalten alle drei Felder. Projekt- und Hostdaten
-können sie nicht überschreiben. Zeilenumbruch ist nicht implementiert.
+Go- und Rust-Store-Schreibvorgänge erhalten alle vier Felder. Projekt- und
+Hostdaten können sie nicht überschreiben.
+
+## Zeilenumbruch
+
+`w` bricht lange Zeilen um, statt sie abzuschneiden; horizontales Scrollen ist
+dann aus. Der Umbruch arbeitet auf derselben Projektion wie das Zeichnen
+(`projectText`: Tabs, `SafeText`) und trennt nur zwischen Graphemen, sodass
+breite Zeichen und Emoji nie auf zwei Zeilen verteilt werden. Nur die erste Zeile
+trägt Zeilennummern und Marker. Im Split-Layout bestimmt die höhere Seite die
+Zeilenzahl; die andere wird in ihren eigenen Farben aufgefüllt. Eine Zeile
+belegt höchstens 100 Bildschirmzeilen; die letzte endet dann mit „…“. Für mehr
+den Umbruch abschalten und horizontal scrollen.
+
+Anzeigeplan, Anker und Hunk-Sprünge zählen weiterhin logische Zeilen.
+`diff.RowHeight` liefert die Höhe einer Zeile; Scrollgrenze, Trefferprüfung,
+Seitenblättern und „sichtbar“ für Faltungen rechnen damit. Die Höhen werden nur
+für die Zeilen am Bildschirm und am Ende berechnet, nicht für die ganze Datei.
 
 ## Optionale Syntaxfarben
 
@@ -250,6 +267,10 @@ Für die Gesamtansicht (`BenchmarkContinuous`, je Datei 1.000 Zeilen mit einer
 Gesamtplans kostete bei 20 Dateien rund 0,16 ms und 0,4 MB, bei 200 Dateien
 rund 1,4 ms und 4,8 MB; er läuft nur nach den oben genannten Änderungen.
 
+Mit Zeilenumbruch (`BenchmarkWrappedView`, 20.000 Zeilen zu je 195 Zellen,
+120×40) kostete ein Frame samt Scrollgrenze rund 0,76 ms und 180 KiB, ohne
+Umbruch bei gleicher Dateigröße rund 0,29 ms.
+
 Der separate Chroma-Vorversuch erkannte 297 Lexer. Für 34 KB synthetischen Text
 lagen Go, PHP, JavaScript, Rust und TOML bei ungefähr 16–30 ms, Python bei 83–87 ms.
 Das sind Tokenisierungsmessungen, keine Sprachkorrektheits- oder UI-Tests.
@@ -270,7 +291,7 @@ go test -race ./...
 go vet ./...
 go build ./...
 go test ./internal/tui/diffview -run '^$' \
-  -bench 'Benchmark(DiffView|Flatten|Continuous)$' -benchmem
+  -bench 'Benchmark(DiffView|Flatten|Continuous|WrappedView)$' -benchmem
 go test ./internal/diff -run '^$' -bench BenchmarkSyntaxHighlights -benchmem
 cd rust
 cargo fmt --all -- --check
@@ -280,5 +301,5 @@ cargo clippy --locked -p drift-core --all-targets -- -D warnings
 
 Die interaktive Abnahme steht noch aus; ihre Fälle stehen in
 [`manual-testing.md`](manual-testing.md). Suche, Auswahl/Kopieren, Watch-Modus,
-Agentenanmerkungen, ein neuer Diff-Algorithmus und Zeilenumbruch sind nicht Teil
-dieser Umsetzung.
+Agentenanmerkungen und ein neuer Diff-Algorithmus sind nicht Teil dieser
+Umsetzung.

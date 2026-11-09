@@ -160,11 +160,11 @@ func stripANSI(s string) string {
 }
 
 func TestRenderUnifiedLineDropsCarriageReturn(t *testing.T) {
-	row := renderUnifiedLine(DiffLine{Text: "}\r", Kind: LineAdded, RemoteNum: 25}, RenderOptions{Highlight: true}, 80, 4, 68, nil, nil)
+	row := renderUnifiedLine(DiffLine{Text: "}\r", Kind: LineAdded, RemoteNum: 25}, RenderOptions{Highlight: true}, 80, 4, 68, nil, nil)[0]
 	if strings.Contains(row, "\r") {
 		t.Fatal("rendered add line still contains CR")
 	}
-	equal := renderUnifiedLine(DiffLine{Text: "same\r", Kind: LineEqual, LocalNum: 1, RemoteNum: 1}, RenderOptions{Highlight: true}, 80, 4, 68, nil, nil)
+	equal := renderUnifiedLine(DiffLine{Text: "same\r", Kind: LineEqual, LocalNum: 1, RemoteNum: 1}, RenderOptions{Highlight: true}, 80, 4, 68, nil, nil)[0]
 	if strings.Contains(equal, "\r") {
 		t.Fatal("rendered equal line still contains CR")
 	}

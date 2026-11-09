@@ -203,7 +203,7 @@ func (m *Model) setContinuous(on bool) {
 func (m Model) visibleSessions() []int {
 	plan := m.streamPlan()
 	var sessions []int
-	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.viewportHeight(); row++ {
+	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.rowsOnScreen(); row++ {
 		if session := plan.rows[row].session; len(sessions) == 0 || sessions[len(sessions)-1] != session {
 			sessions = append(sessions, session)
 		}
@@ -285,7 +285,7 @@ func (m *Model) jumpStreamHunk(direction int) {
 func (m Model) visibleSpans() map[int][2]int {
 	plan := m.streamPlan()
 	spans := make(map[int][2]int)
-	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.viewportHeight(); row++ {
+	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.rowsOnScreen(); row++ {
 		r := plan.rows[row]
 		if r.kind != streamLine {
 			continue
@@ -302,7 +302,7 @@ func (m Model) visibleSpans() map[int][2]int {
 
 func (m Model) firstVisibleStreamFold() (int, diff.DisplayRow, bool) {
 	plan := m.streamPlan()
-	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.viewportHeight(); row++ {
+	for row := max(0, m.scroll); row < len(plan.rows) && row < m.scroll+m.rowsOnScreen(); row++ {
 		r := plan.rows[row]
 		if r.kind == streamLine && plan.files[r.session][r.index].Kind == diff.DisplayFold {
 			return r.session, plan.files[r.session][r.index], true
@@ -363,7 +363,8 @@ func (m Model) renderStreamRows(height, width int) []string {
 				end++
 			}
 			session := &m.sessions[r.session]
-			rows = append(rows, diff.RenderUnifiedRows(session.Result, plan.files[r.session], width, r.index, end-row, m.renderOptions(r.session))...)
+			segment := plan.files[r.session][r.index : r.index+end-row]
+			rows = append(rows, diff.RenderRows(session.Result, segment, width, height-len(rows), m.renderOptions(r.session))...)
 			row = end
 			continue
 		}

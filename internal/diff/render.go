@@ -13,9 +13,10 @@ import (
 type RenderOptions struct {
 	Flip, Highlight bool
 	Spans           map[int][]TextSpan
-	Offset          int
+	Offset          int // ignored when Wrap is set
 	Split           bool
 	Syntax          *SyntaxHighlights
+	Wrap            bool // continue long lines on further rows instead of clipping
 }
 
 // RenderUnifiedRows renders flattened display rows (hunk headers, folds, lines).
@@ -46,44 +47,81 @@ func RenderUnifiedRows(result *DiffResult, rows []DisplayRow, width, scrollOffse
 		return out
 	}
 
-	numWidth := result.LineNumberWidth()
-	contentWidth := max(0, width-2*numWidth-4)
-
-	for i := 0; i < count; i++ {
-		idx := scrollOffset + i
-		if idx >= len(rows) {
-			out = append(out, strings.Repeat(" ", width))
-			continue
-		}
-		switch rows[idx].Kind {
-		case DisplayHunkHeader:
-			out = append(out, renderHunkHeader(rows[idx].Header, rows[idx].Label, width))
-		case DisplayFold:
-			out = append(out, renderFold(rows[idx].Hidden, width))
-		case DisplayPair:
-			out = append(out, renderSplitRow(result, rows[idx].LineIndex, rows[idx].PairIndex, width, numWidth, options))
-		default:
-			li := rows[idx].LineIndex
-			if li < 0 || li >= len(result.Lines) {
-				out = append(out, strings.Repeat(" ", width))
-				continue
-			}
-			if options.Split {
-				out = append(out, renderSplitRow(result, li, li, width, numWidth, options))
-			} else {
-				var syntax []SyntaxSpan
-				line := result.Lines[li]
-				if options.Syntax != nil {
-					syntax = options.Syntax.Remote[li]
-					if line.Kind == LineRemoved || line.Kind == LineEqual && options.Flip {
-						syntax = options.Syntax.Local[li]
-					}
-				}
-				out = append(out, renderUnifiedLine(line, options, width, numWidth, contentWidth, options.Spans[li], syntax))
-			}
-		}
+	out = append(out, RenderRows(result, rows[min(scrollOffset, len(rows)):], width, count, options)...)
+	for len(out) < count {
+		out = append(out, strings.Repeat(" ", width))
 	}
 	return out
+}
+
+// RenderRows renders rows from the first one until budget terminal rows are
+// filled or the rows run out, without padding. A wrapped line may end in the
+// middle when the budget runs out.
+func RenderRows(result *DiffResult, rows []DisplayRow, width, budget int, options RenderOptions) []string {
+	width, budget = max(0, width), max(0, budget)
+	out := make([]string, 0, min(budget, len(rows)))
+	numWidth := result.LineNumberWidth()
+	contentWidth := max(0, width-2*numWidth-4)
+	for idx := 0; idx < len(rows) && len(out) < budget; idx++ {
+		var rendered []string
+		switch rows[idx].Kind {
+		case DisplayHunkHeader:
+			rendered = []string{renderHunkHeader(rows[idx].Header, rows[idx].Label, width)}
+		case DisplayFold:
+			rendered = []string{renderFold(rows[idx].Hidden, width)}
+		case DisplayPair:
+			rendered = renderSplitRow(result, rows[idx].LineIndex, rows[idx].PairIndex, width, numWidth, options)
+		default:
+			li := rows[idx].LineIndex
+			switch {
+			case li < 0 || li >= len(result.Lines):
+				rendered = []string{strings.Repeat(" ", width)}
+			case options.Split:
+				rendered = renderSplitRow(result, li, li, width, numWidth, options)
+			default:
+				rendered = renderUnifiedLine(result.Lines[li], options, width, numWidth, contentWidth, options.Spans[li], unifiedSyntax(result.Lines[li], li, options))
+			}
+		}
+		out = append(out, rendered[:min(len(rendered), budget-len(out))]...)
+	}
+	return out
+}
+
+func unifiedSyntax(line DiffLine, index int, options RenderOptions) []SyntaxSpan {
+	if options.Syntax == nil {
+		return nil
+	}
+	if line.Kind == LineRemoved || line.Kind == LineEqual && options.Flip {
+		return options.Syntax.Local[index]
+	}
+	return options.Syntax.Remote[index]
+}
+
+// RowHeight is the number of terminal rows RenderRows uses for row.
+func RowHeight(result *DiffResult, row DisplayRow, width int, options RenderOptions) int {
+	if !options.Wrap || result == nil {
+		return 1
+	}
+	numWidth := result.LineNumberWidth()
+	height := func(index, contentWidth int) int {
+		if index < 0 || index >= len(result.Lines) {
+			return 1
+		}
+		return len(wrapStarts(projectText(result.Lines[index].Text), contentWidth))
+	}
+	switch {
+	case row.Kind == DisplayPair || row.Kind == DisplayLine && options.Split:
+		left := (width - 1) / 2
+		after := row.PairIndex
+		if row.Kind == DisplayLine {
+			after = row.LineIndex
+		}
+		return max(height(row.LineIndex, max(0, left-numWidth-3)), height(after, max(0, width-left-1-numWidth-3)))
+	case row.Kind == DisplayLine:
+		return height(row.LineIndex, max(0, width-2*numWidth-4))
+	default:
+		return 1
+	}
 }
 
 // renderHunkHeader shortens the label first; the line ranges stay complete
@@ -146,7 +184,7 @@ func formatLineNum(n, width int) string {
 	return fmt.Sprintf("%*d", width, n)
 }
 
-func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, contentWidth int, spans []TextSpan, syntax []SyntaxSpan) string {
+func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, contentWidth int, spans []TextSpan, syntax []SyntaxSpan) []string {
 	act := unifiedAction(dl.Kind, options.Flip)
 	if !options.Highlight {
 		act = actEqual
@@ -167,16 +205,20 @@ func renderUnifiedLine(dl DiffLine, options RenderOptions, width, numWidth, cont
 		marker = "-"
 	}
 
-	content := renderText(dl.Text, spans, syntax, textStyle, options, contentWidth)
-	content = content + strings.Repeat(" ", contentWidth-lipgloss.Width(content))
-
 	before, after := dl.LocalNum, dl.RemoteNum
 	if options.Flip {
 		before, after = after, before
 	}
 	gutter := formatLineNum(before, numWidth) + " " + formatLineNum(after, numWidth) + " "
-	line := numStyle.Render(gutter) + textStyle.Bold(true).Render(marker) + textStyle.Render(" "+content)
-	return pad(line, width) + textStyle.Render("")
+	segments := renderSegments(dl.Text, spans, syntax, textStyle, options, contentWidth)
+	out := make([]string, len(segments))
+	for i, content := range segments {
+		content += strings.Repeat(" ", max(0, contentWidth-lipgloss.Width(content)))
+		line := numStyle.Render(gutter) + textStyle.Bold(true).Render(marker) + textStyle.Render(" "+content)
+		out[i] = pad(line, width) + textStyle.Render("")
+		gutter, marker = strings.Repeat(" ", len(gutter)), " "
+	}
+	return out
 }
 
 func pad(s string, width int) string {

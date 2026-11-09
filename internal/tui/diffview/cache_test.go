@@ -3,6 +3,7 @@ package diffview
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/WariKoda/drift/internal/config"
@@ -102,5 +103,23 @@ func BenchmarkContinuous(b *testing.B) {
 				_ = m.View()
 			}
 		})
+	}
+}
+
+// BenchmarkWrappedView draws a viewport of 200-cell lines that wrap into
+// several rows each, including the scroll limit and visible-row counting.
+func BenchmarkWrappedView(b *testing.B) {
+	result := displayFixture(20000, 2)
+	for i := range result.Lines {
+		result.Lines[i].Text = strings.Repeat("wrapped text ", 15)
+	}
+	m := New([]diff.Session{{Result: result}}, config.Host{}, nil, nil, 120, 40)
+	m.SetPreferences(config.DiffPreferences{Wrap: true})
+	m.scroll = 10000
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.View()
+		m.clampScroll()
 	}
 }

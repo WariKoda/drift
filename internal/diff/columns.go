@@ -13,7 +13,7 @@ func MeasureColumns(ctx context.Context, lines []DiffLine) (int, error) {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		width = max(width, ansi.StringWidth(string(expandTabs([]rune(line.Text), 4))))
+		width = max(width, ansi.StringWidth(projectText(line.Text)))
 	}
 	return width, nil
 }

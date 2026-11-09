@@ -109,6 +109,7 @@ type DiffPreferences struct {
 	Layout     string `toml:"layout,omitempty"`
 	Syntax     bool   `toml:"syntax,omitempty"`
 	Continuous bool   `toml:"continuous,omitempty"` // all files in one scrollable view
+	Wrap       bool   `toml:"wrap,omitempty"`       // continue long lines instead of clipping
 }
 
 func (d DiffPreferences) Validate() error {

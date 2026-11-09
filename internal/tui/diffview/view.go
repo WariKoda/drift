@@ -186,7 +186,7 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 	var content []string
 	switch {
 	case m.showHelp:
-		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "[m] one file / all files, [z] fold the current file there", "[o] show / hide the diff of a file with very long lines", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[L] 10 more lines at the first fold, [+/-] more / less context", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
+		content = paddedContentRows([]string{"Diff help — [?], [Esc] or [q] to close", "", "[v] unified / split / auto", "[←/→] horizontal scroll, [w] wrap long lines", "[j/k], [PgUp/PgDn] vertical scroll", "[Tab/Shift+Tab] next / previous file", "[</>] narrower / wider file list", "[f] show / hide full local and remote paths", "[m] one file / all files, [z] fold the current file there", "[o] show / hide the diff of a file with very long lines", "File list: ~ changed, L local only, R remote only, B binary, ! error", "[[/]] previous / next hunk across files", "[Enter/l], [h], [c] fold controls", "[L] 10 more lines at the first fold, [+/-] more / less context", "[Space/A] action for current / all files", "[s/S] sync current / all", "[u/d] quick upload / download", "[i] include ignored, [r] refresh"}, vh, dw)
 	case m.showErrors:
 		content = m.renderErrorListRows(vh, dw)
 	case m.continuous():
@@ -243,7 +243,10 @@ func (m Model) renderFileHeader(s *diff.Session, width int) []string {
 
 // renderOptions styles one session's rows with its own direction and data.
 func (m Model) renderOptions(index int) diff.RenderOptions {
-	options := diff.RenderOptions{Flip: m.sessionFlip(index), Highlight: m.syncDir(index) != DirNone, Split: m.splitLayout(), Offset: m.horizontal}
+	options := diff.RenderOptions{Flip: m.sessionFlip(index), Highlight: m.syncDir(index) != DirNone, Split: m.splitLayout(), Offset: m.horizontal, Wrap: m.wrapping()}
+	if options.Wrap {
+		options.Offset = 0
+	}
 	if decoration := m.decorationFor(index); decoration != nil {
 		options.Spans, options.Syntax = decoration.spans, decoration.syntax
 	}

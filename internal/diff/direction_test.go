@@ -157,7 +157,7 @@ func TestChangedGuttersUseDiffForegroundAndBackground(t *testing.T) {
 		if unifiedAction(tt.kind, tt.flip) == actAdd {
 			gutter = "        4 "
 		}
-		row := renderUnifiedLine(line, RenderOptions{Flip: tt.flip, Highlight: true}, 48, 4, 36, nil, nil)
+		row := renderUnifiedLine(line, RenderOptions{Flip: tt.flip, Highlight: true}, 48, 4, 36, nil, nil)[0]
 		if !strings.HasPrefix(row, tt.style.Render(gutter)) {
 			t.Fatalf("gutter does not use the change style: %q", row)
 		}

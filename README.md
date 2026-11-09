@@ -1,41 +1,37 @@
 # drift
 
-A terminal TUI for browsing, diffing, and syncing files with remote hosts — think PHPStorm's "Browse Remote Host" and "Sync with Deployed To", but in your terminal.
+drift is a terminal app for comparing and syncing a local project with a remote host
+over SFTP, FTP or FTPS. It works like PHPStorm's "Browse Remote Host" and "Sync with
+Deployed To", but in the terminal. It runs on Linux and macOS.
 
-Supports **SFTP/SSH**, **FTP**, and **FTPS** targets. Runs on Linux and macOS.
-
-![drift screenshot](.github/assets/screenshots/drift-browser.png)
+![The drift file browser with local and remote files side by side](.github/assets/screenshots/drift-browser.png)
 
 > [!WARNING]
-> **Beta:** drift is in public testing. Expect rough edges and possible breaking changes between releases.
-
----
+> drift is in beta. Expect rough edges and breaking changes between releases.
 
 ## Features
 
-- Side-by-side local/remote file browser with multi-select (Space) and recursive directory marking
-- Safe local/remote text preview in the opposite pane (`p`), with line numbers and wrapping
-- Edit a remote file in a configured external editor (`e`), with explicit upload consent and content-conflict checks
-- Project-wide fuzzy file finder (`f`) for marking files
-- Unified diff view with the file list on the left for local vs. remote files, unchanged
-  stretches folded away behind `@@` hunk headers
-- Per-file sync direction control: upload ↑, download ↓, delete local ✗, delete remote ✗, or skip —
-- Bulk sync direction toggle (A key cycles all files at once)
-- Auto pre-selection of sync direction based on file modification time
-- Sync current file (s) or all marked files (S) in one keystroke
-- Esc hides a running connect or sync; `q` / `Ctrl+C` cancel it. Files already transferred stay; the rest is skipped
-- Per-host path mappings (like PHPStorm's Deployment Mappings tab)
-- Host manager: create, duplicate, edit, delete, and test connections
-- Shared servers: several projects link one global server and keep their own root path and mappings, so credentials live in one place
-- Interactive FTPS certificate verification with session-only or persistent, fingerprint-bound trust
-- Nothing is written into your project: global servers in `~/.config/drift/config.toml`, per-project hosts and mappings in `~/.config/drift/projects/<slug>.toml`
-- Skips `.git`, `node_modules`, `.idea`, and other irrelevant directories automatically
-
----
+- Browse local and remote files side by side, preview text files, and mark files or whole directories.
+- Compare marked files in a diff view and choose per file whether to upload, download, delete, or skip.
+  drift suggests a direction from the modification times.
+- Edit a single remote file in your own editor. drift uploads it only after you confirm and checks
+  that nobody changed it on the server in the meantime.
+- Keep several projects in a dashboard and switch between them without restarting.
+- Map local directories to different remote paths per host.
+- Share one server's connection and credentials between projects.
+- Verify FTPS certificates and trust exceptions per session or permanently.
+- Write nothing into your project. Configuration lives in `~/.config/drift/`, and drift respects
+  your `.gitignore`.
 
 ## Installation
 
-### From source (requires Go 1.25+)
+drift needs Go 1.25 or newer to build, and Git at runtime.
+
+```bash
+go install github.com/WariKoda/drift@latest
+```
+
+Or build from a checkout:
 
 ```bash
 git clone https://github.com/WariKoda/drift.git
@@ -43,678 +39,88 @@ cd drift
 make install
 ```
 
-### Directly with Go
+Both install into `$GOBIN`, or `~/go/bin` when it is unset. That directory must be in your `$PATH`.
+
+## Getting started
+
+1. Run `drift` in your project directory. If the project is not registered yet, drift offers to
+   register it; press `y`.
+2. Press `H` to open the host manager and `n` to add a host. Enter hostname, user, protocol,
+   authentication and the remote root path. In the host list, `t` tests the connection.
+3. Back in the browser, mark files or directories with `Space`.
+4. Press `s` and choose the host. drift connects and opens the diff view.
+5. Check the diffs and the planned action of each file. `Space` changes it.
+6. Press `s` to sync the current file or `S` to sync all of them.
+
+![The diff view with the file list, a syntax-highlighted diff and planned sync directions](.github/assets/screenshots/drift-diff.png)
+
+`@` connects the right-hand pane to a host so you can browse remote files without syncing.
+Press `?` on any screen for its key bindings.
+
+### Projects
+
+drift keeps a registry of your projects. `P` in the browser switches between them, and `drift dash`
+opens the dashboard where you add, edit and archive them.
+
+![The project dashboard with four registered projects](.github/assets/screenshots/drift-dashboard.png)
 
 ```bash
-go install github.com/WariKoda/drift@latest
+drift                  # current directory, last project, or the dashboard
+drift open acme-shop   # open a registered project by name or slug
+drift projects list    # list, add, edit, archive or remove projects
 ```
 
-Both methods install to `$GOBIN`, or `$GOPATH/bin` when unset, usually `~/go/bin`.
-Ensure that directory is in your `$PATH`. Git must also be available in `$PATH`;
-drift uses `git check-ignore` in one batched process per scan so nested rules,
-tracked files, worktrees, `.git/info/exclude`, and global excludes match Git itself. `make install` builds your local checkout;
-`go install …@latest` installs the latest published version.
-
-Optionally set a persistent install directory for all Go programs:
-
-```bash
-go env -w GOBIN="$HOME/.local/bin"
-```
-
-### Update after code changes
-
-```bash
-make update
-```
-
-### Rust desktop port (paused)
-
-The native `drift-gui` application lives in [`rust/`](rust/README.md) alongside
-the Go TUI. Both are standalone applications in this repository, with independent
-builds, installation and release cycles. The TUI remains a maintained product;
-the GUI implements its own Rust core and requires no Go executable at runtime.
-Both applications use the existing project and host files with coordinated
-writes. Rust/GPUI development is paused while work focuses on the Go TUI; this
-beta release publishes the TUI. The GUI work is retained in the repository.
-See the Rust README and [port plan](docs/rust-port-plan.md) for the implementation
-status, platform dependencies and remaining acceptance checks.
-
----
-
-## Usage
-
-```bash
-# Start in the current directory, last project, or dashboard (see below)
-drift
-
-# Open the project dashboard explicitly
-drift dash
-
-# Open a registered project by name or slug
-drift open kunde-a
-
-# Manage projects
-drift projects list
-drift projects add "KUNDE A" ~/work/kunde-a
-drift projects edit kunde-a --name "KUNDE A GmbH" --path ~/work/kunde-a
-drift projects archive kunde-a
-drift projects remove kunde-a
-
-# Show version
-drift version
-```
-
-Navigate to any file or directory, press **Space** to mark it, then **s** to open the sync target picker.
-
-### Project dashboard
-
-drift can keep a registry of your projects (one per customer, say) and show them in a
-dashboard on startup. From the dashboard you select a project and drift re-roots into it:
-it loads that project's config and opens the file browser in its directory — the same as
-`cd <path> && drift`, but without leaving drift.
-
-The dashboard appears automatically when you run `drift` **outside** any registered
-project and nothing has been opened yet, as long as at least one
-project is registered. If you have opened a project before, `drift` restores that
-one instead (its path must still exist). Inside a project directory, `drift`
-opens the browser as before. `--dashboard` (or `drift dash`) always opens the
-list; `--no-dashboard` stays in the current directory.
-
-From the file browser, `P` opens a filterable switcher and leaves the current
-session alone. Esc goes back. Enter on another project re-roots. `m` (with an
-empty filter) opens the full dashboard to add, edit, archive, or remove entries.
-
-`drift open` accepts a display name or slug: exact slug, then exact name
-(case-insensitive), then a unique prefix or substring of either.
-
-`~/.config/drift/projects.toml` holds a slug, display name, local path and timestamps per
-project. Its hosts and mappings live next to it in `~/.config/drift/projects/<slug>.toml`.
-
-The registry is also how drift knows which project a directory belongs to: the registered
-project whose path is the directory or a parent of it, longest match first. Registering is
-therefore what gives a directory hosts of its own.
-
-drift offers to do it for you. Start it in a repository that no project covers and it asks,
-suggesting the repository root rather than whatever subdirectory you were in — press `y` to
-register, any other key to skip. Otherwise: `drift projects add .`, or `n` on the dashboard,
-which prefills the repository root too.
-
-### Typical workflow
-
-1. Run `drift` in your project directory
-2. Mark one or more files/directories with **Space**
-3. Press **s** and choose a host
-4. Review diffs and suggested sync directions
-5. Sync the current file with **s** or all files with **S**
-
----
-
-## Editing remote files
-
-Connect to a host with `@`, switch to the remote pane with `Tab`, select a regular
-file and press `e`. Configure one editor in `~/.config/drift/config.toml` first:
-
-```toml
-[editor]
-command = ["nano", "{file}"]
-terminal = true
-```
-
-Other examples, replacing the `command` and `terminal` values above:
-
-| Editor | `command` | `terminal` |
-| --- | --- | --- |
-| Neovim | `["nvim", "{file}"]` | `true` |
-| Zed | `["zed", "--wait", "{file}"]` | `false` |
-| VS Code | `["code", "--wait", "{file}"]` | `false` |
-
-`{file}` must be a separate argument and appear exactly once. Commands run without
-a shell, from the private working directory. `terminal` defaults to `true`. GUI
-editors must wait until the file is closed; a launcher without a wait option is
-not supported. Editor commands are global user preferences, never project/host
-settings. There is no automatic `$EDITOR`/`$VISUAL` fallback.
-
-Drift downloads the original remote bytes to a private directory in the OS user
-cache (`~/.cache/drift/remote-edit/` on Linux unless `$XDG_CACHE_HOME` is set).
-The local project file is not used or changed. Only one file is edited at a time,
-up to 10 MiB, within the active mappings or the host root. A terminal editor takes
-over the terminal; a GUI editor opens separately while drift waits.
-
-Saving in the editor does **not** upload. After closing the file/editor:
-
-- unchanged bytes return directly to the browser;
-- changed bytes require `u` to upload; `Enter`/`e` opens the editor again;
-- `k` keeps the local copy and returns; `d` asks before discarding it;
-- `c` reconnects and checks content without uploading; `r` reloads remote content
-  only after confirmation to discard the working changes.
-
-Before upload, drift reads the remote content again. Observed parallel changes,
-missing files and file-type changes stop the upload. There is no force-overwrite
-or automatic merge. This is not an atomic conditional write: another process can
-still change the remote file between the check and server-side replacement.
-Uploads use the existing staged-transfer path; server rename capabilities and
-FTP/FTPS metadata preservation vary.
-
-Failures preserve the working copy. An interrupted upload can have an unknown
-outcome; reconnecting checks it before any new, separately confirmed upload.
-Confirmed saved/discarded or unchanged sessions are cleaned up, except when
-later working-copy changes need retaining. Kept copies can contain secrets;
-they have private permissions but are not encrypted or automatically recovered
-on restart. Drift shows their path so you can retrieve and remove them yourself.
-The browser keeps its cursor, open directories and markings on return.
-
-## Key Bindings
-
-### Project Dashboard
+### Common keys
 
 | Key | Action |
-| ----- | -------- |
-| `j` / `k` or `↑` / `↓` | Navigate |
-| `Enter` | Open project (re-root drift into it) |
-| `1`–`9` | Jump to / open the n-th project |
-| `n` | New project |
-| `e` | Edit project |
-| `d` | Remove project (with confirmation) |
-| `a` | Archive / unarchive project |
-| `.` | Show / hide archived projects |
-| Click / wheel | Move the cursor; double click opens |
-| `Esc` | Back to the browser when opened from `P` then `m`; otherwise quit |
-| `q` | Quit drift |
-
-### Project switcher (`P` in the file browser)
-
-| Key | Action |
-| ----- | -------- |
-| type | Filter by name, slug, or path |
-| `↑` / `↓` or `Ctrl+n` / `Ctrl+p` | Navigate |
-| `Enter` | Open the selected project |
-| `m` | Open the dashboard to manage projects (empty filter only) |
-| `Esc` | Back to the browser (session kept) |
-
-### File Browser
-
-| Key | Action |
-| ----- | -------- |
-| `j` / `k` or `↑` / `↓` | Navigate in the active pane |
-| `h` / `←`, `l` / `→` / `Enter` | Collapse / open directory |
-| `g` / `G` | Jump to top / bottom |
-| `Tab` | Switch local / remote pane |
-| `p` | Toggle a text preview in the opposite pane |
-| `e` | Edit the current remote file in the configured external editor |
-| `c` | Copy the loaded preview content to the clipboard |
-| `PgUp` / `PgDn`, `Home` / `End` | Scroll / jump within an active preview |
-| `@` | Choose or change the remote host |
-| `Space` | Mark / unmark file or directory in the active pane |
-| `V` / `*` | Mark the current level / invert the active pane's selection |
-| `f` | Fuzzy-find files across the project and mark them |
-| `.` / `I` | Toggle hidden / gitignored entries |
-| `s` | Sync marked local and remote files |
-| `r` / `/` / `?` | Refresh active pane / filter / help |
-| `H` | Open host manager |
-| `P` | Switch project (filterable picker; `m` opens the dashboard) |
-| `Esc` | Clear filter and selections |
-| `q` / `Ctrl+C` | Quit (cancels a running connect or sync first) |
-
-While a connect or sync overlay is up, `Esc` hides it (the work keeps going, with `[q] cancel` on the status line) and `q` / `Ctrl+C` abort it. Already-transferred files are kept.
-
-Hidden and gitignored entries are hidden in the browser by default. The two
-visibility toggles are independent and do not change sync scope. A recursively
-selected directory includes hidden files such as `.htaccess` and `.well-known`,
-but skips gitignored paths. Drift applies the local project's ignore rules to
-both local and mapped remote files, so an ignored remote-only file does not
-become a local delete or download candidate. Selecting an ignored file directly
-includes that file. Selecting an ignored directory does not include its contents.
-
-`.git`, `.svn`, `.hg`, `node_modules`, `.idea`, and `.vscode` directories remain
-excluded even when ignored files are included. Symlinks and paths outside the
-project or active mappings keep their existing safety checks.
-
-The diff status shows the number of pairs, hidden files, skipped ignored paths,
-and fixed exclusions. Press `i` to rebuild that comparison with all gitignored
-paths included for this operation. Drift reloads the rules and comparison; the
-setting does not change the global config.
-
-### Diff View
-
-| Key | Action |
-| ----- | -------- |
-| `j` / `k` or `↑` / `↓` | Scroll diff content by line |
-| `PgUp` / `PgDn` | Scroll diff content by page |
-| `←` / `→` | Scroll code horizontally without moving the gutters |
-| `w` | Switch line wrapping off / on (on by default) |
-| `v` | Cycle Unified / Split / Auto layout |
-| `?` | Open diff help |
-| `Ctrl+u` / `Ctrl+d` | Scroll diff content by half page |
-| `Home` / `g`, `End` / `G` | Jump to start / end of diff content |
-| `[` / `]` | Jump to the previous / next hunk, continuing across files |
-| `Enter` / `l` | Expand or collapse the first fold in view |
-| `h` | Collapse the fold around the top of the viewport |
-| `c` | Expand or collapse every fold in the file |
-| `L` | Show 10 more unchanged lines on each changed side of the first fold in view |
-| `+` / `-` | More / less context around every change (0, 1, 3, 5, 10, 25 lines) |
-| `o` | Show / hide the diff of a file whose changed lines are 4 KiB or longer |
-| `Tab` / `Shift+Tab` | Select next / previous file |
-| `<` / `>` | Narrow / widen the file list for this session |
-| `f` | Show / hide the full local and remote paths |
-| `m` | Switch between one file and all files in one scrollable view |
-| `z` | In the all-files view, fold the current file to its title |
-| `Space` | Cycle sync direction for current file |
-| `A` | Cycle sync direction for all files |
-| `s` | Sync current file |
-| `S` | Sync all files |
-| `u` / `d` | Quick upload / download current file |
-| `e` | Toggle the last bulk-sync error list (when errors occurred) |
-| `i` | Rebuild scope with / without gitignored paths |
-| `r` | Reload ignore rules, scope, and diffs |
-| `q` / `Esc` | Back to browser |
-
-The diff retains each visited file's reading position and expanded context.
-Refresh reconciles those positions against the new content; it never restores
-old transfer decisions. Small changes within a replacement line are emphasized
-in addition to the whole-line action colors. Oversized or unrelated replacements
-keep the plain line diff.
-
-The file list groups comparisons by directory, relative to the project (or the
-host root path for files outside it). Each file shows its comparison status
-(`~` changed, `L` local only, `R` remote only, `B` binary, `!` error), its
-added/removed line counts in the same before/after order as the diff, and the
-planned sync action in the last column. Status and action stay separate:
-"local only" describes the comparison, the action is your decision.
-
-The diff pane opens with a one-line title: the same relative path, a status
-label such as `remote only`, the line counts, and the before → after orientation
-of the line numbers (`Compare only` when no action is planned). `f` adds the full
-local and remote paths in before/after order.
-
-`m` shows all files one below the other, each under its own title. Ordinary
-scrolling then runs from one file into the next, and the file at the top becomes
-the current file for Space, `s`, `u` and `d`; it is named in the fixed title
-above the diff and marked in its section. Tab, a file list click or `]`/`[` pick
-the current file directly. `z` or a click on a section title folds a file to its
-title. Set `continuous = true` under `[ui.diff]` to start in this view.
-
-Hunk headers name the code around them when the comparison itself shows it:
-the nearest line before the hunk that starts with a letter, `_` or `$` (Git's
-default rule), or the nearest heading in Markdown files. Otherwise the header
-shows only the line ranges.
-
-A file with a changed line of 4 KiB or more, such as a minified bundle, opens
-as a short summary; `o` shows its diff. This only affects the display: the file
-keeps its sync action and is transferred like any other.
-
-Hunk navigation crosses file boundaries: `]` enters the next file at its first
-hunk, `[` enters the previous file at its last. Files without textual hunks
-(including identical, binary, and failed comparisons) are skipped. Navigation
-stops at either end without wrapping. Ordinary scrolling stays within the file;
-Tab and Shift+Tab still reach every file and restore its saved reading position.
-
-Unified remains the default. Auto switches to split when at least 160 columns
-remain for the diff after the file list. Very narrow windows hide the file list;
-Tab and Shift+Tab still select files. Layout changes are session-only. Set the
-initial layout in the global configuration, never a project or host record:
-
-```toml
-[ui.diff]
-layout = "auto" # unified (default), split, or auto
-syntax = true   # optional; default false
-continuous = true # optional: all files in one view; default false
-wrap = false      # optional: clip long lines and scroll with ←/→; default true
-```
-
-Syntax highlighting uses Chroma on the source already present in the comparison.
-It never reloads files or runs project code. Unknown languages, files exceeding
-its work limits, and cancelled work keep the ordinary diff. Action backgrounds,
-markers, and intraline emphasis remain visible. See
-[diff presentation](docs/diff-presentation.md) for limits and measurements and
-[third-party notices](THIRD_PARTY_NOTICES.md) for dependency licenses.
-
-### Host Manager
-
-| Key | Action |
-| ----- | -------- |
-| `n` | New host. In the project section, choose a new connection or a link to a server |
-| `l` | Link a global server, or a host of another project, to the open project |
-| `e` / `Enter` | Edit host |
-| `c` | Duplicate host into a pre-filled form with a free name |
-| `d` | Delete host |
-| `t` | Test connection |
-| `r` | Reset certificate trust of an FTPS host |
-| `q` / `Esc` | Back |
-
-### Mouse
-
-The mouse works in the file browser, the diff view and the host manager.
-
-| Action | Effect |
-| -------- | -------- |
-| Wheel | Scroll the pane under the pointer |
-| Click | Move the cursor there, and focus that pane |
-| Click on a pane label | Focus that pane |
-| Click on a fold marker | Expand or collapse that fold (diff view) |
-| Double click | Expand a directory (local), open one (remote), cycle a file's sync direction (diff view), edit a host (host manager) |
-| Drag while previewing | Select preview text with the terminal; mouse reporting resumes when the preview closes |
-| `Shift`+Click | Select text with the terminal's own selection |
-
-Mouse reporting pauses while a file preview is open, so preview text can be
-selected without holding `Shift`. It resumes when the preview closes. Outside
-the preview, it can be turned off entirely:
-
-```bash
-drift --no-mouse              # this run only
-DRIFT_NO_MOUSE=1 drift        # via environment
-```
-
-```toml
-# ~/.config/drift/config.toml — permanently
-[ui]
-mouse = false
-show_hidden = true   # initial browser visibility; default false
-show_ignored = true  # initial browser visibility; default false
-```
-
-The flag beats the environment variable, which beats the config file. Mouse
-support is on unless one of them turns it off.
-
----
-
-## Theming
-
-Drift uses the terminal palette by default and auto-detects Omarchy themes from
-`$XDG_STATE_HOME/omarchy/current/theme/colors.toml` (normally
-`~/.local/state/omarchy/current/theme/colors.toml`). The legacy location under
-`$XDG_CONFIG_HOME` is supported as a fallback. You can override this with:
-
-```bash
-DRIFT_THEME=auto|ansi|omarchy|default
-DRIFT_THEME_FILE=/path/to/colors.toml
-```
-
-`auto` loads Omarchy colors first and falls back to ANSI terminal colors.
-`default` uses Drift's built-in fallback palette.
-
----
-
-## Logging
-
-Logging is **off by default**. When enabled, drift writes diagnostics
-(connection lifecycle and every connect/sync/diff error, with full paths) to a
-file — never to the terminal, which the TUI owns. Enable it per run with a flag
-or environment variable; the flag wins:
-
-```bash
-drift --debug                 # debug level → ~/.config/drift/drift.log
-DRIFT_DEBUG=1 drift           # same, via environment
-drift --log /tmp/drift.log    # info level → explicit path
-DRIFT_LOG=/tmp/drift.log drift
-```
-
-`--debug` (or `DRIFT_DEBUG=1`) raises the level to debug, adding a line per
-synced file; without it the log stays at info level. The log file is appended to,
-not rotated. This complements the in-app `[e]` error list in the diff view, which
-only holds the most recent bulk sync.
-
----
+| --- | --- |
+| `Space` | Mark a file or directory (browser), change the sync action (diff view) |
+| `s` / `S` | Open the diff view for marked files (browser); sync the current / all files (diff view) |
+| `Tab` | Switch between local and remote pane, or the next file in the diff view |
+| `@` | Connect the remote pane to a host |
+| `p` | Preview the current file in the other pane |
+| `e` | Edit the current remote file in your editor |
+| `f` | Find files in the project and mark them |
+| `H` / `P` | Host manager / project switcher |
+| `?` | Help for the current screen |
+| `q` | Back, or quit |
 
 ## Configuration
 
-### Global config: `~/.config/drift/config.toml`
+drift creates and edits the configuration through its forms, so you rarely need to touch the files:
 
-Global hosts are servers. A project does not see them until one of its hosts links
-to one (see [Sharing a server between projects](#sharing-a-server-between-projects)).
-Without an open project, drift offers the global hosts directly.
-
-```toml
-[defaults]
-user = "deploy"
-
-[[hosts]]
-name       = "prod"
-hostname   = "example.com"
-port       = 22
-user       = "deploy"
-root_path  = "/var/www/html"
-protocol   = "sftp"
-
-  [hosts.auth]
-  type     = "keyfile"
-  key_file = "~/.ssh/id_ed25519"
-```
-
-### Project config: `~/.config/drift/projects/<slug>.toml`
-
-drift writes this file; the slug comes from the registry. Nothing is stored in the
-project directory itself.
-
-```toml
-[defaults]
-user = "deploy"
-
-[[hosts]]
-name      = "staging"
-hostname  = "shopdev.example.com"
-port      = 21
-user      = "webuser"
-root_path = "/var/www"
-protocol  = "ftps"
-
-  [hosts.auth]
-  type     = "password"
-  password = "$DEPLOY_PASSWORD"
-
-  [[hosts.mappings]]
-  local  = "plugins/plugin1"
-  remote = "html/custom/plugins/plugin1"
-
-[[mappings]]
-local  = "src"
-remote = "html"
-```
-
-The file holds credentials verbatim, so it is mode `600` in a `700` directory. Use
-`$ENV_VAR` for a password or passphrase if you would rather keep the secret in your shell
-environment or a password manager; drift expands it at connect time.
-
-### Sharing a server between projects
-
-When several projects deploy to the same machine, keep the connection once as a
-global server and let each project link to it. A link names the server and adds
-only what differs per project:
-
-```toml
-# ~/.config/drift/projects/shop-b.toml
-[[hosts]]
-name      = "prod"
-server    = "kunde-x"          # a host in ~/.config/drift/config.toml
-root_path = "/var/www/shop-b"
-
-  [[hosts.mappings]]
-  local  = "public"
-  remote = "htdocs"
-```
-
-Hostname, port, user, auth, protocol and keep-alive come from the server; a link
-that sets any of them is rejected. A changed password therefore needs one edit, and
-every linked project uses it on its next connection. `root_path` and `mappings` stay
-with the link, and the server's own mappings are not inherited.
-
-In the host manager, press `l` (or `n` in the project section, then `l`) and pick a
-server. The list also shows the hosts of your other projects. Picking one of those
-turns it into a global server after you confirm, and its project keeps using it
-through a link. When you save a new or edited project host whose hostname, port,
-user and protocol match a server or another project's host, drift offers to link
-that one instead of saving a second copy of the connection.
-
-A server that projects still link cannot be deleted or renamed; the error names
-those projects.
-
-### Keep-alive
-
-Remote connections send protocol keep-alive probes every 60 seconds by default.
-Set `keep_alive_interval` on a host in seconds, or edit the field in the host form:
-
-```toml
-keep_alive_interval = 60 # 0 disables keep-alive; omit for the default
-```
-
-TOML accepts values from `0` to `86400`. In the host form, use `Disable keep-alive`
-to turn probes off. The interval field is hidden while disabled; otherwise it
-accepts `1` to `86400` seconds, with a blank field using the default. Toggling back
-on restores the interval entered during the current edit. Changes apply to new
-connections. This is a host setting, not a `[defaults]` field.
-
-FTP and FTPS send `NOOP` only after an idle interval on the control connection,
-never between commands of a running transfer. SFTP sends SSH keep-alive requests,
-which can run alongside file transfers. A negative SSH reply still confirms that
-the peer is reachable. A probe has 15 seconds to receive a response.
-
-A failed probe marks the connection as disconnected. In the remote browser, use
-`r` to reconnect; in the diff, return to the browser and compare again before
-syncing. Completed files retain their results. An interrupted operation may have
-an unknown server-side outcome. drift never reconnects or repeats transfers
-automatically because of a keep-alive failure.
-
-Keep-alive cannot prevent every server idle limit or network failure. FTP probes
-are skipped during busy operations, and an SSH response does not guarantee that
-the SFTP subsystem is healthy. TCP keep-alive is separate from these probes.
-
-### FTPS certificate trust
-
-FTPS certificates are checked against the operating system trust store, including
-the configured hostname and validity period. If that check fails, drift stops the
-connection and shows the certificate subject, issuer, validity, problem, and full
-SHA-256 fingerprint. `Reject` is selected by default.
-
-After checking the fingerprint through a trusted channel, you can trust that exact
-certificate for the current drift process or permanently. Permanent exceptions are
-bound to the normalized hostname and port and stored in
-`~/.config/drift/trusted-certificates.toml` with mode `600`. A certificate change or
-a newly occurring validation problem asks again. Use `r` on an FTPS host in the host
-manager to reset both session and persistent trust for its endpoint.
-
-The former `insecure_tls` host option is ignored and no longer written. It does not
-grant trust. Custom CA files and client certificates are not supported yet. FTPS
-continues to use explicit TLS on the FTP control port and TLS 1.2.
-
-### Path Mappings
-
-`local` paths are relative to the project root. `remote` paths are relative to the host's `root_path`.
-
-When effective `mappings` are configured, only files that fall under a mapping rule can be synced. Files outside all mappings are excluded. Without mappings, all files sync relative to `root_path`.
-
-### Auth types
-
-| Type | Fields |
-| ------ | -------- |
-| `keyfile` | `key_file`, `passphrase` (optional) |
-| `password` | `password` (supports `$ENV_VAR`) |
-| `agent` | none — uses SSH agent |
-
-For a project host, all of these live in `~/.config/drift/access.toml` rather
-than in the project. For a global host they stay in the global config.
-
-### Nothing in your project
-
-drift keeps no file in your working tree. No `.drift/` directory, no dotfile, nothing to
-add to `.gitignore` and nothing to commit by accident:
-
-| File | Holds |
+| File | Contents |
 | --- | --- |
-| `~/.config/drift/config.toml` | global servers, `[ui]`, `[editor]` |
-| `~/.config/drift/projects.toml` | the registry: slug, name, path, timestamps |
-| `~/.config/drift/projects/<slug>.toml` | one project's hosts and mappings, mode `600` |
-| `~/.config/drift/trusted-certificates.toml` | persistent FTPS certificate exceptions, mode `600` |
+| `~/.config/drift/config.toml` | global servers, editor, display settings |
+| `~/.config/drift/projects.toml` | the project registry |
+| `~/.config/drift/projects/<slug>.toml` | one project's hosts and mappings |
+| `~/.config/drift/trusted-certificates.toml` | trusted FTPS certificates |
 
-The trade-off is deliberate: mappings do not travel with a clone. Every developer enters
-them once per machine, and when someone moves a directory in the repo there is no commit
-that fixes the mapping for everyone.
+The host files contain credentials and are created with mode `600`. A password field can hold
+`$ENV_VAR` instead of the password itself.
 
-#### Coming from 0.1.6-alpha or earlier
+## Documentation
 
-Those versions kept a `.drift/config.toml` in the project, with credentials either in it or
-in `~/.config/drift/secrets.toml`. **0.1.7-alpha is the release that moves all of it into
-the project store**, and it is the only one that can: this version no longer reads those
-files at all.
+- [Projects and the dashboard](docs/guide/projects.md)
+- [Comparing and syncing](docs/guide/sync.md)
+- [Editing remote files](docs/guide/remote-editing.md)
+- [Key bindings and mouse](docs/guide/keys.md)
+- [Configuration reference](docs/guide/configuration.md): hosts, mappings, shared servers,
+  keep-alive, FTPS trust, theming, logging
 
-So if you are upgrading from 0.1.6-alpha or earlier, install
-[0.1.7-alpha](https://github.com/WariKoda/drift/releases/tag/v0.1.7-alpha) first and start
-it once in each project — it migrates and reports what it moved — then upgrade to the
-current version. Skipping it leaves your hosts in files nothing reads, and drift will look
-like it has no hosts for those projects.
+## Upgrading from 0.1.6-alpha or earlier
 
-If such a config was ever committed, the password in it is in your repository's history,
-where deleting the file later does not reach it. Rotate it.
-
----
-
-## Project Structure
-
-```
-internal/
-  app/          diff session loading and refresh, independent of the TUI
-  config/       config types, loader, writer
-  project/      project registry model + store (projects.toml)
-  diff/         diff engine, result types, renderer
-  ftp/          FTP/FTPS client (jlaffaye/ftp)
-  ftptest/      in-process FTP server for tests
-  fs/           local file walker, directory reader
-  log/          optional file-based diagnostics
-  pathmap/      local ↔ remote path resolution with mapping rules
-  progress/     progress and cancellation shared by long operations
-  remote/       protocol-agnostic Client interface and connection factory
-  tlstrust/     FTPS certificate verification and trust policy
-  sftp/         SFTP client
-  ssh/          SSH auth and known_hosts verification
-  styles/       shared palettes and lipgloss styles
-  sync/         direction policy, comparison scope, sync execution
-  tui/
-    app.go      root Bubble Tea model, screen routing
-    browser/    file browser screen
-    certtrust/  FTPS certificate trust modal
-    dashboard/  project dashboard screen
-    projectform/ project create/edit form
-    projectselector/ project switcher modal
-    diffview/   diff + sync screen
-    loading/    network activity indicator
-    hostform/   host create/edit form (incl. mapping manager)
-    hostmanager/ host list screen
-    hostselector/sync target picker
-    statusbar/  reusable one-line status renderer
-    textfield/  shared single-line text input widget
-    styles.go   TUI-facing style aliases
-```
-
----
-
-## Development
-
-```bash
-go test ./...
-go vet ./...
-go build ./...
-```
-
-### Local install
-
-```bash
-make install
-```
-
-### Versioned build
-
-```bash
-make release-build VERSION=vX.Y.Z
-```
-
----
+Older versions stored hosts in `.drift/config.toml` inside the project. Only
+[0.1.7-alpha](https://github.com/WariKoda/drift/releases/tag/v0.1.7-alpha) migrates them. Install
+it, start it once in each project, then upgrade to the current version. See
+[Configuration](docs/guide/configuration.md#upgrading-from-016-alpha-or-earlier) for details.
 
 ## Contributing
 
-Issues and pull requests are welcome.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For development notes and contribution workflow, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
----
+The repository also contains a paused native desktop port in [`rust/`](rust/README.md).
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT, see [LICENSE](LICENSE).

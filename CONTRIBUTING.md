@@ -25,7 +25,8 @@ make install
 
 ## Project guidelines
 
-Please keep changes small and focused.
+Please keep changes small and focused. [AGENTS.md](AGENTS.md) describes the package
+layout, the screen architecture and the boundaries the tests enforce.
 
 Important conventions in this codebase:
 

@@ -34,20 +34,23 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 				direction                       SyncDir
 				legend, header, first, leftPath string
 			}{
-				{DirUpload, "Line numbers: Remote → Local (before → after)", "@@ -1,1 +1,2 @@", "   1      - R", "/remote/file"},
-				{DirDownload, "Line numbers: Local → Remote (before → after)", "@@ -1,2 +1,1 @@", "   1      - L1", "/local/file"},
-				{DirNone, "No action · Compare only · Lines: Local → Remote", "@@ -1,2 +1,1 @@", "   1        L1", "/local/file"},
+				{DirUpload, "+2 -1  Remote → Local (before → after)", "@@ -1,1 +1,2 @@", "   1      - R", "Remote /remote/file"},
+				{DirDownload, "+1 -2  Local → Remote (before → after)", "@@ -1,2 +1,1 @@", "   1      - L1", "Local  /local/file"},
+				{DirNone, "+1 -2  Compare only · Local → Remote", "@@ -1,2 +1,1 @@", "   1        L1", "Local  /local/file"},
 			} {
 				m, _ = m.handleKey(keyMsg(key))
 				if m.syncDirs[0] != tt.direction {
 					t.Fatalf("direction = %v, want %v", m.syncDirs[0], tt.direction)
 				}
+				m.showPaths = true
 				rows := m.renderDiffPaneRows(m.activeSession())
-				if !strings.HasPrefix(stripANSI(rows[0]), tt.leftPath) {
-					t.Fatalf("path order = %q", rows[0])
+				if !strings.HasPrefix(stripANSI(rows[1]), tt.leftPath) {
+					t.Fatalf("path order = %q", rows[1])
 				}
-				if strings.TrimSpace(stripANSI(rows[1])) != tt.legend {
-					t.Fatalf("legend = %q, want %q", rows[1], tt.legend)
+				m.showPaths = false
+				rows = m.renderDiffPaneRows(m.activeSession())
+				if title := strings.TrimSpace(stripANSI(rows[0])); !strings.HasPrefix(title, "/local/file") || !strings.HasSuffix(title, tt.legend) {
+					t.Fatalf("title = %q, want path and %q", title, tt.legend)
 				}
 				if !strings.Contains(stripANSI(rows[pathChrome]), tt.header) {
 					t.Fatalf("header = %q, want %q", rows[pathChrome], tt.header)

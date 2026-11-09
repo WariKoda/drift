@@ -46,6 +46,13 @@ wie die Diff-Zeilen der jeweiligen Datei; bei Upload-Vorschau tauschen `+` und
 `-`. Reicht der Platz nicht für mindestens vier Zeichen Dateiname, entfallen die
 Zahlen. `<` und `>` ändern die Breite nur für die Sitzung.
 
+Der Dateititel über dem Diff ist eine Zeile: relativer Pfad, Statusbezeichnung,
+Zeilenzahlen und Vorher/Nachher-Orientierung. Bei wenig Platz fällt zuerst der
+Zusatz „(before → after)“ weg, dann die Zahlen; die Kurzform `Local → Remote`
+bleibt, der Pfad wird links gekürzt. `f` zeigt zusätzlich beide absoluten Pfade
+in Vorher/Nachher-Reihenfolge. `chromeRows()` liefert die Höhe dieses Kopfs;
+Viewport, `contentTop()` und Trefferprüfung rechnen damit.
+
 ## Leseposition und Refresh
 
 Besuchte Dateien behalten Falten, Quellanker und horizontalen Versatz. Eine neue

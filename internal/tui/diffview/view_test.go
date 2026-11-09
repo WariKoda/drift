@@ -123,7 +123,7 @@ func TestViewRendersNoDifferencesSplash(t *testing.T) {
 			t.Fatalf("comparison splash does not contain %q: %q", want, plain)
 		}
 	}
-	for _, unwanted := range []string{"│", "Line numbers:"} {
+	for _, unwanted := range []string{"│", "Compare only"} {
 		if strings.Contains(plain, unwanted) {
 			t.Fatalf("comparison splash contains diff chrome %q: %q", unwanted, plain)
 		}

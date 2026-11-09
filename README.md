@@ -294,6 +294,7 @@ setting does not change the global config.
 | `c` | Expand or collapse every fold in the file |
 | `Tab` / `Shift+Tab` | Select next / previous file |
 | `<` / `>` | Narrow / widen the file list for this session |
+| `f` | Show / hide the full local and remote paths |
 | `Space` | Cycle sync direction for current file |
 | `A` | Cycle sync direction for all files |
 | `s` | Sync current file |
@@ -316,6 +317,11 @@ host root path for files outside it). Each file shows its comparison status
 added/removed line counts in the same before/after order as the diff, and the
 planned sync action in the last column. Status and action stay separate:
 "local only" describes the comparison, the action is your decision.
+
+The diff pane opens with a one-line title: the same relative path, a status
+label such as `remote only`, the line counts, and the before → after orientation
+of the line numbers (`Compare only` when no action is planned). `f` adds the full
+local and remote paths in before/after order.
 
 Hunk navigation crosses file boundaries: `]` enters the next file at its first
 hunk, `[` enters the previous file at its last. Files without textual hunks

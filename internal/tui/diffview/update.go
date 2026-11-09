@@ -251,6 +251,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.prepareDisplayRows()
 		m.remapScrollToSource(anchor)
 		m.clampHorizontal()
+	case "f":
+		m.showPaths = !m.showPaths
+		m.clampScroll()
 	case "<":
 		m.resizeFileList(-fileListStep)
 	case ">":

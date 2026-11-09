@@ -85,6 +85,10 @@ interaktiv abgenommen:
   Aktion passen zur Diff-Anzeige. Mit Space Upload wählen: `+`/`-` tauschen in
   Seitenleiste und Statuszeile gleichzeitig. Mit `<` und `>` die Seitenleiste
   verkleinern und vergrößern; Klicks auf Verzeichniszeilen wählen nichts aus.
+- Der Dateititel zeigt relativen Pfad, Status, Zahlen und `Local → Remote`
+  beziehungsweise bei Upload `Remote → Local`. Das Fenster schmal ziehen: Die
+  Orientierung bleibt sichtbar, der Pfad wird links gekürzt. `f` blendet beide
+  vollständigen Pfade ein und aus, ohne die Mausziele im Diff zu verschieben.
 - Mit `]` alle Hunks mehrerer Dateien durchgehen und mit `[` zurückspringen.
   Dateiüberschrift und Seitenleiste müssen folgen. Auch in einem großen Fenster,
   in das eine ganze Datei passt, muss es nach deren letztem Hunk weitergehen.

@@ -199,6 +199,7 @@ type Model struct {
 	columnsReady    bool
 	savedHorizontal map[int]int
 	showHelp        bool
+	showPaths       bool // full local and remote paths below the file title
 	Width           int
 	Height          int
 }
@@ -410,7 +411,7 @@ func (m Model) fileListHeight() int {
 // viewportHeight returns available lines for unified diff content in the right
 // pane (body minus the path header chrome).
 func (m Model) viewportHeight() int {
-	h := m.bodyHeight() - pathChrome
+	h := m.bodyHeight() - m.chromeRows()
 	if h < 1 {
 		return 1
 	}

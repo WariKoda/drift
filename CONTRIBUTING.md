@@ -54,6 +54,14 @@ Changes to transfers, connection handling or the diff view also deserve a pass t
 local SFTP and FTPS servers in Docker and runs drift against them with an isolated
 config.
 
+## Screenshots
+
+`scripts/screenshots/run.sh` regenerates the README screenshots in
+`.github/assets/screenshots/`. It runs drift against a demo project and a local SFTP
+container, so it needs Docker, tmux, Python 3.11+, Chromium, ImageMagick and the
+JetBrains Mono font besides Go. Run it when a
+change alters the browser, the diff view or the dashboard noticeably.
+
 ## Git workflow
 
 Please keep `main` stable and use short-lived branches for changes.

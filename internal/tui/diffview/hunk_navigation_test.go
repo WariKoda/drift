@@ -246,11 +246,11 @@ func TestHunkFileCrossingReplacesDecorationRequest(t *testing.T) {
 	}
 	request := m.decoration
 	m, _ = m.Update(old())
-	if m.decoration != request || m.columnsReady {
+	if m.decoration != request || m.decorationFor(0) != nil || m.decorationFor(1) != nil {
 		t.Fatal("old presentation result affected the next file")
 	}
 	m, _ = m.Update(cmd())
-	if !m.columnsReady || m.decorationError != "" {
+	if d := m.decorationFor(1); d == nil || d.err != nil {
 		t.Fatal("next file's presentation result was not accepted")
 	}
 }

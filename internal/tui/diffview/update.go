@@ -41,6 +41,7 @@ func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 
 	case MsgDecorated:
 		m.acceptDecoration(msg)
+		return m, m.startDecoration()
 
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
@@ -235,10 +236,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 	switch msg.String() {
 	case "j", "down", "J", "k", "up", "K", "ctrl+d", "ctrl+u", "pgdown", "pgup", "home", "g", "end", "G":
 		m.hunk = nil
+		if before := m.scroll; m.continuous() {
+			// Only real movement re-targets sync keys; a clamped key press
+			// must not take over the file selected with Tab or a hunk jump.
+			defer func() {
+				if next.scroll != before {
+					next.followScroll()
+				}
+			}()
+		}
 	}
 	switch msg.String() {
 	case "?":
 		m.showHelp = true
+	case "m":
+		m.setContinuous(!m.continuous())
+	case "z":
+		if m.continuous() {
+			m.toggleSection(m.activeIdx)
+		}
+	case "f":
+		m.showPaths = !m.showPaths
+		m.clampScroll()
 	case "v":
 		switch m.preferences.Layout {
 		case "", "unified":
@@ -251,9 +270,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.prepareDisplayRows()
 		m.remapScrollToSource(anchor)
 		m.clampHorizontal()
-	case "f":
-		m.showPaths = !m.showPaths
-		m.clampScroll()
 	case "<":
 		m.resizeFileList(-fileListStep)
 	case ">":
@@ -262,7 +278,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.horizontal -= 8
 		m.clampHorizontal()
 	case "right":
-		if m.columnsReady {
+		if _, ready := m.columnLimit(); ready {
 			m.horizontal += 8
 			m.clampHorizontal()
 		}
@@ -334,9 +350,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.jumpHunk(-1)
 
 	case "enter", "l":
-		m.toggleFirstVisibleFold()
+		if m.continuous() {
+			m.toggleFirstVisibleStreamFold()
+		} else {
+			m.toggleFirstVisibleFold()
+		}
 	case "h":
-		m.collapseVisibleFold()
+		if m.continuous() {
+			m.collapseVisibleStreamFold()
+		} else {
+			m.collapseVisibleFold()
+		}
 	case "c":
 		m.toggleAllFolds()
 
@@ -414,10 +438,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 // position so repeated jumps advance even when the whole file fits on screen.
 type hunkPosition struct {
 	plan        *displayCache
+	stream      *streamPlan
 	row, scroll int
 }
 
 func (m *Model) jumpHunk(direction int) {
+	if m.continuous() {
+		m.jumpStreamHunk(direction)
+		return
+	}
 	m.prepareDisplayRows()
 	for index := m.activeIdx; index >= 0 && index < len(m.sessions); index += direction {
 		session := &m.sessions[index]

@@ -16,7 +16,7 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if cfg.UI.Diff != nil {
 		t.Fatal("missing settings must retain default layout")
 	}
-	cfg.UI.Diff = &DiffPreferences{Layout: "auto", Syntax: true}
+	cfg.UI.Diff = &DiffPreferences{Layout: "auto", Syntax: true, Continuous: true}
 	if err := SaveGlobalHost(cfg, Host{Name: "test", Hostname: "example.test"}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -24,20 +24,20 @@ func TestDiffPreferencesRoundTripAndGlobalScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.UI.Diff == nil || loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax {
+	if loaded.UI.Diff == nil || loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax || !loaded.UI.Diff.Continuous {
 		t.Fatal("global write lost diff preferences")
 	}
 	if err := os.MkdirAll(filepath.Join(Dir(), "projects"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(Dir(), "projects", "project.toml"), []byte("[ui.diff]\nlayout='split'\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(Dir(), "projects", "project.toml"), []byte("[ui.diff]\nlayout='split'\ncontinuous=false\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err = Load(root, "project")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax {
+	if loaded.UI.Diff.Layout != "auto" || !loaded.UI.Diff.Syntax || !loaded.UI.Diff.Continuous {
 		t.Fatal("project settings overrode global diff preferences")
 	}
 }

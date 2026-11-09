@@ -76,3 +76,29 @@ func BenchmarkFlatten(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkContinuous separates the per-change plan rebuild from per-frame
+// drawing, which must stay independent of the number of files.
+func BenchmarkContinuous(b *testing.B) {
+	for _, files := range []int{20, 200} {
+		sessions := make([]diff.Session, files)
+		for i := range sessions {
+			sessions[i] = diff.Session{LocalPath: fmt.Sprintf("/p/%03d.txt", i), Result: displayFixture(1000, 100)}
+		}
+		m := New(sessions, config.Host{}, nil, nil, 120, 40)
+		m.SetPreferences(config.DiffPreferences{Continuous: true})
+		m.scroll = m.totalLines() / 2
+		b.Run(fmt.Sprintf("files=%d/plan", files), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = m.buildStream()
+			}
+		})
+		b.Run(fmt.Sprintf("files=%d/view", files), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = m.View()
+			}
+		})
+	}
+}

@@ -81,6 +81,8 @@ pub struct DiffPreferences {
     pub layout: String,
     #[serde(skip_serializing_if = "is_false")]
     pub syntax: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub continuous: bool,
 }
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]

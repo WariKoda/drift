@@ -10,15 +10,14 @@ const autoSplitColumns = 160
 func (m *Model) SetPreferences(preferences config.DiffPreferences) {
 	anchor := m.topSourceLine()
 	if m.preferences.Syntax != preferences.Syntax {
-		if m.decoration != nil {
-			m.decoration.cancel()
-			m.decoration = nil
-		}
-		m.syntax = nil
+		m.resetDecorations()
 	}
+	continuous := preferences.Continuous
+	preferences.Continuous = m.preferences.Continuous
 	m.preferences = preferences
 	m.prepareDisplayRows()
 	m.remapScrollToSource(anchor)
+	m.setContinuous(continuous)
 	m.clampHorizontal()
 }
 
@@ -40,7 +39,8 @@ func (m Model) rowsFor(index int) []diff.DisplayRow {
 }
 
 func (m *Model) clampHorizontal() {
-	if !m.columnsReady {
+	columns, ready := m.columnLimit()
+	if !ready {
 		m.horizontal = max(0, m.horizontal)
 		return
 	}
@@ -55,5 +55,5 @@ func (m *Model) clampHorizontal() {
 			gutter = s.Result.LineNumberWidth() + 3
 		}
 	}
-	m.horizontal = min(max(0, m.horizontal), max(0, m.maxColumns-max(0, width-gutter)))
+	m.horizontal = min(max(0, m.horizontal), max(0, columns-max(0, width-gutter)))
 }

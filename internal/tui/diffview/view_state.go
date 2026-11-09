@@ -37,6 +37,10 @@ func (m Model) topSourceLine() int {
 }
 
 func (m *Model) selectFile(index int) {
+	if m.continuous() {
+		m.selectSection(index)
+		return
+	}
 	if index < 0 || index >= len(m.sessions) || index == m.activeIdx {
 		return
 	}
@@ -53,9 +57,6 @@ func (m *Model) selectFile(index int) {
 	m.savedSource[m.activeIdx] = m.topSourceLine()
 	m.savedHorizontal[m.activeIdx] = m.horizontal
 	m.horizontal = m.savedHorizontal[index]
-	m.columnsReady = false
-	m.spans = nil
-	m.syntax = nil
 	m.activeIdx = index
 	m.foldRevision++
 	m.prepareDisplayRows()
@@ -102,7 +103,7 @@ func (m Model) SnapshotView() ViewSnapshot {
 		}
 		scroll, visited := m.savedScroll[i]
 		if i == m.activeIdx {
-			scroll, visited = m.scroll, true
+			scroll, visited = m.fileScroll(), true
 		}
 		if !visited {
 			continue
@@ -139,8 +140,24 @@ func (m Model) SnapshotView() ViewSnapshot {
 	return snapshot
 }
 
+// fileScroll is the active file's display row at the top of the viewport. In
+// continuous mode a title or note at the top counts as the file's first row.
+func (m Model) fileScroll() int {
+	if !m.continuous() {
+		return m.scroll
+	}
+	plan := m.streamPlan()
+	if m.scroll >= 0 && m.scroll < len(plan.rows) {
+		if row := plan.rows[m.scroll]; row.session == m.activeIdx && row.kind == streamLine {
+			return row.index
+		}
+	}
+	return 0
+}
+
 func (m *Model) RestoreView(snapshot ViewSnapshot) {
 	m.preferences = snapshot.preferences
+	m.stream = nil
 	m.savedScroll = make(map[int]int)
 	m.savedSource = make(map[int]int)
 	m.savedHorizontal = make(map[int]int)
@@ -197,6 +214,16 @@ func (m *Model) RestoreView(snapshot ViewSnapshot) {
 	m.clampFileList()
 	m.horizontal = m.savedHorizontal[m.activeIdx]
 	m.clampHorizontal()
+	if m.continuous() {
+		if m.activeIdx < len(m.sessions) {
+			m.scroll = m.stream.start[m.activeIdx]
+			if source, ok := m.savedSource[m.activeIdx]; ok {
+				m.scroll = m.stream.indexOf(streamAnchor{session: m.activeIdx, kind: streamLine, source: source})
+			}
+		}
+		m.clampScroll()
+		return
+	}
 	if scroll, ok := m.savedScroll[m.activeIdx]; ok {
 		m.scroll = scroll
 		m.clampScroll()

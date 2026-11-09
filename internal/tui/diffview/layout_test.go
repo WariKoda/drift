@@ -54,7 +54,7 @@ func TestHorizontalScrollAndHelpDoNotChangeDecisions(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	}
-	if m.horizontal == 0 || m.horizontal > m.maxColumns {
+	if columns, _ := m.columnLimit(); m.horizontal == 0 || m.horizontal > columns {
 		t.Fatal("horizontal offset not bounded")
 	}
 	m, _ = m.handleKey(keyMsg("?"))

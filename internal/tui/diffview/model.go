@@ -184,19 +184,17 @@ type Model struct {
 	clicks          mouse.ClickTracker
 	expandedGaps    map[int]map[int]struct{} // session index → expanded GapIDs
 	display         *displayCache
+	stream          *streamPlan  // all-files layout in continuous mode
+	collapsed       map[int]bool // sessions reduced to their title in continuous mode
 	hunk            *hunkPosition
 	foldRevision    uint64
 	savedScroll     map[int]int
 	savedSource     map[int]int
 	decoration      *decorationRequest
-	spans           map[int][]diff.TextSpan
-	syntax          *diff.SyntaxHighlights
+	decorated       map[*diff.DiffResult]*fileDecoration
 	syntaxCache     *diff.SyntaxCache
-	decorationError string
 	preferences     config.DiffPreferences
 	horizontal      int
-	maxColumns      int
-	columnsReady    bool
 	savedHorizontal map[int]int
 	showHelp        bool
 	showPaths       bool // full local and remote paths below the file title
@@ -492,8 +490,12 @@ func (m Model) activeSession() *diff.Session {
 	return &m.sessions[m.activeIdx]
 }
 
-// totalLines returns the number of display rows in the active session.
+// totalLines returns the number of scrollable rows: the active session's
+// display rows, or every file's rows in continuous mode.
 func (m Model) totalLines() int {
+	if m.continuous() {
+		return len(m.streamPlan().rows)
+	}
 	return len(m.displayRows())
 }
 
@@ -517,16 +519,21 @@ type displayCache struct {
 }
 
 func (m *Model) prepareDisplayRows() {
+	defer m.prepareStream()
 	s := m.activeSession()
 	if s == nil || s.Result == nil {
 		m.display = nil
-		m.hunk = nil
+		if !m.continuous() {
+			m.hunk = nil
+		}
 		return
 	}
 	if m.display != nil && m.display.result == s.Result && m.display.flip == m.remoteBeforeLocal() && m.display.revision == m.foldRevision && m.display.split == m.splitLayout() {
 		return
 	}
-	m.hunk = nil
+	if !m.continuous() {
+		m.hunk = nil
+	}
 	m.display = &displayCache{result: s.Result, flip: m.remoteBeforeLocal(), revision: m.foldRevision, split: m.splitLayout(), rows: m.displayRows()}
 }
 
@@ -560,29 +567,33 @@ func (m *Model) ensureExpanded(sessionIdx int) map[int]struct{} {
 	return set
 }
 
-func (m *Model) gapExpanded(gapID int) bool {
-	set := m.expandedFor(m.activeIdx)
-	if set == nil {
-		return false
-	}
-	_, ok := set[gapID]
+func (m *Model) gapExpanded(gapID int) bool { return m.gapExpandedIn(m.activeIdx, gapID) }
+
+func (m *Model) gapExpandedIn(session, gapID int) bool {
+	_, ok := m.expandedFor(session)[gapID]
 	return ok
 }
 
-func (m *Model) setGapExpanded(gapID int, open bool) {
+func (m *Model) setGapExpanded(gapID int, open bool) { m.setGapExpandedIn(m.activeIdx, gapID, open) }
+
+func (m *Model) setGapExpandedIn(session, gapID int, open bool) {
 	m.foldRevision++
 	if !open {
-		if set := m.expandedFor(m.activeIdx); set != nil {
+		if set := m.expandedFor(session); set != nil {
 			delete(set, gapID)
 		}
 		return
 	}
-	m.ensureExpanded(m.activeIdx)[gapID] = struct{}{}
+	m.ensureExpanded(session)[gapID] = struct{}{}
 }
 
+// remapScrollToSource places a source line of the active file at the top. In
+// continuous mode the rebuilt plan keeps its own anchor instead.
 func (m *Model) remapScrollToSource(lineIdx int) {
 	m.prepareDisplayRows()
-	m.scroll = diff.IndexOfSourceLine(m.displayRows(), lineIdx)
+	if !m.continuous() {
+		m.scroll = diff.IndexOfSourceLine(m.displayRows(), lineIdx)
+	}
 	m.clampScroll()
 }
 
@@ -619,43 +630,46 @@ func (m *Model) toggleFirstVisibleFold() {
 }
 
 func (m *Model) collapseVisibleFold() {
-	s := m.activeSession()
-	if s == nil || s.Result == nil {
-		return
-	}
 	rows := m.displayRows()
 	if len(rows) == 0 {
 		return
 	}
-	top := m.scroll
-	if top < 0 {
-		top = 0
-	}
-	if top >= len(rows) {
-		top = len(rows) - 1
-	}
-	bottom := m.scroll + m.viewportHeight() - 1
-	if bottom >= len(rows) {
-		bottom = len(rows) - 1
-	}
-	viewStart := rows[top].SourceLine()
-	viewEnd := rows[bottom].SourceLine()
-	if rows[bottom].Kind == diff.DisplayFold {
-		viewEnd = rows[bottom].FoldEnd - 1
-	}
+	top := min(max(0, m.scroll), len(rows)-1)
+	bottom := min(m.scroll+m.viewportHeight()-1, len(rows)-1)
 	anchor := rows[top].SourceLine()
+	if m.collapseFoldIn(m.activeIdx, rows, top, bottom) {
+		m.remapScrollToSource(anchor)
+	}
+}
 
+// collapseFoldIn closes the first expanded gap of a session that overlaps its
+// display rows top…bottom.
+func (m *Model) collapseFoldIn(session int, rows []diff.DisplayRow, top, bottom int) bool {
+	s := &m.sessions[session]
+	if s.Result == nil {
+		return false
+	}
+	// A hunk header names its change run but precedes the leading context, so
+	// the visible source range is the span over all rows, not the first row.
+	viewStart, viewEnd := len(s.Result.Lines), -1
+	for _, row := range rows[top : bottom+1] {
+		first, last := row.SourceLine(), row.SourceLine()
+		if row.Kind == diff.DisplayFold {
+			last = row.FoldEnd - 1
+		}
+		viewStart, viewEnd = min(viewStart, first), max(viewEnd, last)
+	}
 	for _, id := range diff.FoldableGapIDs(s.Result.Lines, diff.DefaultContext) {
-		if !m.gapExpanded(id) {
+		if !m.gapExpandedIn(session, id) {
 			continue
 		}
 		end := equalRunEnd(s.Result.Lines, id)
 		if end > viewStart && id <= viewEnd {
-			m.setGapExpanded(id, false)
-			m.remapScrollToSource(anchor)
-			return
+			m.setGapExpandedIn(session, id, false)
+			return true
 		}
 	}
+	return false
 }
 
 func equalRunEnd(lines []diff.DiffLine, start int) int {

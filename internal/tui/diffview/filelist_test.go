@@ -58,13 +58,13 @@ func TestFileListGroupsProjectRelativeDirectories(t *testing.T) {
 	m.syncDirs = make([]SyncDir, len(sessions))
 	got := sidebarText(m)[:9]
 	want := []string{
-		"./",
+		"[/] ./",
 		"▶ ~ README.md                       +6 —",
-		"src/",
+		"[/] src/",
 		"  ~ a.go                         +1 -1 —",
 		"  L gone.go                         -1 —",
 		"  R new.go                          +2 —",
-		"web/",
+		"[/] web/",
 		"  B logo.png                           —",
 		"  ! broken.css                         —",
 	}

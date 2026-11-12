@@ -34,9 +34,9 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 				direction                       SyncDir
 				legend, header, first, leftPath string
 			}{
-				{DirUpload, "+2 -1  Remote → Local (before → after)", "@@ -1,1 +1,2 @@", "   1      - R", "Remote /remote/file"},
-				{DirDownload, "+1 -2  Local → Remote (before → after)", "@@ -1,2 +1,1 @@", "   1      - L1", "Local  /local/file"},
-				{DirNone, "+1 -2  Compare only · Local → Remote", "@@ -1,2 +1,1 @@", "   1        L1", "Local  /local/file"},
+				{DirUpload, "+2 -1  Upload → Remote", "@@ -1,1 +1,2 @@", "   1      - R", "Remote /remote/file"},
+				{DirDownload, "+1 -2  Download → Local", "@@ -1,2 +1,1 @@", "   1      - L1", "Local  /local/file"},
+				{DirNone, "+1 -2  Compare only", "@@ -1,2 +1,1 @@", "   1        L1", "Local  /local/file"},
 			} {
 				m, _ = m.handleKey(keyMsg(key))
 				if m.syncDirs[0] != tt.direction {
@@ -44,8 +44,15 @@ func TestDirectionSwitchUpdatesEntirePreview(t *testing.T) {
 				}
 				m.showPaths = true
 				rows := m.renderDiffPaneRows(m.activeSession())
-				if !strings.HasPrefix(stripANSI(rows[1]), tt.leftPath) {
-					t.Fatalf("path order = %q", rows[1])
+				if !strings.HasPrefix(stripANSI(rows[2]), tt.leftPath) {
+					t.Fatalf("path order = %q", rows[2])
+				}
+				before, after := "Local", "Remote"
+				if tt.direction == DirUpload {
+					before, after = after, before
+				}
+				if !strings.Contains(stripANSI(rows[1]), "Before: "+before+" · After: "+after) {
+					t.Fatalf("before/after order = %q", rows[1])
 				}
 				m.showPaths = false
 				rows = m.renderDiffPaneRows(m.activeSession())

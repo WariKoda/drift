@@ -20,11 +20,16 @@ func TestLoadLocalFolderFTPRemoteWalk(t *testing.T) {
 		name       string
 		remoteRoot string
 		deniedDir  string
+		mapped     bool
 	}{
 		{name: "missing folder", remoteRoot: "/deploy"},
 		{name: "missing ancestor", remoteRoot: "/deploy/missing/ancestor"},
 		{name: "denied selected folder", remoteRoot: "/deploy", deniedDir: "/deploy/folder"},
 		{name: "denied descendant", remoteRoot: "/deploy", deniedDir: "/deploy/folder/private"},
+		{name: "mapped missing folder", remoteRoot: "/deploy", mapped: true},
+		{name: "mapped missing ancestor", remoteRoot: "/deploy/missing/ancestor", mapped: true},
+		{name: "mapped denied selected folder", remoteRoot: "/deploy", deniedDir: "/deploy/folder", mapped: true},
+		{name: "mapped denied descendant", remoteRoot: "/deploy", deniedDir: "/deploy/folder/private", mapped: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -46,9 +51,15 @@ func TestLoadLocalFolderFTPRemoteWalk(t *testing.T) {
 			conn := connectTestHost(t, host)
 			defer conn.Close()
 			selection := fs.NewSelectionState()
-			selection.Marked[folder] = struct{}{}
+			cfg := &config.MergedConfig{ProjectRoot: root}
+			if tc.mapped {
+				cfg.Mappings = []config.Mapping{{Local: "folder", Remote: "folder"}}
+				selection.Marked[root] = struct{}{}
+			} else {
+				selection.Marked[folder] = struct{}{}
+			}
 			tracker := progress.NewTracker("Connecting…")
-			loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
+			loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: cfg,
 				Local: selection, Conn: conn, IdleTimeout: 5 * time.Second}, tracker)
 			if err != nil {
 				t.Fatalf("load: %v", err)

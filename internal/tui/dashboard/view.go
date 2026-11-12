@@ -32,6 +32,7 @@ func (m Model) View() string {
 	w, h := m.termSize()
 
 	center := func(s string) string {
+		s = ansi.Truncate(s, w, "…")
 		pad := (w - lipgloss.Width(s)) / 2
 		if pad < 0 {
 			pad = 0
@@ -42,14 +43,24 @@ func (m Model) View() string {
 	var lines []string
 
 	// ── Top padding + logo ────────────────────────────────────────────
-	for i := 0; i < headerBlankTop; i++ {
-		lines = append(lines, "")
+	if h < 20 {
+		lines = append(lines, center(styles.Header.Render("drift")+"  "+styles.File.Render("Projects")), "")
+	} else {
+		for i := 0; i < headerBlankTop; i++ {
+			lines = append(lines, "")
+		}
+		for _, l := range logoLines(w) {
+			lines = append(lines, center(logoStyle.Render(l)))
+		}
+		for i := 0; i < headerBlankBot; i++ {
+			lines = append(lines, "")
+		}
 	}
-	for _, l := range logoLines(w) {
-		lines = append(lines, center(logoStyle.Render(l)))
-	}
-	for i := 0; i < headerBlankBot; i++ {
-		lines = append(lines, "")
+	if m.filterMode || m.filter.Value() != "" {
+		field := m.filter
+		field.Focused = m.filterMode
+		field.Width = max(1, m.blockWidth()-19)
+		lines = append(lines, center(field.View()))
 	}
 
 	// ── Project rows ──────────────────────────────────────────────────
@@ -59,7 +70,7 @@ func (m Model) View() string {
 	}
 
 	// ── Push footer to the bottom ─────────────────────────────────────
-	for len(lines)+len(footer) < h {
+	for len(lines)+m.footerHeight() < h {
 		lines = append(lines, "")
 	}
 	lines = append(lines, footer...)
@@ -72,9 +83,9 @@ func (m Model) View() string {
 
 // Screen layout, top to bottom:
 //
-//	headerBlankTop + logoRowCount + headerBlankBot   padding and logo
+//	listTop()                                       logo or compact header, filter
 //	listMax()                                        project rows
-//	footerLineCount                                  action bar, status
+//	footerHeight()                                   action bar, status
 //
 // hitTest in mouse.go maps clicks back through these helpers, so a layout
 // change here must be a change to the constants — not a hand-counted number
@@ -104,19 +115,31 @@ func (m Model) termSize() (w, h int) {
 	return
 }
 
-// listTop is the y of the first project row (1 blank + 5 logo + 2 blanks).
+// listTop is the first project row, below the responsive header and filter.
 func (m Model) listTop() int {
-	return headerBlankTop + logoRowCount + headerBlankBot
+	_, h := m.termSize()
+	top := headerBlankTop + logoRowCount + headerBlankBot
+	if h < 20 {
+		top = 2
+	}
+	if m.filterMode || m.filter.Value() != "" {
+		top++
+	}
+	return top
+}
+
+func (m Model) footerHeight() int {
+	_, h := m.termSize()
+	if h < 20 {
+		return 2
+	}
+	return footerLineCount
 }
 
 // listMax is how many project rows fit between the logo and the footer.
 func (m Model) listMax() int {
 	_, h := m.termSize()
-	n := h - m.listTop() - footerLineCount
-	if n < 1 {
-		return 1
-	}
-	return n
+	return max(0, h-m.listTop()-m.footerHeight())
 }
 
 // windowStart is the first entry index shown, keeping the cursor in view
@@ -150,10 +173,7 @@ func (m Model) blockWidth() int {
 	if bw < minBlockWidth {
 		bw = minBlockWidth
 	}
-	maxFit := w - 2
-	if maxFit < minBlockWidth {
-		maxFit = minBlockWidth
-	}
+	maxFit := max(1, w-2)
 	if bw > maxFit {
 		bw = maxFit
 	}
@@ -185,7 +205,13 @@ func (m Model) blockLeft() int {
 
 // projectRows renders up to listMax project rows (a window around the cursor).
 func (m Model) projectRows() []string {
+	if m.listMax() == 0 {
+		return nil
+	}
 	if len(m.entries) == 0 {
+		if m.filter.Value() != "" {
+			return []string{styles.Muted.Render("No matching projects")}
+		}
 		return []string{styles.Muted.Render("No projects yet — press ") +
 			styles.Dir.Render("n") + styles.Muted.Render(" to add one.")}
 	}
@@ -237,7 +263,7 @@ func (m Model) renderRow(i, pathWidth int) string {
 	if i < 9 {
 		key = fmt.Sprintf("%d", i+1)
 	}
-	return diamond + name + " " + path + " " + styles.Dir.Render(key)
+	return ansi.Truncate(diamond+name+" "+path+" "+styles.Dir.Render(key), m.blockWidth(), "…")
 }
 
 // footerBlock renders the action hints and the status line, bottom-pinned.
@@ -246,18 +272,25 @@ func (m Model) footerBlock(center func(string) string) []string {
 	switch {
 	case m.confirmDelete:
 		if e := m.currentEntry(); e != nil {
-			status = styles.Warn.Render(fmt.Sprintf("Remove %q from the registry?  ", e.proj.Name)) +
-				styles.Dir.Render("y") + styles.Muted.Render("es  ") +
-				styles.Dir.Render("n") + styles.Muted.Render("o")
+			status = styles.Warn.Render(fmt.Sprintf("Remove %q and its saved hosts?", styles.SafeText(e.proj.Name)))
 		}
 	case m.statusMsg != "":
 		status = styles.Err.Render(m.statusMsg)
 	default:
-		archived := "show archived"
-		if m.showArchived {
-			archived = "hide archived"
+		unit := "projects"
+		if len(m.entries) == 1 {
+			unit = "project"
 		}
-		status = styles.Muted.Render(fmt.Sprintf("%d project(s) · %s", len(m.entries), archived))
+		status = styles.Muted.Render(fmt.Sprintf("%d %s", len(m.entries), unit))
+		if m.filter.Value() != "" {
+			status = styles.Muted.Render(fmt.Sprintf("%d of %d projects", len(m.entries), len(m.allEntries)))
+		}
+		if m.showArchived {
+			status += styles.Muted.Render(" · including archived")
+		}
+	}
+	if m.footerHeight() == 2 {
+		return []string{center(m.actionBar()), center(status)}
 	}
 
 	return []string{
@@ -269,19 +302,33 @@ func (m Model) footerBlock(center func(string) string) []string {
 }
 
 func (m Model) actionBar() string {
+	w, _ := m.termSize()
+	if m.confirmDelete {
+		return styles.FitKeyHints(w, styles.KeyHints("[y]remove", styles.Warn), styles.KeyHints("[n]cancel", styles.Muted))
+	}
+	if m.filterMode {
+		return styles.FitKeyHints(w, styles.KeyHints("[↑↓]move", styles.Muted), styles.KeyHints("[Enter]done", styles.Muted), styles.KeyHints("[Esc]clear filter", styles.Muted))
+	}
 	pairs := [][2]string{
-		{"↵", "open"}, {"n", "new"}, {"e", "edit"},
-		{"d", "remove"}, {"a", "archive"}, {".", "archived"},
+		{"↵", "open"}, {"/", "filter"},
 	}
-	if m.returnable {
+	if m.filter.Value() != "" || m.returnable {
+		pairs = append(pairs, [2]string{"q", "quit"})
+	}
+	pairs = append(pairs, [2]string{"n", "new"}, [2]string{"e", "edit"}, [2]string{"d", "remove"}, [2]string{"a", "archive"}, [2]string{".", "archived"})
+	switch {
+	case m.filter.Value() != "":
+		pairs = append(pairs, [2]string{"Esc", "clear filter"})
+	case m.returnable:
 		pairs = append(pairs, [2]string{"Esc", "back"})
+	default:
+		pairs = append(pairs, [2]string{"q", "quit"})
 	}
-	pairs = append(pairs, [2]string{"q", "quit"})
 	var parts []string
 	for _, p := range pairs {
 		parts = append(parts, styles.Dir.Render("["+p[0]+"]")+styles.Muted.Render(" "+p[1]))
 	}
-	return strings.Join(parts, styles.Muted.Render("   "))
+	return styles.FitKeyHints(w, parts...)
 }
 
 // collapseHome rewrites a path under $HOME to use ~ for display.

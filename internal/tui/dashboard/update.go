@@ -3,6 +3,7 @@ package dashboard
 import (
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/styles"
+	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -43,6 +44,28 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.confirmDelete {
 			return m.updateConfirm(msg)
 		}
+		if m.filterMode {
+			switch msg.String() {
+			case "enter":
+				m.filterMode = false
+			case "esc":
+				m.filterMode = false
+				m.filter.SetValue("")
+				m.filterEntries()
+			case "up":
+				m.cursor--
+				m.clampCursor()
+			case "down":
+				m.cursor++
+				m.clampCursor()
+			case "ctrl+c":
+				return m, func() tea.Msg { return MsgDashboardQuit{} }
+			default:
+				m.filter.HandleKey(msg)
+				m.filterEntries()
+			}
+			return m, nil
+		}
 		return m.updateNormal(msg)
 	}
 	return m, nil
@@ -67,6 +90,9 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	m.statusMsg = ""
 
 	switch msg.String() {
+	case "/":
+		m.filterMode = true
+		m.clicks = mouse.ClickTracker{}
 	case "j", "down":
 		m.cursor++
 		m.clampCursor()
@@ -121,10 +147,15 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.chooseCurrent()
 		}
 
-	case "q":
+	case "q", "ctrl+c":
 		return m, func() tea.Msg { return MsgDashboardQuit{} }
 
 	case "esc":
+		if m.filter.Value() != "" {
+			m.filter.SetValue("")
+			m.filterEntries()
+			return m, nil
+		}
 		if m.returnable {
 			return m, func() tea.Msg { return MsgDashboardBack{} }
 		}

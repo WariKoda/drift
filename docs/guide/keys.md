@@ -8,14 +8,15 @@
 | ----- | -------- |
 | `j` / `k` or `↑` / `↓` | Navigate |
 | `Enter` | Open project (re-root drift into it) |
-| `1`–`9` | Jump to / open the n-th project |
+| `1`–`9` | Open the n-th project in the filtered list |
+| `/` | Filter by name, slug or path; `Enter` finishes input without opening a project |
 | `n` | New project |
 | `e` | Edit project |
 | `d` | Remove project (with confirmation) |
 | `a` | Archive / unarchive project |
 | `.` | Show / hide archived projects |
 | Click / wheel | Move the cursor; double click opens |
-| `Esc` | Back to the browser when opened from `P` then `m`; otherwise quit |
+| `Esc` | Clear the filter first; then back to the browser when opened from `P` then `m`, otherwise quit |
 | `q` | Quit drift |
 
 ## Project switcher (`P` in the file browser)

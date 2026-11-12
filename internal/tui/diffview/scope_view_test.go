@@ -6,6 +6,7 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/ftptest"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -43,7 +44,7 @@ func TestPlanSummaryTracksActionsWithoutStartingSync(t *testing.T) {
 	m := New([]diff.Session{
 		{Result: countsFixture(1, 1)}, {Result: countsFixture(1, 1)},
 		{Result: countsFixture(1, 1)}, {Result: countsFixture(1, 1)},
-	}, testHost(), nil, nil, 300, 24)
+	}, testHost(), connectDiffTestHost(t, ftptest.Start(t, 1).Host(t)), nil, 300, 24)
 	m.syncDirs = []SyncDir{DirUpload, DirDownload, DirDeleteLocal, DirDeleteRemote}
 	status := stripANSI(m.renderStatus(m.activeSession()))
 	for _, want := range []string{"Planned: ", "1 upload", "1 download", "1 delete Local", "1 delete Remote"} {

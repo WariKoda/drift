@@ -46,9 +46,9 @@ type Classifier struct {
 	cache map[classKey]PathClass
 }
 
-// NewClassifier prepares a classifier and snapshots every existing project path.
-// Git is also used outside repositories, with a temporary bare metadata directory
-// that never writes into the project.
+// NewClassifier prepares a classifier without walking the project tree.
+// Paths are classified on demand. Git is also used outside repositories, with a
+// temporary bare metadata directory that never writes into the project.
 func NewClassifier(ctx context.Context, projectRoot string) (*Classifier, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -76,13 +76,6 @@ func NewClassifier(ctx context.Context, projectRoot string) (*Classifier, error)
 		return nil, fmt.Errorf("find Git worktree: %w", revErr)
 	}
 
-	candidates, err := existingCandidates(ctx, root)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := classifier.ClassifyBatch(ctx, candidates); err != nil {
-		return nil, err
-	}
 	return classifier, nil
 }
 
@@ -97,32 +90,6 @@ func isNotRepository(err error) bool {
 	var exitErr *exec.ExitError
 	return errors.As(err, &exitErr) && exitErr.ExitCode() == 128 &&
 		strings.Contains(strings.ToLower(string(exitErr.Stderr)), "not a git repository")
-}
-
-func existingCandidates(ctx context.Context, root string) ([]ClassifyCandidate, error) {
-	var candidates []ClassifyCandidate
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err != nil {
-			return err
-		}
-		if path == root {
-			return nil
-		}
-		candidate := ClassifyCandidate{Path: path, IsDir: entry.IsDir()}
-		class, classErr := lexicalClass(root, candidate)
-		if classErr != nil {
-			return classErr
-		}
-		candidates = append(candidates, candidate)
-		if entry.IsDir() && class.HardExcluded {
-			return filepath.SkipDir
-		}
-		return nil
-	})
-	return candidates, err
 }
 
 // ClassifyBatch evaluates candidates with one Git process for all cache misses.

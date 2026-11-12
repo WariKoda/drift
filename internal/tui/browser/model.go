@@ -496,18 +496,37 @@ func (m Model) remoteBusy() bool {
 	return m.editPending || m.remoteLoading || m.remoteReading || m.remotePreviewReading
 }
 
-func (m Model) cachedPathClass(path string) (fs.PathClass, bool) {
-	if class, ok := m.classifier.CachedClassify(path, false); ok {
-		return class, true
+func (m Model) cachedPathClass(path string, remote bool) (fs.ClassifyCandidate, fs.PathClass, bool) {
+	if remote {
+		if m.remoteHost == nil {
+			return fs.ClassifyCandidate{}, fs.PathClass{}, false
+		}
+		mapper := pathmap.New(m.WorkDir, nil, *m.remoteHost)
+		if m.config != nil {
+			mapper = pathmap.New(m.config.ProjectRoot, m.config.Mappings, *m.remoteHost)
+		}
+		localPath, err := mapper.RemoteToLocal(path)
+		if err != nil {
+			return fs.ClassifyCandidate{}, fs.PathClass{}, false
+		}
+		path = localPath
 	}
-	return m.classifier.CachedClassify(path, true)
+	candidate := fs.ClassifyCandidate{Path: path}
+	if class, ok := m.classifier.CachedClassify(path, false); ok {
+		return candidate, class, true
+	}
+	if class, ok := m.classifier.CachedClassify(path, true); ok {
+		candidate.IsDir = true
+		return candidate, class, true
+	}
+	return candidate, fs.PathClass{}, false
 }
 
 func (m Model) hiddenSelectionCount() int {
 	count := 0
 	if m.Selection != nil {
 		for localPath := range m.Selection.Marked {
-			class, ok := m.cachedPathClass(localPath)
+			_, class, ok := m.cachedPathClass(localPath, false)
 			if !ok || (!m.showHidden && class.Hidden) || (!m.showIgnored && class.Ignored) || class.HardExcluded {
 				count++
 			}
@@ -516,17 +535,8 @@ func (m Model) hiddenSelectionCount() int {
 	if m.remoteHost == nil || m.RemoteSelection == nil {
 		return count
 	}
-	mapper := pathmap.New(m.WorkDir, nil, *m.remoteHost)
-	if m.config != nil {
-		mapper = pathmap.New(m.config.ProjectRoot, m.config.Mappings, *m.remoteHost)
-	}
 	for remotePath := range m.RemoteSelection.Marked {
-		localPath, err := mapper.RemoteToLocal(remotePath)
-		if err != nil {
-			count++
-			continue
-		}
-		class, ok := m.cachedPathClass(localPath)
+		_, class, ok := m.cachedPathClass(remotePath, true)
 		if !ok || (!m.showHidden && class.Hidden) || (!m.showIgnored && class.Ignored) || class.HardExcluded {
 			count++
 		}

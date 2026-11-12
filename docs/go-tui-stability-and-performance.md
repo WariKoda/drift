@@ -52,7 +52,7 @@ This is approximately 11.5× faster rendering and 96.6% fewer allocated bytes in
 - Refresh replaces the tree/classifier atomically after success. Expanded hierarchy, current path, visibility settings and marks survive successful refreshes; failures retain the previous tree and are logged and displayed.
 - Navigation and marking remain available during reads. Escape cancels pending local reads without clearing marks. Explicit expansion/collapse supersedes a pending refresh so its old snapshot cannot undo newer tree interaction.
 - The root routes local results even when a host/project modal is open and cancels pending reads on project replacement/shutdown. Configuration assignment no longer rereads an already initialized local tree.
-- Classifier construction propagates cancellation through its walk and Git subprocesses. An individual blocked OS filesystem call cannot be forcibly interrupted; it no longer blocks `Update`, and its stale result is discarded.
+- Classifier construction locates the Git worktree without scanning project descendants. Directory reads and batched ignore checks run on demand, so an unrelated unreadable directory does not prevent opening the project. Refresh reclassifies marked paths even when their directories are collapsed or they exist only remotely; marks added during refresh trigger a follow-up request before the new snapshot is adopted. Cancellation reaches Git subprocesses, but an individual blocked OS filesystem call cannot be forcibly interrupted; it no longer blocks `Update`, and its stale result is discarded.
 
 ## Validation
 

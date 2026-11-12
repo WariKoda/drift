@@ -33,6 +33,22 @@ func (m *Model) RefreshLocal() tea.Cmd {
 			expanded[entry.Path] = true
 		}
 	}
+	// Collapsed and remote-only marks may not occur in the rebuilt local tree.
+	var selected []fs.ClassifyCandidate
+	for _, selection := range []struct {
+		state  *fs.SelectionState
+		remote bool
+	}{{m.Selection, false}, {m.RemoteSelection, true}} {
+		if selection.state == nil {
+			continue
+		}
+		for path := range selection.state.Marked {
+			candidate, _, _ := m.cachedPathClass(path, selection.remote)
+			if candidate.Path != "" {
+				selected = append(selected, candidate)
+			}
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	request := &localReadRequest{session: m.remoteSession, path: m.WorkDir, refresh: true, cancel: cancel}
 	m.localReload = request
@@ -42,6 +58,9 @@ func (m *Model) RefreshLocal() tea.Cmd {
 		result.classifier, result.err = fs.NewClassifier(ctx, request.path)
 		if result.err == nil {
 			result.entries, result.err = readLocalTree(ctx, result.classifier, request.path, expanded)
+		}
+		if result.err == nil {
+			_, result.err = result.classifier.ClassifyBatch(ctx, selected)
 		}
 		return result
 	}
@@ -154,6 +173,26 @@ func (m *Model) applyLocalLoaded(msg MsgLocalLoaded) tea.Cmd {
 		log.Error("browser local read failed", "path", request.path, "err", msg.err)
 		m.statusMsg = "Local read failed: " + msg.err.Error()
 		return nil
+	}
+	if request.refresh {
+		// Finder and remote results can add marks after the refresh snapshot.
+		// Keep the old tree until those paths have also been classified.
+		for _, selection := range []struct {
+			state  *fs.SelectionState
+			remote bool
+		}{{m.Selection, false}, {m.RemoteSelection, true}} {
+			if selection.state == nil {
+				continue
+			}
+			for path := range selection.state.Marked {
+				candidate, _, _ := m.cachedPathClass(path, selection.remote)
+				if candidate.Path != "" {
+					if _, ok := msg.classifier.CachedClassify(candidate.Path, candidate.IsDir); !ok {
+						return m.RefreshLocal()
+					}
+				}
+			}
+		}
 	}
 	cursorPath := ""
 	if visible := m.filteredEntries(); m.cursor >= 0 && m.cursor < len(visible) {

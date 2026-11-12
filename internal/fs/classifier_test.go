@@ -64,6 +64,9 @@ func TestClassifierKeepsTrackedIgnoredFile(t *testing.T) {
 	if got := classifyTest(t, classifier, filepath.Join(root, "untracked.env"), false); !got.Ignored {
 		t.Fatalf("untracked file not ignored: %+v", got)
 	}
+	if got := classifyTest(t, classifier, filepath.Join(root, "ignored", "tracked.txt"), false); got.Ignored {
+		t.Fatalf("tracked file inside ignored directory classified as ignored: %+v", got)
+	}
 	if got := classifyTest(t, classifier, filepath.Join(root, "ignored"), true); got.Ignored {
 		t.Fatalf("directory containing tracked file classified as ignored: %+v", got)
 	}

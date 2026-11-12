@@ -80,3 +80,18 @@ func TestFullPathsToggleKeepsGeometry(t *testing.T) {
 		t.Fatalf("hiding paths left chrome %d scroll %d, want %d", m.chromeRows(), m.scroll, end)
 	}
 }
+
+func TestProjectHeaderFitsNarrowWidths(t *testing.T) {
+	m := New(nil, config.Host{Name: "staging"}, nil, nil, 100, 24)
+	m.SetProjectName("Shop\x1b[2J")
+	for width := 1; width <= 160; width++ {
+		m.Width = width
+		got := m.renderHeader()
+		if lipgloss.Width(got) != width || strings.Contains(got, "\x1b[2J") {
+			t.Fatalf("width %d: %q", width, got)
+		}
+	}
+	if got := stripANSI(m.renderHeader()); !strings.Contains(got, "Shop") || !strings.Contains(got, "staging · Disconnected") {
+		t.Fatalf("header: %q", got)
+	}
+}

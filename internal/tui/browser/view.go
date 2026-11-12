@@ -106,14 +106,34 @@ func (m Model) paneWidths() (int, int) {
 
 func (m Model) renderHeader() string {
 	line := styles.Header.Render("drift")
-	if m.projectName != "" {
-		line += "  " + styles.Accent.Render(styles.SafeText(m.projectName))
+	name := m.projectName
+	if name == "" {
+		name = filepath.Base(m.absWorkDir())
 	}
-	line += "  " + styles.Muted.Render(styles.SafeText(m.absWorkDir()))
+	line += "  " + styles.Accent.Render(styles.SafeText(name))
 	if m.Width <= 0 {
 		return line
 	}
-	return padRight(ansi.Truncate(line, m.Width, "…"), m.Width)
+	right := ""
+	if m.remoteHost != nil {
+		status, statusStyle := "Disconnected", styles.Err
+		if m.remoteLoading {
+			status, statusStyle = "Connecting", styles.Warn
+		} else if m.remoteConn != nil && m.remoteConn.Err() == nil {
+			select {
+			case <-m.remoteConn.Done():
+			default:
+				status, statusStyle = "Connected", styles.Muted
+			}
+		}
+		right = statusStyle.Render(status)
+		if nameWidth := m.Width/2 - lipgloss.Width(right) - 3; nameWidth > 0 {
+			right = styles.Dir.Render(truncate(styles.SafeText(m.remoteHost.Name), nameWidth)) + styles.Muted.Render(" · ") + right
+		}
+		right = truncate(right, max(0, m.Width/2))
+	}
+	line = truncate(line, max(0, m.Width-lipgloss.Width(right)-1))
+	return padRight(line, m.Width-lipgloss.Width(right)) + right
 }
 
 func (m Model) renderPaneLabels(leftW, rightW int) string {

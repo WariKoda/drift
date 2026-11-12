@@ -19,7 +19,7 @@ func TestFileTitleShowsRelativePathStatusAndCounts(t *testing.T) {
 	}}, config.Host{}, nil, root, 140, 20)
 	m.syncDirs[0] = DirDownload
 	title := strings.TrimSpace(stripANSI(m.renderFileTitle(m.activeIdx, m.diffWidth())))
-	if !strings.HasPrefix(title, "src/new.go · remote only") || !strings.HasSuffix(title, "+3  Local → Remote (before → after)") {
+	if !strings.HasPrefix(title, "src/new.go · remote only") || !strings.HasSuffix(title, "+3  Download → Local") {
 		t.Fatalf("title = %q", title)
 	}
 }
@@ -36,8 +36,8 @@ func TestFileTitleFitsEveryWidth(t *testing.T) {
 			t.Fatalf("width %d rendered %d cells: %q", width, got, stripANSI(row))
 		}
 		plain := stripANSI(row)
-		if width >= 40 && !strings.Contains(plain, "Remote → Local") {
-			t.Fatalf("width %d dropped the before/after orientation: %q", width, plain)
+		if width >= 40 && !strings.Contains(plain, "Upload") {
+			t.Fatalf("width %d dropped the planned action: %q", width, plain)
 		}
 		if width >= 80 && !strings.Contains(plain, "+45 -120") {
 			t.Fatalf("width %d dropped the counts: %q", width, plain)

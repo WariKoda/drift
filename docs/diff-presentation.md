@@ -76,12 +76,19 @@ wie die Diff-Zeilen der jeweiligen Datei; bei Upload-Vorschau tauschen `+` und
 `-`. Reicht der Platz nicht für mindestens vier Zeichen Dateiname, entfallen die
 Zahlen. `<` und `>` ändern die Breite nur für die Sitzung.
 
-Der Dateititel über dem Diff ist eine Zeile: relativer Pfad, Statusbezeichnung,
-Zeilenzahlen und Vorher/Nachher-Orientierung. Bei wenig Platz fällt zuerst der
-Zusatz „(before → after)“ weg, dann die Zahlen; die Kurzform `Local → Remote`
-bleibt, der Pfad wird links gekürzt. `f` zeigt zusätzlich beide absoluten Pfade
+Der Dateititel über dem Diff zeigt relativen Pfad, Statusbezeichnung,
+Zeilenzahlen und die geplante Aktion, etwa `Upload → staging`. Bei wenig Platz
+entfallen zuerst der Zielname, dann die Zahlen; der Pfad wird links gekürzt.
+Eine eigene Zeile darunter benennt `Before` und `After`. Diese Reihenfolge
+beschreibt die Diff-Zeilen, nicht die Transferrichtung. Die Titel im fortlaufenden
+Diff verwenden dieselben Aktionslabels. `f` zeigt zusätzlich beide absoluten Pfade
 in Vorher/Nachher-Reihenfolge. `chromeRows()` liefert die Höhe dieses Kopfs;
 Viewport, `contentTop()` und Trefferprüfung rechnen damit.
+
+Die Statuszeile zählt die geplanten Uploads, Downloads und Löschungen. Lokale
+und entfernte Löschungen bleiben getrennt. Leere Scope-Zähler entfallen;
+ausgeschlossene Dateien und eingeschaltetes Einbeziehen ignorierter Pfade bleiben
+sichtbar, soweit die verfügbare Breite reicht.
 
 ## Kontext
 

@@ -28,7 +28,7 @@ var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 const (
 	headerLines = 2
 	footerLines = 2
-	pathChrome  = 2 // file title + separator inside the right pane
+	pathChrome  = 3 // file title, before/after labels and separator
 	pathRows    = 2 // full local and remote paths, shown with [f]
 )
 
@@ -225,6 +225,11 @@ func (m Model) renderFileHeader(s *diff.Session, width int) []string {
 		return append(rows, sepLine(width))
 	}
 	rows = append(rows, m.renderFileTitle(m.activeIdx, width))
+	before, after := "Local", "Remote"
+	if m.sessionFlip(m.activeIdx) {
+		before, after = after, before
+	}
+	rows = append(rows, pad(styles.Muted.Render("Before: ")+styles.File.Render(before)+styles.Muted.Render(" · After: ")+styles.File.Render(after), width))
 	if m.showPaths {
 		labels, paths := [2]string{"Local ", "Remote"}, [2]string{s.LocalPath, s.RemotePath}
 		if m.remoteBeforeLocal() {
@@ -253,21 +258,30 @@ func (m Model) renderOptions(index int) diff.RenderOptions {
 	return options
 }
 
-// renderFileTitle keeps the before/after orientation over the line counts and
-// both over the path, which is shortened from the left.
+// renderFileTitle shows the planned action separately from the diff's
+// before/after order. Continuous sections use the same action labels.
 func (m Model) renderFileTitle(index, width int) string {
 	if index < 0 || index >= len(m.sessions) {
 		return strings.Repeat(" ", max(0, width))
 	}
 	s := &m.sessions[index]
-	before, after := "Local", "Remote"
-	if m.sessionFlip(index) {
-		before, after = after, before
+	short, long := "Skip", "Compare only"
+	switch m.syncDir(index) {
+	case DirUpload:
+		short, long = "Upload", "Upload → Remote"
+		if m.host.Name != "" {
+			long = "Upload → " + styles.SafeText(m.host.Name)
+		}
+	case DirDownload:
+		short, long = "Download", "Download → Local"
+	case DirDeleteLocal:
+		short, long = "Delete Local", "Delete Local"
+	case DirDeleteRemote:
+		short, long = "Delete Remote", "Delete Remote"
 	}
-	short := before + " → " + after
-	long := short + " (before → after)"
-	if m.syncDir(index) == DirNone {
-		long = "Compare only · " + short
+	actionStyle := styles.Key
+	if m.syncDir(index) == DirDeleteLocal || m.syncDir(index) == DirDeleteRemote {
+		actionStyle = styles.Err
 	}
 	title := styles.SafeText(m.displayPath(s))
 	_, label, _ := fileStatus(s)
@@ -280,7 +294,7 @@ func (m Model) renderFileTitle(index, width int) string {
 		gap = "  "
 	}
 	right := ""
-	for _, candidate := range []string{counts + gap + styles.Muted.Render(long), counts + gap + styles.Muted.Render(short), styles.Muted.Render(short)} {
+	for _, candidate := range []string{counts + gap + actionStyle.Render(long), counts + gap + actionStyle.Render(short), actionStyle.Render(short)} {
 		if width-lipgloss.Width(candidate)-1 >= min(ansi.StringWidth(title), 16) {
 			right = candidate
 			break
@@ -398,15 +412,26 @@ func (m Model) renderStatus(s *diff.Session) string {
 		return ansi.Truncate(styles.KeyHints(status, styles.Err), max(1, m.Width), "…")
 	}
 	var info string
-	if s != nil && s.Result != nil {
-		if !s.Result.HasDiff() {
-			info = styles.Muted.Render("identical")
-		} else if s.Result.ContentDiff {
-			info = styles.File.Render("content differs")
-		} else {
-			added, removed := m.displayCounts(m.activeIdx)
-			info = styles.File.Render(fmt.Sprintf("+%d -%d", added, removed))
+	counts := make(map[SyncDir]int)
+	for _, direction := range m.syncDirs {
+		counts[direction]++
+	}
+	var planned []string
+	for _, action := range []struct {
+		dir   SyncDir
+		label string
+	}{{DirUpload, "upload"}, {DirDownload, "download"}, {DirDeleteLocal, "delete Local"}, {DirDeleteRemote, "delete Remote"}} {
+		if n := counts[action.dir]; n > 0 {
+			label := fmt.Sprintf("%d %s", n, action.label)
+			if action.dir == DirDeleteLocal || action.dir == DirDeleteRemote {
+				planned = append(planned, styles.Err.Render(label))
+			} else {
+				planned = append(planned, styles.File.Render(label))
+			}
 		}
+	}
+	if len(planned) > 0 {
+		info = styles.Muted.Render("Planned: ") + strings.Join(planned, styles.Muted.Render(" · "))
 	}
 
 	var keys string
@@ -452,7 +477,10 @@ func (m Model) renderStatus(s *diff.Session) string {
 }
 
 func (m Model) scopeSummaryLabel() string {
-	parts := []string{fmt.Sprintf("%d pairs", m.scope.Pairs), fmt.Sprintf("%d hidden", m.scope.Hidden)}
+	parts := []string{fmt.Sprintf("%d pairs", m.scope.Pairs)}
+	if m.scope.Hidden > 0 {
+		parts = append(parts, fmt.Sprintf("%d hidden", m.scope.Hidden))
+	}
 	if m.scope.IgnoredFilesSkipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d ignored skipped", m.scope.IgnoredFilesSkipped))
 	}
@@ -465,11 +493,9 @@ func (m Model) scopeSummaryLabel() string {
 	if m.scope.ExplicitIgnoredIncluded > 0 {
 		parts = append(parts, fmt.Sprintf("%d explicit ignored included", m.scope.ExplicitIgnoredIncluded))
 	}
-	state := "off"
 	if m.scopeOptions.IncludeIgnored {
-		state = "on"
+		parts = append(parts, "include ignored: on")
 	}
-	parts = append(parts, "include ignored: "+state)
 	return strings.Join(parts, " · ")
 }
 

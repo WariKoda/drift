@@ -107,8 +107,8 @@ func TestFileListCountsFollowPreviewDirection(t *testing.T) {
 		if got := stripANSI(m.countsLabel(0)); got != tc.want {
 			t.Fatalf("direction %d: counts %q, want %q", tc.dir, got, tc.want)
 		}
-		if status := stripANSI(m.renderStatus(m.activeSession())); !strings.Contains(status, tc.want) {
-			t.Fatalf("direction %d: status bar %q does not match the file list %q", tc.dir, status, tc.want)
+		if title := stripANSI(m.renderFileTitle(0, 100)); !strings.Contains(title, tc.want) {
+			t.Fatalf("direction %d: title %q does not match the file list %q", tc.dir, title, tc.want)
 		}
 	}
 }

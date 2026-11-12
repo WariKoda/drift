@@ -4,10 +4,12 @@ package dashboard
 
 import (
 	"os"
+	"strings"
 
 	"github.com/WariKoda/drift/internal/project"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/WariKoda/drift/internal/tui/mouse"
+	"github.com/WariKoda/drift/internal/tui/textfield"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -19,9 +21,12 @@ type entry struct {
 
 // Model is the dashboard screen.
 type Model struct {
-	reg     *project.Registry
-	entries []entry
-	cursor  int
+	reg        *project.Registry
+	entries    []entry
+	allEntries []entry
+	cursor     int
+	filter     textfield.TextField
+	filterMode bool
 
 	showArchived  bool
 	confirmDelete bool
@@ -36,7 +41,7 @@ type Model struct {
 
 // New builds a dashboard Model from the given registry.
 func New(reg *project.Registry, width, height int) Model {
-	m := Model{reg: reg, Width: width, Height: height}
+	m := Model{reg: reg, Width: width, Height: height, filter: textfield.TextField{Label: "Filter", MaxLen: 256}}
 	m.rebuild()
 	return m
 }
@@ -60,15 +65,38 @@ func (m *Model) rebuild() {
 		projects = m.reg.Active()
 	}
 
-	m.entries = make([]entry, 0, len(projects))
+	m.allEntries = make([]entry, 0, len(projects))
 	for _, p := range projects {
 		missing := false
 		if info, err := os.Stat(p.Path); err != nil || !info.IsDir() {
 			missing = true
 		}
-		m.entries = append(m.entries, entry{proj: p, missing: missing})
+		m.allEntries = append(m.allEntries, entry{proj: p, missing: missing})
 	}
-	m.clampCursor()
+	m.filterEntries()
+}
+
+// filterEntries uses the last registry snapshot without reading project paths.
+func (m *Model) filterEntries() {
+	slug := ""
+	if current := m.currentEntry(); current != nil {
+		slug = current.proj.Slug
+	}
+	query := strings.ToLower(strings.TrimSpace(m.filter.Value()))
+	m.entries = make([]entry, 0, len(m.allEntries))
+	for _, e := range m.allEntries {
+		if query == "" || strings.Contains(strings.ToLower(e.proj.Name), query) || strings.Contains(strings.ToLower(e.proj.Slug), query) || strings.Contains(strings.ToLower(e.proj.Path), query) {
+			m.entries = append(m.entries, e)
+		}
+	}
+	m.cursor = 0
+	for i := range m.entries {
+		if m.entries[i].proj.Slug == slug {
+			m.cursor = i
+			break
+		}
+	}
+	m.clicks = mouse.ClickTracker{}
 }
 
 func (m *Model) clampCursor() {

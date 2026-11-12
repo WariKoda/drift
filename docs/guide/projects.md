@@ -47,6 +47,12 @@ From the file browser, `P` opens a filterable switcher and leaves the current se
 alone. Esc goes back. Enter on another project re-roots. `m` (with an empty filter)
 opens the full dashboard to add, edit, archive, or remove entries.
 
+On the dashboard, `/` filters projects by name, slug or path. `Enter` finishes
+filter input; press it again to open the selected project. Number keys and
+management actions use the filtered list. `Esc` clears the filter before leaving
+the dashboard. Terminals shorter than 20 rows use a compact header to leave more
+room for projects.
+
 ## Registering a directory
 
 The registry is also how drift knows which project a directory belongs to: the

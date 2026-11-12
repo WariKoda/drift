@@ -55,8 +55,8 @@ func TestVisibilityTogglesAreIndependentAndKeepTreeState(t *testing.T) {
 }
 
 func TestHelpTextShowsVisibilityStates(t *testing.T) {
-	want := "[s]sync  [.]hidden  [I]ignored  [Tab]pane  [q]quit  [@]remote  [e]edit remote  [f]find  [?]help"
-	got := HelpText(false, true, 200)
+	want := "[s]compare  [Space]mark  [Tab]pane  [f]find  [.]hidden  [I]ignored  [@]remote  [q]quit  [?]help"
+	got := (Model{showIgnored: true}).helpText(200)
 	if plain := ansi.Strip(got); plain != want {
 		t.Fatalf("HelpText() = %q, want %q", plain, want)
 	}

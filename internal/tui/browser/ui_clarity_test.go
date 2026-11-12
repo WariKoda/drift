@@ -26,7 +26,7 @@ func TestVisibilityHintStyles(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
 	for _, hidden := range []bool{false, true} {
 		for _, ignored := range []bool{false, true} {
-			got := HelpText(hidden, ignored, 200)
+			got := (Model{showHidden: hidden, showIgnored: ignored}).helpText(200)
 			for _, tc := range []struct {
 				key, label string
 				active     bool
@@ -49,7 +49,7 @@ func TestVisibilityHintStyles(t *testing.T) {
 
 func TestAdaptiveKeyHintsFitWithoutSplitting(t *testing.T) {
 	for width := 0; width <= 200; width++ {
-		for _, got := range []string{HelpText(true, false, width), PreviewHelpText(width)} {
+		for _, got := range []string{(Model{showHidden: true}).helpText(width), PreviewHelpText(width)} {
 			plain := ansi.Strip(got)
 			if lipgloss.Width(got) > width {
 				t.Fatalf("width %d: %q", width, got)
@@ -70,6 +70,32 @@ func TestStatusKeepsHelpWithLongMessage(t *testing.T) {
 		got := m.renderStatus(nil)
 		if lipgloss.Width(got) != width || !strings.Contains(ansi.Strip(got), "[?]help") {
 			t.Fatalf("width %d: %q", width, got)
+		}
+	}
+}
+
+func TestEditHintFollowsRemoteSelection(t *testing.T) {
+	m, _ := newRemoteDirectoryBrowser(t)
+	m, read := m.updateRemoteOpen()
+	m, _ = m.Update(read())
+	m.remoteCursor = 1
+	if !strings.Contains(ansi.Strip(m.helpText(200)), "[e]edit remote") {
+		t.Fatal("regular remote file has no edit hint")
+	}
+	for _, state := range []string{"local", "directory", "busy", "unmapped"} {
+		next := m
+		switch state {
+		case "local":
+			next.activePane = PaneLocal
+		case "directory":
+			next.remoteCursor = 0
+		case "busy":
+			next.remoteReading = true
+		case "unmapped":
+			next.remoteCurrent().Unmapped = true
+		}
+		if got := ansi.Strip(next.helpText(200)); strings.Contains(got, "[e]") {
+			t.Fatalf("%s shows editing: %q", state, got)
 		}
 	}
 }

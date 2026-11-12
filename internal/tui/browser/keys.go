@@ -1,10 +1,8 @@
 package browser
 
 import (
-	"strings"
-
+	"github.com/WariKoda/drift/internal/fs"
 	"github.com/WariKoda/drift/internal/styles"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // key constants — used in Update's switch statements.
@@ -45,31 +43,45 @@ const (
 	keyShiftI    = "I"
 )
 
-// HelpText returns the key hints and current visibility states shown in the status bar.
-func HelpText(showHidden, showIgnored bool, width int) string {
+// helpText shows actions for the active pane and mode.
+func (m Model) helpText(width int) string {
+	if m.filterMode {
+		return styles.FitKeyHints(width, keyHint("Enter", "done"), keyHint("Esc", "done"))
+	}
+	if m.remoteBusy() || m.localReload != nil || len(m.localReads) > 0 {
+		return styles.FitKeyHints(width, keyHint("Esc", "cancel"), keyHint("?", "help"))
+	}
 	hidden, ignored := styles.Muted.Render("hidden"), styles.Muted.Render("ignored")
-	if showHidden {
+	if m.showHidden {
 		hidden = styles.ActiveHint.Render("hidden")
 	}
-	if showIgnored {
+	if m.showIgnored {
 		ignored = styles.ActiveHint.Render("ignored")
 	}
-	return fitKeyHints(width,
-		keyHint("s", "sync"),
+	hints := []string{keyHint("s", "compare"), keyHint("Space", "mark")}
+	entry := m.remoteCurrent()
+	if m.activePane == PaneRemote && m.remoteHost != nil && m.remoteConn != nil && m.remoteConn.Err() == nil && entry != nil && entry.Kind == fs.EntryFile && entry.Mode.IsRegular() && !entry.Unmapped && !entry.Class.HardExcluded {
+		select {
+		case <-m.remoteConn.Done():
+		default:
+			hints = append(hints, keyHint("e", "edit remote"))
+		}
+	}
+	hints = append(hints,
+		keyHint("Tab", "pane"),
+		keyHint("f", "find"),
 		styles.Dir.Render("[.]")+hidden,
 		styles.Dir.Render("[I]")+ignored,
-		keyHint("Tab", "pane"),
-		keyHint("q", "quit"),
 		keyHint("@", "remote"),
-		keyHint("e", "edit remote"),
-		keyHint("f", "find"),
+		keyHint("q", "quit"),
 		keyHint("?", "help"),
 	)
+	return styles.FitKeyHints(width, hints...)
 }
 
 // PreviewHelpText returns key hints for the active preview.
 func PreviewHelpText(width int) string {
-	return fitKeyHints(width,
+	return styles.FitKeyHints(width,
 		keyHint("p", "close"),
 		keyHint("c", "copy"),
 		keyHint("PgUp/PgDown", "scroll"),
@@ -77,24 +89,6 @@ func PreviewHelpText(width int) string {
 		keyHint("Home/End", "jump"),
 		keyHint("?", "help"),
 	)
-}
-
-// The last hint is the escape/help action and always gets space first.
-func fitKeyHints(width int, hints ...string) string {
-	last := hints[len(hints)-1]
-	if lipgloss.Width(last) > width {
-		return ""
-	}
-	remaining := width - lipgloss.Width(last)
-	var selected []string
-	for _, hint := range hints[:len(hints)-1] {
-		needed := lipgloss.Width(hint) + 2
-		if needed <= remaining {
-			selected = append(selected, hint)
-			remaining -= needed
-		}
-	}
-	return strings.Join(append(selected, last), "  ")
 }
 
 func keyHint(key, label string) string {
@@ -128,10 +122,10 @@ func FullHelp() string {
   *              invert selection in active pane
   Esc            clear filter / selections
 
-  Find & Sync
+  Find & Compare
   ──────────────────────────────
   f              fuzzy find files across the project, mark with Space
-  s              sync marked local/remote files (uses remote pane host when selected)
+  s              compare marked local/remote files (uses remote pane host when selected)
   @              choose/change host for the remote pane
   e              edit current remote file in the configured external editor
   .              toggle hidden files

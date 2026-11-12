@@ -402,9 +402,9 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 		}
 	}
 
-	// Reserve a short status area, but never let a long message push help off-screen.
-	helpWidth := max(0, m.Width-3-min(lipgloss.Width(left), m.Width/3))
-	right := HelpText(m.showHidden, m.showIgnored, helpWidth)
+	// Status has priority over optional shortcuts; help stays available.
+	helpWidth := max(0, m.Width-3-min(lipgloss.Width(left), max(0, m.Width-3-len("[?]help"))))
+	right := m.helpText(helpWidth)
 	if m.preview.active {
 		right = PreviewHelpText(helpWidth)
 	}
@@ -516,7 +516,7 @@ func (m Model) renderFinder() string {
 
 	sb.WriteString(m.renderSep())
 	sb.WriteByte('\n')
-	help := fitKeyHints(max(0, m.Width-2),
+	help := styles.FitKeyHints(max(0, m.Width-2),
 		keyHint("Space", "mark"), keyHint("Enter", "done"), keyHint("↑↓", "move"),
 		styles.Muted.Render(fmt.Sprintf("%d/%d · %d marked", len(m.finder.results), len(m.finder.rel), selectionCount(m.Selection))),
 		keyHint("Esc", "cancel"))

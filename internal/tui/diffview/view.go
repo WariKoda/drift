@@ -405,11 +405,14 @@ func (m Model) renderStatus(s *diff.Session) string {
 	if connectionErr != nil {
 		reason := strings.Join(strings.Fields(connectionErr.Error()), " ")
 		status := "Disconnected: " + reason + " | Reopen comparison before syncing."
+		hints := []string{}
 		if len(m.syncErrors) > 0 {
-			status += " [e]errors"
+			hints = append(hints, styles.KeyHints("[e]errors", styles.Muted))
 		}
-		status += " [q]back"
-		return ansi.Truncate(styles.KeyHints(status, styles.Err), max(1, m.Width), "…")
+		hints = append(hints, styles.KeyHints("[q]back", styles.Muted))
+		keys := styles.FitKeyHints(max(0, m.Width/3), hints...)
+		status = ansi.Truncate(styles.Err.Render(styles.SafeText(status)), max(0, m.Width-lipgloss.Width(keys)-2), "…")
+		return pad(status+"  "+keys, max(0, m.Width))
 	}
 	var info string
 	counts := make(map[SyncDir]int)
@@ -420,7 +423,7 @@ func (m Model) renderStatus(s *diff.Session) string {
 	for _, action := range []struct {
 		dir   SyncDir
 		label string
-	}{{DirUpload, "upload"}, {DirDownload, "download"}, {DirDeleteLocal, "delete Local"}, {DirDeleteRemote, "delete Remote"}} {
+	}{{DirDeleteLocal, "delete Local"}, {DirDeleteRemote, "delete Remote"}, {DirUpload, "upload"}, {DirDownload, "download"}} {
 		if n := counts[action.dir]; n > 0 {
 			label := fmt.Sprintf("%d %s", n, action.label)
 			if action.dir == DirDeleteLocal || action.dir == DirDeleteRemote {
@@ -435,23 +438,24 @@ func (m Model) renderStatus(s *diff.Session) string {
 	}
 
 	var keys string
+	var hints []string
 	switch {
 	case m.syncing:
 		keys = styles.Warn.Render(m.syncProgressLabel())
 	case m.quickSyncing:
 		keys = styles.Warn.Render("syncing current file…")
 	case m.showErrors:
-		keys = styles.KeyHints("[e/q]close errors", styles.Muted)
+		hints = []string{styles.KeyHints("[e/q]close errors", styles.Muted)}
+	case m.showHelp:
+		hints = []string{styles.KeyHints("[?]close help", styles.Muted)}
 	default:
-		if m.comparisonEmptyState() != comparisonNotEmpty {
-			keys = styles.KeyHints("[i]include ignored  [r]refresh  [q]back", styles.Muted)
-		} else {
-			keys = styles.KeyHints("[i]include ignored  [s/S]sync  [r]refresh  [q]back", styles.Muted)
-		}
-		keys = styles.KeyHints("[?]help [v]layout  ", styles.Muted) + keys
 		if len(m.syncErrors) > 0 {
-			keys = styles.KeyHints("[e]errors  ", styles.Err) + keys
+			hints = append(hints, styles.KeyHints("[e]errors", styles.Err))
 		}
+		if m.comparisonEmptyState() == comparisonNotEmpty {
+			hints = append(hints, styles.KeyHints("[s]sync file", styles.Muted), styles.KeyHints("[S]sync all", styles.Muted))
+		}
+		hints = append(hints, styles.KeyHints("[r]refresh", styles.Muted), styles.KeyHints("[q]back", styles.Muted), styles.KeyHints("[v]layout", styles.Muted), styles.KeyHints("[i]include ignored", styles.Muted), styles.KeyHints("[?]help", styles.Muted))
 	}
 	if decoration := m.decorationFor(m.activeIdx); decoration != nil && decoration.err != nil {
 		info = styles.Err.Render(styles.SafeText("Highlighting unavailable: " + decoration.err.Error()))
@@ -464,16 +468,19 @@ func (m Model) renderStatus(s *diff.Session) string {
 		}
 		info += styles.Muted.Render(scope)
 	}
-	availableInfo := m.Width - lipgloss.Width(keys) - 3
-	if availableInfo < 1 {
-		availableInfo = 1
+	if len(hints) > 0 {
+		minimum := lipgloss.Width(hints[len(hints)-1])
+		infoWidth := min(lipgloss.Width(info), max(0, m.Width-5-minimum))
+		keys = styles.FitKeyHints(max(0, m.Width-3-infoWidth), hints...)
 	}
+	availableInfo := m.Width - lipgloss.Width(keys) - 3
+	availableInfo = max(0, availableInfo)
 	info = ansi.Truncate(info, availableInfo, "…")
 	gap := m.Width - lipgloss.Width(info) - lipgloss.Width(keys) - 2
 	if gap < 1 {
 		gap = 1
 	}
-	return "  " + info + strings.Repeat(" ", gap) + keys
+	return pad("  "+info+strings.Repeat(" ", gap)+keys, max(0, m.Width))
 }
 
 func (m Model) scopeSummaryLabel() string {

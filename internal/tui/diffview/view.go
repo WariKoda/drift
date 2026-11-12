@@ -2,6 +2,7 @@ package diffview
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/WariKoda/drift/internal/diff"
@@ -165,13 +166,24 @@ func (m Model) renderComparisonSplash(state comparisonEmptyState) []string {
 
 func (m Model) renderHeader() string {
 	left := styles.Header.Render("drift")
-	right := styles.Muted.Render("→ ") + styles.Dir.Render(styles.SafeText(m.host.Name)) +
-		styles.Muted.Render("  "+styles.SafeText(m.host.Hostname))
-	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
+	name := m.projectName
+	if name == "" && m.root.Base() != "" {
+		name = filepath.Base(m.root.Base())
 	}
-	return left + strings.Repeat(" ", gap) + right
+	if name != "" {
+		left += "  " + styles.Accent.Render(styles.SafeText(name))
+	}
+	status, statusStyle := "Connected", styles.Muted
+	if m.connectionError() != nil {
+		status, statusStyle = "Disconnected", styles.Err
+	}
+	right := statusStyle.Render(status)
+	if nameWidth := m.Width/2 - lipgloss.Width(right) - 3; nameWidth > 0 {
+		right = styles.Dir.Render(ansi.Truncate(styles.SafeText(m.host.Name), nameWidth, "…")) + styles.Muted.Render(" · ") + right
+	}
+	right = ansi.Truncate(right, max(0, m.Width/2), "…")
+	left = ansi.Truncate(left, max(0, m.Width-lipgloss.Width(right)-1), "…")
+	return pad(left, max(0, m.Width-lipgloss.Width(right))) + right
 }
 
 // renderDiffPaneRows builds the right pane: path chrome, then content rows.

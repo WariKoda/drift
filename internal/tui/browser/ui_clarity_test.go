@@ -125,6 +125,28 @@ func TestActivePaneLabelsAndPreview(t *testing.T) {
 	}
 }
 
+func TestHeaderKeepsProjectAndLiveConnectionState(t *testing.T) {
+	m, _ := newRemoteDirectoryBrowser(t)
+	m.SetProjectName("Shop\x1b[2J")
+	for width := 1; width <= 160; width++ {
+		m.Width = width
+		got := m.renderHeader()
+		if lipgloss.Width(got) != width || strings.Contains(got, "\x1b[2J") {
+			t.Fatalf("width %d: %q", width, got)
+		}
+	}
+	m.Width = 100
+	if got := ansi.Strip(m.renderHeader()); !strings.Contains(got, "Shop") || !strings.Contains(got, "Connected") || strings.Contains(got, m.WorkDir) {
+		t.Fatalf("header: %q", got)
+	}
+	if err := m.remoteConn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ansi.Strip(m.renderHeader()); !strings.Contains(got, "Disconnected") {
+		t.Fatalf("closed connection looks connected: %q", got)
+	}
+}
+
 func TestLocalEmptyReasons(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

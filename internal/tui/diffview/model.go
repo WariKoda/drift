@@ -176,6 +176,7 @@ type Model struct {
 	scope           syncpolicy.ScopeSummary
 	scopeOptions    syncpolicy.ScopeOptions
 	host            config.Host
+	projectName     string
 	conn            remote.Client // kept open for sync ops, including after connection loss
 	disconnected    error         // sticky until a new model/comparison is opened
 	closed          bool
@@ -204,6 +205,9 @@ type Model struct {
 	Width           int
 	Height          int
 }
+
+// SetProjectName sets the project label without changing the comparison.
+func (m *Model) SetProjectName(name string) { m.projectName = name }
 
 // New creates a Model with pre-loaded sessions.
 // syncDirs are pre-filled by autoDir so the user starts with a sensible selection.

@@ -62,7 +62,8 @@ magenta = "#d3869b"
 	}
 
 	assertColor(t, "cursor background", palette.CursorBg, "#504945")
-	assertColor(t, "muted", palette.Muted, "#665c54")
+	assertColor(t, "secondary text", palette.Muted, "#9d8d76")
+	assertColor(t, "separator", palette.Sep, "#665c54")
 	assertColor(t, "error", palette.Error, "#ea6962")
 	assertColor(t, "marked", palette.Marked, "#d8a657")
 	assertColor(t, "symlink", palette.Symlink, "#89b482")

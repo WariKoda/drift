@@ -11,7 +11,7 @@ import (
 	"github.com/muesli/termenv"
 )
 
-func TestCurrentEntryNameUsesThemeYellow(t *testing.T) {
+func TestCurrentEntryKeepsNeutralFocusAndMark(t *testing.T) {
 	profile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
@@ -30,19 +30,22 @@ func TestCurrentEntryNameUsesThemeYellow(t *testing.T) {
 			active := m.renderLocalRow(m.entries, 0, 80)
 			expected := styles.CurrentEntry.Render(entry.Name + tc.suffix)
 			if !strings.Contains(active, expected) {
-				t.Fatalf("current name not yellow: %q", active)
+				t.Fatalf("current name lacks focus style: %q", active)
 			}
 			if !strings.Contains(ansi.Strip(active), "●") {
 				t.Fatal("mark lost")
+			}
+			if !strings.HasPrefix(ansi.Strip(active), "› ") {
+				t.Fatal("cursor marker lost on marked row")
 			}
 			m.activePane = PaneRemote
 			inactive := m.renderLocalRow(m.entries, 0, 80)
 			if strings.Contains(inactive, styles.CurrentEntry.Render(entry.Name+tc.suffix)) {
 				t.Fatalf("inactive pane recolored: %q", inactive)
 			}
-			short := m.renderEntry(entry, true, 7, nil, "")
+			short := m.renderEntry(entry, true, 9, nil, "")
 			if !strings.Contains(short, styles.CurrentEntry.Render("exa…")) {
-				t.Fatalf("truncated name not yellow: %q", short)
+				t.Fatalf("truncated name lacks focus style: %q", short)
 			}
 		})
 	}

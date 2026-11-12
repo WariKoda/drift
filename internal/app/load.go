@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
@@ -124,6 +126,7 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 		remote string
 	}
 	var candidatePairs []candidatePair
+	var remoteWalks []candidatePair
 	seenPairs := map[string]struct{}{}
 	seenSkipped := map[string]struct{}{}
 	explicitFiles := map[string]struct{}{}
@@ -210,11 +213,9 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 		}
 
 		// ── Directory: walk local side first ─────────────────────
-		seenLocal := map[string]struct{}{}
 		if walkErr := activity.walkLocalScope(localPath, classifier, options.IncludeIgnored, func(path string, class fs.PathClass) {
 			countSkipped(path, class, true)
 		}, func(p string) error {
-			seenLocal[p] = struct{}{}
 			remotePath, mapErr := mapper.LocalToRemote(p)
 			if mapErr != nil {
 				addError(p, "", mapErr)
@@ -226,26 +227,64 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 			addError(localPath, "", fmt.Errorf("walk local: %w", walkErr))
 		}
 
-		// ── Walk remote side to catch remote-only files ───────────
 		remoteDir, mapErr := mapper.LocalToRemote(localPath)
-		if mapErr != nil {
+		if mapErr == nil {
+			remoteWalks = append(remoteWalks, candidatePair{local: localPath, remote: remoteDir})
 			continue
 		}
-		if walkErr := conn.WalkFiles(remoteDir, func(remotePath string) error {
+
+		// An ancestor of a mapping is selectable but cannot itself be mapped.
+		// Search only the effective mapping roots contained in that selection.
+		mappings := cfg.Mappings
+		if len(host.Mappings) > 0 {
+			mappings = host.Mappings
+		}
+		for _, mapping := range mappings {
+			localRoot := filepath.Join(cfg.ProjectRoot, filepath.FromSlash(mapping.Local))
+			relative, relErr := filepath.Rel(localPath, localRoot)
+			if relErr != nil || !filepath.IsLocal(relative) {
+				continue
+			}
+			remoteRoot, rootErr := mapper.LocalToRemote(localRoot)
+			if rootErr != nil {
+				addError(localRoot, "", rootErr)
+				continue
+			}
+			remoteWalks = append(remoteWalks, candidatePair{local: localRoot, remote: remoteRoot})
+		}
+	}
+
+	// Ancestors sort before descendants. Mapping validation guarantees that
+	// nested local roots mirror the same remote subtree.
+	sort.Slice(remoteWalks, func(i, j int) bool { return remoteWalks[i].local < remoteWalks[j].local })
+	var walkedRoots []string
+	for _, walk := range remoteWalks {
+		if err := ctx.Err(); err != nil {
+			return LoadResult{}, abort(err)
+		}
+		covered := false
+		for _, previous := range walkedRoots {
+			if relative, err := filepath.Rel(previous, walk.local); err == nil && filepath.IsLocal(relative) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		walkedRoots = append(walkedRoots, walk.local)
+		if walkErr := conn.WalkFiles(walk.remote, func(remotePath string) error {
 			localFilePath, revErr := mapper.RemoteToLocal(remotePath)
 			if revErr != nil {
 				return nil
-			}
-			if _, seen := seenLocal[localFilePath]; seen {
-				return nil // already covered by local walk
 			}
 			addFile(localFilePath, remotePath)
 			return nil
 		}); walkErr != nil {
 			// A missing counterpart is expected for a local-only directory.
 			// Verify the root itself so a failed descendant listing stays visible.
-			if _, statErr := conn.Stat(remoteDir); !errors.Is(statErr, os.ErrNotExist) {
-				addError(localPath, remoteDir, fmt.Errorf("walk remote: %w", walkErr))
+			if _, statErr := conn.Stat(walk.remote); !errors.Is(statErr, os.ErrNotExist) {
+				addError(walk.local, walk.remote, fmt.Errorf("walk remote: %w", walkErr))
 			}
 		}
 	}

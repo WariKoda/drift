@@ -104,7 +104,7 @@ func ApplyPalette(p Palette) {
 	Warn = lipgloss.NewStyle().Foreground(ColorWarn)
 	Err = lipgloss.NewStyle().Foreground(ColorError)
 	CursorRow = lipgloss.NewStyle().Background(ColorCursorBg)
-	CurrentEntry = lipgloss.NewStyle().Foreground(ColorWarn)
+	CurrentEntry = lipgloss.NewStyle().Foreground(ColorFile).Bold(true)
 	InputCursor = lipgloss.NewStyle().Background(ColorDir).Foreground(ColorBadgeFg)
 	Accent = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	LoadingBackdrop = lipgloss.NewStyle().Foreground(ColorMuted).Faint(true)
@@ -123,5 +123,5 @@ func ApplyPalette(p Palette) {
 	SyntaxComment = lipgloss.NewStyle().Foreground(ColorMuted).Italic(true)
 	SyntaxName = lipgloss.NewStyle().Foreground(ColorDir)
 	DiffFold = lipgloss.NewStyle().Foreground(ColorMuted)
-	DiffHunkHeader = lipgloss.NewStyle().Foreground(ColorSep)
+	DiffHunkHeader = lipgloss.NewStyle().Foreground(ColorMuted)
 }

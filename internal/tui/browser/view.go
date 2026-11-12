@@ -266,7 +266,11 @@ func (m Model) renderPreviewRow(row, width int) string {
 }
 
 func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, selection *fs.SelectionState, filter string) string {
-	indent := strings.Repeat("  ", min(max(0, entry.Depth), max(0, (width-8)/2)))
+	indent := strings.Repeat("  ", min(max(0, entry.Depth), max(0, (width-10)/2)))
+	cursor := "  "
+	if isCursor {
+		cursor = styles.CurrentEntry.Render("› ")
+	}
 	label := styles.SafeText(entry.Name)
 
 	var icon string
@@ -334,7 +338,7 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 		}
 	}
 
-	line := indent + icon + mark + name
+	line := cursor + indent + icon + mark + name
 	maxW := width - 1
 	if descendantsMarked > 0 {
 		badge := styles.Marked.Render(fmt.Sprintf(" · %d marked", descendantsMarked))
@@ -342,11 +346,11 @@ func (m Model) renderEntry(entry *fs.FileEntry, isCursor bool, width int, select
 			badge = styles.Marked.Render(fmt.Sprintf(" · %d", descendantsMarked))
 		}
 		badge = ansi.Truncate(badge, max(0, maxW), "")
-		prefix := ansi.Truncate(indent+icon+mark, max(0, maxW-lipgloss.Width(badge)-1), "")
+		prefix := ansi.Truncate(cursor+indent+icon+mark, max(0, maxW-lipgloss.Width(badge)-1), "")
 		nameWidth := max(0, maxW-lipgloss.Width(prefix)-lipgloss.Width(badge))
 		line = prefix + ansi.Truncate(name, nameWidth, "…") + badge
 	} else if lipgloss.Width(line) > maxW {
-		prefix := indent + icon + mark
+		prefix := cursor + indent + icon + mark
 		prefix = ansi.Truncate(prefix, max(0, maxW-2), "")
 		available := max(0, maxW-lipgloss.Width(prefix))
 		short := ansi.Truncate(label, available, "…")

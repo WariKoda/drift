@@ -21,7 +21,7 @@ func TestDiffKeyHintsUsePrimaryStyle(t *testing.T) {
 		model Model
 		keys  []string
 	}{
-		{"scope", Model{Width: 500, sessions: []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}}}, []string{"[i]", "[s/S]", "[r]", "[q]"}},
+		{"scope", Model{Width: 500, sessions: []diff.Session{{Result: &diff.DiffResult{ContentDiff: true}}}}, []string{"[i]", "[s]", "[S]", "[r]", "[q]"}},
 		{"errors", Model{Width: 500, showErrors: true}, []string{"[e/q]"}},
 		{"disconnected", Model{Width: 500, disconnected: errors.New("connection lost")}, []string{"[q]"}},
 		{"sync result", Model{Width: 500, syncStatus: "1 error [e] to view"}, []string{"[e]"}},
@@ -43,7 +43,7 @@ func TestDiffKeyHintsUsePrimaryStyle(t *testing.T) {
 			t.Fatalf("empty comparison key %q not primary: %q", key, emptyStatus)
 		}
 	}
-	for _, key := range []string{"[s/S]", "[Tab]", "[Space]"} {
+	for _, key := range []string{"[s]", "[S]", "[Tab]", "[Space]"} {
 		if strings.Contains(ansi.Strip(emptyStatus), key) {
 			t.Fatalf("empty comparison shows unavailable key %q: %q", key, emptyStatus)
 		}
@@ -59,5 +59,20 @@ func TestDiffKeyHintsUsePrimaryStyle(t *testing.T) {
 	m.Width = 200
 	if got := ansi.Strip(m.renderStatus(nil)); !strings.Contains(got, "syncing [") {
 		t.Fatalf("progress bar changed: %q", got)
+	}
+}
+
+func TestStatusPrioritizesPlanAndFitsWholeHints(t *testing.T) {
+	m := Model{sessions: []diff.Session{{Result: countsFixture(1, 1)}}, syncDirs: []SyncDir{DirDeleteRemote}}
+	for width := 1; width <= 200; width++ {
+		m.Width = width
+		got := m.renderStatus(m.activeSession())
+		plain := ansi.Strip(got)
+		if lipgloss.Width(got) != width || strings.Count(plain, "[") != strings.Count(plain, "]") {
+			t.Fatalf("width %d: %q", width, got)
+		}
+		if width >= 40 && (!strings.Contains(plain, "1 delete Remote") || !strings.Contains(plain, "[?]help")) {
+			t.Fatalf("width %d lost deletion target or help: %q", width, plain)
+		}
 	}
 }

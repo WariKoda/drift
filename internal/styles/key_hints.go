@@ -25,3 +25,25 @@ func KeyHints(text string, base lipgloss.Style) string {
 	out.WriteString(base.Render(text[start:]))
 	return out.String()
 }
+
+// FitKeyHints keeps whole hints in priority order, reserving the final hint
+// for help or the action that closes the current mode.
+func FitKeyHints(width int, hints ...string) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	last := hints[len(hints)-1]
+	if lipgloss.Width(last) > width {
+		return ""
+	}
+	remaining := width - lipgloss.Width(last)
+	var selected []string
+	for _, hint := range hints[:len(hints)-1] {
+		needed := lipgloss.Width(hint) + 2
+		if needed <= remaining {
+			selected = append(selected, hint)
+			remaining -= needed
+		}
+	}
+	return strings.Join(append(selected, last), "  ")
+}

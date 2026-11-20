@@ -10,9 +10,6 @@ the changes you approve, over SFTP, FTP or FTPS, in the terminal.
 
 ![The drift file browser with local and remote files side by side](.github/assets/screenshots/drift-browser.png)
 
-> [!WARNING]
-> drift is in beta. Expect rough edges and breaking changes between releases.
-
 ## Features
 
 - Browse local and remote files side by side, preview text and image files, and mark files or whole directories.

@@ -46,7 +46,7 @@ func terminalFile(t *testing.T) (*termimage.Output, func() string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { file.Close() })
-	return termimage.NewOutput(file, termimage.Detection{Enabled: true}), func() string {
+	return termimage.NewOutput(file, termimage.Detection{Mode: termimage.Kitty}), func() string {
 		data, err := os.ReadFile(file.Name())
 		if err != nil {
 			t.Fatal(err)
@@ -237,5 +237,38 @@ func TestImagePreviewOffersOnlyApplicableKeys(t *testing.T) {
 	model.layoutPreview(false)
 	if status := ansi.Strip(strings.Split(model.View(), "\n")[model.Height-1]); !strings.Contains(status, "[c]copy") {
 		t.Fatalf("text preview lost its copy hint: %q", status)
+	}
+}
+
+func TestImagePreviewDrawsHalfBlocksWithoutWritingToTheTerminal(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	output := termimage.NewOutput(file, termimage.Detection{Mode: termimage.Blocks})
+	data := writeTestPNG(t, "", 64, 32)
+	_, picture, err := readPreview(bytes.NewReader(data), int64(len(data)), previewRequest{path: "/project/icon.png", decodeImages: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := previewTestModel(nil)
+	model.Height = 30
+	model.SetImages(output)
+	model.preview = filePreview{active: true, source: PaneLocal, loaded: true, generation: 1, path: "/project/icon.png", picture: picture}
+	applyImageResults(t, &model, model.showPreviewImage())
+
+	view := model.View()
+	if !strings.Contains(view, "▀") || strings.Contains(ansi.Strip(view), "Inline images need") {
+		t.Fatalf("half blocks missing:\n%s", ansi.Strip(view))
+	}
+	for index, line := range strings.Split(view, "\n") {
+		if width := ansi.StringWidth(line); width != 80 {
+			t.Fatalf("line %d is %d cells wide", index, width)
+		}
+	}
+	runCmd(model.disablePreview())
+	if info, err := file.Stat(); err != nil || info.Size() != 0 {
+		t.Fatal("half blocks wrote to the terminal outside the frame")
 	}
 }

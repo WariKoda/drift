@@ -16,19 +16,19 @@ import (
 var imageTestCmd = &cobra.Command{
 	Use:   "image-test [image]",
 	Short: "Check whether this terminal shows images in previews and diffs",
-	Long: `image-test prints an image the way drift's preview and diff view draw it:
-with the Kitty graphics protocol and Unicode placeholders. Without an argument
-it draws a test pattern.
+	Long: `image-test prints an image the way drift's preview and diff view draw it.
+Without an argument it draws a test pattern.
 
-Kitty and Ghostty are detected automatically. DRIFT_IMAGES=off turns images
-off; DRIFT_IMAGES=kitty forces them on, for example inside tmux with
-allow-passthrough enabled.`,
+Kitty and Ghostty get the Kitty graphics protocol with Unicode placeholders.
+Other terminals with true colour get half blocks, two pixels per cell.
+DRIFT_IMAGES=off turns images off; DRIFT_IMAGES=kitty or DRIFT_IMAGES=blocks
+forces a mode, for example kitty inside tmux with allow-passthrough enabled.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
-		detection := termimage.Detect(os.Getenv)
-		fmt.Fprintf(out, "Images: %s (%s)\n", onOff(detection.Enabled), detection.Reason)
-		if !detection.Enabled {
+		detection := detectImages()
+		fmt.Fprintf(out, "Images: %s (%s)\n", detection.Mode, detection.Reason)
+		if detection.Mode == termimage.Off {
 			return nil
 		}
 
@@ -49,20 +49,17 @@ allow-passthrough enabled.`,
 		for _, row := range termimage.Rows(placement) {
 			fmt.Fprintln(out, row)
 		}
-		fmt.Fprintf(out, "%d × %d cells. Text characters instead of the image mean the terminal lacks Unicode placeholders.\n", placement.Cols, placement.Rows)
+		if detection.Mode == termimage.Kitty {
+			fmt.Fprintf(out, "%d × %d cells. Text characters instead of the image mean the terminal lacks Unicode placeholders.\n", placement.Cols, placement.Rows)
+		} else {
+			fmt.Fprintf(out, "%d × %d cells\n", placement.Cols, placement.Rows)
+		}
 		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(imageTestCmd)
-}
-
-func onOff(enabled bool) string {
-	if enabled {
-		return "on"
-	}
-	return "off"
 }
 
 func imageTestSource(args []string) (image.Image, string, error) {

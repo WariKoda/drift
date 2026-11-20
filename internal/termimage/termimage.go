@@ -1,11 +1,13 @@
-// Package termimage shows images in the terminal with the Kitty graphics
-// protocol and Unicode placeholders.
+// Package termimage shows images in the terminal as ordinary text rows.
 //
-// An image is transmitted once, outside the Bubble Tea frame, through the same
-// Output the renderer writes to. The view then draws it as ordinary text:
-// placeholder characters whose foreground colour carries the image ID and whose
-// combining marks carry the row and column. The line renderer can skip, rewrite
-// and truncate those rows like any other text.
+// With the Kitty graphics protocol an image is transmitted once, outside the
+// Bubble Tea frame, through the same Output the renderer writes to. The view
+// then draws Unicode placeholder characters whose foreground colour carries the
+// image ID and whose combining marks carry the row and column. Terminals
+// without that protocol but with true colour get half blocks instead: each cell
+// is "▀" with the upper pixel as foreground and the lower as background. Either
+// way the line renderer can skip, rewrite and truncate the rows like any other
+// text.
 package termimage
 
 import (
@@ -14,6 +16,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"io"
 	"os"
@@ -26,11 +29,15 @@ import (
 	"github.com/charmbracelet/x/ansi/kitty"
 )
 
-// EnvVar overrides detection: "off" disables images, "kitty" forces them on.
+// EnvVar overrides detection: "off", "kitty" or "blocks".
 const EnvVar = "DRIFT_IMAGES"
 
-// maxUpscale limits how far a small image is enlarged to fill its area.
-const maxUpscale = 2
+// maxUpscale limits how far a small image is enlarged to fill its area. Half
+// blocks are far larger than screen pixels, so they never enlarge.
+const (
+	maxUpscale       = 2
+	maxBlocksUpscale = 1
+)
 
 // maxCells is the number of rows and columns placeholders can address.
 const maxCells = 256
@@ -41,42 +48,72 @@ const (
 	defaultCellHeight = 20
 )
 
-// Detection explains whether images are on and why.
-type Detection struct {
-	Enabled bool
-	Tmux    bool
-	Reason  string
+// Mode is how images are drawn.
+type Mode int
+
+const (
+	Off    Mode = iota
+	Kitty       // Kitty graphics protocol with Unicode placeholders
+	Blocks      // half blocks in true colour
+)
+
+func (m Mode) String() string {
+	switch m {
+	case Kitty:
+		return "kitty"
+	case Blocks:
+		return "blocks"
+	default:
+		return "off"
+	}
 }
 
-// Detect decides from the environment whether the terminal shows Kitty
-// Unicode placeholders. Kitty and Ghostty are recognized. Inside tmux the outer
-// terminal is unknown, so images stay off unless DRIFT_IMAGES=kitty and tmux
-// has allow-passthrough enabled.
-func Detect(getenv func(string) string) Detection {
+// Detection explains how images are drawn and why.
+type Detection struct {
+	Mode   Mode
+	Tmux   bool
+	Reason string
+}
+
+// Detect decides from the environment how to draw images. Kitty and Ghostty
+// get the Kitty protocol; other terminals with true colour get half blocks.
+// Inside tmux the outer terminal is unknown, so the Kitty protocol needs
+// DRIFT_IMAGES=kitty and allow-passthrough on.
+func Detect(getenv func(string) string, trueColor bool) Detection {
 	tmux := getenv("TMUX") != ""
 	switch strings.ToLower(strings.TrimSpace(getenv(EnvVar))) {
 	case "off", "0", "false", "no":
 		return Detection{Tmux: tmux, Reason: EnvVar + " turns images off"}
-	case "kitty", "on", "1", "true", "yes":
-		return Detection{Enabled: true, Tmux: tmux, Reason: EnvVar + " forces the Kitty graphics protocol"}
+	case "kitty":
+		return Detection{Mode: Kitty, Tmux: tmux, Reason: EnvVar + " forces the Kitty graphics protocol"}
+	case "blocks":
+		return Detection{Mode: Blocks, Tmux: tmux, Reason: EnvVar + " forces half blocks"}
 	}
+	if !tmux {
+		switch {
+		case getenv("TERM") == "xterm-kitty" || getenv("KITTY_WINDOW_ID") != "":
+			return Detection{Mode: Kitty, Reason: "Kitty detected"}
+		case getenv("TERM") == "xterm-ghostty" || strings.EqualFold(getenv("TERM_PROGRAM"), "ghostty"):
+			return Detection{Mode: Kitty, Reason: "Ghostty detected"}
+		}
+	}
+	reason := "no Kitty graphics protocol"
 	if tmux {
-		return Detection{Tmux: true, Reason: "tmux hides the outer terminal; set " + EnvVar + "=kitty and allow-passthrough on"}
+		reason = "tmux hides the outer terminal; " + EnvVar + "=kitty with allow-passthrough on draws pixels"
 	}
-	switch {
-	case getenv("TERM") == "xterm-kitty" || getenv("KITTY_WINDOW_ID") != "":
-		return Detection{Enabled: true, Reason: "Kitty detected"}
-	case getenv("TERM") == "xterm-ghostty" || strings.EqualFold(getenv("TERM_PROGRAM"), "ghostty"):
-		return Detection{Enabled: true, Reason: "Ghostty detected"}
+	if trueColor {
+		return Detection{Mode: Blocks, Tmux: tmux, Reason: reason + ", half blocks in true colour"}
 	}
-	return Detection{Reason: "terminal without Kitty Unicode placeholders"}
+	return Detection{Tmux: tmux, Reason: reason + " and no true colour"}
 }
 
-// Placement is an image the terminal holds, sized in cells.
+// Placement is an image drawn in cells. Kitty placements live in the terminal
+// under ID; half-block placements carry their text.
 type Placement struct {
 	ID   uint32
 	Cols int
 	Rows int
+	text []string
 }
 
 // Output is the program's terminal writer. Bubble Tea renders through it, and
@@ -86,25 +123,35 @@ type Output struct {
 	mu        sync.Mutex
 	file      *os.File
 	detection Detection
-	enabled   bool
+	mode      Mode
 	tmux      bool
 	nextID    uint32
 	shown     map[uint32]struct{}
 }
 
-// NewOutput wraps file. Images are only sent when detection enabled them.
+// NewOutput wraps file and draws images in the detected mode.
 func NewOutput(file *os.File, detection Detection) *Output {
 	// Start at a varying ID so that images of an earlier run, still referenced
 	// by placeholders in the scrollback, are not replaced by this run's.
 	start := uint32(time.Now().UnixNano())&0x7fffff | 1
-	return &Output{file: file, detection: detection, enabled: detection.Enabled, tmux: detection.Tmux, nextID: start, shown: map[uint32]struct{}{}}
+	return &Output{file: file, detection: detection, mode: detection.Mode, tmux: detection.Tmux, nextID: start, shown: map[uint32]struct{}{}}
 }
 
 // Detection reports how images were turned on or off.
 func (o *Output) Detection() Detection { return o.detection }
 
 // Enabled reports whether images can be shown. A nil Output has no images.
-func (o *Output) Enabled() bool { return o != nil && o.enabled }
+func (o *Output) Enabled() bool { return o != nil && o.mode != Off }
+
+// cell returns the pixel size of one cell and the largest enlargement. Half
+// blocks have two square pixels per cell.
+func (o *Output) cell() (int, int, float64) {
+	if o.mode == Blocks {
+		return 1, 2, maxBlocksUpscale
+	}
+	width, height := cellSize(o.file)
+	return width, height, maxUpscale
+}
 
 func (o *Output) Write(p []byte) (int, error) {
 	o.mu.Lock()
@@ -122,24 +169,28 @@ func (o *Output) Close() error { return nil }
 // Fd lets Bubble Tea query the terminal size and mode.
 func (o *Output) Fd() uintptr { return o.file.Fd() }
 
-// Show transmits img and places it into an area of at most maxCols × maxRows
-// cells. The image keeps its aspect ratio; the box grows at most twofold.
+// Show places img into an area of at most maxCols × maxRows cells, keeping
+// its aspect ratio. With the Kitty protocol it transmits the image first.
 func (o *Output) Show(img image.Image, maxCols, maxRows int) (Placement, error) {
 	if !o.Enabled() {
 		return Placement{}, fmt.Errorf("terminal images are off")
 	}
-	cellWidth, cellHeight := cellSize(o.file)
-	cols, rows, width, height := fitBox(img.Bounds().Dx(), img.Bounds().Dy(), maxCols, maxRows, cellWidth, cellHeight)
+	cellWidth, cellHeight, upscale := o.cell()
+	cols, rows, width, height := fitBox(img.Bounds().Dx(), img.Bounds().Dy(), maxCols, maxRows, cellWidth, cellHeight, upscale)
 	if cols == 0 || rows == 0 {
 		return Placement{}, fmt.Errorf("no room for the image")
 	}
-	// The terminal fits the image into the cell box, so only shrink before sending.
-	scaled := imagefile.Fit(img, width, height)
 
 	o.mu.Lock()
 	id := o.nextID
 	o.nextID = o.nextID%0xffffff + 1
 	o.mu.Unlock()
+
+	if o.mode == Blocks {
+		return Placement{ID: id, Cols: cols, Rows: rows, text: halfBlocks(imagefile.Scale(img, width, height), cols, rows)}, nil
+	}
+	// The terminal fits the image into the cell box, so only shrink before sending.
+	scaled := imagefile.Fit(img, width, height)
 
 	sequence, err := o.transmission(id, scaled, cols, rows)
 	if err != nil {
@@ -155,7 +206,8 @@ func (o *Output) Show(img image.Image, maxCols, maxRows int) (Placement, error) 
 	return Placement{ID: id, Cols: cols, Rows: rows}, nil
 }
 
-// Delete frees an image and its placements in the terminal.
+// Delete frees an image and its placements in the terminal. Half blocks hold
+// nothing there, so only Kitty IDs are known.
 func (o *Output) Delete(id uint32) error {
 	if !o.Enabled() || id == 0 {
 		return nil
@@ -234,6 +286,9 @@ func (o *Output) transmission(id uint32, img image.Image, cols, rows int) ([]byt
 
 // Rows returns one string per cell row. Each row is exactly p.Cols cells wide.
 func Rows(p Placement) []string {
+	if p.text != nil {
+		return p.text
+	}
 	colour := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", p.ID>>16&0xff, p.ID>>8&0xff, p.ID&0xff)
 	rows := make([]string, p.Rows)
 	var line strings.Builder
@@ -255,8 +310,7 @@ func Rows(p Placement) []string {
 // so their boxes keep their relative size. Each box fits into maxCols ×
 // maxRows cells; pass a box to Show to place the image in it.
 func (o *Output) CommonBoxes(sizes []image.Point, maxCols, maxRows int) []image.Point {
-	cellWidth, cellHeight := cellSize(o.file)
-	factor := float64(maxUpscale)
+	cellWidth, cellHeight, factor := o.cell()
 	for _, size := range sizes {
 		if size.X > 0 && size.Y > 0 {
 			factor = min(factor, float64(min(maxCols, maxCells)*cellWidth)/float64(size.X), float64(min(maxRows, maxCells)*cellHeight)/float64(size.Y))
@@ -278,15 +332,70 @@ func (o *Output) CommonBoxes(sizes []image.Point, maxCols, maxRows int) []image.
 
 // fitBox sizes an image of width × height pixels for an area of at most
 // maxCols × maxRows cells. It returns the cell box and the pixel size to send.
-func fitBox(width, height, maxCols, maxRows, cellWidth, cellHeight int) (cols, rows, pixelWidth, pixelHeight int) {
+func fitBox(width, height, maxCols, maxRows, cellWidth, cellHeight int, upscale float64) (cols, rows, pixelWidth, pixelHeight int) {
 	maxCols, maxRows = min(maxCols, maxCells), min(maxRows, maxCells)
 	if width <= 0 || height <= 0 || maxCols <= 0 || maxRows <= 0 {
 		return 0, 0, 0, 0
 	}
-	factor := min(float64(maxCols*cellWidth)/float64(width), float64(maxRows*cellHeight)/float64(height), maxUpscale)
+	factor := min(float64(maxCols*cellWidth)/float64(width), float64(maxRows*cellHeight)/float64(height), upscale)
 	pixelWidth = max(1, int(float64(width)*factor))
 	pixelHeight = max(1, int(float64(height)*factor))
 	cols = min(maxCols, max(1, (pixelWidth+cellWidth-1)/cellWidth))
 	rows = min(maxRows, max(1, (pixelHeight+cellHeight-1)/cellHeight))
 	return cols, rows, pixelWidth, pixelHeight
+}
+
+// halfBlocks draws img as cols × rows cells of "▀": the upper pixel is the
+// foreground, the lower the background. Mostly transparent pixels keep the
+// terminal background. A colour is only written when it changes.
+func halfBlocks(img image.Image, cols, rows int) []string {
+	bounds := img.Bounds()
+	pixel := func(x, y int) (color.NRGBA, bool) {
+		if x >= bounds.Dx() || y >= bounds.Dy() {
+			return color.NRGBA{}, false
+		}
+		c := color.NRGBAModel.Convert(img.At(bounds.Min.X+x, bounds.Min.Y+y)).(color.NRGBA)
+		return c, c.A >= 128
+	}
+	lines := make([]string, rows)
+	var line strings.Builder
+	for row := range rows {
+		line.Reset()
+		lastFg, lastBg := "", ""
+		set := func(fg, bg string) {
+			if fg == lastFg && bg == lastBg {
+				return
+			}
+			line.WriteString("\x1b[0")
+			line.WriteString(fg)
+			line.WriteString(bg)
+			line.WriteString("m")
+			lastFg, lastBg = fg, bg
+		}
+		for col := range cols {
+			upper, hasUpper := pixel(col, 2*row)
+			lower, hasLower := pixel(col, 2*row+1)
+			switch {
+			case hasUpper && hasLower:
+				set(";38;2;"+rgb(upper), ";48;2;"+rgb(lower))
+				line.WriteString("▀")
+			case hasUpper:
+				set(";38;2;"+rgb(upper), "")
+				line.WriteString("▀")
+			case hasLower:
+				set(";38;2;"+rgb(lower), "")
+				line.WriteString("▄")
+			default:
+				set("", "")
+				line.WriteString(" ")
+			}
+		}
+		line.WriteString("\x1b[0m")
+		lines[row] = line.String()
+	}
+	return lines
+}
+
+func rgb(c color.NRGBA) string {
+	return fmt.Sprintf("%d;%d;%d", c.R, c.G, c.B)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/WariKoda/drift/internal/termimage"
 	"github.com/WariKoda/drift/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 )
 
@@ -207,7 +208,13 @@ func loadAll(workDir string) (*config.MergedConfig, string, *project.Store, *pro
 // newTerminalOutput is the writer Bubble Tea renders through. Image
 // transmissions share it, so they never interleave with a frame.
 func newTerminalOutput() *termimage.Output {
-	return termimage.NewOutput(os.Stdout, termimage.Detect(os.Getenv))
+	return termimage.NewOutput(os.Stdout, detectImages())
+}
+
+// detectImages chooses how images are drawn. Half blocks need the same true
+// colour support that drift's own styles detect.
+func detectImages() termimage.Detection {
+	return termimage.Detect(os.Getenv, termenv.EnvColorProfile() == termenv.TrueColor)
 }
 
 func runProgram(app tui.App, output *termimage.Output, mouse bool) error {
@@ -220,7 +227,7 @@ func runProgram(app tui.App, output *termimage.Output, mouse bool) error {
 			defer closer.Close()
 			log.Info("drift start", "version", resolvedVersion())
 			detection := output.Detection()
-			log.Info("terminal images", "enabled", detection.Enabled, "reason", detection.Reason)
+			log.Info("terminal images", "mode", detection.Mode.String(), "reason", detection.Reason)
 		}
 	}
 

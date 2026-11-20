@@ -74,7 +74,7 @@ func imageTerminal(t *testing.T) (*termimage.Output, func() string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { file.Close() })
-	return termimage.NewOutput(file, termimage.Detection{Enabled: true}), func() string {
+	return termimage.NewOutput(file, termimage.Detection{Mode: termimage.Kitty}), func() string {
 		data, err := os.ReadFile(file.Name())
 		if err != nil {
 			t.Fatal(err)

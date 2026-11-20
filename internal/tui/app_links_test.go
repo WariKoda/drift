@@ -26,7 +26,7 @@ func step(t *testing.T, app App, msg tea.Msg) App {
 
 func hostManagerApp(t *testing.T, cfg *config.MergedConfig) App {
 	t.Helper()
-	app, err := New(cfg.ProjectRoot, cfg, nil, nil, ScreenBrowser, false)
+	app, err := New(cfg.ProjectRoot, cfg, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

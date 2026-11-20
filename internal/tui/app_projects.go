@@ -73,13 +73,14 @@ func (a App) applyPreparedProject(msg msgProjectPrepared) (tea.Model, tea.Cmd) {
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
 	b.SetProjectName(p.Name)
 	b.SetMouseEnabled(a.mouseEnabled)
+	b.SetImages(a.images)
 	b.SetTrustManager(a.trust)
 
 	a.abandonDiffRequest()
 	a.cancelNetworkActivity()
 	a.watchConnection(nil)
 	a.state.SelectedHost = nil
-	closeBrowser := a.browser.CloseRemote()
+	closeBrowser := tea.Batch(a.browser.CloseRemote(), a.browser.ReleaseImages())
 	closeDiff := a.diffView.Close()
 	a.certPrompt = nil
 	a.pendingTrust = nil

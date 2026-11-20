@@ -16,6 +16,7 @@ import (
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
 	syncpolicy "github.com/WariKoda/drift/internal/sync"
+	"github.com/WariKoda/drift/internal/termimage"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -202,6 +203,8 @@ type Model struct {
 	savedHorizontal map[int]int
 	showHelp        bool
 	showPaths       bool // full local and remote paths below the file title
+	images          *termimage.Output
+	picture         *diffPicture // image comparison of the active file
 	Width           int
 	Height          int
 }
@@ -248,7 +251,7 @@ func (m *Model) SetSyncResult(status string, failures []syncpolicy.Failure) {
 }
 
 // Init satisfies the sub-model convention.
-func (m *Model) Init() tea.Cmd { return m.startDecoration() }
+func (m *Model) Init() tea.Cmd { return tea.Batch(m.startDecoration(), m.startImages()) }
 
 // LoadingActivity exposes the current network activity to the root indicator.
 func (m Model) LoadingActivity() (string, *progress.Tracker, bool) {
@@ -344,6 +347,7 @@ func (m Model) connectionError() error {
 // Close detaches ownership and cancels pending work immediately. Network close
 // may wait for an active operation, so resource cleanup belongs in the command.
 func (m *Model) Close() tea.Cmd {
+	freeImages := m.dropImages()
 	if m.decoration != nil {
 		m.decoration.cancel()
 	}
@@ -361,9 +365,9 @@ func (m *Model) Close() tea.Cmd {
 	m.syncProgress = nil
 	m.finishActivity()
 	if conn == nil && root == nil {
-		return nil
+		return freeImages
 	}
-	return func() tea.Msg {
+	return tea.Batch(freeImages, func() tea.Msg {
 		if conn != nil {
 			log.Info("remote disconnect", "host", host)
 			if err := conn.Close(); err != nil {
@@ -379,11 +383,12 @@ func (m *Model) Close() tea.Cmd {
 			}
 		}
 		return nil
-	}
+	})
 }
 
 // SetSize updates terminal dimensions and keeps the diff viewport in bounds.
-func (m *Model) SetSize(w, h int) {
+// The returned command places shown images again for the new size.
+func (m *Model) SetSize(w, h int) tea.Cmd {
 	anchor, split := m.topSourceLine(), m.splitLayout()
 	m.Width = max(0, w)
 	m.Height = max(0, h)
@@ -395,6 +400,7 @@ func (m *Model) SetSize(w, h int) {
 	}
 	m.clampScroll()
 	m.clampHorizontal()
+	return m.startImages()
 }
 
 // bodyHeight returns the shared vertical space for the file list and diff pane.

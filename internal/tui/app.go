@@ -16,6 +16,7 @@ import (
 	"github.com/WariKoda/drift/internal/remote"
 	"github.com/WariKoda/drift/internal/styles"
 	internalsync "github.com/WariKoda/drift/internal/sync"
+	"github.com/WariKoda/drift/internal/termimage"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/browser"
 	"github.com/WariKoda/drift/internal/tui/certtrust"
@@ -59,6 +60,7 @@ type App struct {
 	activity      networkActivity
 	globalError   string
 	mouseEnabled  bool
+	images        *termimage.Output // nil or disabled: no inline images
 	trust         *tlstrust.Manager
 	certPrompt    *certtrust.Model
 	pendingTrust  *pendingTrustOperation
@@ -94,7 +96,7 @@ type App struct {
 // starts on the project dashboard; otherwise it opens the file browser in
 // workDir (the classic behaviour). store and reg may be nil when the registry
 // is unavailable — the dashboard is then simply unreachable.
-func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *project.Registry, initial Screen, mouseEnabled bool) (App, error) {
+func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *project.Registry, initial Screen, mouseEnabled bool, images *termimage.Output) (App, error) {
 	a := App{
 		state: AppState{
 			Screen:     initial,
@@ -104,6 +106,7 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 		store:        store,
 		registry:     reg,
 		mouseEnabled: mouseEnabled,
+		images:       images,
 		trust:        tlstrust.NewManager(),
 	}
 
@@ -119,6 +122,7 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 	a.browser = b
 	a.browser.SetConfig(cfg)
 	a.browser.SetMouseEnabled(mouseEnabled)
+	a.browser.SetImages(images)
 	a.browser.SetTrustManager(a.trust)
 	a.state.Selection = b.Selection
 	a.state.RemoteSelection = b.RemoteSelection
@@ -579,7 +583,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if a.state.Screen == ScreenRemoteEditor {
 		switch msg.(type) {
-		case tea.WindowSizeMsg, browser.MsgLocalLoaded, browser.MsgPreviewLoaded, browser.MsgRemoteLoaded,
+		case tea.WindowSizeMsg, browser.MsgLocalLoaded, browser.MsgPreviewLoaded, browser.MsgPreviewImageShown, diffview.MsgImagesPlaced, browser.MsgRemoteLoaded,
 			diffview.MsgDiffLoaded, diffview.MsgDiffError:
 		default:
 			return a.updateRemoteEditor(msg)
@@ -592,17 +596,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.state.TermWidth = msg.Width
 		a.state.TermHeight = msg.Height
-		a.browser.SetSize(msg.Width, msg.Height)
+		browserCmd := a.browser.SetSize(msg.Width, msg.Height)
 		a.hostManager.SetSize(msg.Width, msg.Height)
 		a.hostForm.SetSize(msg.Width, msg.Height)
 		a.hostSel.Width = msg.Width
 		a.hostSel.Height = msg.Height
-		a.diffView.SetSize(msg.Width, msg.Height)
+		diffCmd := a.diffView.SetSize(msg.Width, msg.Height)
 		a.remoteEditor.SetSize(msg.Width, msg.Height)
 		a.dashboard.SetSize(msg.Width, msg.Height)
 		a.projectForm.SetSize(msg.Width, msg.Height)
 		a.projectSel.SetSize(msg.Width, msg.Height)
-		return a, nil
+		return a, tea.Batch(browserCmd, diffCmd)
 
 	// ── Project Dashboard ─────────────────────────────────────────────
 	case dashboard.MsgProjectChosen:
@@ -811,9 +815,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, cmd
 
-	case browser.MsgLocalLoaded:
+	case browser.MsgLocalLoaded, browser.MsgPreviewImageShown:
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
+		return a, cmd
+
+	case diffview.MsgImagesPlaced:
+		var cmd tea.Cmd
+		a.diffView, cmd = a.diffView.Update(msg)
 		return a, cmd
 
 	case browser.MsgRemoteChildrenLoaded:
@@ -867,6 +876,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.diffView.SetPreferences(*a.state.Config.UI.Diff)
 		}
 		a.diffView.SetScope(msg.Scope, msg.Options)
+		a.diffView.SetImages(a.images)
 		if a.pendingDiffView != nil && a.pendingDiffViewID == msg.RequestID {
 			a.diffView.RestoreView(*a.pendingDiffView)
 		}

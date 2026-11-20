@@ -18,7 +18,7 @@ import (
 )
 
 func TestReadPreviewTextSanitizesUnsafeContent(t *testing.T) {
-	lines, err := readPreviewText(bytes.NewReader([]byte("one\r\ntwo\t\x1b[31mred\a\xff\n")), 0)
+	lines, _, err := readPreview(bytes.NewReader([]byte("one\r\ntwo\t\x1b[31mred\a\xff\n")), 0, previewRequest{})
 	if err != nil {
 		t.Fatalf("read preview text: %v", err)
 	}
@@ -36,21 +36,21 @@ func TestReadPreviewTextSanitizesUnsafeContent(t *testing.T) {
 
 func TestReadPreviewTextRejectsUnsupportedContent(t *testing.T) {
 	t.Run("known size", func(t *testing.T) {
-		_, err := readPreviewText(strings.NewReader("small"), previewMaxBytes+1)
+		_, _, err := readPreview(strings.NewReader("small"), previewMaxBytes+1, previewRequest{})
 		if !errors.Is(err, errPreviewTooLarge) {
 			t.Fatalf("got %v, want preview size error", err)
 		}
 	})
 
 	t.Run("stream size", func(t *testing.T) {
-		_, err := readPreviewText(bytes.NewReader(bytes.Repeat([]byte{'x'}, previewMaxBytes+1)), 0)
+		_, _, err := readPreview(bytes.NewReader(bytes.Repeat([]byte{'x'}, previewMaxBytes+1)), 0, previewRequest{})
 		if !errors.Is(err, errPreviewTooLarge) {
 			t.Fatalf("got %v, want preview size error", err)
 		}
 	})
 
 	t.Run("binary", func(t *testing.T) {
-		_, err := readPreviewText(bytes.NewReader([]byte("text\x00binary")), 0)
+		_, _, err := readPreview(bytes.NewReader([]byte("text\x00binary")), 0, previewRequest{})
 		if !errors.Is(err, errPreviewBinary) {
 			t.Fatalf("got %v, want binary preview error", err)
 		}
@@ -342,6 +342,30 @@ func TestCopyPreviewWritesUnwrappedContentToClipboard(t *testing.T) {
 	}
 	if model.statusMsg != "Copied preview to clipboard" {
 		t.Fatalf("copy status = %q", model.statusMsg)
+	}
+}
+
+func TestCopyPreviewWritesThroughTheProgramOutput(t *testing.T) {
+	model := previewTestModel(nil)
+	output, terminal := terminalFile(t)
+	model.SetImages(output)
+	model.preview = filePreview{active: true, loaded: true, lines: []string{"content"}}
+
+	var direct bytes.Buffer
+	originalOutput := termenv.DefaultOutput()
+	termenv.SetDefaultOutput(termenv.NewOutput(&direct))
+	t.Cleanup(func() { termenv.SetDefaultOutput(originalOutput) })
+
+	_, cmd := model.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keyC)})
+	if result := cmd().(msgPreviewCopied); result.err != nil {
+		t.Fatal(result.err)
+	}
+	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("content")) + "\a"
+	if !strings.Contains(terminal(), want) {
+		t.Fatalf("program output = %q, want the clipboard sequence", terminal())
+	}
+	if direct.Len() != 0 {
+		t.Fatalf("copy bypassed the program output: %q", direct.String())
 	}
 }
 

@@ -41,7 +41,7 @@ func TestDuplicateHostRouting(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				app, err := New(cfg.ProjectRoot, cfg, nil, nil, ScreenBrowser, false)
+				app, err := New(cfg.ProjectRoot, cfg, nil, nil, ScreenBrowser, false, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

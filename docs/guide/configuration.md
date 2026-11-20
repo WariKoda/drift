@@ -193,6 +193,30 @@ DRIFT_THEME_FILE=/path/to/colors.toml
 `auto` loads Omarchy colors first and falls back to ANSI terminal colors. `default` uses
 drift's built-in palette.
 
+## Terminal images
+
+The file preview (`p`) and the diff view draw images in one of two ways:
+
+- Kitty and Ghostty show the image in full resolution through the Kitty graphics
+  protocol and its Unicode placeholders.
+- Other terminals with true colour, such as foot, Alacritty, GNOME Terminal and Ptyxis,
+  draw half blocks: each cell shows two pixels, enough to recognize motif and colours.
+
+Terminals without true colour show only the image format and dimensions. Override the
+choice with:
+
+```bash
+DRIFT_IMAGES=off     # never draw images
+DRIFT_IMAGES=kitty   # Kitty protocol in a terminal drift does not recognize
+DRIFT_IMAGES=blocks  # half blocks even in Kitty or Ghostty
+```
+
+Inside tmux drift cannot see the outer terminal and draws half blocks. For full
+resolution set `DRIFT_IMAGES=kitty` and enable passthrough with
+`set -g allow-passthrough on`. `drift image-test [image]` prints a test pattern or the
+given image the way drift draws it. If the Kitty mode shows text characters instead
+of an image, the terminal lacks Unicode placeholders.
+
 ## Logging
 
 Logging is off by default. When enabled, drift writes diagnostics (connection lifecycle

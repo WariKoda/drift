@@ -77,6 +77,17 @@ The diff keeps each visited file's reading position and expanded context. Refres
 (`r`) reconciles those positions with the new content; it never restores old transfer
 decisions.
 
+### Images
+
+PNG, JPEG, GIF, WebP, BMP and TIFF files show their format and dimensions in the
+summary instead of "binary file". In terminals that can draw images the diff also
+shows both versions side by side, before on the left and after on the right, at one
+common scale so a changed size stays visible. Images that differ only in their bytes, for example
+after re-encoding or a metadata change, are marked "Same pixels, different bytes".
+Each side may be up to 20 MiB and 40 megapixels. The all-files view shows the summary
+only. See [terminal images](configuration.md#terminal-images) for other terminals and
+tmux.
+
 ### All files in one view
 
 `m` shows all files one below the other, each under its own title. Scrolling then runs

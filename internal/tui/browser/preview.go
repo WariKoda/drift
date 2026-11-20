@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,16 +16,21 @@ import (
 
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/imagefile"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/termimage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
 const (
 	previewMaxBytes = 1 << 20
-	previewDebounce = 150 * time.Millisecond
-	previewTimeout  = 30 * time.Second
+	// previewImageSide bounds decoded preview images; the terminal never needs
+	// more pixels for one pane.
+	previewImageSide = 2048
+	previewDebounce  = 150 * time.Millisecond
+	previewTimeout   = 30 * time.Second
 )
 
 var (
@@ -42,6 +48,9 @@ type previewRequest struct {
 	host       config.Host
 	remoteID   uint64
 	session    *string
+	// decodeImages is set when the terminal can show images, so image files
+	// are read up to imagefile.MaxBytes and decoded.
+	decodeImages bool
 }
 
 type msgPreviewDebounced struct {
@@ -51,7 +60,34 @@ type msgPreviewDebounced struct {
 type msgPreviewLoaded struct {
 	request previewRequest
 	lines   []string
+	picture *previewPicture
 	err     error
+}
+
+// previewPicture is a previewed image file. image is nil when the terminal
+// cannot show images or decoding failed (err).
+type previewPicture struct {
+	info  imagefile.Info
+	image image.Image
+	err   error
+
+	// The cell area last requested from the terminal and the placement it
+	// returned. token rejects results of superseded requests.
+	areaCols, areaRows int
+	token              uint64
+	placement          termimage.Placement
+	rows               []string // placeholder text of placement
+}
+
+// MsgPreviewImageShown reaches the browser on any screen, so a placement that
+// finishes while another screen is active is still recorded or freed.
+type MsgPreviewImageShown = msgPreviewImageShown
+
+type msgPreviewImageShown struct {
+	generation uint64
+	token      uint64
+	placement  termimage.Placement
+	err        error
 }
 
 // MsgPreviewLoaded exposes preview failures to the root model while keeping
@@ -90,6 +126,7 @@ type filePreview struct {
 	targetPath  string
 	message     string
 	lines       []string
+	picture     *previewPicture
 	rows        []previewRow
 	numberWidth int
 	offset      int
@@ -117,7 +154,7 @@ func (m *Model) togglePreview() tea.Cmd {
 
 func (m *Model) disablePreview() tea.Cmd {
 	wasActive := m.preview.active
-	closeCmd := m.cancelRemotePreview(true)
+	closeCmd := tea.Batch(m.cancelRemotePreview(true), m.dropPreviewImage())
 	generation := m.preview.generation + 1
 	m.preview = filePreview{generation: generation}
 	if strings.HasPrefix(m.statusMsg, "Preview failed: ") {
@@ -212,6 +249,8 @@ func (m Model) currentPreviewRequest(generation uint64) (previewRequest, bool) {
 		path:       filePath,
 		size:       entry.Size,
 		session:    m.remoteSession,
+
+		decodeImages: m.images.Enabled(),
 	}
 	if m.preview.source == PaneRemote {
 		request.host = *m.remoteHost
@@ -279,6 +318,7 @@ func (m Model) AcceptsPreviewResult(msg MsgPreviewLoaded) bool {
 }
 
 func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
+	var imageCmd tea.Cmd
 	accepted := m.AcceptsPreviewResult(msg)
 	// Completing the dispatched read releases the connection even when its
 	// content is obsolete or the preview has been closed. Older reads from a
@@ -309,6 +349,7 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 				m.preview.offset = 0
 			}
 		} else {
+			imageCmd = m.dropPreviewImage()
 			m.preview.loaded = true
 			m.preview.path = msg.request.path
 			if strings.HasPrefix(m.statusMsg, "Preview failed: ") {
@@ -317,9 +358,11 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 			m.preview.targetPath = msg.request.path
 			m.preview.message = ""
 			m.preview.lines = msg.lines
+			m.preview.picture = msg.picture
 			m.preview.rows = nil
 			m.preview.offset = 0
 			m.layoutPreview(false)
+			imageCmd = tea.Batch(imageCmd, m.showPreviewImage())
 		}
 	}
 
@@ -328,9 +371,9 @@ func (m *Model) applyPreviewLoaded(msg msgPreviewLoaded) tea.Cmd {
 		m.remoteLoadID++
 		m.remoteStatus = "Remote preview timed out. Press [r] to reconnect."
 		m.preview.waiting = false
-		return nil
+		return imageCmd
 	}
-	return m.resumePreviewLoad()
+	return tea.Batch(imageCmd, m.resumePreviewLoad())
 }
 
 // cancelRemotePreview invalidates a dispatched remote read. The command's
@@ -372,7 +415,7 @@ func readLocalPreviewCmd(request previewRequest) tea.Cmd {
 		if !info.Mode().IsRegular() {
 			return msgPreviewLoaded{request: request, err: errPreviewNotFile}
 		}
-		if info.Size() > previewMaxBytes {
+		if !previewSizeAllowed(request, info.Size()) {
 			return msgPreviewLoaded{request: request, err: errPreviewTooLarge}
 		}
 
@@ -380,7 +423,7 @@ func readLocalPreviewCmd(request previewRequest) tea.Cmd {
 		if err != nil {
 			return previewLoadFailure(request, fmt.Errorf("open %s: %w", request.path, err))
 		}
-		lines, readErr := readPreviewText(file, info.Size())
+		lines, picture, readErr := readPreview(file, info.Size(), request)
 		closeErr := file.Close()
 		if err := errors.Join(readErr, closeErr); err != nil {
 			if closeErr == nil && (errors.Is(readErr, errPreviewTooLarge) || errors.Is(readErr, errPreviewBinary)) {
@@ -388,7 +431,7 @@ func readLocalPreviewCmd(request previewRequest) tea.Cmd {
 			}
 			return previewLoadFailure(request, fmt.Errorf("read %s: %w", request.path, err))
 		}
-		return msgPreviewLoaded{request: request, lines: lines}
+		return msgPreviewLoaded{request: request, lines: lines, picture: picture}
 	}
 }
 
@@ -396,7 +439,7 @@ func readRemotePreviewCmd(ctx context.Context, conn remote.Client, request previ
 	return func() tea.Msg {
 		detach := remote.CloseOnContextDone(ctx, conn)
 		defer detach()
-		if request.size > previewMaxBytes {
+		if !previewSizeAllowed(request, request.size) {
 			return msgPreviewLoaded{request: request, err: errPreviewTooLarge}
 		}
 		reader, err := conn.Open(request.path)
@@ -406,7 +449,7 @@ func readRemotePreviewCmd(ctx context.Context, conn remote.Client, request previ
 			}
 			return previewLoadFailure(request, fmt.Errorf("open remote %s: %w", request.path, err))
 		}
-		lines, readErr := readPreviewText(reader, request.size)
+		lines, picture, readErr := readPreview(reader, request.size, request)
 		closeErr := reader.Close()
 		if err := errors.Join(readErr, closeErr); err != nil {
 			if ctx.Err() != nil {
@@ -417,7 +460,7 @@ func readRemotePreviewCmd(ctx context.Context, conn remote.Client, request previ
 			}
 			return previewLoadFailure(request, fmt.Errorf("read remote %s: %w", request.path, err))
 		}
-		return msgPreviewLoaded{request: request, lines: lines}
+		return msgPreviewLoaded{request: request, lines: lines, picture: picture}
 	}
 }
 
@@ -430,18 +473,48 @@ func previewLoadFailure(request previewRequest, err error) msgPreviewLoaded {
 	return msgPreviewLoaded{request: request, err: err}
 }
 
-func readPreviewText(reader io.Reader, knownSize int64) ([]string, error) {
-	if knownSize > previewMaxBytes {
-		return nil, errPreviewTooLarge
+// previewSizeAllowed applies the text limit, or the larger image limit to
+// files named like images when the terminal can show them.
+func previewSizeAllowed(request previewRequest, size int64) bool {
+	return size <= previewReadLimit(request)
+}
+
+func previewReadLimit(request previewRequest) int64 {
+	if request.decodeImages && imagefile.HasImageExtension(request.path) {
+		return imagefile.MaxBytes
+	}
+	return previewMaxBytes
+}
+
+// readPreview returns text lines or, for a recognized image, its picture.
+func readPreview(reader io.Reader, knownSize int64, request previewRequest) ([]string, *previewPicture, error) {
+	limit := previewReadLimit(request)
+	if knownSize > limit {
+		return nil, nil, errPreviewTooLarge
 	}
 
-	data, err := io.ReadAll(io.LimitReader(reader, previewMaxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, nil, errPreviewTooLarge
+	}
+	if info, ok := imagefile.Probe(data); ok {
+		picture := &previewPicture{info: info}
+		if request.decodeImages {
+			picture.image, _, picture.err = imagefile.Decode(data, previewImageSide)
+		}
+		return nil, picture, nil
 	}
 	if len(data) > previewMaxBytes {
-		return nil, errPreviewTooLarge
+		return nil, nil, errPreviewTooLarge
 	}
+	lines, err := previewText(data)
+	return lines, nil, err
+}
+
+func previewText(data []byte) ([]string, error) {
 	if bytes.IndexByte(data, 0) >= 0 {
 		return nil, errPreviewBinary
 	}
@@ -455,6 +528,85 @@ func readPreviewText(reader io.Reader, knownSize int64) ([]string, error) {
 		lines = []string{""}
 	}
 	return lines, nil
+}
+
+// previewImageArea is the cell area below the image's info line.
+func (m Model) previewImageArea() (int, int) {
+	leftWidth, rightWidth := m.paneWidths()
+	width := rightWidth
+	if m.preview.source == PaneRemote {
+		width = leftWidth
+	}
+	return width - 2, m.viewportHeight() - 2
+}
+
+// showPreviewImage sends the previewed image to the terminal when it has not
+// been placed for the current pane size yet.
+func (m *Model) showPreviewImage() tea.Cmd {
+	picture := m.preview.picture
+	if !m.preview.active || picture == nil || picture.image == nil || !m.images.Enabled() {
+		return nil
+	}
+	cols, rows := m.previewImageArea()
+	if cols < 1 || rows < 1 || cols == picture.areaCols && rows == picture.areaRows {
+		return nil
+	}
+	picture.areaCols, picture.areaRows = cols, rows
+	picture.token++
+	images, img, generation, token := m.images, picture.image, m.preview.generation, picture.token
+	return func() tea.Msg {
+		placement, err := images.Show(img, cols, rows)
+		if err != nil {
+			log.Error("show preview image", "err", err)
+		}
+		return msgPreviewImageShown{generation: generation, token: token, placement: placement, err: err}
+	}
+}
+
+func (m *Model) applyPreviewImageShown(msg msgPreviewImageShown) tea.Cmd {
+	picture := m.preview.picture
+	if !m.preview.active || picture == nil || msg.generation != m.preview.generation || msg.token != picture.token {
+		return m.deleteImage(msg.placement.ID)
+	}
+	if msg.err != nil {
+		picture.err = msg.err
+		return nil
+	}
+	previous := picture.placement.ID
+	picture.placement = msg.placement
+	picture.rows = termimage.Rows(msg.placement)
+	return m.deleteImage(previous)
+}
+
+// ReleaseImages frees the previewed image in the terminal. Call it when the
+// browser is replaced, for example when another project opens.
+func (m *Model) ReleaseImages() tea.Cmd {
+	return m.dropPreviewImage()
+}
+
+// dropPreviewImage forgets the previewed image and frees it in the terminal.
+func (m *Model) dropPreviewImage() tea.Cmd {
+	picture := m.preview.picture
+	m.preview.picture = nil
+	if picture == nil {
+		return nil
+	}
+	// A placement still in flight is freed when its result arrives stale.
+	picture.token++
+	return m.deleteImage(picture.placement.ID)
+}
+
+func (m *Model) deleteImage(id uint32) tea.Cmd {
+	if id == 0 {
+		return nil
+	}
+	images := m.images
+	return func() tea.Msg {
+		if err := images.Delete(id); err != nil {
+			log.Error("free terminal image", "err", err)
+		}
+		return nil
+	}
 }
 
 func sanitizePreviewText(data []byte) string {

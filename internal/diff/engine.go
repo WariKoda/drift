@@ -12,6 +12,7 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 
 	"github.com/WariKoda/drift/internal/fs"
+	"github.com/WariKoda/drift/internal/imagefile"
 )
 
 const maxTextSize = 2 * 1024 * 1024 // 2 MB
@@ -76,7 +77,7 @@ func CompareWithActivity(root *fs.Root, localPath, remotePath string, client Rem
 			if err != nil {
 				return result, err
 			}
-			if isBinary(data) {
+			if result.RemoteImage = probeImage(data); result.RemoteImage != nil || isBinary(data) {
 				result.Binary = true
 			} else {
 				for i, line := range splitLines(string(data)) {
@@ -97,7 +98,7 @@ func CompareWithActivity(root *fs.Root, localPath, remotePath string, client Rem
 			if err != nil {
 				return result, err
 			}
-			if isBinary(data) {
+			if result.LocalImage = probeImage(data); result.LocalImage != nil || isBinary(data) {
 				result.Binary = true
 			} else {
 				for i, line := range splitLines(string(data)) {
@@ -147,7 +148,8 @@ func CompareWithActivity(root *fs.Root, localPath, remotePath string, client Rem
 		return result, err
 	}
 
-	if isBinary(localData) || isBinary(remoteData) {
+	result.LocalImage, result.RemoteImage = probeImage(localData), probeImage(remoteData)
+	if result.LocalImage != nil || result.RemoteImage != nil || isBinary(localData) || isBinary(remoteData) {
 		result.Binary = true
 		result.ContentDiff = !bytes.Equal(localData, remoteData)
 		return result, nil
@@ -283,6 +285,15 @@ func splitLines(s string) []string {
 }
 
 // isBinary returns true if data appears to be a binary file.
+// probeImage returns the header of a raster image, or nil for other content.
+func probeImage(data []byte) *imagefile.Info {
+	info, ok := imagefile.Probe(data)
+	if !ok {
+		return nil
+	}
+	return &info
+}
+
 func isBinary(data []byte) bool {
 	n := len(data)
 	if n > 512 {

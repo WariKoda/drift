@@ -47,7 +47,6 @@ func (m *Model) collapseAt(i int) {
 	}
 	entry.Expanded = false
 
-	// Find the end of descendants: all consecutive entries with depth > entry.Depth
 	end := i + 1
 	for end < len(m.entries) && m.entries[end].Depth > entry.Depth {
 		end++

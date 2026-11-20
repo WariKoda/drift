@@ -293,11 +293,9 @@ func (c *Client) Upload(remotePath string, src io.Reader) error {
 // around SFTP servers that return "not a directory" instead of "not found"
 // for missing path segments.
 func (c *Client) ensureDir(remotePath string) error {
-	// fast path
 	if err := c.sftp.MkdirAll(remotePath); err == nil {
 		return nil
 	}
-	// slow path: component-by-component
 	parts := strings.Split(remotePath, "/")
 	current := ""
 	for _, part := range parts {
@@ -317,7 +315,7 @@ func (c *Client) ensureDir(remotePath string) error {
 			if !info.IsDir() {
 				return fmt.Errorf("ensureDir: %s exists but is not a directory", current)
 			}
-			continue // already a directory
+			continue
 		}
 		if mkErr := c.sftp.Mkdir(current); mkErr != nil {
 			// re-stat: might have been created concurrently

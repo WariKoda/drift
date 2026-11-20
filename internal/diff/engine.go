@@ -15,7 +15,7 @@ import (
 	"github.com/WariKoda/drift/internal/imagefile"
 )
 
-const maxTextSize = 2 * 1024 * 1024 // 2 MB
+const maxTextSize = 2 * 1024 * 1024
 
 // RemoteClient is the subset of remote operations needed for diffing.
 type RemoteClient interface {
@@ -41,14 +41,12 @@ func CompareWithActivity(root *fs.Root, localPath, remotePath string, client Rem
 		RemotePath: remotePath,
 	}
 
-	// Stat local
 	localInfo, localErr := root.Stat(localPath)
 	if localErr == nil {
 		result.SizeLocal = localInfo.Size()
 		result.ModLocal = localInfo.ModTime()
 	}
 
-	// Stat remote
 	remoteInfo, remoteErr := client.Stat(remotePath)
 	if remoteErr == nil {
 		result.SizeRemote = remoteInfo.Size()
@@ -113,13 +111,10 @@ func CompareWithActivity(root *fs.Root, localPath, remotePath string, client Rem
 		return result, nil
 	}
 
-	// Both exist — read content
 	if !localExists || !remoteExists {
 		return result, nil
 	}
 
-	// Fast path: when size and modification time match exactly, treat the files
-	// as unchanged without downloading the remote content.
 	if result.SizeLocal == result.SizeRemote && !result.ModLocal.IsZero() && result.ModLocal.Equal(result.ModRemote) {
 		return result, nil
 	}
@@ -235,8 +230,6 @@ func lineDiff(local, remote string) []DiffLine {
 	diffs := dmp.DiffMain(a, b, false)
 	diffs = dmp.DiffCharsToLines(diffs, lines)
 
-	// Pre-size the result: counting newlines on both sides is a cheap O(n) pass
-	// that avoids repeated slice growth/copy as rows are appended below.
 	result := make([]DiffLine, 0, strings.Count(local, "\n")+strings.Count(remote, "\n")+1)
 	localNum := 1
 	remoteNum := 1
@@ -284,7 +277,6 @@ func splitLines(s string) []string {
 	return lines
 }
 
-// isBinary returns true if data appears to be a binary file.
 // probeImage returns the header of a raster image, or nil for other content.
 func probeImage(data []byte) *imagefile.Info {
 	info, ok := imagefile.Probe(data)

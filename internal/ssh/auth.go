@@ -39,7 +39,6 @@ func AuthMethods(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, io.
 func keyfileAuth(ctx context.Context, auth config.Auth) ([]gossh.AuthMethod, io.Closer, error) {
 	path := expandHome(os.ExpandEnv(auth.KeyFile))
 	if path == "" {
-		// fall back to agent if no key file configured
 		return agentAuth(ctx)
 	}
 

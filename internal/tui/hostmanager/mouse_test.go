@@ -92,9 +92,6 @@ func TestHostManagerHitTestBelowViewport(t *testing.T) {
 	}
 }
 
-// TestViewFitsTerminalHeight guards the row budget. Section headers used to
-// emit a blank line the budget never counted, so the view ran two lines longer
-// than the terminal and pushed the status bar off screen.
 func TestViewFollowsCursorBeyondFirstPage(t *testing.T) {
 	m := testHostModel(12, 0)
 	m.Height = headerLines + 4 + footerLines
@@ -144,6 +141,9 @@ func TestClickDoesNotShiftScrolledViewport(t *testing.T) {
 	}
 }
 
+// TestViewFitsTerminalHeight guards the row budget. Section headers used to
+// emit a blank line the budget never counted, so the view ran two lines longer
+// than the terminal and pushed the status bar off screen.
 func TestViewFitsTerminalHeight(t *testing.T) {
 	for _, tc := range []struct{ global, project int }{
 		{0, 0}, {2, 1}, {5, 5}, {30, 30},

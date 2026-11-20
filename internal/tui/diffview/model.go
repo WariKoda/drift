@@ -1,4 +1,4 @@
-// Package diffview implements the file-list + unified-diff screen.
+// Package diffview implements the file-list + diff screen.
 package diffview
 
 import (
@@ -144,9 +144,7 @@ func nextDir(cur SyncDir, s *diff.Session) SyncDir {
 	return syncDirFromDecision(syncpolicy.NextDecision(decisionFromSyncDir(cur), s))
 }
 
-// commandLifetime keeps the local root alive for running commands. Queued
-// commands may never run during Bubble Tea shutdown, so Close must reject them
-// rather than waiting for a completion that the runtime cannot guarantee.
+// commandLifetime keeps the local root alive for running commands.
 type commandLifetime struct {
 	mu      stdsync.Mutex
 	closed  bool
@@ -419,7 +417,7 @@ func (m Model) fileListHeight() int {
 	return m.bodyHeight()
 }
 
-// viewportHeight returns available lines for unified diff content in the right
+// viewportHeight returns available lines for diff content in the right
 // pane (body minus the path header chrome).
 func (m Model) viewportHeight() int {
 	h := m.bodyHeight() - m.chromeRows()
@@ -486,7 +484,7 @@ func (m Model) fileListWidth() int {
 	return min(max(w, 16), m.Width-1-20)
 }
 
-// diffWidth returns the right pane width (path header + unified diff).
+// diffWidth returns the right pane width (path header + diff).
 func (m Model) diffWidth() int {
 	width := m.Width - m.fileListWidth()
 	if m.fileListWidth() > 0 {
@@ -740,8 +738,8 @@ func (m *Model) clampScroll() {
 	}
 }
 
-// scrollToFirstDifference places the first hunk header (or changed row) at the
-// top of the viewport, or as close to it as the remaining number of rows allows.
+// scrollToFirstDifference places the first hunk header at the top of the
+// viewport, or as close to it as the remaining number of rows allows.
 func (m *Model) scrollToFirstDifference() {
 	m.scroll = 0
 	session := m.activeSession()
@@ -812,10 +810,8 @@ func (m Model) quickSyncCmd(idx int, dir SyncDir) tea.Cmd {
 	})
 }
 
-// uploadCmd uploads the local file of sessions[idx] to remote.
 func (m Model) uploadCmd(idx int) tea.Cmd { return m.quickSyncCmd(idx, DirUpload) }
 
-// downloadCmd downloads the remote file of sessions[idx] to local.
 func (m Model) downloadCmd(idx int) tea.Cmd { return m.quickSyncCmd(idx, DirDownload) }
 
 // bulkSyncCmd executes the planned sync direction for the given session indices.

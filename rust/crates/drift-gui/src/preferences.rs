@@ -444,8 +444,6 @@ fn window_preference(
     maximized: bool,
     content: Size<Pixels>,
 ) -> WindowPreference {
-    // X11 reports maximized screen bounds, not the restore rectangle. Preserve
-    // our last normal size on every backend instead of persisting that rectangle.
     match bounds {
         WindowBounds::Fullscreen(_) => previous,
         WindowBounds::Maximized(_) => WindowPreference {
@@ -457,8 +455,6 @@ fn window_preference(
             ..previous
         },
         WindowBounds::Windowed(_) => {
-            // macOS opens with a content rectangle, but bounds() includes its
-            // native titlebar. Persist the drawable logical size on all backends.
             let width = content.width.as_f32();
             let height = content.height.as_f32();
             if width.is_finite()

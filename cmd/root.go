@@ -191,8 +191,6 @@ func loadAll(workDir string) (*config.MergedConfig, string, *project.Store, *pro
 		return nil, "", nil, nil, fmt.Errorf("cannot read project registry (%s): %w", store.Path(), err)
 	}
 
-	// The registry decides which project a directory belongs to; there is no
-	// marker file in the project any more.
 	root, slug := workDir, ""
 	if p := reg.FindByPathPrefix(workDir); p != nil {
 		root, slug = p.Path, p.Slug

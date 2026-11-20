@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// accent is used for the logo and active items.
 var (
 	logoStyle   = styles.Accent
 	accentStyle = styles.Accent
@@ -42,7 +41,6 @@ func (m Model) View() string {
 
 	var lines []string
 
-	// ── Top padding + logo ────────────────────────────────────────────
 	if h < 20 {
 		lines = append(lines, center(styles.Header.Render("drift")+"  "+styles.File.Render("Projects")), "")
 	} else {
@@ -63,7 +61,6 @@ func (m Model) View() string {
 		lines = append(lines, center(field.View()))
 	}
 
-	// ── Project rows ──────────────────────────────────────────────────
 	footer := m.footerBlock(center)
 	for _, row := range m.projectRows() {
 		lines = append(lines, center(row))
@@ -180,7 +177,7 @@ func (m Model) blockWidth() int {
 	return bw
 }
 
-// nameWidth is how many runes the name column gets inside the block.
+// nameWidth is how many columns the name column gets inside the block.
 func (m Model) nameWidth() int {
 	nw := defaultNameWidth + (m.blockWidth() - defaultBlockWidth)
 	if nw < defaultNameWidth {

@@ -71,9 +71,8 @@ func ValidateKeepAliveInterval(interval *int) error {
 	return nil
 }
 
-// Auth configures how to authenticate with a Host. The credential fields are
-// omitted when empty: for a project host they usually are, because literal
-// passwords and passphrases live in the secret store, not in the project.
+// Auth configures how to authenticate with a Host. Empty credential fields are
+// omitted from a written file.
 type Auth struct {
 	Type       string `toml:"type,omitempty"`       // "password" | "keyfile" | "agent"
 	Password   string `toml:"password,omitempty"`   // supports $ENV_VAR references
@@ -89,7 +88,7 @@ type Mapping struct {
 
 // Defaults provides fallback values for hosts that omit optional fields.
 type Defaults struct {
-	Port int    `toml:"port,omitempty"` // default 22
+	Port int    `toml:"port,omitempty"` // zero leaves the port to DefaultPort
 	User string `toml:"user,omitempty"`
 }
 

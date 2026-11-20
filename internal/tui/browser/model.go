@@ -1,4 +1,5 @@
-// Package browser implements the yazi-like local file browser TUI component.
+// Package browser implements the yazi-like file browser with a local pane and
+// an optional remote pane.
 package browser
 
 import (
@@ -41,12 +42,10 @@ type Model struct {
 	Selection       *fs.SelectionState
 	RemoteSelection *fs.SelectionState
 
-	// visual selection mode
 	visualMode      bool
 	visualStartPath string
 	visualPane      PaneSide
 
-	// filter
 	filterMode bool
 	filter     string
 
@@ -60,7 +59,6 @@ type Model struct {
 	finder    finder
 	finderSeq uint64
 
-	// help overlay
 	showHelp bool
 
 	// file preview shown over the pane opposite the active tree
@@ -102,7 +100,6 @@ type Model struct {
 	// projectName is the registry display name, shown in the header when set.
 	projectName string
 
-	// mouse
 	mouseEnabled bool
 	clicks       mouse.ClickTracker
 }
@@ -129,7 +126,7 @@ func New(workDir string) (Model, error) {
 	return m, nil
 }
 
-// Init satisfies the tea.Model interface (root app calls this).
+// Init satisfies the sub-model convention; the root app's Init calls it.
 func (m Model) Init() tea.Cmd {
 	return nil
 }

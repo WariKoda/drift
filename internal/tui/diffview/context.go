@@ -3,7 +3,7 @@ package diffview
 import "github.com/WariKoda/drift/internal/diff"
 
 // contextSteps are the choices for [+] and [-]. The zero contextShift selects
-// diff.DefaultContext, so a model built without New behaves as before.
+// diff.DefaultContext, also in a model built without New.
 var contextSteps = []int{0, 1, diff.DefaultContext, 5, 10, 25}
 
 const defaultContextStep = 2

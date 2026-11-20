@@ -17,10 +17,10 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `projectselector`   | Modal: switch project from the browser (`P`)          |
 | `browser`           | File browser (entry point)                            |
 | `certtrust`         | Modal: inspect and trust an FTPS certificate          |
-| `hostselector`      | Modal: pick sync target                               |
+| `hostselector`      | Modal: pick the sync or remote-pane host (`s`, `@`)   |
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
-| `diffview`          | File list + unified diff + sync                       |
+| `diffview`          | File list + unified or split diff + sync              |
 | `remoteeditor`      | External-editor session + upload confirmation         |
 
 The `textfield` package holds the shared single-line input widget used by `hostform`

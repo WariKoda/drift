@@ -34,8 +34,9 @@ type MsgOpenHostManager struct{}
 // host shown in the right-hand browser pane.
 type MsgBrowseRemoteRequested struct{}
 
-// MsgOpenDashboard is emitted when the user presses [P] to return to the
-// project dashboard. The root app ignores it when no project registry is active.
+// MsgOpenDashboard is emitted when the user presses [P] to switch projects.
+// The root app opens the project picker, or shows an error in the status line
+// when the project registry cannot be loaded.
 type MsgOpenDashboard struct{}
 
 type msgPreviewCopied struct {
@@ -101,7 +102,7 @@ func (m Model) finishVisualSelection() Model {
 	return m
 }
 
-// Update handles key events and returns the updated model plus any command.
+// Update handles messages for the browser and returns the updated model plus any command.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -264,7 +265,6 @@ func (m Model) updateFinder(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 
-	// ── Quit ──────────────────────────────────────────
 	case keyQ, keyCtrlC:
 		return m, tea.Quit
 
@@ -272,7 +272,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		cmd := m.requestEdit()
 		return m, cmd
 
-	// ── File preview ───────────────────────────────────
 	case keyP:
 		return m, m.togglePreview()
 
@@ -301,7 +300,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.scrollPreview(msg.String())
 		}
 
-	// ── Pane focus ─────────────────────────────────────
 	case keyTab:
 		mouseCmd := m.disablePreview()
 		if m.activePane == PaneLocal && m.remoteHost != nil {
@@ -311,7 +309,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, mouseCmd
 
-	// ── Navigation ────────────────────────────────────
 	case keyJ, keyDown:
 		if m.activePane == PaneRemote {
 			m.remoteCursor++
@@ -352,7 +349,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, m.schedulePreview()
 
-	// ── Expand / open ─────────────────────────────────
 	case keyL, keyRight, keyEnter:
 		if m.activePane == PaneRemote {
 			return m.updateRemoteOpen()
@@ -374,7 +370,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 
-	// ── Collapse / go to parent ────────────────────────
 	case keyH, keyLeft:
 		if m.activePane == PaneRemote {
 			return m.updateRemoteClose()
@@ -399,7 +394,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m, m.schedulePreview()
 		}
 
-	// ── Selection ─────────────────────────────────────
 	case keyV:
 		m = m.finishVisualSelection()
 
@@ -473,7 +467,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.Selection.Clear()
 		m.RemoteSelection.Clear()
 
-	// ── Sync trigger ──────────────────────────────────
 	case keyS:
 		if m.remoteConn != nil && m.remoteConn.Err() != nil {
 			m.statusMsg = "Remote disconnected. Reconnect with [r] before comparing."
@@ -502,7 +495,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, tea.Batch(mouseCmd, func() tea.Msg { return request })
 
-	// ── Remote browser host ────────────────────────────
 	case keyAt:
 		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
@@ -511,7 +503,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		mouseCmd := m.disablePreview()
 		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgBrowseRemoteRequested{} })
 
-	// ── Host Manager ───────────────────────────────────
 	case "H":
 		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
@@ -520,7 +511,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		mouseCmd := m.disablePreview()
 		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgOpenHostManager{} })
 
-	// ── Project Dashboard ──────────────────────────────
 	case "P":
 		if m.remoteBusy() {
 			m.statusMsg = "Wait for the remote operation to finish"
@@ -529,7 +519,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		mouseCmd := m.disablePreview()
 		return m, tea.Batch(mouseCmd, func() tea.Msg { return MsgOpenDashboard{} })
 
-	// ── Visibility ─────────────────────────────────────
 	case keyDot, keyShiftI:
 		var localCurrent, remoteCurrent *fs.FileEntry
 		if entries := m.filteredEntries(); m.cursor >= 0 && m.cursor < len(entries) {
@@ -552,21 +541,18 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.statusMsg = ""
 		return m, m.schedulePreview()
 
-	// ── Fuzzy file finder ──────────────────────────────
 	case "f":
 		mouseCmd := m.disablePreview()
 		m.finderSeq++
 		m.finder = finder{active: true, loading: true, id: m.finderSeq}
 		return m, tea.Batch(mouseCmd, buildFinderIndexCmd(m.WorkDir, m.classifier, m.showHidden, m.showIgnored, m.finder.id, m.remoteSession))
 
-	// ── Filter ────────────────────────────────────────
 	case keySlash:
 		mouseCmd := m.disablePreview()
 		m.filterMode = true
 		m.filter = ""
 		return m, mouseCmd
 
-	// ── Refresh ───────────────────────────────────────
 	case keyR:
 		if m.activePane == PaneRemote && m.remoteHost != nil {
 			if m.remoteBusy() {
@@ -580,7 +566,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		previewCmd := m.schedulePreview()
 		return m, tea.Batch(previewCmd, m.RefreshLocal())
 
-	// ── Help ──────────────────────────────────────────
 	case keyQuestion:
 		mouseCmd := m.disablePreview()
 		m.showHelp = !m.showHelp
@@ -656,7 +641,6 @@ func (m Model) updateFilter(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.filter += string(msg.Runes)
 		}
 	}
-	// Reset cursor when filter changes
 	m.cursor = 0
 	m.offset = 0
 	return m, nil

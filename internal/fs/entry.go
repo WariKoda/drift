@@ -1,4 +1,6 @@
-// Package fs defines the shared FileEntry type used for both local and remote files.
+// Package fs defines the shared FileEntry type used for both local and remote
+// files, confines local file access to the project root and classifies project
+// paths for browser visibility and sync scope.
 package fs
 
 import (

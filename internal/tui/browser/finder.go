@@ -132,7 +132,6 @@ func (f *finder) current() *finderResult {
 	return &f.results[f.cursor]
 }
 
-// clamp keeps the cursor in bounds and scrolled into the vh-row window.
 // clampOffset keeps the result offset in range without dragging it back to the
 // cursor. The wheel moves the viewport on its own, so the regular clamp — which
 // exists to follow the cursor — must not run after it.
@@ -149,6 +148,7 @@ func (f *finder) clampOffset(vh int) {
 	}
 }
 
+// clamp keeps the cursor in bounds and scrolled into the vh-row window.
 func (f *finder) clamp(vh int) {
 	if len(f.results) == 0 {
 		f.cursor, f.offset = 0, 0

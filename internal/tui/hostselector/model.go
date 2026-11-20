@@ -1,4 +1,6 @@
-// Package hostselector implements the host picker modal shown when the user presses [s].
+// Package hostselector implements the host picker modal shown when the user
+// presses [s] to sync without a remote pane host or [@] to choose the remote
+// pane's host.
 package hostselector
 
 import (
@@ -14,7 +16,7 @@ import (
 // MsgHostChosen is emitted when the user selects a host.
 type MsgHostChosen struct{ Host config.Host }
 
-// MsgSelectorCancelled is emitted when the user presses Esc.
+// MsgSelectorCancelled is emitted when the user presses Esc or Ctrl+C.
 type MsgSelectorCancelled struct{}
 
 // Model is the host selector modal.
@@ -105,7 +107,6 @@ func (m *Model) applyFilter() {
 }
 
 func (m Model) View() string {
-	// Modal centered in the terminal
 	boxWidth := 54
 	if m.Width < boxWidth+4 {
 		boxWidth = m.Width - 4
@@ -124,11 +125,9 @@ func (m Model) View() string {
 
 	var inner strings.Builder
 
-	// Title
 	inner.WriteString(styles.Header.Render("Select host"))
 	inner.WriteByte('\n')
 
-	// Search input
 	query := styles.SafeText(m.query) + "█"
 	if m.query == "" {
 		query = styles.Muted.Render("type to filter…")
@@ -138,7 +137,6 @@ func (m Model) View() string {
 	inner.WriteString(styles.Sep.Render(strings.Repeat("─", boxWidth-2)))
 	inner.WriteByte('\n')
 
-	// Host list
 	if len(m.filtered) == 0 {
 		inner.WriteString(styles.Muted.Render("  no hosts found"))
 		inner.WriteByte('\n')

@@ -5,7 +5,6 @@ import (
 	"github.com/WariKoda/drift/internal/styles"
 )
 
-// key constants — used in Update's switch statements.
 const (
 	keyDown      = "down"
 	keyUp        = "up"

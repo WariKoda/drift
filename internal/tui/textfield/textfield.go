@@ -1,5 +1,5 @@
 // Package textfield provides a single-line editable text input widget shared
-// by drift's TUI forms (host form, project form).
+// by drift's TUI forms (host form, project form) and the dashboard filter.
 package textfield
 
 import (

@@ -60,7 +60,6 @@ func HostKeyCallback(hostname string, port int) (gossh.HostKeyCallback, []string
 			)
 		}
 
-		// Host is not yet known — add it (TOFU).
 		return addKnownHost(path, hostname, key)
 	}
 

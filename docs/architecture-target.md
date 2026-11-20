@@ -472,7 +472,7 @@ Die aktuelle Struktur ist für den Stand des Projekts passend.
 - globale Hosts in `config.toml`
 - projektbezogene Hosts und Mappings in `projects/<slug>.toml`
 - Projektzuordnung über die Registry `projects.toml`
-- Host-Override per Name
+- Projekt-Hosts, die einen globalen Server verknüpfen (`server = "<name>"`, siehe [ADR 0002](adr/0002-server-verknuepfung-ohne-verbindungsfelder.md))
 - Host-Mappings mit Vorrang vor Projekt-Mappings
 - Auth-Werte mit Expansion von Umgebungsvariablen beim Verbindungsaufbau
 - Validation für Mappings und Keep-alive-Intervalle beim Laden und Schreiben

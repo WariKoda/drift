@@ -179,8 +179,6 @@ func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 	return m, nil
 }
 
-// startBulkSync initializes the live progress tracker and kicks off the bulk
-// sync alongside the periodic progress tick.
 func (m Model) startBulkSync(indices []int) (Model, tea.Cmd) {
 	if m.remoteBusy() || m.connectionError() != nil {
 		return m, nil
@@ -286,7 +284,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 			m.clampHorizontal()
 		}
 
-	// ── File list navigation ───────────────────────────────────────────
 	case "tab", "n":
 		if m.activeIdx < len(m.sessions)-1 {
 			m.selectFile(m.activeIdx + 1)
@@ -314,7 +311,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 			m.syncDirs[i] = nextDir(m.syncDirs[i], &m.sessions[i])
 		}
 
-	// ── Diff scroll ────────────────────────────────────────────────────
 	case "j", "down", "J":
 		m.scroll++
 		m.clampScroll()
@@ -346,7 +342,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 		m.scroll = m.totalLines()
 		m.clampScroll()
 
-	// ── Jump to next/prev diff hunk ────────────────────────────────────
 	case "]":
 		m.jumpHunk(1)
 	case "[":
@@ -424,13 +419,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (next Model, cmd tea.Cmd) {
 			}
 		}
 
-	// ── Toggle the bulk-sync error overlay ─────────────────────────────
 	case "e":
 		if len(m.syncErrors) > 0 {
 			m.showErrors = !m.showErrors
 		}
 
-	// ── Quit ───────────────────────────────────────────────────────────
 	case "q", "esc":
 		if m.showErrors {
 			m.showErrors = false

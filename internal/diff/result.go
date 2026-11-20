@@ -1,4 +1,6 @@
-// Package diff compares local and remote files and produces structured diff results.
+// Package diff compares local and remote files, produces structured diff results
+// and prepares them for display: hunks, folds, word and syntax highlights and
+// rendered rows.
 package diff
 
 import (
@@ -20,8 +22,8 @@ const (
 // DiffLine holds one line of a unified diff sequence.
 type DiffLine struct {
 	Text      string
-	Kind      LineKind // Equal, Added, Removed
-	LocalNum  int      // 0 = this side has no number
+	Kind      LineKind
+	LocalNum  int // 0 = this side has no number
 	RemoteNum int
 }
 
@@ -31,11 +33,9 @@ type DiffResult struct {
 	RemotePath string
 	Lines      []DiffLine
 
-	// Existence flags
 	LocalOnly  bool // file exists only locally (not on remote)
 	RemoteOnly bool // file exists only on remote
 
-	// Metadata
 	Binary bool
 	// LocalImage and RemoteImage describe raster images read for the
 	// comparison. Files above the text size limit are not read, so they stay nil.
@@ -58,7 +58,7 @@ type DiffResult struct {
 	longestChange int
 }
 
-// ensureStats computes and caches differs/added/removed in a single pass.
+// ensureStats computes and caches the statistics over Lines in a single pass.
 //
 // Safe without locking: a DiffResult is owned by exactly one goroutine while
 // being compared, and Bubble Tea runs Update and View sequentially, so there is

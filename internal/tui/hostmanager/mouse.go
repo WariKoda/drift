@@ -52,7 +52,6 @@ func (m Model) updateMouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 	}
 
 	if delta := mouse.WheelDelta(msg); delta != 0 {
-		// No separate scroll offset exists here, so the wheel moves the cursor.
 		m.statusMsg = ""
 		m.cursor += delta
 		if delta < 0 {

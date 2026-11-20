@@ -32,7 +32,6 @@ const (
 	maxFTPDiffLoadWorkers = 4
 )
 
-// diffLoadWorkers returns the worker count to use for a host's protocol.
 func diffLoadWorkers(host config.Host) int {
 	if isFTPProtocol(host.Protocol) {
 		return maxFTPDiffLoadWorkers
@@ -51,13 +50,11 @@ type diffLoadItem struct {
 type compareFunc func(idx int, conn remote.Client)
 
 // forEachCompare runs fn for every index in jobs across a bounded worker pool.
-// The first worker always reuses the connection that is already established, so
-// a server allowing only one session per user still produces a complete diff.
-// SFTP shares that one connection across all workers because pkg/sftp
-// pipelines concurrent requests; for FTP every additional worker needs its own
-// connection. A refused extra login lowers parallelism, but a terminal failure
-// on any established connection fails the comparison. fn must only write to data
-// owned by its idx, making the pool race-free without locking. prog may be nil.
+// The first worker uses conn. SFTP workers share it; every further FTP worker
+// opens its own connection. A refused extra login lowers parallelism, but a
+// terminal failure on any established connection fails the comparison. fn must
+// only write to data owned by its idx, making the pool race-free without
+// locking. prog may be nil.
 func forEachCompare(ctx context.Context, host config.Host, conn remote.Client, jobs []int, prog *progress.Tracker, trust *tlstrust.Manager, required *tlstrust.Challenge, fn compareFunc) error {
 	var activity *loadActivity
 	if tracked, ok := conn.(*loadClient); ok {
@@ -209,7 +206,7 @@ func loadDiffItems(ctx context.Context, root *fs.Root, host config.Host, conn re
 			log.Error("diff compare failed", "local", item.LocalPath, "remote", item.RemotePath, "err", diffErr)
 		}
 		if diffErr == nil && result != nil && !result.HasDiff() {
-			return // identical — skip
+			return
 		}
 		results[idx] = &diff.Session{
 			LocalPath:  item.LocalPath,

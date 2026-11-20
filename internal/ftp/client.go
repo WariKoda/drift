@@ -169,7 +169,6 @@ func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
 
 	size, err := c.conn.FileSize(remotePath)
 	if err != nil {
-		// Check if it's a directory by attempting to list it.
 		entries, listErr := c.conn.List(remotePath)
 		if listErr != nil {
 			return nil, errors.Join(entryErr, err, c.classifyMissing(remotePath, listErr))
@@ -422,7 +421,7 @@ func (c *Client) parallelWalkFiles(remoteRoot string, fn func(string) error, act
 	var firstErr error
 
 	// handleFile holds mu for the whole fn call: fn writes shared maps/slices
-	// in the caller (LoadCmd), so the lock serializes those writes.
+	// in the caller (app.Load), so the lock serializes those writes.
 	handleFile := func(p string) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -597,7 +596,7 @@ func (c *Client) ensureDir(dir string) error {
 		} else {
 			current = current + "/" + part
 		}
-		_ = c.conn.MakeDir(current) // ignore "already exists" errors
+		_ = c.conn.MakeDir(current) // also fails for existing directories
 	}
 	return nil
 }

@@ -641,7 +641,7 @@ func highlightRunes(s string, matched []int, start int, base lipgloss.Style) str
 	return b.String()
 }
 
-// truncLeftPath shortens a path to max columns, keeping the tail (the immediate
+// truncLeftPath shortens a path to width columns, keeping the tail (the immediate
 // parent is the most useful for disambiguation).
 func truncLeftPath(s string, width int) string {
 	if width <= 0 {

@@ -578,6 +578,12 @@ func (m *Model) applyPreviewImageShown(msg msgPreviewImageShown) tea.Cmd {
 	return m.deleteImage(previous)
 }
 
+// ReleaseImages frees the previewed image in the terminal. Call it when the
+// browser is replaced, for example when another project opens.
+func (m *Model) ReleaseImages() tea.Cmd {
+	return m.dropPreviewImage()
+}
+
 // dropPreviewImage forgets the previewed image and frees it in the terminal.
 func (m *Model) dropPreviewImage() tea.Cmd {
 	picture := m.preview.picture

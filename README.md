@@ -120,8 +120,6 @@ it, start it once in each project, then upgrade to the current version. See
 
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The repository also contains a paused native desktop port in [`rust/`](rust/README.md).
-
 ## License
 
 MIT, see [LICENSE](LICENSE).

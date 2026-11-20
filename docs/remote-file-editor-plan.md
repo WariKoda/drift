@@ -4,7 +4,6 @@ Status: umgesetzt und seit dem 6. November 2026 in `main` (Merge-Commit `bbda0c4
 manuelle Terminal-/GUI-Abnahme noch offen.
 Dieses Dokument ersetzt den früheren Entwurf eines eingebauten Editors und beschreibt
 die umgesetzten Regeln.
-Geltungsbereich: Go-TUI; kein neues Editor-Feature für die pausierte Rust-GUI.
 
 Automatisierte Prüfungen verwenden echte SFTP-, FTP- und FTPS-Verbindungen sowie
 einen echten Editor-Hilfsprozess. Die Bedienung mit Nano/Neovim, Zed und VS Code
@@ -149,15 +148,6 @@ Die Go-Typen liegen in `internal/config/config.go`. Loader, Laufzeitkonfiguratio
 und Writer erhalten den Abschnitt, auch bei Host-Verwaltungsoperationen und
 beim Schreiben einer vorher nicht vorhandenen globalen Datei. Ohne Abschnitt bleibt
 das bisherige Verhalten unverändert.
-
-### Gemeinsame Konfiguration mit Rust
-
-Go und Rust schreiben dieselbe globale Datei. Rusts gespeicherter `GlobalConfig`
-erhält jetzt ebenfalls den Editor-Abschnitt; ein Roundtrip-Test prüft Host-Save und
--Delete. Ohne diese koordinierte Schemaänderung würde ein typisierter
-Lese-/Schreibzyklus den Abschnitt verlieren. Das ist reine Store-Kompatibilität,
-keine Wiederaufnahme der GUI-Featureentwicklung. Alte Binaries, die den Abschnitt
-nicht erhalten, werden dadurch nicht nachträglich kompatibel.
 
 ## Arbeitskopie und Inhalt
 
@@ -364,7 +354,6 @@ Prüfreferenz erhalten; die manuelle Terminal-/GUI-Abnahme steht noch aus.
 ### 1. Konfiguration und sicherer Prozessaufruf
 
 - Go-Konfiguration und Writer um den optionalen Editor-Abschnitt ergänzen.
-- Rust-Store um den notwendigen Schema-Roundtrip ergänzen, ohne GUI-Anbindung.
 - Argumentersetzung und Validierung testen; keine Shell-Zwischenschicht.
 
 Abnahme: Beispiele für `nvim` und `code --wait` sind korrekt abbildbar. Host-Saves
@@ -422,7 +411,7 @@ Prozess-Tests einen echten kurzlebigen Hilfsprozess verwenden, keinen Remote-Moc
 
 | Bereich | Pflichtfälle |
 | --- | --- |
-| Konfiguration | Fehlender Abschnitt, Default für `terminal`, ungültige Argumentliste, fehlender/doppelter Platzhalter, unbekanntes Programm, Go-/Rust-Roundtrip nach Host-Schreibvorgängen. |
+| Konfiguration | Fehlender Abschnitt, Default für `terminal`, ungültige Argumentliste, fehlender/doppelter Platzhalter, unbekanntes Programm, Roundtrip nach Host-Schreibvorgängen. |
 | Prozessaufruf | Leerzeichen, Unicode, Shell-Metazeichen und führender Bindestrich im Dateinamen; kein Shell-Aufruf; nicht vorhandenes Programm; Exit ungleich null; korrektes Warten. |
 | Inhalt | Leere Datei, LF/CRLF/gemischte Zeilenenden, BOM, ungültiges UTF-8, NUL, Tabs, fehlender Schlussumbruch; bytegleicher Download und keine drift-seitige Umwandlung. |
 | Arbeitsdatei | 0700/0600, Größenlimit vor/nach Bearbeitung, atomarer Editor-Save, gelöschte Datei, Symlink-Escape, nichtreguläre Datei, private Snapshots und Aufräumfehler. |
@@ -441,7 +430,6 @@ go test ./...
 go test -race ./...
 go vet ./...
 go build ./...
-cd rust && cargo test -p drift-core
 ```
 
 Zusätzlich manuell mit `nvim` und `code --wait`, kleinen Terminalgrößen und

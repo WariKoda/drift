@@ -13,8 +13,8 @@ import (
 // performs a management operation. The lock file is permanent: never unlink it.
 var ErrWriteBusy = errors.New("configuration is being changed by another drift process; retry")
 
-// WriteLock coordinates a complete management transaction with the Rust app.
-// It owns the same flock inode at <config.Dir()>/write.lock in both programs.
+// WriteLock serializes a complete management transaction between drift
+// processes. It holds a flock on <config.Dir()>/write.lock.
 type WriteLock struct {
 	file *os.File
 	dir  string

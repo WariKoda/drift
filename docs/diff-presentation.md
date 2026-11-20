@@ -193,10 +193,9 @@ wrap = true        # lange Zeilen umbrechen; false schneidet ab
 
 Die Tasten ändern den Sitzungszustand, schreiben aber keine Konfiguration.
 `wrap` ist als einziges Feld ohne Eintrag an; `DiffPreferences.Wrap` ist deshalb
-ein Zeiger, und `Wrapping()` wertet „nicht gesetzt“ als an. Der Rust-Store führt
-das Feld als `Option<bool>`, damit ein ausdrückliches `wrap = false` beim
-Speichern von Hosts nicht verloren geht. Go- und Rust-Store-Schreibvorgänge
-erhalten alle vier Felder. Projekt- und
+ein Zeiger, und `Wrapping()` wertet „nicht gesetzt“ als an. Schreibvorgänge der
+Konfiguration erhalten alle vier Felder, auch ein ausdrückliches `wrap = false`.
+Projekt- und
 Hostdaten können sie nicht überschreiben.
 
 ## Zeilenumbruch
@@ -305,10 +304,6 @@ go build ./...
 go test ./internal/tui/diffview -run '^$' \
   -bench 'Benchmark(DiffView|Flatten|Continuous|WrappedView)$' -benchmem
 go test ./internal/diff -run '^$' -bench BenchmarkSyntaxHighlights -benchmem
-cd rust
-cargo fmt --all -- --check
-cargo test --locked -p drift-core
-cargo clippy --locked -p drift-core --all-targets -- -D warnings
 ```
 
 Die interaktive Abnahme steht noch aus; ihre Fälle stehen in

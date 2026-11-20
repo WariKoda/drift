@@ -455,7 +455,7 @@ func (m Model) renderStatus(entries []*fs.FileEntry) string {
 	helpWidth := max(0, m.Width-3-min(lipgloss.Width(left), max(0, m.Width-3-len("[?]help"))))
 	right := m.helpText(helpWidth)
 	if m.preview.active {
-		right = PreviewHelpText(helpWidth)
+		right = PreviewHelpText(helpWidth, m.preview.loaded && m.preview.picture != nil)
 	}
 	left = truncate(left, max(0, m.Width-lipgloss.Width(right)-3))
 	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2

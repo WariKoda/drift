@@ -49,7 +49,7 @@ func TestVisibilityHintStyles(t *testing.T) {
 
 func TestAdaptiveKeyHintsFitWithoutSplitting(t *testing.T) {
 	for width := 0; width <= 200; width++ {
-		for _, got := range []string{(Model{showHidden: true}).helpText(width), PreviewHelpText(width)} {
+		for _, got := range []string{(Model{showHidden: true}).helpText(width), PreviewHelpText(width, false)} {
 			plain := ansi.Strip(got)
 			if lipgloss.Width(got) > width {
 				t.Fatalf("width %d: %q", width, got)

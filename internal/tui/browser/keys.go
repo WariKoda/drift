@@ -79,8 +79,12 @@ func (m Model) helpText(width int) string {
 	return styles.FitKeyHints(width, hints...)
 }
 
-// PreviewHelpText returns key hints for the active preview.
-func PreviewHelpText(width int) string {
+// PreviewHelpText returns key hints for the active preview. An image has no
+// text to copy, select or scroll, so only closing and help remain.
+func PreviewHelpText(width int, image bool) string {
+	if image {
+		return styles.FitKeyHints(width, keyHint("p", "close"), keyHint("?", "help"))
+	}
 	return styles.FitKeyHints(width,
 		keyHint("p", "close"),
 		keyHint("c", "copy"),

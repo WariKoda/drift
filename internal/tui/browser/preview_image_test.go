@@ -213,3 +213,29 @@ func TestImagePreviewSizeLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestImagePreviewOffersOnlyApplicableKeys(t *testing.T) {
+	data := writeTestPNG(t, "", 64, 32)
+	_, picture, err := readPreview(bytes.NewReader(data), int64(len(data)), previewRequest{path: "/project/icon.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := previewTestModel(nil)
+	model.Width = 160
+	model.preview = filePreview{active: true, source: PaneLocal, loaded: true, path: "/project/icon.png", picture: picture}
+	status := ansi.Strip(strings.Split(model.View(), "\n")[model.Height-1])
+	if !strings.Contains(status, "[p]close") || !strings.Contains(status, "[?]help") {
+		t.Fatalf("status lacks close or help: %q", status)
+	}
+	for _, unwanted := range []string{"copy", "select", "scroll", "jump"} {
+		if strings.Contains(status, unwanted) {
+			t.Fatalf("status offers %q for an image: %q", unwanted, status)
+		}
+	}
+
+	model.preview = filePreview{active: true, source: PaneLocal, loaded: true, path: "/project/a.txt", lines: []string{"text"}}
+	model.layoutPreview(false)
+	if status := ansi.Strip(strings.Split(model.View(), "\n")[model.Height-1]); !strings.Contains(status, "[c]copy") {
+		t.Fatalf("text preview lost its copy hint: %q", status)
+	}
+}

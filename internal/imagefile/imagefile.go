@@ -92,6 +92,19 @@ func Fit(img image.Image, maxWidth, maxHeight int) image.Image {
 	return Scale(img, maxWidth, maxHeight)
 }
 
+// Stretch resizes img to exactly width × height, for pixels that are not
+// square on screen.
+func Stretch(img image.Image, width, height int) image.Image {
+	bounds := img.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 || width <= 0 || height <= 0 || width == bounds.Dx() && height == bounds.Dy() {
+		return img
+	}
+	target := image.Rect(0, 0, width, height)
+	scaled := image.NewRGBA(target)
+	draw.BiLinear.Scale(scaled, target, img, bounds, draw.Src, nil)
+	return scaled
+}
+
 // Scale resizes img to fit into width × height, keeping its aspect ratio.
 // Unlike Fit it also enlarges.
 func Scale(img image.Image, width, height int) image.Image {

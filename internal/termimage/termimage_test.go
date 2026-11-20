@@ -272,6 +272,28 @@ func TestHalfBlocksDrawTwoPixelsPerCell(t *testing.T) {
 	}
 }
 
+func TestHalfBlocksFollowTheCellShape(t *testing.T) {
+	output, _ := newTestOutput(t, Detection{Mode: Blocks})
+	// foot with a tall line height: block pixels are 10 × 12, not square.
+	output.cellSize = func(*os.File) (int, int) { return 10, 24 }
+	img := image.NewNRGBA(image.Rect(0, 0, 120, 60))
+	for index := range img.Pix {
+		img.Pix[index] = 255
+	}
+	placement, err := output.Show(img, 40, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 400 × 200 screen pixels: 9 rows, the last holding one block pixel of 17.
+	if placement.Cols != 40 || placement.Rows != 9 {
+		t.Fatalf("placement = %d × %d cells, want 40 × 9 to keep 2:1", placement.Cols, placement.Rows)
+	}
+	rows := Rows(placement)
+	if strings.Contains(rows[8], ";48;2;") || !strings.Contains(rows[7], ";48;2;") {
+		t.Fatalf("expected 17 block pixels, last rows = %q, %q", rows[7], rows[8])
+	}
+}
+
 func TestHalfBlocksShrinkToTheArea(t *testing.T) {
 	output, _ := newTestOutput(t, Detection{Mode: Blocks})
 	placement, err := output.Show(image.NewNRGBA(image.Rect(0, 0, 400, 100)), 40, 30)

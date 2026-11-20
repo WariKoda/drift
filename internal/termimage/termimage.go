@@ -34,10 +34,7 @@ const EnvVar = "DRIFT_IMAGES"
 
 // maxUpscale limits how far a small image is enlarged to fill its area. Half
 // blocks are far larger than screen pixels, so they never enlarge.
-const (
-	maxUpscale       = 2
-	maxBlocksUpscale = 1
-)
+const maxUpscale = 2
 
 // maxCells is the number of rows and columns placeholders can address.
 const maxCells = 256
@@ -127,6 +124,7 @@ type Output struct {
 	tmux      bool
 	nextID    uint32
 	shown     map[uint32]struct{}
+	cellSize  func(*os.File) (int, int)
 }
 
 // NewOutput wraps file and draws images in the detected mode.
@@ -134,7 +132,7 @@ func NewOutput(file *os.File, detection Detection) *Output {
 	// Start at a varying ID so that images of an earlier run, still referenced
 	// by placeholders in the scrollback, are not replaced by this run's.
 	start := uint32(time.Now().UnixNano())&0x7fffff | 1
-	return &Output{file: file, detection: detection, mode: detection.Mode, tmux: detection.Tmux, nextID: start, shown: map[uint32]struct{}{}}
+	return &Output{file: file, detection: detection, mode: detection.Mode, tmux: detection.Tmux, nextID: start, shown: map[uint32]struct{}{}, cellSize: cellSize}
 }
 
 // Detection reports how images were turned on or off.
@@ -143,13 +141,14 @@ func (o *Output) Detection() Detection { return o.detection }
 // Enabled reports whether images can be shown. A nil Output has no images.
 func (o *Output) Enabled() bool { return o != nil && o.mode != Off }
 
-// cell returns the pixel size of one cell and the largest enlargement. Half
-// blocks have two square pixels per cell.
+// cell returns the pixel size of one cell and the largest enlargement. A half
+// block pixel is one cell wide and half a cell high; no image pixel grows
+// beyond it.
 func (o *Output) cell() (int, int, float64) {
+	width, height := o.cellSize(o.file)
 	if o.mode == Blocks {
-		return 1, 2, maxBlocksUpscale
+		return width, height, float64(min(2*width, height)) / 2
 	}
-	width, height := cellSize(o.file)
 	return width, height, maxUpscale
 }
 
@@ -187,7 +186,10 @@ func (o *Output) Show(img image.Image, maxCols, maxRows int) (Placement, error) 
 	o.mu.Unlock()
 
 	if o.mode == Blocks {
-		return Placement{ID: id, Cols: cols, Rows: rows, text: halfBlocks(imagefile.Scale(img, width, height), cols, rows)}, nil
+		// Block pixels are rarely square: a 10 × 24 cell holds two 10 × 12 pixels.
+		blockWidth := min(cols, max(1, (width+cellWidth/2)/cellWidth))
+		blockHeight := min(2*rows, max(1, (2*height+cellHeight/2)/cellHeight))
+		return Placement{ID: id, Cols: cols, Rows: rows, text: halfBlocks(imagefile.Stretch(img, blockWidth, blockHeight), cols, rows)}, nil
 	}
 	// The terminal fits the image into the cell box, so only shrink before sending.
 	scaled := imagefile.Fit(img, width, height)

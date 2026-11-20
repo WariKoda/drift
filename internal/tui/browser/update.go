@@ -2,6 +2,7 @@ package browser
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -279,12 +280,18 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.preview.active && m.preview.loaded && m.preview.picture == nil {
 			content := strings.Join(m.preview.lines, "\n")
 			previewPath := m.preview.path
+			// Write through the program output so the sequence never lands
+			// inside a frame the renderer is writing.
+			var out io.Writer = termenv.DefaultOutput()
+			if m.images != nil {
+				out = m.images
+			}
 			return m, func() tea.Msg {
 				sequence := osc52.New(content)
 				if strings.HasPrefix(os.Getenv("TERM"), "screen") {
 					sequence = sequence.Screen()
 				}
-				_, err := sequence.WriteTo(termenv.DefaultOutput())
+				_, err := sequence.WriteTo(out)
 				return msgPreviewCopied{path: previewPath, err: err}
 			}
 		}

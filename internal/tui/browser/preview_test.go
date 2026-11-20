@@ -345,6 +345,30 @@ func TestCopyPreviewWritesUnwrappedContentToClipboard(t *testing.T) {
 	}
 }
 
+func TestCopyPreviewWritesThroughTheProgramOutput(t *testing.T) {
+	model := previewTestModel(nil)
+	output, terminal := terminalFile(t)
+	model.SetImages(output)
+	model.preview = filePreview{active: true, loaded: true, lines: []string{"content"}}
+
+	var direct bytes.Buffer
+	originalOutput := termenv.DefaultOutput()
+	termenv.SetDefaultOutput(termenv.NewOutput(&direct))
+	t.Cleanup(func() { termenv.SetDefaultOutput(originalOutput) })
+
+	_, cmd := model.updateNormal(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(keyC)})
+	if result := cmd().(msgPreviewCopied); result.err != nil {
+		t.Fatal(result.err)
+	}
+	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("content")) + "\a"
+	if !strings.Contains(terminal(), want) {
+		t.Fatalf("program output = %q, want the clipboard sequence", terminal())
+	}
+	if direct.Len() != 0 {
+		t.Fatalf("copy bypassed the program output: %q", direct.String())
+	}
+}
+
 func TestCopyPreviewReportsTerminalWriteFailure(t *testing.T) {
 	model := previewTestModel(nil)
 	model.preview = filePreview{

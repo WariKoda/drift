@@ -67,7 +67,8 @@ Terminal images use the Kitty graphics protocol with Unicode placeholders, or ha
 blocks in other true-colour terminals (`internal/termimage`). Half blocks are text
 rows computed in `Output.Show` and never write to the terminal. `cmd` creates one `termimage.Output`, passes it to Bubble Tea
 with `tea.WithOutput` and to `tui.New`; image transmissions take its lock, so they
-never split a frame. Transmit only from a `tea.Cmd` (`Output.Show`), then render the
+never split a frame. Other sequences written outside `View`, such as the OSC 52
+clipboard copy, go through the same Output. Transmit only from a `tea.Cmd` (`Output.Show`), then render the
 placeholder rows from `termimage.Rows`; never put image data into `View`. Every
 placement is freed with `Output.Delete` when its screen moves on or closes, including
 placements that arrive stale. `internal/imagefile` recognizes, decodes and scales

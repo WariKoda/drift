@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0-beta.3] - 2026-11-20
+
+This release updates the Go TUI. Rust/GPUI development remains paused; there is
+no GUI release in this version. Images were checked by hand in Ghostty and foot;
+GNOME Terminal and tmux are untested.
+
 ### Added
 
 - the file preview (`p`) shows PNG, JPEG, GIF, WebP, BMP and TIFF images: in full
@@ -13,7 +19,6 @@ All notable changes to this project will be documented in this file.
   and dimensions in every terminal, and marks images that differ only in their bytes
 - `DRIFT_IMAGES=off|kitty|blocks` overrides terminal detection, for example inside tmux;
   `drift image-test [image]` shows how the terminal draws images
-
 - `/` on the dashboard filters projects by name, slug or path; number keys and
   project actions use the filtered list, and `Esc` clears the filter before leaving
   the dashboard

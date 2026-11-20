@@ -103,7 +103,7 @@ func waitConnectionLoss(t *testing.T, conn remote.Client) {
 
 func TestConnectionLossIsHandledBehindCertificateModal(t *testing.T) {
 	conn, host, stop := loopbackConnection(t)
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestConnectionLossIsHandledBehindCertificateModal(t *testing.T) {
 
 func TestStaleRemoteResultIsClosedBehindCertificateModal(t *testing.T) {
 	conn, host, _ := loopbackConnection(t)
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestStaleRemoteResultIsClosedBehindCertificateModal(t *testing.T) {
 func TestConnectionWatchRejectsOldConnectionAndProject(t *testing.T) {
 	first, _, stop := loopbackConnection(t)
 	second, _, _ := loopbackConnection(t)
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestConnectionWatchRejectsOldConnectionAndProject(t *testing.T) {
 
 func TestConnectionLossFollowsBrowserToDiffOwnership(t *testing.T) {
 	conn, host, stop := loopbackConnection(t)
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

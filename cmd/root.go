@@ -9,6 +9,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/project"
+	"github.com/WariKoda/drift/internal/termimage"
 	"github.com/WariKoda/drift/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -66,11 +67,12 @@ Config locations (nothing is written into your project):
 		}
 
 		mouseEnabled := resolveMouseEnabled(cfg)
-		app, err := tui.New(root, cfg, store, reg, initial, mouseEnabled)
+		output := newTerminalOutput()
+		app, err := tui.New(root, cfg, store, reg, initial, mouseEnabled, output)
 		if err != nil {
 			return fmt.Errorf("cannot read directory: %w", err)
 		}
-		return runProgram(app, mouseEnabled)
+		return runProgram(app, output, mouseEnabled)
 	},
 }
 
@@ -202,7 +204,13 @@ func loadAll(workDir string) (*config.MergedConfig, string, *project.Store, *pro
 	return cfg, root, store, reg, nil
 }
 
-func runProgram(app tui.App, mouse bool) error {
+// newTerminalOutput is the writer Bubble Tea renders through. Image
+// transmissions share it, so they never interleave with a frame.
+func newTerminalOutput() *termimage.Output {
+	return termimage.NewOutput(os.Stdout, termimage.Detect(os.Getenv))
+}
+
+func runProgram(app tui.App, output *termimage.Output, mouse bool) error {
 	if opts, enabled := resolveLogConfig(); enabled {
 		closer, err := log.Init(opts)
 		if err != nil {
@@ -211,10 +219,12 @@ func runProgram(app tui.App, mouse bool) error {
 		} else {
 			defer closer.Close()
 			log.Info("drift start", "version", resolvedVersion())
+			detection := output.Detection()
+			log.Info("terminal images", "enabled", detection.Enabled, "reason", detection.Reason)
 		}
 	}
 
-	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithOutput(output)}
 	if mouse {
 		// CellMotion, not AllMotion: clicks and wheel plus drag, but no event
 		// on every idle cursor move. Nothing here reacts to plain hover.
@@ -227,6 +237,9 @@ func runProgram(app tui.App, mouse bool) error {
 		last.Close()
 	} else {
 		app.Close()
+	}
+	if releaseErr := output.Release(); releaseErr != nil {
+		log.Error("release terminal images", "err", releaseErr)
 	}
 	if err != nil {
 		return fmt.Errorf("TUI error: %w", err)

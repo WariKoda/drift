@@ -35,7 +35,7 @@ func editorApp(t *testing.T, tls bool) (*App, *ftptest.Server) {
 	cfg := &config.MergedConfig{ProjectRoot: root, Editor: &config.Editor{
 		Command: []string{os.Args[0], "-test.run=TestRemoteEditorGUIHelper", "--", "{file}"}, Terminal: &terminal,
 	}}
-	a, err := New(root, cfg, nil, nil, ScreenBrowser, false)
+	a, err := New(root, cfg, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,7 @@ func TestLocalTreeResultIsDeliveredWhileHostManagerIsOpen(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "dir", "x"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(root, nil, nil, nil, ScreenBrowser, false)
+	a, err := New(root, nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestLocalTreeResultIsDeliveredWhileHostManagerIsOpen(t *testing.T) {
 func TestReturningFromComparisonRefreshesLocalTree(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	root := t.TempDir()
-	a, err := New(root, nil, nil, nil, ScreenDiffView, false)
+	a, err := New(root, nil, nil, nil, ScreenDiffView, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

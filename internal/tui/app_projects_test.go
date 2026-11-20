@@ -19,7 +19,7 @@ import (
 func TestProjectPreparationRunsOnlyInCommand(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	oldDir, newDir := t.TempDir(), t.TempDir()
-	a, err := New(oldDir, nil, nil, nil, ScreenBrowser, false)
+	a, err := New(oldDir, nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestProjectPreparationRunsOnlyInCommand(t *testing.T) {
 
 func TestProjectPreparationFailureKeepsExistingResources(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	a, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+	a, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestCancelledProjectPreparationIsDiscarded(t *testing.T) {
 		t.Run(key.String(), func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			oldDir := t.TempDir()
-			a, err := New(oldDir, nil, nil, nil, ScreenBrowser, false)
+			a, err := New(oldDir, nil, nil, nil, ScreenBrowser, false, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +123,7 @@ func TestCancelledProjectPreparationIsDiscarded(t *testing.T) {
 
 func TestSupersededProjectPreparationUsesLatestSize(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	a, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+	a, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestProjectOpenedTimestampIsPersistedInCommand(t *testing.T) {
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false)
+	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestProjectOpenedTimestampFailureIsVisible(t *testing.T) {
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false)
+	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestDelayedProjectOpenedResultRefreshesReloadedRegistry(t *testing.T) {
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false)
+	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestProjectOpenedTimestampKeepsSwitchOrder(t *testing.T) {
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false)
+	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestProjectOpenedTimestampPreservesNewerExternalOpen(t *testing.T) {
 	if err := store.Save(reg); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false)
+	a, err := New(t.TempDir(), nil, store, reg, ScreenDashboard, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

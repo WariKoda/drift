@@ -270,6 +270,9 @@ func (m Model) renderPreviewRow(row, width int) string {
 		}
 		return strings.Repeat(" ", width)
 	}
+	if picture := m.preview.picture; picture != nil {
+		return m.renderPictureRow(picture, row, width)
+	}
 
 	index := m.preview.offset + row
 	if index < 0 || index >= len(m.preview.rows) {
@@ -282,6 +285,28 @@ func (m Model) renderPreviewRow(row, width int) string {
 	}
 	prefix := fmt.Sprintf("%*s │ ", m.preview.numberWidth, number)
 	line := styles.Muted.Render(prefix) + styles.File.Render(previewRow.text)
+	return padRight(truncate(line, width), width)
+}
+
+// renderPictureRow draws an image preview: its format and size, then the
+// image or the reason it is missing.
+func (m Model) renderPictureRow(picture *previewPicture, row, width int) string {
+	var line string
+	switch {
+	case row == 0:
+		line = "  " + styles.Muted.Render(picture.info.String())
+	case row < 2:
+	case picture.err != nil:
+		if row == 2 {
+			line = "  " + styles.Err.Render("Image cannot be shown: "+sanitizePreviewError(picture.err))
+		}
+	case !m.images.Enabled():
+		if row == 2 {
+			line = "  " + styles.Muted.Render("Inline images need Kitty or Ghostty")
+		}
+	case row-2 < len(picture.rows):
+		line = "  " + picture.rows[row-2]
+	}
 	return padRight(truncate(line, width), width)
 }
 

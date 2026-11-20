@@ -32,7 +32,7 @@ func connectedSessionApp(t *testing.T) (*App, config.Host) {
 	if err := config.SaveProjectHost(cfg, host, ""); err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(root, cfg, nil, nil, ScreenBrowser, false)
+	a, err := New(root, cfg, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestEditedActiveProjectReloadsRootAndName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(oldPath, cfg, store, reg, ScreenBrowser, false)
+	a, err := New(oldPath, cfg, store, reg, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestEditedActiveProjectReloadsRootAndName(t *testing.T) {
 func TestSameSlugWithChangedPathIsNotSkipped(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	oldPath, newPath := t.TempDir(), t.TempDir()
-	a, err := New(oldPath, nil, nil, nil, ScreenBrowser, false)
+	a, err := New(oldPath, nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestConfirmedDeleteUpdatesBrowserAndScopeSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := New(root, cfg, nil, nil, ScreenBrowser, false)
+	a, err := New(root, cfg, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

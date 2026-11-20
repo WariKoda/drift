@@ -105,11 +105,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		m.Width = msg.Width
-		m.Height = msg.Height
-		m.clampScroll()
-		m.clampRemoteScroll()
-		m.layoutPreview(true)
+		return m, m.SetSize(msg.Width, msg.Height)
 
 	case MsgRemoteLoaded:
 		if !m.AcceptsRemoteResult(msg) {
@@ -148,6 +144,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case msgPreviewLoaded:
 		return m, m.applyPreviewLoaded(msg)
+
+	case msgPreviewImageShown:
+		return m, m.applyPreviewImageShown(msg)
 
 	case MsgLocalLoaded:
 		return m, m.applyLocalLoaded(msg)
@@ -277,7 +276,7 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, m.togglePreview()
 
 	case keyC:
-		if m.preview.active && m.preview.loaded {
+		if m.preview.active && m.preview.loaded && m.preview.picture == nil {
 			content := strings.Join(m.preview.lines, "\n")
 			previewPath := m.preview.path
 			return m, func() tea.Msg {

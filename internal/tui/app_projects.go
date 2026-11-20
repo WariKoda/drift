@@ -73,6 +73,7 @@ func (a App) applyPreparedProject(msg msgProjectPrepared) (tea.Model, tea.Cmd) {
 	b.SetSize(a.state.TermWidth, a.state.TermHeight)
 	b.SetProjectName(p.Name)
 	b.SetMouseEnabled(a.mouseEnabled)
+	b.SetImages(a.images)
 	b.SetTrustManager(a.trust)
 
 	a.abandonDiffRequest()

@@ -168,7 +168,7 @@ func TestRegisterCandidate(t *testing.T) {
 }
 
 func TestActiveNetworkOperationBlocksSecondOperation(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestNetworkActivityCancelStopsLoader(t *testing.T) {
 		{Type: tea.KeyCtrlC},
 	} {
 		t.Run(key.String(), func(t *testing.T) {
-			app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+			app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -214,7 +214,7 @@ func TestNetworkActivityCancelStopsLoader(t *testing.T) {
 }
 
 func TestCtrlCQuitsWhenIdle(t *testing.T) {
-	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), nil, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestCtrlCQuitsWhenIdle(t *testing.T) {
 func TestBackgroundErrorIsShownInCurrentView(t *testing.T) {
 	host := config.Host{Name: "staging"}
 	cfg := &config.MergedConfig{GlobalHosts: []config.Host{host}}
-	app, err := New(t.TempDir(), cfg, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), cfg, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func loadingApp(t *testing.T, projectDir string, reg *project.Registry, host con
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(projectDir, cfg, nil, reg, ScreenBrowser, false)
+	app, err := New(projectDir, cfg, nil, reg, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +417,7 @@ func storedApp(t *testing.T, projectDir string, reg *project.Registry, host conf
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(projectDir, cfg, store, reg, ScreenBrowser, false)
+	app, err := New(projectDir, cfg, store, reg, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +532,7 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := New(dir, cfg, store, reg, ScreenBrowser, false)
+	app, err := New(dir, cfg, store, reg, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +547,7 @@ func TestBrowserHeaderShowsProjectName(t *testing.T) {
 
 func TestCertificatePromptGrantsSessionTrust(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +573,7 @@ func TestCertificatePromptGrantsSessionTrust(t *testing.T) {
 
 func TestDelayedDiffCertificateFailureInvalidatesConnectionBeforeDecision(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +598,7 @@ func TestCertificatePromptKeepsOpenWhenPermanentSaveFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", notDirectory)
-	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false)
+	app, err := New(t.TempDir(), &config.MergedConfig{}, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

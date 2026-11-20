@@ -13,6 +13,7 @@ import (
 	"github.com/WariKoda/drift/internal/pathmap"
 	"github.com/WariKoda/drift/internal/progress"
 	"github.com/WariKoda/drift/internal/remote"
+	"github.com/WariKoda/drift/internal/termimage"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/mouse"
 	tea "github.com/charmbracelet/bubbletea"
@@ -64,6 +65,8 @@ type Model struct {
 
 	// file preview shown over the pane opposite the active tree
 	preview filePreview
+	// images draws previewed image files; nil or disabled shows their info only
+	images *termimage.Output
 
 	// terminal dimensions (set by root app on WindowSizeMsg)
 	Width  int
@@ -293,13 +296,20 @@ func (m *Model) CancelRemote() tea.Cmd {
 	}
 }
 
-// SetSize updates terminal dimensions.
-func (m *Model) SetSize(w, h int) {
+// SetSize updates terminal dimensions. The returned command places a
+// previewed image again for the new pane size.
+func (m *Model) SetSize(w, h int) tea.Cmd {
 	m.Width = w
 	m.Height = h
 	m.clampScroll()
 	m.clampRemoteScroll()
 	m.layoutPreview(true)
+	return m.showPreviewImage()
+}
+
+// SetImages provides the terminal output that previews draw images with.
+func (m *Model) SetImages(images *termimage.Output) {
+	m.images = images
 }
 
 // SetStatus sets a transient status message (e.g. error from a previous screen).

@@ -12,7 +12,7 @@ func TestDeleteHostFailureShowsInHostManager(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	// Without a project slug DeleteProjectHost has no store to write to.
 	cfg := &config.MergedConfig{ProjectRoot: t.TempDir()}
-	app, err := New(cfg.ProjectRoot, cfg, nil, nil, ScreenBrowser, false)
+	app, err := New(cfg.ProjectRoot, cfg, nil, nil, ScreenBrowser, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

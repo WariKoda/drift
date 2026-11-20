@@ -18,7 +18,7 @@ import (
 )
 
 func TestReadPreviewTextSanitizesUnsafeContent(t *testing.T) {
-	lines, err := readPreviewText(bytes.NewReader([]byte("one\r\ntwo\t\x1b[31mred\a\xff\n")), 0)
+	lines, _, err := readPreview(bytes.NewReader([]byte("one\r\ntwo\t\x1b[31mred\a\xff\n")), 0, previewRequest{})
 	if err != nil {
 		t.Fatalf("read preview text: %v", err)
 	}
@@ -36,21 +36,21 @@ func TestReadPreviewTextSanitizesUnsafeContent(t *testing.T) {
 
 func TestReadPreviewTextRejectsUnsupportedContent(t *testing.T) {
 	t.Run("known size", func(t *testing.T) {
-		_, err := readPreviewText(strings.NewReader("small"), previewMaxBytes+1)
+		_, _, err := readPreview(strings.NewReader("small"), previewMaxBytes+1, previewRequest{})
 		if !errors.Is(err, errPreviewTooLarge) {
 			t.Fatalf("got %v, want preview size error", err)
 		}
 	})
 
 	t.Run("stream size", func(t *testing.T) {
-		_, err := readPreviewText(bytes.NewReader(bytes.Repeat([]byte{'x'}, previewMaxBytes+1)), 0)
+		_, _, err := readPreview(bytes.NewReader(bytes.Repeat([]byte{'x'}, previewMaxBytes+1)), 0, previewRequest{})
 		if !errors.Is(err, errPreviewTooLarge) {
 			t.Fatalf("got %v, want preview size error", err)
 		}
 	})
 
 	t.Run("binary", func(t *testing.T) {
-		_, err := readPreviewText(bytes.NewReader([]byte("text\x00binary")), 0)
+		_, _, err := readPreview(bytes.NewReader([]byte("text\x00binary")), 0, previewRequest{})
 		if !errors.Is(err, errPreviewBinary) {
 			t.Fatalf("got %v, want binary preview error", err)
 		}

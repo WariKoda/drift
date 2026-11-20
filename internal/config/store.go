@@ -10,18 +10,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// A project's configuration lives entirely under <config.Dir()>/projects/,
-// one file per project, named after its registry slug:
-//
-//	~/.config/drift/projects/kalieber.toml
-//
-// Nothing is written into the project directory. That is why the store is keyed
-// by slug and not by path: the registry owns the path, so moving a project keeps
-// its hosts as long as the registry is updated.
-//
-// The file holds hosts complete with their credentials, so it is 0600 in a 0700
-// directory.
-
 func projectsDir() string {
 	return filepath.Join(Dir(), "projects")
 }
@@ -61,7 +49,6 @@ func loadProjectStore(slug string) (*ProjectConfig, error) {
 	return cfg, nil
 }
 
-// writeProjectStore replaces a project's store.
 func writeProjectStore(slug string, cfg ProjectConfig) error {
 	if err := ValidateMappings(cfg.Mappings); err != nil {
 		return fmt.Errorf("project mappings: %w", err)

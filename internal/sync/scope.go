@@ -1,4 +1,5 @@
-// Package sync decides sync directions and describes comparison scope.
+// Package sync decides sync directions, describes comparison scope and runs
+// the planned transfers and deletes.
 package sync
 
 // ScopeOptions controls which recursively discovered files enter a comparison.

@@ -17,14 +17,10 @@ const (
 	DecisionDeleteRemote
 )
 
-// AutoDecision returns the most sensible default decision for a diff session.
-//
-// A 2-second threshold tolerates FAT32 time resolution and minor clock drift.
-// When the files genuinely differ but the timestamps cannot disambiguate the
-// direction — common over FTP/FTPS, where MDTM resolution is coarse and often
-// unreliable — drift defaults to Upload rather than DecisionNone. Returning None
-// here would silently drop the file from "sync all", which is the exact opposite
-// of what a deploy-oriented tool should do.
+// AutoDecision returns the default decision for a diff session. A file on one
+// side only is copied to the other. A changed file is downloaded only when the
+// remote copy is more than 2 seconds newer; otherwise, also when timestamps are
+// missing, it is uploaded.
 func AutoDecision(s *diff.Session) Decision {
 	if s == nil || s.Err != nil || s.Result == nil {
 		return DecisionNone

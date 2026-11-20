@@ -32,22 +32,18 @@ type Model struct {
 	pickOffset     int
 	confirmPromote bool
 
-	// delete confirmation
 	confirmDelete bool
 	deleteTarget  entry
 	confirmReset  bool
 
-	// connection test
 	testing     bool   // true while async test is in flight
 	testTarget  string // host name being tested
 	testID      uint64
 	testTracker *progress.Tracker
 	trust       *tlstrust.Manager
 
-	// status line
 	statusMsg string
 
-	// mouse
 	clicks mouse.ClickTracker
 
 	Width  int
@@ -111,7 +107,7 @@ func (m Model) modal() bool {
 func (m *Model) rebuild() {
 	m.entries = nil
 
-	{ // always show section header
+	{
 		m.entries = append(m.entries, entry{isHeader: true, scope: config.ScopeGlobal})
 		for _, h := range config.SortedHostsByName(m.cfg.GlobalHosts) {
 			m.entries = append(m.entries, entry{scope: config.ScopeGlobal, host: h})
@@ -123,7 +119,6 @@ func (m *Model) rebuild() {
 		m.entries = append(m.entries, entry{scope: config.ScopeProject, host: h})
 	}
 
-	// clamp cursor to a host row
 	m.clampCursor()
 }
 
@@ -140,7 +135,6 @@ func (m *Model) clampCursorUp() {
 	if m.cursor >= len(m.entries) {
 		m.cursor = len(m.entries) - 1
 	}
-	// skip headers backward
 	for m.cursor > 0 && m.entries[m.cursor].isHeader {
 		m.cursor--
 	}
@@ -157,18 +151,15 @@ func (m *Model) clampCursor() {
 		m.cursor = 0
 		return
 	}
-	// clamp to bounds
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
 	if m.cursor >= len(m.entries) {
 		m.cursor = len(m.entries) - 1
 	}
-	// skip headers forward
 	for m.cursor < len(m.entries) && m.entries[m.cursor].isHeader {
 		m.cursor++
 	}
-	// if we ran off the end, skip headers backward
 	if m.cursor >= len(m.entries) {
 		m.cursor = len(m.entries) - 1
 		for m.cursor >= 0 && m.entries[m.cursor].isHeader {

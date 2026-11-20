@@ -1,5 +1,5 @@
 # drift global config — ~/.config/drift/config.toml
-# Hosts defined here are available in every project.
+# With a project open, hosts defined here are servers that project hosts link to.
 
 [defaults]
 port = 22

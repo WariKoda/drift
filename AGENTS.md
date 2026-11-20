@@ -17,10 +17,10 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `projectselector`   | Modal: switch project from the browser (`P`)          |
 | `browser`           | File browser (entry point)                            |
 | `certtrust`         | Modal: inspect and trust an FTPS certificate          |
-| `hostselector`      | Modal: pick sync target                               |
+| `hostselector`      | Modal: pick the sync or remote-pane host (`s`, `@`)   |
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
-| `diffview`          | File list + unified diff + sync                       |
+| `diffview`          | File list + unified or split diff + sync              |
 | `remoteeditor`      | External-editor session + upload confirmation         |
 
 The `textfield` package holds the shared single-line input widget used by `hostform`
@@ -42,7 +42,7 @@ and returns it on exit; reconnect/certificate approval only reads and never retr
 a write. Each session has its own `fs.Root` outside the project. Unconfirmed copies
 are retained on shutdown; cleanup uses an opened cache-parent root, not an
 unconfined recursive delete. `[editor]` is global user configuration only and must
-survive both Go and Rust store writes. Never execute editor commands from project
+survive every configuration write. Never execute editor commands from project
 or host records.
 
 Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`), which returns them sorted as a directory tree for the grouped file list; every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
@@ -60,7 +60,7 @@ request at a time. Decoration commands consume immutable comparison lines, never
 perform I/O, and reject stale request identities. In continuous mode the sync keys
 act on the active file: the one at the top after manual scrolling, or the one
 chosen with Tab, a file list click or a hunk jump. Global `[ui.diff]`
-preferences must survive both Go and Rust store writes; they never change sync
+preferences must survive every configuration write; they never change sync
 policy. Refresh restores reading state only, bound to the reload request.
 
 Terminal images use the Kitty graphics protocol with Unicode placeholders, or half
@@ -74,7 +74,7 @@ placement is freed with `Output.Delete` when its screen moves on or closes, incl
 placements that arrive stale. `internal/imagefile` recognizes, decodes and scales
 images from bytes the caller read; the diff view loads both sides through
 `app.LoadImagePair`. Detection is environment-based (`termimage.Detect` with the
-termenv colour profile, override `DRIFT_IMAGES`); there is no config key, so the Rust store needs no change.
+termenv colour profile, override `DRIFT_IMAGES`); there is no config key.
 
 Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
 

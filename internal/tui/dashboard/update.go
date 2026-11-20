@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// MsgProjectChosen is emitted when the user opens a project (Enter).
+// MsgProjectChosen is emitted when the user opens a project.
 type MsgProjectChosen struct {
 	Project project.Project
 }

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- the paused Rust desktop port, its CI jobs, Makefile targets, design documents and
+  the Go tests that checked store compatibility with it; the TUI is the only drift
+  application
+
 ## [0.2.0] - 2026-11-20
 
 With this release the Go TUI leaves beta. Rust/GPUI development remains paused;

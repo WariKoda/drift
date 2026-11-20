@@ -54,8 +54,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 }
 
-// ── Main form ─────────────────────────────────────────────────────────────────
-
 func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	rows := m.visibleRows()
 	curIdx := -1
@@ -179,8 +177,6 @@ func (m Model) handleMainKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// ── Mapping list ──────────────────────────────────────────────────────────────
-
 func (m Model) handleMappingList(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.mapConfirmDel {
 		switch msg.String() {
@@ -231,8 +227,6 @@ func (m Model) handleMappingList(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	return m, nil
 }
-
-// ── Mapping edit ──────────────────────────────────────────────────────────────
 
 func (m Model) handleMappingEdit(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {

@@ -76,12 +76,10 @@ func (m *Mapper) LocalToRemote(absLocal string) (string, error) {
 		return path.Join(remoteBase, remoteLocal), nil
 	}
 
-	// Mappings are configured but no match → file is not configured for sync
 	if len(mappings) > 0 {
 		return "", fmt.Errorf("%s: not covered by any configured mapping", filepath.Base(absLocal))
 	}
 
-	// Fallback: use path relative to project root
 	if !hasLocalPathPrefix(absLocal, m.projectRoot) {
 		return "", fmt.Errorf("pathmap: local path %q is outside project root %q", absLocal, m.projectRoot)
 	}
@@ -127,12 +125,10 @@ func (m *Mapper) RemoteToLocal(absRemote string) (string, error) {
 		return filepath.Join(localBase, suffix), nil
 	}
 
-	// Mappings are configured but no match
 	if len(mappings) > 0 {
 		return "", fmt.Errorf("pathmap: remote path %q not covered by any configured mapping", absRemote)
 	}
 
-	// Fallback
 	rootPath := cleanRemoteRoot(m.host.RootPath)
 	if !hasRemotePathPrefix(absRemote, rootPath) {
 		return "", fmt.Errorf("pathmap: remote path %q is outside host root %q", absRemote, m.host.RootPath)

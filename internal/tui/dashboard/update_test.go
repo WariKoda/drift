@@ -45,15 +45,15 @@ func TestNavigationClamps(t *testing.T) {
 	if m.cursor != 0 {
 		t.Fatalf("initial cursor = %d, want 0", m.cursor)
 	}
-	m, _ = dispatch(m, key("k")) // up at top stays
+	m, _ = dispatch(m, key("k"))
 	if m.cursor != 0 {
 		t.Fatalf("cursor after up-at-top = %d, want 0", m.cursor)
 	}
-	m, _ = dispatch(m, key("G")) // jump to bottom
+	m, _ = dispatch(m, key("G"))
 	if m.cursor != 1 {
 		t.Fatalf("cursor after G = %d, want 1", m.cursor)
 	}
-	m, _ = dispatch(m, key("j")) // down at bottom stays
+	m, _ = dispatch(m, key("j"))
 	if m.cursor != 1 {
 		t.Fatalf("cursor after down-at-bottom = %d, want 1", m.cursor)
 	}

@@ -17,13 +17,14 @@ var dividerStyle = lipgloss.NewStyle().Foreground(styles.ColorSep)
 // Screen layout:
 //
 //	headerLines   header, separator (full width)
-//	bodyHeight()  left file list │ right path chrome + unified diff
+//	bodyHeight()  left file list │ right path chrome + diff
 //	footerLines   separator, status (full width)
 //
 // Right pane within the body (top to bottom):
 //
-//	chromeRows()  file title, optional full local/remote paths, separator
-//	viewport…     unified diff content
+//	chromeRows()  file title, before/after labels, optional full local/remote
+//	              paths, separator
+//	viewport…     diff content
 //
 // hitTest in mouse.go maps clicks back through these, so a change here must be
 // a change to the constants — not to a hand-counted number in View.
@@ -63,13 +64,11 @@ func (m Model) View() string {
 
 	s := m.activeSession()
 
-	// ── Header ───────────────────────────────────────────────────────
 	sb.WriteString(pad(m.renderHeader(), max(0, m.Width)))
 	sb.WriteByte('\n')
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 
-	// ── Body: comparison result or file list | diff ──────────────────
 	if state := m.comparisonEmptyState(); state != comparisonNotEmpty && !m.showErrors && !m.showHelp {
 		for _, row := range m.renderComparisonSplash(state) {
 			sb.WriteString(row)
@@ -102,7 +101,6 @@ func (m Model) View() string {
 		}
 	}
 
-	// ── Bottom ────────────────────────────────────────────────────────
 	sb.WriteString(sepLine(m.Width))
 	sb.WriteByte('\n')
 	sb.WriteString(pad(m.renderStatus(s), max(0, m.Width)))

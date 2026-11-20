@@ -1,5 +1,7 @@
-// Package tui re-exports styles for convenience within the tui package itself.
-// All style definitions live in internal/styles to avoid circular imports.
+// Package tui holds the Bubble Tea root model, which routes messages to one
+// active screen at a time; the screens are its subpackages. All style
+// definitions live in internal/styles, so the screen packages can share them
+// without importing tui.
 package tui
 
 import "github.com/WariKoda/drift/internal/styles"

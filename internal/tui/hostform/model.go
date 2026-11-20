@@ -92,7 +92,6 @@ type Model struct {
 	Width  int
 	Height int
 
-	// per-host mappings
 	mappings []config.Mapping
 
 	// sub-screen state

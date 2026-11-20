@@ -36,14 +36,10 @@ go test -count=1 ./...
 go test -race -count=1 ./...
 go vet ./...
 go build ./...
-DRIFT_RUST_STORE_PROBE="$PWD/rust/target/debug/examples/store_probe" go test -count=1 ./internal/parity
 ```
-
-Die Paritätsprüfung verwendete das bereits gebaute Rust-Store-Probe-Binary.
 
 ## Abgrenzung
 
 Fehlende prozessübergreifende Schreibsperren waren bereits mit `24245f6` behoben.
 Die Architektur-/Aufräumbefunde des Audits sowie synchrones lokales Aufklappen
-und Host-CRUD sind nicht Teil dieser Fehlerkorrektur. Die vorhandenen
-Rust-Arbeitsbaumänderungen wurden nicht verändert.
+und Host-CRUD sind nicht Teil dieser Fehlerkorrektur.

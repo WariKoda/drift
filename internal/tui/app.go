@@ -87,7 +87,6 @@ type App struct {
 	pendingDiffView   *diffview.ViewSnapshot
 	pendingDiffViewID uint64
 
-	// Project registry (nil when drift was launched without dashboard support).
 	store    *project.Store
 	registry *project.Registry
 }
@@ -131,7 +130,6 @@ func New(workDir string, cfg *config.MergedConfig, store *project.Store, reg *pr
 		a.recordOpened(a.state.ActiveProject.Slug)
 	}
 
-	// Offer to register the current project if it isn't in the registry yet.
 	if root, ok := registerCandidate(workDir, cfg, reg); ok {
 		a.state.Screen = ScreenRegisterPrompt
 		a.state.PendingRegisterPath = root
@@ -258,8 +256,6 @@ func (a *App) abandonDiffRequest() {
 	}
 }
 
-// acceptsDiffResult reports whether a result with requestID belongs to the
-// request the app is still waiting for.
 // loadRequest compares the current selections against host. conn is an
 // optional open connection that the load takes over; required is set only for
 // the first retry after a certificate prompt.
@@ -276,6 +272,8 @@ func (a App) loadRequest(host config.Host, conn remote.Client, required *tlstrus
 	}
 }
 
+// acceptsDiffResult reports whether a result with requestID belongs to the
+// request the app is still waiting for.
 func (a App) acceptsDiffResult(requestID uint64) bool {
 	return requestID != 0 && requestID == a.diffRequest
 }
@@ -407,7 +405,6 @@ func (a *App) openDashboard(returnable bool) {
 	a.state.Screen = ScreenDashboard
 }
 
-// saveProjectForm persists a created/edited project from the project form.
 func (a *App) saveProjectForm(msg projectform.MsgProjectSaved) error {
 	path, err := project.ExpandPath(msg.Path)
 	if err != nil {
@@ -592,7 +589,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
-	// ── Terminal resize ───────────────────────────────────────────────
 	case tea.WindowSizeMsg:
 		a.state.TermWidth = msg.Width
 		a.state.TermHeight = msg.Height
@@ -608,7 +604,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.projectSel.SetSize(msg.Width, msg.Height)
 		return a, tea.Batch(browserCmd, diffCmd)
 
-	// ── Project Dashboard ─────────────────────────────────────────────
 	case dashboard.MsgProjectChosen:
 		cmd := a.openProject(msg.Project)
 		return a, cmd
@@ -686,7 +681,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenBrowser
 		return a, nil
 
-	// ── Project Form ──────────────────────────────────────────────────
 	case projectform.MsgProjectSaved:
 		if err := a.saveProjectForm(msg); err != nil {
 			a.projectForm.SetErr("Save failed: " + err.Error())
@@ -710,7 +704,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenDashboard
 		return a, nil
 
-	// ── Browser → Project picker ──────────────────────────────────────
 	case browser.MsgOpenDashboard:
 		if err := a.openPicker(); err != nil {
 			a.browser.SetStatus("Cannot load projects: " + err.Error())
@@ -737,7 +730,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.openProject(msg.Project)
 		return a, cmd
 
-	// ── Browser → Host Selector / direct sync ─────────────────────────
 	case browser.MsgSyncRequested:
 		a.pendingDiffStatus = ""
 		a.pendingDiffErrors = nil
@@ -763,7 +755,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state.Screen = ScreenHostSelector
 		return a, nil
 
-	// ── Host chosen → sync or load remote browser ─────────────────────
 	case hostselector.MsgHostChosen:
 		h := msg.Host
 		a.state.Screen = ScreenBrowser
@@ -837,7 +828,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, cmd
 
-	// ── Diff loaded ───────────────────────────────────────────────────
 	case diffview.MsgDiffLoaded:
 		if !a.acceptsDiffResult(msg.RequestID) {
 			log.Info("discarding abandoned diff result", "host", msg.Host.Name, "request", msg.RequestID)
@@ -916,7 +906,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.pendingDiffErrors = nil
 		return a, nil
 
-	// ── Diff view → rebuild recursive scope ────────────────────────────
 	case diffview.MsgScopeReloadRequested:
 		if a.state.Screen != ScreenDiffView || a.state.SelectedHost == nil {
 			return a, nil
@@ -952,7 +941,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Sequence(closeDiff, tea.Batch(load,
 			a.startNetworkActivity(activityDiffLoad, "Rebuilding sync scope…", tracker)))
 
-	// ── Diff view → back to browser ───────────────────────────────────
 	case diffview.MsgBackToBrowser:
 		a.watchConnection(nil)
 		closeDiff := a.diffView.Close()
@@ -980,7 +968,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, tea.Batch(closeDiff, refreshLocal)
 
-	// ── Host Manager ──────────────────────────────────────────────────
 	case browser.MsgOpenHostManager:
 		a.hostManager = hostmanager.New(a.state.Config, a.state.TermWidth, a.state.TermHeight)
 		a.hostManager.SetTrustManager(a.trust)
@@ -1120,7 +1107,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// ── Delegate to active screen ─────────────────────────────────────
 	switch a.state.Screen {
 	case ScreenRegisterPrompt:
 		key, ok := msg.(tea.KeyMsg)

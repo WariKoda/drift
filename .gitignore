@@ -8,5 +8,3 @@ drift.log
 docs/reviews/
 scripts/manual-test/.state/
 scripts/screenshots/.state/
-rust/target/
-rust/packaging/__pycache__/

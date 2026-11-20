@@ -37,7 +37,7 @@ func New(challenge tlstrust.Challenge, width, height int) Model {
 	return Model{Challenge: challenge, Selection: Reject, Width: width, Height: height}
 }
 
-// Init implements tea.Model.
+// Init satisfies the sub-model convention.
 func (m Model) Init() tea.Cmd { return nil }
 
 // SetSize updates the available terminal dimensions.

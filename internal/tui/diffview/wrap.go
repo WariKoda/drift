@@ -26,7 +26,6 @@ func (m Model) rowHeight(index int) int {
 }
 
 // rowsOnScreen counts the scrollable rows that are at least partly visible.
-// Without wrapping it is the viewport height, as before.
 func (m Model) rowsOnScreen() int {
 	if !m.wrapping() {
 		return m.viewportHeight()

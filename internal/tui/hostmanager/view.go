@@ -50,7 +50,6 @@ func (m Model) firstVisibleEntry() int {
 func (m Model) View() string {
 	var sb strings.Builder
 
-	// Header
 	subtitle := "Host Manager"
 	if m.picker != nil {
 		subtitle = "Link a server to this project"
@@ -76,7 +75,6 @@ func (m Model) View() string {
 		return sb.String()
 	}
 
-	// Entry list
 	vh := m.listHeight()
 	rendered := 0
 	start := m.firstVisibleEntry()
@@ -106,7 +104,6 @@ func (m Model) View() string {
 		rendered++
 	}
 
-	// Bottom separator + status/help
 	sb.WriteString(styles.Sep.Render(strings.Repeat("─", m.Width)))
 	sb.WriteByte('\n')
 	sb.WriteString(m.renderStatus())

@@ -102,7 +102,7 @@ func (m Model) buildStream() *streamPlan {
 	return plan
 }
 
-// stream returns the prepared plan, or builds one for a model that has not
+// streamPlan returns the prepared plan, or builds one for a model that has not
 // been prepared yet (value receivers in tests and View).
 func (m Model) streamPlan() *streamPlan {
 	if m.streamCurrent(m.stream) {

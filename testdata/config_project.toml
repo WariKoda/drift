@@ -1,6 +1,4 @@
-# drift project config — .drift/config.toml
-# Hosts here are merged with global config; same name = override for this project.
-# Mappings define which local dirs/files map to which remote paths.
+# drift project store — ~/.config/drift/projects/<slug>.toml
 
 [[hosts]]
 name = "staging"

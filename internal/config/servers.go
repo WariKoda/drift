@@ -8,22 +8,6 @@ import (
 	"strings"
 )
 
-// A project host can link to a global host instead of carrying a connection of
-// its own. The global host is then a server: its hostname, port, user, auth,
-// protocol and keep-alive apply to every project host that names it, while
-// root_path and mappings stay with each project host. Two projects deploying
-// to different directories on one machine thus share one set of credentials.
-//
-//	# ~/.config/drift/projects/shop-b.toml
-//	[[hosts]]
-//	name      = "prod"
-//	server    = "kunde-x"
-//	root_path = "/var/www/shop-b"
-//
-// A link sets no connection field of its own. Allowing it to override some of
-// them would make an empty user or a zero port mean "inherited" in one record
-// and "unset" in the next.
-
 // IsLink reports whether h takes its connection from a global server.
 func (h Host) IsLink() bool { return h.Server != "" }
 

@@ -45,7 +45,6 @@ func TestViewRendersSideBySideFileListAndDiff(t *testing.T) {
 		if !strings.Contains(row, text) {
 			t.Fatalf("viewport row %d does not contain unified line %d: %q", i, lineNumber, row)
 		}
-		// Diff content sits to the right of the file-list column.
 		plain := stripANSI(row)
 		idx := strings.Index(plain, text)
 		if idx < fw {
@@ -53,7 +52,6 @@ func TestViewRendersSideBySideFileListAndDiff(t *testing.T) {
 		}
 	}
 
-	// File list row shows the short local path on the left.
 	fileRow := stripANSI(rendered[bodyTop])
 	if !strings.Contains(fileRow, "file.txt") {
 		t.Fatalf("file list row missing name: %q", fileRow)

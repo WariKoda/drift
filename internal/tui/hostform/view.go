@@ -284,5 +284,4 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-w)
 }
 
-// ensure config import is used (scope type comparison)
 var _ config.HostScope

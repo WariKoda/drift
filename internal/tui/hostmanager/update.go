@@ -48,7 +48,7 @@ type MsgDeleteHost struct {
 	Scope config.HostScope
 }
 
-// MsgBackToBrowser is sent when the user presses Esc.
+// MsgBackToBrowser is sent when the user presses Esc or q.
 type MsgBackToBrowser struct{}
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -119,7 +119,6 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.clampCursor()
 
 	case "n":
-		// Determine scope from cursor position
 		scope := config.ScopeGlobal
 		if e := m.currentEntry(); e != nil {
 			scope = e.scope

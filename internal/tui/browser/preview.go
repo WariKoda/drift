@@ -97,7 +97,7 @@ type MsgPreviewLoaded = msgPreviewLoaded
 // Failure returns the preview read error, if any.
 func (m msgPreviewLoaded) Failure() error { return m.err }
 
-// Remote reports whether this result came from the FTPS/SFTP pane.
+// Remote reports whether this result came from the remote pane.
 func (m msgPreviewLoaded) Remote() bool { return m.request.source == PaneRemote }
 
 // Host returns the remote host snapshot attached to this preview request.

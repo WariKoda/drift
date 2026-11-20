@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Field indices.
 const (
 	fName = 0
 	fPath = 1

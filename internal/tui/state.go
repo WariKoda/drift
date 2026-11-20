@@ -12,10 +12,10 @@ type Screen int
 
 const (
 	ScreenBrowser         Screen = iota
-	ScreenHostSelector           // modal overlay on browser (sync target picker)
+	ScreenHostSelector           // centered modal picking the sync or remote-browse host
 	ScreenHostManager            // CRUD list of all hosts
 	ScreenHostForm               // create / edit a host
-	ScreenDiffView               // unified diff
+	ScreenDiffView               // file list with unified or side-by-side diff
 	ScreenRemoteEditor           // external editor session and upload confirmation
 	ScreenDashboard              // project dashboard (optional landing screen)
 	ScreenProjectForm            // create / edit a project
@@ -37,7 +37,6 @@ type AppState struct {
 	WorkingDir string
 	Config     *config.MergedConfig
 
-	// Project dashboard
 	ActiveProject *project.Project // the project drift is currently rooted in, if any
 
 	// Register prompt (offer to add the current project to the registry)

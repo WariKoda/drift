@@ -1,6 +1,7 @@
-// Package app runs the use cases behind the TUI screens, currently building
-// the diff sessions for a selection. It knows nothing about Bubble Tea;
-// screens wrap these functions in commands and messages.
+// Package app runs the use cases behind the TUI screens: building the diff
+// sessions for a selection, browsing and testing a host, and loading both sides
+// of an image comparison. It knows nothing about Bubble Tea; screens wrap these
+// functions in commands and messages.
 package app
 
 import (
@@ -202,7 +203,6 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 		}
 
 		if !info.IsDir() {
-			// ── Single local file ─────────────────────────────────
 			remotePath, mapErr := mapper.LocalToRemote(localPath)
 			if mapErr != nil {
 				addError(localPath, "", mapErr)
@@ -212,7 +212,6 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 			continue
 		}
 
-		// ── Directory: walk local side first ─────────────────────
 		if walkErr := activity.walkLocalScope(localPath, classifier, options.IncludeIgnored, func(path string, class fs.PathClass) {
 			countSkipped(path, class, true)
 		}, func(p string) error {
@@ -318,12 +317,10 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 		}
 
 		if !info.IsDir() {
-			// ── Single remote file ────────────────────────────────
 			addFile(localPath, remotePath)
 			continue
 		}
 
-		// ── Directory: walk remote side first ───────────────────
 		seenRemote := map[string]struct{}{}
 		if walkErr := conn.WalkFiles(remotePath, func(p string) error {
 			seenRemote[p] = struct{}{}
@@ -338,7 +335,6 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 			addError(localPath, remotePath, fmt.Errorf("walk remote: %w", walkErr))
 		}
 
-		// ── Walk local side to catch local-only files ────────────
 		localInfo, localErr := root.Stat(localPath)
 		if localErr != nil {
 			if !errors.Is(localErr, os.ErrNotExist) {
@@ -358,7 +354,7 @@ func Load(parent context.Context, req LoadRequest, prog *progress.Tracker) (Load
 				return nil
 			}
 			if _, seen := seenRemote[remoteFilePath]; seen {
-				return nil // already covered by remote walk
+				return nil
 			}
 			addFile(p, remoteFilePath)
 			return nil

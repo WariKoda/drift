@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- the file preview (`p`) shows PNG, JPEG, GIF, WebP, BMP and TIFF images in Kitty and
+  Ghostty; other terminals show the format and dimensions instead of "binary file"
+- the diff view shows image files side by side at one common scale in Kitty and
+  Ghostty, names their format and dimensions in every terminal, and marks images that
+  differ only in their bytes
+- `DRIFT_IMAGES=off|kitty` overrides terminal detection, for example inside tmux;
+  `drift image-test [image]` checks whether the terminal can show images
+
 - `/` on the dashboard filters projects by name, slug or path; number keys and
   project actions use the filtered list, and `Esc` clears the filter before leaving
   the dashboard

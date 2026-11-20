@@ -4,6 +4,8 @@ package diff
 import (
 	"strconv"
 	"time"
+
+	"github.com/WariKoda/drift/internal/imagefile"
 )
 
 // LineKind classifies a line in a unified diff.
@@ -34,7 +36,11 @@ type DiffResult struct {
 	RemoteOnly bool // file exists only on remote
 
 	// Metadata
-	Binary      bool
+	Binary bool
+	// LocalImage and RemoteImage describe raster images read for the
+	// comparison. Files above the text size limit are not read, so they stay nil.
+	LocalImage  *imagefile.Info
+	RemoteImage *imagefile.Info
 	ContentDiff bool // content differs but has no renderable line diff
 	SizeLocal   int64
 	SizeRemote  int64

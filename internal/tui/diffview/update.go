@@ -23,14 +23,12 @@ func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 		default:
 			return
 		}
-		if extra := next.startDecoration(); extra != nil {
-			if cmd == nil {
-				cmd = extra
-			} else {
-				cmd = tea.Batch(cmd, extra)
-			}
-		}
+		cmd = tea.Batch(cmd, next.startDecoration(), next.startImages())
 	}()
+	// Placements finishing after Close must still be freed.
+	if placed, ok := msg.(MsgImagesPlaced); ok {
+		return m, m.acceptPlacements(placed)
+	}
 	if m.closed {
 		return m, nil
 	}
@@ -43,8 +41,11 @@ func (m Model) Update(msg tea.Msg) (next Model, cmd tea.Cmd) {
 		m.acceptDecoration(msg)
 		return m, m.startDecoration()
 
+	case MsgImagesLoaded:
+		return m, m.acceptImages(msg)
+
 	case tea.WindowSizeMsg:
-		m.SetSize(msg.Width, msg.Height)
+		return m, m.SetSize(msg.Width, msg.Height)
 
 	case tea.MouseMsg:
 		return m.updateMouse(msg)

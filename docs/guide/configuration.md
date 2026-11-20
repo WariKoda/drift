@@ -193,6 +193,24 @@ DRIFT_THEME_FILE=/path/to/colors.toml
 `auto` loads Omarchy colors first and falls back to ANSI terminal colors. `default` uses
 drift's built-in palette.
 
+## Terminal images
+
+The file preview (`p`) and the diff view draw images with the Kitty graphics protocol
+and its Unicode placeholders. drift turns this on in Kitty and Ghostty and leaves it
+off elsewhere; other terminals show the image format and dimensions. Override the
+choice with:
+
+```bash
+DRIFT_IMAGES=off    # never draw images
+DRIFT_IMAGES=kitty  # draw images in a terminal drift does not recognize
+```
+
+Inside tmux drift cannot see the outer terminal, so images stay off until you set
+`DRIFT_IMAGES=kitty` and enable passthrough with `set -g allow-passthrough on`.
+`drift image-test [image]` prints a test pattern or the given image the way drift
+draws it. If it shows text characters instead of an image, the terminal lacks Unicode
+placeholders.
+
 ## Logging
 
 Logging is off by default. When enabled, drift writes diagnostics (connection lifecycle

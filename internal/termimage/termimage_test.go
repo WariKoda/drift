@@ -215,3 +215,15 @@ func TestDisabledOutputWritesNothing(t *testing.T) {
 		t.Fatal("disabled output wrote to the terminal")
 	}
 }
+
+func TestCommonBoxesKeepRelativeSizes(t *testing.T) {
+	output, _ := newTestOutput(t, Detection{Enabled: true})
+	// A temporary file reports no cell size, so cells are 10 × 20 pixels.
+	boxes := output.CommonBoxes([]image.Point{{200, 100}, {100, 50}, {}}, 40, 30)
+	want := []image.Point{{40, 10}, {20, 5}, {}}
+	for index := range want {
+		if boxes[index] != want[index] {
+			t.Fatalf("boxes = %v, want %v", boxes, want)
+		}
+	}
+}

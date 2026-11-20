@@ -63,6 +63,17 @@ chosen with Tab, a file list click or a hunk jump. Global `[ui.diff]`
 preferences must survive both Go and Rust store writes; they never change sync
 policy. Refresh restores reading state only, bound to the reload request.
 
+Terminal images use the Kitty graphics protocol with Unicode placeholders
+(`internal/termimage`). `cmd` creates one `termimage.Output`, passes it to Bubble Tea
+with `tea.WithOutput` and to `tui.New`; image transmissions take its lock, so they
+never split a frame. Transmit only from a `tea.Cmd` (`Output.Show`), then render the
+placeholder rows from `termimage.Rows`; never put image data into `View`. Every
+placement is freed with `Output.Delete` when its screen moves on or closes, including
+placements that arrive stale. `internal/imagefile` recognizes, decodes and scales
+images from bytes the caller read; the diff view loads both sides through
+`app.LoadImagePair`. Detection is environment-based (`termimage.Detect`, override
+`DRIFT_IMAGES`); there is no config key, so the Rust store needs no change.
+
 Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
 
 Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project (or the remote editor's separate private working directory) and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.

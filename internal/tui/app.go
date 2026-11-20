@@ -583,7 +583,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if a.state.Screen == ScreenRemoteEditor {
 		switch msg.(type) {
-		case tea.WindowSizeMsg, browser.MsgLocalLoaded, browser.MsgPreviewLoaded, browser.MsgPreviewImageShown, browser.MsgRemoteLoaded,
+		case tea.WindowSizeMsg, browser.MsgLocalLoaded, browser.MsgPreviewLoaded, browser.MsgPreviewImageShown, diffview.MsgImagesPlaced, browser.MsgRemoteLoaded,
 			diffview.MsgDiffLoaded, diffview.MsgDiffError:
 		default:
 			return a.updateRemoteEditor(msg)
@@ -601,12 +601,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hostForm.SetSize(msg.Width, msg.Height)
 		a.hostSel.Width = msg.Width
 		a.hostSel.Height = msg.Height
-		a.diffView.SetSize(msg.Width, msg.Height)
+		diffCmd := a.diffView.SetSize(msg.Width, msg.Height)
 		a.remoteEditor.SetSize(msg.Width, msg.Height)
 		a.dashboard.SetSize(msg.Width, msg.Height)
 		a.projectForm.SetSize(msg.Width, msg.Height)
 		a.projectSel.SetSize(msg.Width, msg.Height)
-		return a, browserCmd
+		return a, tea.Batch(browserCmd, diffCmd)
 
 	// ── Project Dashboard ─────────────────────────────────────────────
 	case dashboard.MsgProjectChosen:
@@ -820,6 +820,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.browser, cmd = a.browser.Update(msg)
 		return a, cmd
 
+	case diffview.MsgImagesPlaced:
+		var cmd tea.Cmd
+		a.diffView, cmd = a.diffView.Update(msg)
+		return a, cmd
+
 	case browser.MsgRemoteChildrenLoaded:
 		if a.state.Screen != ScreenBrowser {
 			return a, nil
@@ -871,6 +876,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.diffView.SetPreferences(*a.state.Config.UI.Diff)
 		}
 		a.diffView.SetScope(msg.Scope, msg.Options)
+		a.diffView.SetImages(a.images)
 		if a.pendingDiffView != nil && a.pendingDiffViewID == msg.RequestID {
 			a.diffView.RestoreView(*a.pendingDiffView)
 		}

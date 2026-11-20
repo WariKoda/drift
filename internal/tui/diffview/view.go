@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/WariKoda/drift/internal/diff"
+	"github.com/WariKoda/drift/internal/imagefile"
 	"github.com/WariKoda/drift/internal/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -209,6 +210,8 @@ func (m Model) renderDiffPaneRows(s *diff.Session) []string {
 		content = paddedContentRows([]string{"  " + styles.Err.Render(styles.SafeText(s.Err.Error()))}, vh, dw)
 	case s.Result == nil:
 		content = paddedContentRows([]string{"  " + styles.Muted.Render("loading…")}, vh, dw)
+	case m.showsImages():
+		content = m.renderImageRows(s.Result, vh, dw)
 	case s.Result.Binary || len(s.Result.Lines) == 0:
 		content = m.renderSummaryRows(s.Result, vh, dw)
 	case m.longHidden(m.activeIdx):
@@ -357,16 +360,28 @@ func (m *Model) clampErrorScroll() {
 }
 
 func (m Model) renderSummaryRows(r *diff.DiffResult, height, width int) []string {
-	return paddedContentRows(summaryLines(r), height, width)
+	lines := summaryLines(r)
+	if session := m.activeSession(); session != nil && session.Result == r && isImageComparison(session) && !m.images.Enabled() {
+		lines = append(lines, "", "  "+styles.Muted.Render("Inline images need Kitty or Ghostty"))
+	}
+	return paddedContentRows(lines, height, width)
 }
 
 func summaryLines(r *diff.DiffResult) []string {
+	return imageSummaryLines(r, r.LocalImage, r.RemoteImage)
+}
+
+// imageSummaryLines is summaryLines with the image headers to report, which
+// may come from reading the files for display rather than from the comparison.
+func imageSummaryLines(r *diff.DiffResult, localImage, remoteImage *imagefile.Info) []string {
 	var lines []string
 	switch {
 	case r.LocalOnly:
 		lines = []string{"  " + styles.Warn.Render("local only")}
 	case r.RemoteOnly:
 		lines = []string{"  " + styles.Warn.Render("remote only")}
+	case r.Binary && (localImage != nil || remoteImage != nil):
+		lines = []string{"  " + styles.Muted.Render("Image file — no text diff")}
 	case r.Binary:
 		lines = []string{"  " + styles.Muted.Render("Binary file — cannot show text diff")}
 	default:
@@ -376,10 +391,16 @@ func summaryLines(r *diff.DiffResult) []string {
 		local := "  local:  not present"
 		if !r.RemoteOnly {
 			local = fmt.Sprintf("  local:  %s  (%d bytes)", r.ModLocal.Format("2006-01-02 15:04"), r.SizeLocal)
+			if localImage != nil {
+				local += "  " + localImage.String()
+			}
 		}
 		remote := "  remote: not present"
 		if !r.LocalOnly {
 			remote = fmt.Sprintf("  remote: %s  (%d bytes)", r.ModRemote.Format("2006-01-02 15:04"), r.SizeRemote)
+			if remoteImage != nil {
+				remote += "  " + remoteImage.String()
+			}
 		}
 		lines = append(lines, local, remote)
 	}

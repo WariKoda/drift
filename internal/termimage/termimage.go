@@ -251,6 +251,31 @@ func Rows(p Placement) []string {
 	return rows
 }
 
+// CommonBoxes sizes images of the given pixel sizes with one scale for all,
+// so their boxes keep their relative size. Each box fits into maxCols ×
+// maxRows cells; pass a box to Show to place the image in it.
+func (o *Output) CommonBoxes(sizes []image.Point, maxCols, maxRows int) []image.Point {
+	cellWidth, cellHeight := cellSize(o.file)
+	factor := float64(maxUpscale)
+	for _, size := range sizes {
+		if size.X > 0 && size.Y > 0 {
+			factor = min(factor, float64(min(maxCols, maxCells)*cellWidth)/float64(size.X), float64(min(maxRows, maxCells)*cellHeight)/float64(size.Y))
+		}
+	}
+	boxes := make([]image.Point, len(sizes))
+	for index, size := range sizes {
+		if size.X <= 0 || size.Y <= 0 || maxCols <= 0 || maxRows <= 0 {
+			continue
+		}
+		width, height := max(1, int(float64(size.X)*factor)), max(1, int(float64(size.Y)*factor))
+		boxes[index] = image.Pt(
+			min(maxCols, max(1, (width+cellWidth-1)/cellWidth)),
+			min(maxRows, max(1, (height+cellHeight-1)/cellHeight)),
+		)
+	}
+	return boxes
+}
+
 // fitBox sizes an image of width × height pixels for an area of at most
 // maxCols × maxRows cells. It returns the cell box and the pixel size to send.
 func fitBox(width, height, maxCols, maxRows, cellWidth, cellHeight int) (cols, rows, pixelWidth, pixelHeight int) {

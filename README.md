@@ -15,7 +15,7 @@ the changes you approve, over SFTP, FTP or FTPS, in the terminal.
 
 ## Features
 
-- Browse local and remote files side by side, preview text files, and mark files or whole directories.
+- Browse local and remote files side by side, preview text and image files, and mark files or whole directories.
 - Compare marked files in a diff view and choose per file whether to upload, download, delete, or skip.
   drift suggests a direction from the modification times.
 - Edit a single remote file in your own editor. drift uploads it only after you confirm and checks

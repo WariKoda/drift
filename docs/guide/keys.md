@@ -37,7 +37,7 @@
 | `h` / `←`, `l` / `→` / `Enter` | Collapse / open directory |
 | `g` / `G` | Jump to top / bottom |
 | `Tab` | Switch local / remote pane |
-| `p` | Toggle a text preview in the opposite pane |
+| `p` | Toggle a preview of text or image files in the opposite pane |
 | `e` | Edit the current remote file in the configured external editor |
 | `c` | Copy the loaded preview content to the clipboard |
 | `PgUp` / `PgDn`, `Home` / `End` | Scroll / jump within an active preview |

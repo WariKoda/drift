@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `/` on the dashboard filters projects by name, slug or path; number keys and
+  project actions use the filtered list, and `Esc` clears the filter before leaving
+  the dashboard
+- terminals shorter than 20 rows get a compact dashboard header with more room for
+  projects
+- the browser and diff headers show the project name together with the host and
+  its connection state (`Connected`, `Connecting`, `Disconnected`)
+
+### Changed
+
+- the diff file title names the planned action and its target, for example
+  `Upload → staging`; a separate line labels `Before` and `After`, which describe the
+  diff rows, not the transfer direction
+- the diff status bar counts planned uploads, downloads and deletions, keeping local
+  and remote deletions apart and leaving out empty scope counters
+- key hints in the browser and diff status bars follow the current mode and drop
+  lower-priority hints in narrow terminals instead of truncating status messages;
+  help or the key that closes the current mode always stays visible
+- secondary text and hunk headers have more contrast in all palettes, and the entry
+  under the browser cursor is bold instead of coloured like a warning
+- the dashboard shows the new drift logo: the wordmark when it fits, the icon otherwise
+- the README is shorter; key bindings, diff details, remote editing and the
+  configuration reference moved to `docs/guide/`
+
+### Fixed
+
+- selecting a directory that contains mappings but is not mapped itself now also
+  finds remote-only files below those mappings
+- an unreadable directory elsewhere in the project no longer prevents opening it;
+  gitignore classification runs on demand instead of scanning the whole project first
+- a refresh reclassifies marked paths in collapsed directories and remote-only marks,
+  including marks added while the refresh is running
+
 ## [0.2.0-beta.2] - 2026-11-09
 
 This release updates the Go TUI. Rust/GPUI development remains paused; there is

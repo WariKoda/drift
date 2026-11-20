@@ -44,4 +44,3 @@ Die Dateien und Funktionen, die die Entscheidung umsetzen.
 | [0004](0004-groesse-und-mtime-schnellpfad.md) | Gleiche Größe und gleiche Änderungszeit gelten als unverändert |
 | [0005](0005-upload-bei-unklaren-zeitstempeln.md) | Bei unklaren Zeitstempeln schlägt drift den Upload vor |
 | [0006](0006-diffview-close-weist-befehle-ab.md) | Close im Diff-Screen weist eingereihte Befehle ab, statt auf sie zu warten |
-| [0007](0007-gui-fenstergroesse-normale-inhaltsgroesse.md) | Die Fensterpräferenz speichert die normale logische Inhaltsgröße und ein Maximiert-Flag |

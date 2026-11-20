@@ -1,6 +1,6 @@
 # Go TUI stability and performance fixes
 
-Rust/GPUI work remains paused. This series addresses the subsequent Go TUI audit without changing `main` or writing configuration into a project working tree.
+This series addresses the subsequent Go TUI audit without changing `main` or writing configuration into a project working tree.
 
 ## Stacked branches
 

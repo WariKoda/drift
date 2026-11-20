@@ -4,11 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.2.0-beta.3] - 2026-11-20
+## [0.2.0] - 2026-11-20
 
-This release updates the Go TUI. Rust/GPUI development remains paused; there is
-no GUI release in this version. Images were checked by hand in Ghostty and foot;
-GNOME Terminal and tmux are untested.
+With this release the Go TUI leaves beta. Rust/GPUI development remains paused;
+there is no GUI release in this version. Images were checked by hand in Ghostty
+and foot; GNOME Terminal and tmux are untested.
 
 ### Added
 

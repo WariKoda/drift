@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3f9">
+  <meta name="description" content="Mit drift vergleichst du lokale Dateien mit deinem Server über SFTP, FTP oder FTPS und entscheidest im Terminal, welche Änderungen du überträgst.">
+  <title>drift – Dateiabgleich im Terminal</title>
+  <link rel="icon" href="../.github/assets/logo/favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="showcase.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#inhalt">Zum Inhalt</a>
+  <header class="masthead">
+    <div class="wrap bar">
+      <a class="brand" href="#inhalt" aria-label="drift – Seitenanfang"><img src="../.github/assets/logo/drift-logo-on-light.svg" width="112" height="17" alt="drift"></a>
+      <nav aria-label="Hauptnavigation">
+        <a href="#einblicke">Einblicke</a>
+        <a href="#installation">Installation</a>
+        <a class="github" href="https://github.com/WariKoda/drift">GitHub</a>
+      </nav>
+    </div>
+  </header>
+  <main id="inhalt">
+    <section class="intro" aria-labelledby="titel">
+      <div class="wrap hero">
+        <div class="pitch">
+          <h1 id="titel">Was ist auf dem Server anders?</h1>
+          <p>drift zeigt dir im Terminal, wo sich lokale Dateien und Serverstand unterscheiden. Du entscheidest für jede Datei, welche Fassung du überträgst.</p>
+          <div class="actions">
+            <a class="primary" href="#installation">drift installieren</a>
+            <a class="watch" href="#demo"><span class="play" aria-hidden="true"></span>Demo ansehen</a>
+          </div>
+        </div>
+        <img class="blocks" src="drift-blocks.webp" alt="" width="1360" height="840">
+      </div>
+      <div class="specs">
+        <div class="wrap spec-row">
+          <span>SFTP <i>/</i> FTP <i>/</i> FTPS</span>
+          <span>Linux <i>/</i> macOS</span>
+          <a href="https://github.com/WariKoda/drift/blob/main/LICENSE">MIT-Lizenz</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap tour" id="einblicke" aria-labelledby="tour-heading">
+      <div class="section-head">
+        <h2 id="tour-heading">drift im Einsatz</h2>
+        <div class="switcher" aria-label="Ansicht wählen" hidden>
+          <button id="tab-diff" aria-controls="diff">Diff</button>
+          <button id="tab-browser" aria-controls="browser">Dateibrowser</button>
+          <button id="tab-projekte" aria-controls="projekte">Projekte</button>
+          <button id="tab-demo" aria-controls="demo">Demo</button>
+        </div>
+      </div>
+      <div class="panel" id="diff" aria-labelledby="diff-heading">
+        <div class="caption">
+          <h3 id="diff-heading">Zeile für Zeile vergleichen</h3>
+          <p>Prüfe hinzugefügte und entfernte Zeilen. Für jede Datei kannst du einen Upload, Download oder Löschvorgang wählen oder sie überspringen.</p>
+        </div>
+        <a class="frame" href="../.github/assets/screenshots/drift-diff.png" aria-label="Diff in Originalgröße ansehen">
+          <img src="../.github/assets/screenshots/drift-diff.png" alt="Diff von PriceCalculator.php mit rot markierten Löschungen und grün markierten Ergänzungen." width="2736" height="1596">
+        </a>
+      </div>
+      <div class="panel" id="browser" aria-labelledby="browser-heading">
+        <div class="caption">
+          <h3 id="browser-heading">Beide Verzeichnisse nebeneinander</h3>
+          <p>Verbinde die rechte Seite mit <kbd>@</kbd> mit einem Host. Markiere Dateien oder ganze Ordner mit der Leertaste und öffne mit <kbd>s</kbd> den Vergleich.</p>
+        </div>
+        <a class="frame" href="../.github/assets/screenshots/drift-browser.png" aria-label="Dateibrowser in Originalgröße ansehen">
+          <img src="../.github/assets/screenshots/drift-browser.png" alt="Der Dateibrowser zeigt das lokale Projekt links und die Dateien des Staging-Servers rechts." width="2736" height="1200" loading="lazy">
+        </a>
+      </div>
+      <div class="panel" id="projekte" aria-labelledby="projekte-heading">
+        <div class="caption">
+          <h3 id="projekte-heading">Zwischen Projekten wechseln</h3>
+          <p>Öffne die Projektübersicht mit <code>drift dash</code>. Jedes Projekt hat eigene Hosts und Pfade. Im Dateibrowser wechselst du mit <kbd>P</kbd> das Projekt.</p>
+        </div>
+        <a class="frame" href="../.github/assets/screenshots/drift-dashboard.png" aria-label="Projektübersicht in Originalgröße ansehen">
+          <img src="../.github/assets/screenshots/drift-dashboard.png" alt="Die Projektübersicht mit vier registrierten Projekten und ihren lokalen Pfaden." width="2232" height="1056" loading="lazy">
+        </a>
+      </div>
+      <div class="panel" id="demo" aria-labelledby="demo-heading">
+        <div class="caption">
+          <h3 id="demo-heading">Ein Upload in 27 Sekunden</h3>
+          <p>Die Aufnahme zeigt die Dateiauswahl, den Diff und den bestätigten Upload. Beim nächsten Vergleich stimmen beide Dateien überein.</p>
+        </div>
+        <div class="frame film">
+          <video controls playsinline preload="none" aria-label="Terminalaufnahme eines Dateiabgleichs, ohne Ton" width="1920" height="1080" poster="../.github/assets/demo/poster.png">
+            <source src="../.github/assets/demo/drift-teaser.mp4" type="video/mp4">
+            <a href="../.github/assets/demo/drift-teaser.mp4">Demo als MP4 öffnen</a>
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <section class="install" id="installation" aria-labelledby="install-heading">
+      <div class="wrap install-layout">
+        <div>
+          <h2 id="install-heading">drift installieren</h2>
+          <p>Du brauchst Linux oder macOS, Go ab Version 1.25 und Git. Das Go-Binärverzeichnis muss in deinem <code>PATH</code> stehen.</p>
+        </div>
+        <div class="setup">
+          <div class="command">
+            <code id="install-command">go install github.com/WariKoda/drift@latest</code>
+            <button id="copy" hidden>Kopieren</button>
+          </div>
+          <span id="copy-status" role="status"></span>
+          <p>Starte <code>drift</code> im Projektordner. Mit <kbd>H</kbd> öffnest du die Hostverwaltung und mit <kbd>n</kbd> legst du deinen ersten Host an.</p>
+          <a href="https://github.com/WariKoda/drift#installation">Installationsanleitung auf GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="wrap footer">
+    <img src="../.github/assets/logo/drift-logo-on-light.svg" width="77" height="12" alt="drift">
+    <a href="https://github.com/WariKoda/drift#documentation">Dokumentation</a>
+    <a href="https://github.com/WariKoda/drift/issues">Issues</a>
+  </footer>
+</body>
+</html>

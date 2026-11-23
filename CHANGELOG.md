@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- releases come with ready-built archives for Linux and macOS on amd64 and arm64,
+  a `checksums.txt` and a build provenance attestation; `drift` no longer needs Go
+  to install
+- a Homebrew cask: `brew install --cask warikoda/tap/drift`
+
 ### Removed
 
 - the paused Rust desktop port, its CI jobs, Makefile targets, design documents and

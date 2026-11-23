@@ -51,6 +51,7 @@ document.querySelector('.watch').addEventListener('click', () => {
   selectView(panels.findIndex(panel => panel.id === 'demo'));
 });
 
+const german = document.documentElement.lang === 'de';
 const copyButton = document.getElementById('copy');
 const copyStatus = document.getElementById('copy-status');
 if (navigator.clipboard?.writeText) {
@@ -58,9 +59,9 @@ if (navigator.clipboard?.writeText) {
   copyButton.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(document.getElementById('install-command').textContent);
-      copyStatus.textContent = 'Befehl kopiert.';
+      copyStatus.textContent = german ? 'Befehl kopiert.' : 'Command copied.';
     } catch {
-      copyStatus.textContent = 'Bitte markiere und kopiere den Befehl direkt.';
+      copyStatus.textContent = german ? 'Bitte markiere und kopiere den Befehl direkt.' : 'Select the command and copy it manually.';
     }
   });
 }

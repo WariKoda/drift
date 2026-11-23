@@ -100,3 +100,33 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: .2
   .command { flex-wrap: wrap; }
   .footer { gap: 1rem; }
 }
+.features { padding-bottom: clamp(3rem, 6vw, 6rem); }
+.features ul { list-style: none; margin: 1.6rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 2rem; }
+.features li { border-top: 1px solid var(--line); padding-block: 1.35rem; }
+.features h3 { font-size: clamp(1.05rem, 1.5vw, 1.2rem); letter-spacing: -.02em; }
+.features p, .faq p { color: var(--muted); margin-top: .5rem; }
+.faq { padding-block: clamp(3rem, 6vw, 6rem); }
+.questions { margin-top: 1.6rem; max-width: 52rem; }
+.faq details { border-top: 1px solid var(--line); }
+.faq details:last-child { border-bottom: 1px solid var(--line); }
+.faq summary { cursor: pointer; font-weight: 600; padding-block: 1rem; }
+.faq details p { margin: 0 0 1.1rem; max-width: 65ch; }
+.faq summary:focus-visible { outline: 3px solid #6651ae; outline-offset: 4px; }
+@media (max-width: 60rem) { .features ul { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 38rem) { .features ul { grid-template-columns: 1fr; } }
+.wordmark { display: inline-block; height: .7em; width: auto; vertical-align: baseline; margin-right: .08em; }
+.lang-switch { display: inline-flex; align-items: center; gap: .15rem; padding: .2rem; border-radius: 999px; background: #e6e3ef; font-size: .8rem; font-weight: 650; line-height: 1; }
+.lang-switch > * { display: grid; place-items: center; min-width: 2.25rem; padding: .45rem .55rem; border-radius: 999px; }
+.lang-switch a { padding: .45rem .55rem; font-size: inherit; color: var(--muted); text-decoration: none; }
+.lang-switch a:hover { color: var(--ink); background: #d9d5e6; text-decoration: none; }
+.lang-switch [aria-current] { background: var(--ink); color: white; }
+@media (max-width: 38rem) { .tour-link { display: none; } }
+@media (max-width: 38rem) {
+  nav { gap: .7rem; }
+  .lang-switch > *, .lang-switch a { min-width: 1.9rem; padding: .4rem .4rem; }
+}
+.bar { gap: 1rem; }
+@media (max-width: 22rem) {
+  .brand img { width: 3.9rem; }
+  nav { gap: .6rem; }
+}

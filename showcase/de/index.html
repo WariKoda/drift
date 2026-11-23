@@ -47,7 +47,7 @@
       "url": "https://drift.warikoda.de/de/",
       "sameAs": "https://github.com/WariKoda/drift",
       "downloadUrl": "https://github.com/WariKoda/drift/releases",
-      "softwareRequirements": "Go 1.25 oder neuer, Git",
+      "softwareRequirements": "Git",
       "screenshot": [
         "https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-diff.png",
         "https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-browser.png",
@@ -244,11 +244,11 @@
       <div class="wrap install-layout">
         <div>
           <h2 id="install-heading"><img class="wordmark" src="../../.github/assets/logo/drift-logo-on-light.svg" width="33" height="5" alt="drift"> installieren</h2>
-          <p>Du brauchst Linux oder macOS, Go ab Version 1.25 und Git. Das Go-Binärverzeichnis muss in deinem <code>PATH</code> stehen.</p>
+          <p>drift läuft unter Linux und macOS und braucht Git. Ohne Homebrew lädst du das Archiv für dein System aus dem <a href="https://github.com/WariKoda/drift/releases/latest">aktuellen Release</a>.</p>
         </div>
         <div class="setup">
           <div class="command">
-            <code id="install-command">go install github.com/WariKoda/drift@latest</code>
+            <code id="install-command">brew install --cask warikoda/tap/drift</code>
             <button id="copy" hidden>Kopieren</button>
           </div>
           <span id="copy-status" role="status"></span>

@@ -222,7 +222,30 @@ make vet                      # go vet ./...
 make install                  # go install .; uses GOBIN, else GOPATH/bin
 make update                   # rebuild + reinstall (use after code changes)
 make release-build VERSION=vX.Y.Z  # version-injected ./drift binary
+make snapshot                 # all release archives in dist/, nothing published
 ```
+
+## Releases
+
+GoReleaser (`.goreleaser.yaml`) builds the release archives;
+`.github/workflows/release.yml` runs it for every pushed `v*` tag. To release:
+
+1. Turn `## [Unreleased]` in `CHANGELOG.md` into `## [X.Y.Z] - YYYY-MM-DD` and
+   merge that into `main`. The workflow takes the release text from this section
+   (`scripts/release-notes.sh`) and fails if it is missing.
+2. Tag the merge commit on `main` with `vX.Y.Z` and push the tag.
+
+The workflow runs the tests, builds `drift_<os>_<arch>.tar.gz` for linux and
+darwin on amd64 and arm64, writes `checksums.txt`, attests the archives and
+updates the cask in `WariKoda/homebrew-tap`. Tags with a suffix such as
+`-alpha` or `-rc.1` become prereleases and leave the tap alone. The tap push
+needs the repository secret `HOMEBREW_TAP_TOKEN`, a fine-grained token with
+contents write access to `WariKoda/homebrew-tap`.
+
+`release.mode: keep-existing` means GoReleaser never replaces the text of a
+release that already exists. To add archives to an old release, check out its
+tag and run GoReleaser there with the current config
+(`--config <path to current .goreleaser.yaml>`).
 
 ## Git workflow
 

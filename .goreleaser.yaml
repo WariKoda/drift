@@ -1,0 +1,74 @@
+# Release build for drift. The release workflow (.github/workflows/release.yml)
+# runs it for every pushed v* tag; `make snapshot` builds the same archives
+# locally without publishing anything.
+version: 2
+
+project_name: drift
+
+builds:
+  - id: drift
+    main: .
+    binary: drift
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # The tag keeps the leading "v", so `drift version` prints the same as
+      # a `go install` build of that tag.
+      - -s -w -X github.com/WariKoda/drift/cmd.Version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: drift
+    formats:
+      - tar.gz
+    # No version in the name, so releases/latest/download/<name> stays stable
+    # and the README can link to it.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - THIRD_PARTY_NOTICES.md
+
+checksum:
+  # The attestation step in the workflow reads this file by name.
+  name_template: checksums.txt
+
+# The release text comes from CHANGELOG.md via --release-notes.
+changelog:
+  disable: true
+
+release:
+  # Tags such as v0.3.0-alpha or v0.3.0-rc.1 become prereleases.
+  prerelease: auto
+  # Never overwrite the text of a release that already exists.
+  mode: keep-existing
+
+homebrew_casks:
+  - name: drift
+    binaries:
+      - drift
+    homepage: https://drift.warikoda.de/
+    description: Diff a local project against a server and sync the changes you approve
+    directory: Casks
+    repository:
+      owner: WariKoda
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Prereleases do not update the tap.
+    skip_upload: auto
+    hooks:
+      post:
+        # The binary is not signed or notarized, so Gatekeeper would block it.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/drift"]
+          end

@@ -29,13 +29,47 @@ in a browser from a local checkout. A German version is in [showcase/de/](showca
 
 ## Installation
 
-drift runs on Linux and macOS. It needs Go 1.25 or newer to build, and Git at runtime.
+drift runs on Linux and macOS and needs Git at runtime.
+
+### Homebrew
+
+```bash
+brew install --cask warikoda/tap/drift
+```
+
+### Download
+
+Every [release](https://github.com/WariKoda/drift/releases) has an archive for Linux and macOS,
+each for amd64 and arm64. This command installs the latest one for Linux on x86-64 into
+`~/.local/bin`:
+
+```bash
+curl -fsSL https://github.com/WariKoda/drift/releases/latest/download/drift_linux_amd64.tar.gz \
+  | tar -xz -C ~/.local/bin drift
+```
+
+For other systems, replace `linux_amd64` with `linux_arm64`, `darwin_amd64` or `darwin_arm64`.
+The target directory must be in your `$PATH`.
+
+The macOS binaries are not signed. If you download an archive in the browser, Gatekeeper blocks
+drift; `xattr -d com.apple.quarantine drift` lifts the block. `curl` and Homebrew do not trigger it.
+
+`checksums.txt` in each release lists the SHA-256 sums of the archives. GitHub also records where
+each archive was built, which you can check with the GitHub CLI:
+
+```bash
+gh attestation verify drift_linux_amd64.tar.gz --owner WariKoda
+```
+
+### From source
+
+With Go 1.25 or newer:
 
 ```bash
 go install github.com/WariKoda/drift@latest
 ```
 
-Or build from a checkout:
+Or from a checkout:
 
 ```bash
 git clone https://github.com/WariKoda/drift.git

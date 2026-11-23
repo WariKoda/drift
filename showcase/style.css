@@ -130,3 +130,8 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: .2
   .brand img { width: 3.9rem; }
   nav { gap: .6rem; }
 }
+.legal { max-width: 44rem; padding-block: clamp(2.5rem, 5vw, 4.5rem); }
+.legal h1 { font-size: clamp(2.2rem, 4vw, 3.2rem); max-width: none; }
+.legal h2 { font-size: 1.2rem; letter-spacing: -.02em; margin-top: 2rem; }
+.legal p { margin-top: .6rem; color: var(--muted); }
+.legal h1 + p { margin-top: 1rem; }

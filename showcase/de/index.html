@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3f9">
+  <title>drift – Dateien per SFTP, FTP und FTPS im Terminal abgleichen</title>
+  <meta name="description" content="drift vergleicht dein Projekt Zeile für Zeile mit dem Server und überträgt per SFTP, FTP oder FTPS nur freigegebene Änderungen. Kostenlos für Linux und macOS.">
+  <link rel="canonical" href="https://drift.warikoda.de/de/">
+  <link rel="alternate" hreflang="en" href="https://drift.warikoda.de/">
+  <link rel="alternate" hreflang="de" href="https://drift.warikoda.de/de/">
+  <link rel="alternate" hreflang="x-default" href="https://drift.warikoda.de/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://drift.warikoda.de/de/">
+  <meta property="og:locale" content="de_DE">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:site_name" content="drift">
+  <meta property="og:title" content="drift – Dateien per SFTP, FTP und FTPS im Terminal abgleichen">
+  <meta property="og:description" content="drift vergleicht dein Projekt Zeile für Zeile mit dem Server und überträgt per SFTP, FTP oder FTPS nur freigegebene Änderungen. Kostenlos für Linux und macOS.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/logo/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="Logo von drift">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../../.github/assets/logo/favicon.svg">
+  <link rel="apple-touch-icon" href="../../.github/assets/logo/apple-touch-icon.png">
+  <link rel="stylesheet" href="../style.css">
+  <script src="../showcase.js" defer></script>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "drift",
+      "description": "Open-Source-Werkzeug für das Terminal, das ein lokales Projekt Zeile für Zeile mit einem Server vergleicht und per SFTP, FTP oder FTPS nur freigegebene Änderungen überträgt.",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "SFTP- und FTP-Client",
+      "operatingSystem": "Linux, macOS",
+      "inLanguage": "de",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR"
+      },
+      "license": "https://opensource.org/licenses/MIT",
+      "url": "https://drift.warikoda.de/de/",
+      "sameAs": "https://github.com/WariKoda/drift",
+      "downloadUrl": "https://github.com/WariKoda/drift/releases",
+      "softwareRequirements": "Go 1.25 oder neuer, Git",
+      "screenshot": [
+        "https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-diff.png",
+        "https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-browser.png",
+        "https://raw.githubusercontent.com/WariKoda/drift/main/.github/assets/screenshots/drift-dashboard.png"
+      ],
+      "featureList": [
+        "Zeilenweiser Diff zwischen lokalem Projekt und Server",
+        "Synchronisation per SFTP, FTP und FTPS",
+        "Upload, Download, Löschen oder Überspringen pro Datei",
+        "Dateibrowser mit lokalem Projekt und Server nebeneinander",
+        "Bearbeiten von Serverdateien im eigenen Editor mit Konfliktprüfung",
+        "Projektübersicht für mehrere Projekte",
+        "Pfadzuordnung pro Host",
+        "Prüfung von FTPS-Zertifikaten",
+        "Beachtet .gitignore"
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "inLanguage": "de",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Was ist drift?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "drift ist ein kostenloses Open-Source-Programm für das Terminal unter Linux und macOS. Es zeigt die Unterschiede zwischen deinem lokalen Projekt und einem Server als Zeilen-Diff und überträgt per SFTP, FTP oder FTPS nur die Dateien, die du freigibst."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Für wen ist drift gedacht?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Für Entwicklerinnen und Entwickler, die Websites oder Anwendungen per SFTP oder FTP auf Webspace, Staging- oder Produktionsserver übertragen und vorher sehen wollen, was sich ändert."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Welche Protokolle unterstützt drift?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "SFTP, FTP und FTPS. Bei FTPS prüft drift das Serverzertifikat. Ausnahmen kannst du für eine Sitzung oder dauerhaft erlauben."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Läuft drift unter Windows?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Nein. drift läuft unter Linux und macOS."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Was unterscheidet drift von FileZilla oder rsync?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "FileZilla überträgt Dateien, zeigt vor dem Upload aber keinen zeilenweisen Vergleich. rsync braucht SSH-Zugang und rsync auf dem Server und unterstützt kein FTP. drift zeigt für jede Datei den Diff und überträgt erst nach deiner Freigabe."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Legt drift Dateien in meinem Projekt an?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Nein. Die Konfiguration liegt in ~/.config/drift/. Pfade aus deiner .gitignore lässt drift beim Abgleich weg, solange du sie nicht mit der Taste i einbeziehst."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Wo speichert drift Zugangsdaten?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "In den Hostdateien unter ~/.config/drift/projects/. drift legt sie mit den Rechten 600 an. Statt eines Passworts kann dort der Name einer Umgebungsvariable stehen, etwa $FTP_PASSWORD."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Was kostet drift?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Nichts. drift steht unter der MIT-Lizenz, der Quellcode liegt auf GitHub."
+          }
+        }
+      ]
+    }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a class="skip" href="#inhalt">Zum Inhalt</a>
+  <header class="masthead">
+    <div class="wrap bar">
+      <a class="brand" href="#inhalt" aria-label="drift – Seitenanfang"><img src="../../.github/assets/logo/drift-logo-on-light.svg" width="112" height="17" alt="drift"></a>
+      <nav aria-label="Hauptnavigation">
+        <a class="tour-link" href="#einblicke">Einblicke</a>
+        <a href="#installation">Installation</a>
+        <a class="github" href="https://github.com/WariKoda/drift">GitHub</a>
+        <span class="lang-switch" role="group" aria-label="Sprache">
+          <a href="../" hreflang="en" lang="en" title="English">EN</a>
+          <span aria-current="page" lang="de" title="Deutsch">DE</span>
+        </span>
+      </nav>
+    </div>
+  </header>
+  <main id="inhalt">
+    <section class="intro" aria-labelledby="titel">
+      <div class="wrap hero">
+        <div class="pitch">
+          <h1 id="titel">Dateien mit dem Server abgleichen</h1>
+          <p>drift ist ein Open-Source-Werkzeug für das Terminal. Es vergleicht dein lokales Projekt Zeile für Zeile mit dem Server und überträgt per SFTP, FTP oder FTPS nur die Änderungen, die du freigibst.</p>
+          <div class="actions">
+            <a class="primary" href="#installation">drift installieren</a>
+            <a class="watch" href="#demo"><span class="play" aria-hidden="true"></span>Demo ansehen</a>
+          </div>
+        </div>
+        <img class="blocks" src="../drift-blocks.webp" alt="" width="1360" height="840">
+      </div>
+      <div class="specs">
+        <div class="wrap spec-row">
+          <span>SFTP <i>/</i> FTP <i>/</i> FTPS</span>
+          <span>Linux <i>/</i> macOS</span>
+          <a href="https://github.com/WariKoda/drift/blob/main/LICENSE">Open Source, MIT-Lizenz</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap tour" id="einblicke" aria-labelledby="tour-heading">
+      <div class="section-head">
+        <h2 id="tour-heading"><img class="wordmark" src="../../.github/assets/logo/drift-logo-on-light.svg" width="33" height="5" alt="drift"> im Einsatz</h2>
+        <div class="switcher" aria-label="Ansicht wählen" hidden>
+          <button id="tab-diff" aria-controls="diff">Diff</button>
+          <button id="tab-browser" aria-controls="browser">Dateibrowser</button>
+          <button id="tab-projekte" aria-controls="projekte">Projekte</button>
+          <button id="tab-demo" aria-controls="demo">Demo</button>
+        </div>
+      </div>
+      <div class="panel" id="diff" aria-labelledby="diff-heading">
+        <div class="caption">
+          <h3 id="diff-heading">Jede Änderung vor dem Upload sehen</h3>
+          <p>Der Diff zeigt hinzugefügte und entfernte Zeilen mit Syntaxhervorhebung. Für jede Datei wählst du Upload, Download, Löschen oder Überspringen. Die Richtung schlägt drift anhand der Änderungszeiten vor.</p>
+        </div>
+        <a class="frame" href="../../.github/assets/screenshots/drift-diff.png" aria-label="Diff in Originalgröße ansehen">
+          <img src="../../.github/assets/screenshots/drift-diff.png" alt="Diff von PriceCalculator.php mit rot markierten Löschungen und grün markierten Ergänzungen." width="2736" height="1596">
+        </a>
+      </div>
+      <div class="panel" id="browser" aria-labelledby="browser-heading">
+        <div class="caption">
+          <h3 id="browser-heading">Lokales Projekt und Server nebeneinander</h3>
+          <p>Mit <kbd>@</kbd> verbindest du die rechte Seite mit einem Host. Mit der Leertaste markierst du Dateien oder ganze Ordner, mit <kbd>s</kbd> öffnest du den Vergleich.</p>
+        </div>
+        <a class="frame" href="../../.github/assets/screenshots/drift-browser.png" aria-label="Dateibrowser in Originalgröße ansehen">
+          <img src="../../.github/assets/screenshots/drift-browser.png" alt="Der Dateibrowser zeigt das lokale Projekt links und die Dateien des Staging-Servers rechts." width="2736" height="1200" loading="lazy">
+        </a>
+      </div>
+      <div class="panel" id="projekte" aria-labelledby="projekte-heading">
+        <div class="caption">
+          <h3 id="projekte-heading">Mehrere Projekte, eigene Hosts</h3>
+          <p><code>drift dash</code> öffnet die Projektübersicht. Jedes Projekt hat eigene Hosts und Pfadzuordnungen. Im Dateibrowser wechselst du mit <kbd>P</kbd> das Projekt.</p>
+        </div>
+        <a class="frame" href="../../.github/assets/screenshots/drift-dashboard.png" aria-label="Projektübersicht in Originalgröße ansehen">
+          <img src="../../.github/assets/screenshots/drift-dashboard.png" alt="Die Projektübersicht mit vier registrierten Projekten und ihren lokalen Pfaden." width="2232" height="1056" loading="lazy">
+        </a>
+      </div>
+      <div class="panel" id="demo" aria-labelledby="demo-heading">
+        <div class="caption">
+          <h3 id="demo-heading">Ein Upload in 27 Sekunden</h3>
+          <p>Die Aufnahme zeigt Dateiauswahl, Diff und bestätigten Upload. Beim nächsten Vergleich stimmen lokale Datei und Serverdatei überein.</p>
+        </div>
+        <div class="frame film">
+          <video controls playsinline preload="none" aria-label="Terminalaufnahme eines Dateiabgleichs, ohne Ton" width="1920" height="1080" poster="../../.github/assets/demo/poster.png">
+            <source src="../../.github/assets/demo/drift-teaser.mp4" type="video/mp4">
+            <a href="../../.github/assets/demo/drift-teaser.mp4">Demo als MP4 öffnen</a>
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap features" id="funktionen" aria-labelledby="features-heading">
+      <h2 id="features-heading">Was <img class="wordmark" src="../../.github/assets/logo/drift-logo-on-light.svg" width="33" height="5" alt="drift"> außerdem kann</h2>
+      <ul>
+        <li><h3>Serverdateien im eigenen Editor bearbeiten</h3><p>drift lädt die Datei erst nach deiner Bestätigung hoch und prüft vorher, ob jemand sie auf dem Server geändert hat.</p></li>
+        <li><h3>Pfade pro Host zuordnen</h3><p>Ein lokaler Ordner kann auf Staging und Produktion unter verschiedenen Pfaden liegen.</p></li>
+        <li><h3>Eine Verbindung für mehrere Projekte</h3><p>Projekte auf demselben Server teilen sich Verbindung und Zugangsdaten.</p></li>
+        <li><h3>FTPS-Zertifikate prüfen</h3><p>Ausnahmen für unbekannte Zertifikate gelten für die Sitzung oder dauerhaft.</p></li>
+        <li><h3>Keine Dateien im Projekt</h3><p>Die Konfiguration liegt in <code>~/.config/drift/</code>. drift beachtet deine <code>.gitignore</code>.</p></li>
+        <li><h3>Passwörter aus Umgebungsvariablen</h3><p>Hostdateien haben die Rechte <code>600</code>. Statt eines Passworts kann dort <code>$ENV_VAR</code> stehen.</p></li>
+      </ul>
+    </section>
+
+    <section class="install" id="installation" aria-labelledby="install-heading">
+      <div class="wrap install-layout">
+        <div>
+          <h2 id="install-heading"><img class="wordmark" src="../../.github/assets/logo/drift-logo-on-light.svg" width="33" height="5" alt="drift"> installieren</h2>
+          <p>Du brauchst Linux oder macOS, Go ab Version 1.25 und Git. Das Go-Binärverzeichnis muss in deinem <code>PATH</code> stehen.</p>
+        </div>
+        <div class="setup">
+          <div class="command">
+            <code id="install-command">go install github.com/WariKoda/drift@latest</code>
+            <button id="copy" hidden>Kopieren</button>
+          </div>
+          <span id="copy-status" role="status"></span>
+          <p>Starte <code>drift</code> im Projektordner. Mit <kbd>H</kbd> öffnest du die Hostverwaltung, mit <kbd>n</kbd> legst du deinen ersten Host an. <kbd>?</kbd> zeigt auf jedem Bildschirm die verfügbaren Tasten.</p>
+          <a href="https://github.com/WariKoda/drift#installation">Installationsanleitung auf GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap faq" id="fragen" aria-labelledby="faq-heading">
+      <h2 id="faq-heading">Häufige Fragen</h2>
+      <div class="questions">
+        <details>
+          <summary>Was ist drift?</summary>
+          <p>drift ist ein kostenloses Open-Source-Programm für das Terminal unter Linux und macOS. Es zeigt die Unterschiede zwischen deinem lokalen Projekt und einem Server als Zeilen-Diff und überträgt per SFTP, FTP oder FTPS nur die Dateien, die du freigibst.</p>
+        </details>
+        <details>
+          <summary>Für wen ist drift gedacht?</summary>
+          <p>Für Entwicklerinnen und Entwickler, die Websites oder Anwendungen per SFTP oder FTP auf Webspace, Staging- oder Produktionsserver übertragen und vorher sehen wollen, was sich ändert.</p>
+        </details>
+        <details>
+          <summary>Welche Protokolle unterstützt drift?</summary>
+          <p>SFTP, FTP und FTPS. Bei FTPS prüft drift das Serverzertifikat. Ausnahmen kannst du für eine Sitzung oder dauerhaft erlauben.</p>
+        </details>
+        <details>
+          <summary>Läuft drift unter Windows?</summary>
+          <p>Nein. drift läuft unter Linux und macOS.</p>
+        </details>
+        <details>
+          <summary>Was unterscheidet drift von FileZilla oder rsync?</summary>
+          <p>FileZilla überträgt Dateien, zeigt vor dem Upload aber keinen zeilenweisen Vergleich. rsync braucht SSH-Zugang und rsync auf dem Server und unterstützt kein FTP. drift zeigt für jede Datei den Diff und überträgt erst nach deiner Freigabe.</p>
+        </details>
+        <details>
+          <summary>Legt drift Dateien in meinem Projekt an?</summary>
+          <p>Nein. Die Konfiguration liegt in <code>~/.config/drift/</code>. Pfade aus deiner <code>.gitignore</code> lässt drift beim Abgleich weg, solange du sie nicht mit <kbd>i</kbd> einbeziehst.</p>
+        </details>
+        <details>
+          <summary>Wo speichert drift Zugangsdaten?</summary>
+          <p>In den Hostdateien unter <code>~/.config/drift/projects/</code>. drift legt sie mit den Rechten <code>600</code> an. Statt eines Passworts kann dort der Name einer Umgebungsvariable stehen, etwa <code>$FTP_PASSWORD</code>.</p>
+        </details>
+        <details>
+          <summary>Was kostet drift?</summary>
+          <p>Nichts. drift steht unter der MIT-Lizenz, der Quellcode liegt auf GitHub.</p>
+        </details>
+      </div>
+    </section>
+  </main>
+  <footer class="wrap footer">
+    <img src="../../.github/assets/logo/drift-logo-on-light.svg" width="77" height="12" alt="drift">
+    <a href="https://github.com/WariKoda/drift#documentation">Dokumentation</a>
+    <a href="https://github.com/WariKoda/drift/issues">Issues</a>
+    <a href="https://drift.warikoda.de/impressum/">Impressum</a>
+    <a href="https://drift.warikoda.de/datenschutz/">Datenschutz</a>
+  </footer>
+</body>
+</html>

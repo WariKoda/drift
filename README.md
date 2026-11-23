@@ -146,6 +146,31 @@ The host files contain credentials and are created with mode `600`. A password f
 - [Configuration reference](docs/guide/configuration.md): hosts, mappings, shared servers,
   keep-alive, FTPS trust, theming, logging
 
+## Updating
+
+An update replaces only the binary. Projects, hosts, credentials and certificate exceptions live
+in `~/.config/drift/` (or `$XDG_CONFIG_HOME/drift/`), and no update touches that directory.
+
+Quit drift in every terminal, then update the way you installed it:
+
+| Installed with | Update with |
+| --- | --- |
+| Homebrew | `brew upgrade --cask drift` |
+| Download | the same `curl` command as above; it overwrites the binary |
+| `go install` | `go install github.com/WariKoda/drift@latest` |
+| Checkout | `git pull && make install` |
+
+`drift version` shows the installed version.
+
+To keep a copy of your configuration before updating:
+
+```bash
+cp -a ~/.config/drift ~/.config/drift.bak
+```
+
+Do not go back to an older version without that copy. An older drift ignores settings it does
+not know and drops them the next time it saves the file.
+
 ## Upgrading from 0.1.6-alpha or earlier
 
 Older versions stored hosts in `.drift/config.toml` inside the project. Only

@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
 - releases come with ready-built archives for Linux and macOS on amd64 and arm64,
   a `checksums.txt` and a build provenance attestation; `drift` no longer needs Go
   to install
-- a Homebrew cask: `brew install --cask warikoda/tap/drift`
+- a Homebrew cask: `brew install warikoda/tap/drift`
 
 ### Removed
 

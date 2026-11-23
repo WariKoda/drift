@@ -31,10 +31,10 @@ in a browser from a local checkout. A German version is in [showcase/de/](showca
 
 drift runs on Linux and macOS and needs Git at runtime.
 
-### Homebrew
+### Homebrew (macOS and Linux)
 
 ```bash
-brew install --cask warikoda/tap/drift
+brew install warikoda/tap/drift
 ```
 
 ### Download
@@ -155,7 +155,7 @@ Quit drift in every terminal, then update the way you installed it:
 
 | Installed with | Update with |
 | --- | --- |
-| Homebrew | `brew upgrade --cask drift` |
+| Homebrew | `brew upgrade drift` |
 | Download | the same `curl` command as above; it overwrites the binary |
 | `go install` | `go install github.com/WariKoda/drift@latest` |
 | Checkout | `git pull && make install` |

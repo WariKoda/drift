@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-24
+
+This release fixes two security issues, listed under Fixed. Updating is recommended
+for everyone who syncs with hosts they do not fully control or works in projects
+from other sources.
+
 ### Added
 
 - releases come with ready-built archives for Linux and macOS on amd64 and arm64,

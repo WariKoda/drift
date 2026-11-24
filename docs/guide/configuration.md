@@ -164,8 +164,9 @@ Keep-alive cannot prevent every server idle limit or network failure.
 
 drift checks FTPS certificates against the operating system trust store, including the
 hostname and validity period. If that check fails, drift stops the connection and shows
-the certificate subject, issuer, validity, problem, and full SHA-256 fingerprint.
-`Reject` is selected by default.
+the problem, the full SHA-256 fingerprint and the validity, followed by the subject,
+names and issuer under "Supplied by the server". Those three are text the server chose
+and prove nothing; compare the fingerprint. `Reject` is selected by default.
 
 After checking the fingerprint through a trusted channel, you can trust that exact
 certificate for the current drift process or permanently. Permanent exceptions are bound

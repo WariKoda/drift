@@ -72,10 +72,26 @@ func (m Model) buttonAt(x, y int) (Decision, bool) {
 	if row < 0 || row >= len(lines) {
 		return Reject, false
 	}
+	// The details above the buttons hold text from the certificate, which may
+	// spell a button label. Only rows from the real button row down count.
+	buttonRow := -1
+	for i, line := range lines {
+		if strings.Contains(line, "[Reject]") {
+			buttonRow = i
+		}
+	}
+	if buttonRow < 0 || row < buttonRow {
+		return Reject, false
+	}
 	column := x - left
 	for decision, label := range []string{"[Reject]", "[Trust for this session]", "[Trust permanently]"} {
-		start := strings.Index(lines[row], label)
-		if start >= 0 && column >= start && column < start+len(label) {
+		index := strings.Index(lines[row], label)
+		if index < 0 {
+			continue
+		}
+		// index counts bytes, and the border before it is a multi-byte rune.
+		start := lipgloss.Width(lines[row][:index])
+		if column >= start && column < start+len(label) {
 			return Decision(decision), true
 		}
 	}

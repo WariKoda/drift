@@ -4,8 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- the certificate prompt shows the server, the problems and the SHA-256 fingerprint
+  first and breaks the fingerprint between bytes. Subject, names and issuer follow
+  under "Supplied by the server", with at most five rows each
+
 ### Fixed
 
+- text from a certificate can no longer imitate a row or a button of the certificate
+  prompt. A subject padded with spaces used to wrap onto rows that looked like a real
+  `SHA-256:` row above the real one, and a click on certificate text that spelled a
+  button label chose that button
+- mouse clicks on the buttons of the certificate prompt land on the label; the
+  clickable area was two cells too far to the right
 - the fixed exclusions for `.git`, `.svn`, `.hg`, `node_modules`, `.idea` and `.vscode`
   ignore upper and lower case. On a case-insensitive filesystem, the default on macOS,
   a remote path through `.GIT` reached the real `.git` directory

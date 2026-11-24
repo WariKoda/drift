@@ -44,34 +44,101 @@ func (m Model) modal() string {
 	return styles.LoadingBox.Width(contentWidth).Render(strings.Join(body, "\n"))
 }
 
+// labelWidth is the column where every value starts. Continuation rows are
+// indented to it, so wrapped text can never begin where a label begins.
+const labelWidth = 14
+
+// maxCertificateRows caps each field the server supplies. Longer values end in
+// an ellipsis; the fingerprint, not these fields, identifies the certificate.
+const maxCertificateRows = 5
+
+// detailLines puts everything drift computed itself above the text taken from
+// the certificate. Subject, names and issuer are whatever the server chose to
+// write there, and a prompt that printed them first, wrapped to the left edge,
+// let a certificate draw its own "SHA-256:" row above the real one.
 func (m Model) detailLines() []string {
 	challenge := m.Challenge
-	names := append([]string(nil), challenge.DNSNames...)
-	names = append(names, challenge.IPAddresses...)
-	if len(names) == 0 {
-		names = []string{"(none)"}
-	}
+	width := min(72, max(labelWidth+6, m.Width-12))
 	problems := make([]string, len(challenge.Problems))
 	for i, problem := range challenge.Problems {
 		problems[i] = problemLabel(problem)
 	}
-	lines := []string{
-		"Server:       " + challenge.Endpoint.Address(),
-		"Problems:     " + strings.Join(problems, ", "),
-		"Subject:      " + emptyFallback(challenge.Subject),
-		"DNS/IP names: " + strings.Join(names, ", "),
-		"Issuer:       " + emptyFallback(challenge.Issuer),
-		"Valid from:   " + challenge.NotBefore.UTC().Format("2006-01-02 15:04 MST"),
-		"Valid until:  " + challenge.NotAfter.UTC().Format("2006-01-02 15:04 MST"),
-		"SHA-256:      " + challenge.Fingerprint,
+	valueWidth := width - labelWidth
+	var lines []string
+	add := func(label string, rows []string) {
+		lines = append(lines, labelled(label, rows)...)
 	}
+	add("Server:", wrapValue(challenge.Endpoint.Address(), valueWidth, 0))
+	add("Problems:", wrapValue(strings.Join(problems, ", "), valueWidth, 0))
+	add("SHA-256:", fingerprintRows(challenge.Fingerprint, valueWidth))
 	if challenge.PreviousSHA256 != "" {
-		lines = append(lines, "Previous:     "+challenge.PreviousSHA256)
+		add("Previous:", fingerprintRows(challenge.PreviousSHA256, valueWidth))
 	}
-	lines = append(lines, "",
+	add("Valid from:", []string{challenge.NotBefore.UTC().Format("2006-01-02 15:04 MST")})
+	add("Valid until:", []string{challenge.NotAfter.UTC().Format("2006-01-02 15:04 MST")})
+	lines = append(lines, "")
+	lines = append(lines, wrapLines([]string{
 		"Verify this fingerprint through a trusted channel.",
-		"Encryption alone does not confirm the server's identity.")
-	return wrapLines(lines, min(72, max(20, m.Width-12)))
+		"Encryption alone does not confirm the server's identity.",
+	}, width)...)
+
+	names := append([]string(nil), challenge.DNSNames...)
+	names = append(names, challenge.IPAddresses...)
+	for i, name := range names {
+		names[i] = certificateText(name)
+	}
+	if len(names) == 0 {
+		names = []string{"(none)"}
+	}
+	lines = append(lines, "", styles.Muted.Render("Supplied by the server:"))
+	add("Subject:", wrapValue(emptyFallback(certificateText(challenge.Subject)), valueWidth, maxCertificateRows))
+	add("DNS/IP names:", wrapValue(strings.Join(names, ", "), valueWidth, maxCertificateRows))
+	add("Issuer:", wrapValue(emptyFallback(certificateText(challenge.Issuer)), valueWidth, maxCertificateRows))
+	return lines
+}
+
+// labelled puts label before the first row and indents the others.
+func labelled(label string, rows []string) []string {
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		if i == 0 {
+			out[i] = label + strings.Repeat(" ", max(1, labelWidth-len(label))) + row
+		} else {
+			out[i] = strings.Repeat(" ", labelWidth) + row
+		}
+	}
+	return out
+}
+
+// wrapValue breaks value into rows of at most width cells. maxRows of 0 means
+// no limit; a longer value ends in an ellipsis.
+func wrapValue(value string, width, maxRows int) []string {
+	rows := strings.Split(ansi.Hardwrap(value, width, false), "\n")
+	if maxRows > 0 && len(rows) > maxRows {
+		rows = rows[:maxRows]
+		rows[maxRows-1] = ansi.Truncate(rows[maxRows-1], width-1, "") + "…"
+	}
+	return rows
+}
+
+// fingerprintRows breaks a colon-separated fingerprint between bytes, so the
+// rows can be compared pair by pair. A trailing colon marks a row that continues.
+func fingerprintRows(fingerprint string, width int) []string {
+	pairs := strings.Split(fingerprint, ":")
+	perRow := max(1, width/3)
+	var rows []string
+	for len(pairs) > perRow {
+		rows = append(rows, strings.Join(pairs[:perRow], ":")+":")
+		pairs = pairs[perRow:]
+	}
+	return append(rows, strings.Join(pairs, ":"))
+}
+
+// certificateText prepares a string from the certificate for display: runs of
+// whitespace collapse to one space, and control and bidirectional characters
+// are shown escaped.
+func certificateText(value string) string {
+	return styles.SafeText(strings.Join(strings.Fields(value), " "))
 }
 
 func (m Model) button(label string, decision Decision) string {

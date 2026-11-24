@@ -135,7 +135,9 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 `internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks.
 
 Gitignore classification goes through `fs.Classifier`, which batches paths through
-`git check-ignore`. Hidden state affects browser visibility only. Gitignored paths
+`git check-ignore`. The project directory is untrusted input for Git: every call goes
+through `classifierGitCommand`, which disables `core.fsmonitor` and bare-repository
+discovery. Do not start Git in the project any other way. Hidden state affects browser visibility only. Gitignored paths
 are excluded symmetrically from recursive comparisons unless the user includes
 ignored paths for that operation; directly selected ignored files are exceptions.
 Hard exclusions can never be overridden. Staging files from interrupted transfers (`fs.StagingName`, recognized by `fs.IsStagingName`) are hard exclusions too; every upload and download names its staging file through `fs.StagingName`. Remote paths must be mapped locally before

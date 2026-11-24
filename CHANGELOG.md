@@ -11,6 +11,15 @@ All notable changes to this project will be documented in this file.
   to install
 - a Homebrew cask: `brew install warikoda/tap/drift`
 
+### Fixed
+
+- security: Git no longer starts a program named in the project's own configuration.
+  `git check-ignore` ran the command in `core.fsmonitor`, and Git accepted a project
+  without `.git` as a repository once it held `HEAD`, `objects/`, `refs/` and `config`.
+  A remote host could supply those four entries, so syncing them ran its command on
+  the next comparison. drift now disables `core.fsmonitor` for its Git calls and treats
+  such a directory as a project without a repository
+
 ### Removed
 
 - the paused Rust desktop port, its CI jobs, Makefile targets, design documents and

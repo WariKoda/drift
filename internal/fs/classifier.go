@@ -79,17 +79,31 @@ func NewClassifier(ctx context.Context, projectRoot string) (*Classifier, error)
 	return classifier, nil
 }
 
+// classifierGitCommand runs Git against a project directory whose contents are
+// untrusted: they may come from a remote host or an unpacked archive. Git would
+// start the program named in the repository's core.fsmonitor when it loads the
+// index, and it accepts any directory holding HEAD, objects/ and refs/ as a
+// repository, which a download can create. Settings given on the command line
+// override the repository's own.
 func classifierGitCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	protected := []string{"-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"}
+	cmd := exec.CommandContext(ctx, "git", append(protected, args...)...)
 	// Repository detection parses Git diagnostics, which must not be translated.
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	return cmd
 }
 
+// isNotRepository also covers a bare repository layout that Git found by
+// walking up from the project and refused under safe.bareRepository=explicit.
+// Such a project is classified like any directory without a repository.
 func isNotRepository(err error) bool {
 	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr) && exitErr.ExitCode() == 128 &&
-		strings.Contains(strings.ToLower(string(exitErr.Stderr)), "not a git repository")
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 128 {
+		return false
+	}
+	message := strings.ToLower(string(exitErr.Stderr))
+	return strings.Contains(message, "not a git repository") ||
+		strings.Contains(message, "cannot use bare repository")
 }
 
 // ClassifyBatch evaluates candidates with one Git process for all cache misses.

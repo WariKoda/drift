@@ -8,6 +8,7 @@ import (
 	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/log"
 	"github.com/WariKoda/drift/internal/progress"
+	"github.com/WariKoda/drift/internal/ssh"
 	"github.com/WariKoda/drift/internal/tlstrust"
 	"github.com/WariKoda/drift/internal/tui/certtrust"
 	"github.com/WariKoda/drift/internal/tui/diffview"
@@ -24,10 +25,29 @@ const (
 	trustOperationRemoteEdit
 )
 
+// pendingTrustOperation is the operation a trust prompt interrupted. Exactly
+// one of the two challenges is set: challenge for an FTPS certificate, hostKey
+// for an SSH host key.
 type pendingTrustOperation struct {
 	kind      trustOperationKind
 	host      config.Host
 	challenge tlstrust.Challenge
+	hostKey   *ssh.HostKeyChallenge
+}
+
+// required pins an FTPS retry to the certificate the prompt showed. SFTP needs
+// no pin: the approved key is the only one the next connection accepts.
+func (p *pendingTrustOperation) required() *tlstrust.Challenge {
+	if p.hostKey != nil {
+		return nil
+	}
+	return &p.challenge
+}
+
+// openTrustPrompt opens the prompt that fits a failed connection, if the
+// failure is one the user can approve.
+func (a *App) openTrustPrompt(kind trustOperationKind, host config.Host, err error) bool {
+	return a.openCertificatePrompt(kind, host, err) || a.openHostKeyPrompt(kind, host, err)
 }
 
 type msgTrustSaved struct {
@@ -45,7 +65,7 @@ func certificateChallenge(err error) (tlstrust.Challenge, bool) {
 }
 
 func (a *App) openCertificatePrompt(kind trustOperationKind, host config.Host, err error) bool {
-	if a.certPrompt != nil {
+	if a.certPrompt != nil || a.hostKeyPrompt != nil {
 		return false
 	}
 	challenge, ok := certificateChallenge(err)
@@ -79,13 +99,13 @@ func (a *App) handleCertificateDecision(msg certtrust.MsgDecision) (tea.Model, t
 	pending := a.pendingTrust
 	if pending == nil || pending.challenge.Fingerprint != msg.Challenge.Fingerprint ||
 		pending.challenge.Endpoint != msg.Challenge.Endpoint || !slices.Equal(pending.challenge.Problems, msg.Challenge.Problems) {
-		a.closeCertificatePrompt()
+		a.closeTrustPrompt()
 		return *a, nil
 	}
 	switch msg.Decision {
 	case certtrust.Reject:
 		log.Info("FTPS certificate rejected", "host", pending.host.Name, "endpoint", msg.Challenge.Endpoint.Address(), "fingerprint", msg.Challenge.Fingerprint)
-		a.closeCertificatePrompt()
+		a.closeTrustPrompt()
 		a.globalError = "FTPS certificate was not trusted"
 		return *a, nil
 	case certtrust.TrustSession:
@@ -123,23 +143,23 @@ func (a *App) handleTrustSaved(msg msgTrustSaved) (tea.Model, tea.Cmd) {
 func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 	pending := a.pendingTrust
 	if pending == nil {
-		a.closeCertificatePrompt()
+		a.closeTrustPrompt()
 		return *a, nil
 	}
-	a.closeCertificatePrompt()
+	a.closeTrustPrompt()
 	switch pending.kind {
 	case trustOperationHostTest:
 		if a.state.Screen != ScreenHostManager {
 			return *a, nil
 		}
-		cmd := a.hostManager.RetryTest(pending.host, pending.challenge)
+		cmd := a.hostManager.RetryTest(pending.host, pending.required())
 		_, tracker, _ := a.hostManager.Testing()
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityHostTest, "Testing "+pending.host.Name+"…", tracker))
 	case trustOperationRemoteBrowse:
 		if a.state.Screen != ScreenBrowser {
 			return *a, nil
 		}
-		cmd := a.browser.RetryRemote(pending.host, pending.challenge)
+		cmd := a.browser.RetryRemote(pending.host, pending.required())
 		_, tracker, _ := a.browser.LoadingActivity()
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Connecting to "+pending.host.Name+"…", tracker))
 	case trustOperationDiffLoad:
@@ -152,18 +172,18 @@ func (a *App) retryTrustedOperation() (tea.Model, tea.Cmd) {
 		if view != nil {
 			a.pendingDiffView, a.pendingDiffViewID = view, requestID
 		}
-		cmd := diffview.LoadCmd(requestID, a.loadRequest(pending.host, nil, &pending.challenge), tracker)
+		cmd := diffview.LoadCmd(requestID, a.loadRequest(pending.host, nil, pending.required()), tracker)
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityDiffLoad, "Loading diffs…", tracker))
 	case trustOperationRemoteEdit:
 		if a.state.Screen != ScreenRemoteEditor {
 			return *a, nil
 		}
-		cmd := a.remoteEditor.RetryConnection(pending.challenge)
+		cmd := a.remoteEditor.RetryConnection(pending.required())
 		label, tracker, _ := a.remoteEditor.LoadingActivity()
 		a.watchConnection(nil)
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteEdit, label, tracker))
 	case trustOperationNoRetry:
-		cmd := a.browser.RetryRemote(pending.host, pending.challenge)
+		cmd := a.browser.RetryRemote(pending.host, pending.required())
 		_, tracker, _ := a.browser.LoadingActivity()
 		a.globalError = "Certificate trusted. Review the diff again before retrying the transfer."
 		return *a, tea.Batch(cmd, a.startNetworkActivity(activityRemoteLoad, "Reconnecting to "+pending.host.Name+"…", tracker))
@@ -190,8 +210,9 @@ func (a *App) closeConnectionsFor(host config.Host) tea.Cmd {
 	return nil
 }
 
-func (a *App) closeCertificatePrompt() {
+func (a *App) closeTrustPrompt() {
 	a.certPrompt = nil
+	a.hostKeyPrompt = nil
 	a.pendingTrust = nil
 	a.trustSaving = false
 }

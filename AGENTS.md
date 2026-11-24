@@ -17,6 +17,7 @@ The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes me
 | `projectselector`   | Modal: switch project from the browser (`P`)          |
 | `browser`           | File browser (entry point)                            |
 | `certtrust`         | Modal: inspect and trust an FTPS certificate          |
+| `hostkeytrust`      | Modal: trust the key of an unknown SSH host           |
 | `hostselector`      | Modal: pick the sync or remote-pane host (`s`, `@`)   |
 | `hostmanager`       | CRUD list of hosts                                    |
 | `hostform`          | Create / edit a host (includes mapping sub-screen)    |
@@ -84,6 +85,8 @@ Remote clients own their keep-alive monitors. `Host.KeepAliveInterval` is option
 
 FTPS verification and endpoint-scoped exceptions live in `internal/tlstrust`. The root `App` owns the session trust manager. Persistent exceptions live in `<config.Dir()>/trusted-certificates.toml`; `insecure_tls` is not a supported host field. TLS callbacks never block for UI input. They return a typed `tlstrust.VerificationError`, and the root model opens the `certtrust` modal after the async command exits. In that modal, rows drift computed come before text from the certificate, and certificate text is escaped, capped and indented so it can never start a row.
 
+SSH host keys follow the same pattern in `internal/ssh`. The host key callback never writes and never waits for input: for a host that neither `~/.ssh/known_hosts` nor the session lists it returns a typed `ssh.UnknownHostKeyError`, before authentication, and the root model opens the `hostkeytrust` modal. Approval stores the key with `ssh.SaveHostKey` or in `Manager.HostKeys()`; the retry then accepts only that key, so SFTP needs no `requiredChallenge`. A changed key of a known host stays a plain error without a prompt. Root-model code opens either prompt through `App.openTrustPrompt`. Tests that need an SSH host use `internal/sshtest`.
+
 `diff.Compare` currently treats FTP status `550` as missing, although some servers also use it for permission failures. Do not describe every FTP `550` as a confirmed NotFound result. Changes to this classification need protocol-specific evidence and tests.
 
 Path translation between local and remote is handled by `internal/pathmap`. When effective host-level or project-level fallback mappings are configured, only files within those mappings may be synced. Paths otherwise fall back to `host.RootPath`-relative translation.
@@ -104,7 +107,8 @@ Path translation between local and remote is handled by `internal/pathmap`. When
 config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings); Server set = link
 config.LinkTarget   // a global server or another project's host a project host can link
 config.Mapping      // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
-tlstrust.Manager    // session + persistent FTPS certificate trust; owned by tui.App
+tlstrust.Manager    // session + persistent FTPS certificate trust, plus the session's SSH host keys; owned by tui.App
+ssh.HostKeyChallenge // {Address, Key} of an SSH host that known_hosts does not list
 fs.Root             // project-confined local Open, Stat, ReadFile, Remove, WriteAtomic
 remote.Client       // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, WalkFilesWithActivity, DeleteFile, Done, Err, Close
 diff.Session        // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}

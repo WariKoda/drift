@@ -83,6 +83,7 @@ func (a App) applyPreparedProject(msg msgProjectPrepared) (tea.Model, tea.Cmd) {
 	closeBrowser := tea.Batch(a.browser.CloseRemote(), a.browser.ReleaseImages())
 	closeDiff := a.diffView.Close()
 	a.certPrompt = nil
+	a.hostKeyPrompt = nil
 	a.pendingTrust = nil
 	a.trustSaving = false
 	a.trustWriteSeq++

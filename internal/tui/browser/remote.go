@@ -49,10 +49,11 @@ func (m *Model) StartRemote(host config.Host) tea.Cmd {
 	return m.startRemote(host, nil)
 }
 
-// RetryRemote repeats a failed load while pinning the certificate shown in the
-// trust prompt for the first reconnect.
-func (m *Model) RetryRemote(host config.Host, challenge tlstrust.Challenge) tea.Cmd {
-	return m.startRemote(host, &challenge)
+// RetryRemote repeats a failed load after a trust prompt. required pins the
+// first reconnect to the FTPS certificate the prompt showed; it is nil after an
+// SSH host key prompt.
+func (m *Model) RetryRemote(host config.Host, required *tlstrust.Challenge) tea.Cmd {
+	return m.startRemote(host, required)
 }
 
 func (m *Model) startRemote(host config.Host, required *tlstrust.Challenge) tea.Cmd {

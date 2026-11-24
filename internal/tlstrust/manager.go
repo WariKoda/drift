@@ -6,18 +6,31 @@ import (
 	"time"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/ssh"
 )
 
 // Manager owns trust granted for the current process and composes it with the
-// persistent trust store for each new connection.
+// persistent trust store for each new connection. It also carries the SSH host
+// keys approved for this process, so every connection path that receives the
+// manager has them without a second parameter.
 type Manager struct {
-	mu      sync.RWMutex
-	session map[string]Trust
+	mu       sync.RWMutex
+	session  map[string]Trust
+	hostKeys *ssh.SessionHostKeys
 }
 
 // NewManager creates an empty session trust manager.
 func NewManager() *Manager {
-	return &Manager{session: make(map[string]Trust)}
+	return &Manager{session: make(map[string]Trust), hostKeys: ssh.NewSessionHostKeys()}
+}
+
+// HostKeys returns the SSH host keys approved for this process. A nil manager
+// has none, so unknown hosts are rejected.
+func (m *Manager) HostKeys() *ssh.SessionHostKeys {
+	if m == nil {
+		return nil
+	}
+	return m.hostKeys
 }
 
 // Policy reloads persistent trust and returns an immutable handshake snapshot.

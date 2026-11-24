@@ -263,6 +263,9 @@ func (c *Client) ReadDir(remotePath string) (entries []*fs.FileEntry, err error)
 		if item.Name == "." || item.Name == ".." {
 			continue
 		}
+		if err := fs.CheckEntryName(item.Name); err != nil {
+			return nil, fmt.Errorf("list %s: %w", remotePath, err)
+		}
 		kind := fs.EntryFile
 		mode := os.FileMode(0o644)
 		switch item.Type {
@@ -585,6 +588,10 @@ func (c *Client) walkDirLevel(dir string, classifyRoot bool, handleFile func(str
 	for _, e := range entries {
 		if e.Name == "." || e.Name == ".." {
 			continue
+		}
+		if err := fs.CheckEntryName(e.Name); err != nil {
+			recordErr(fmt.Errorf("list %s: %w", dir, err))
+			return nil
 		}
 		p := strings.TrimSuffix(dir, "/") + "/" + e.Name
 		switch e.Type {

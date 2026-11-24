@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - the fixed exclusions for `.git`, `.svn`, `.hg`, `node_modules`, `.idea` and `.vscode`
   ignore upper and lower case. On a case-insensitive filesystem, the default on macOS,
   a remote path through `.GIT` reached the real `.git` directory
+- a directory listing fails with an error when an entry name contains `/` or is `..`.
+  Such a name let a host add files from outside the compared folder to the comparison
 
 ## [0.2.1] - 2026-11-24
 

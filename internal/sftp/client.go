@@ -170,6 +170,9 @@ func (c *Client) ReadDir(remotePath string) ([]*fs.FileEntry, error) {
 
 	var dirs, files []*fs.FileEntry
 	for _, info := range infos {
+		if err := fs.CheckEntryName(info.Name()); err != nil {
+			return nil, fmt.Errorf("list %s: %w", remotePath, err)
+		}
 		kind := fs.EntryFile
 		switch {
 		case info.IsDir():
@@ -345,6 +348,7 @@ func (c *Client) WalkFiles(remoteRoot string, fn func(path string) error) error 
 // WalkFilesWithActivity reports every visited entry, including empty directories.
 func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error, activity func() error) error {
 	walker := c.sftp.Walk(remoteRoot)
+	root := true
 	for walker.Step() {
 		if activity != nil {
 			if err := activity(); err != nil {
@@ -354,6 +358,16 @@ func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error,
 		if err := walker.Err(); err != nil {
 			return fmt.Errorf("walk %s: %w", walker.Path(), err)
 		}
+		// The library reduces a listed name to its last element, so a server
+		// that sends "x/.." yields the entry "..", and the walker would join
+		// it and climb out of remoteRoot. Only the first step is the root
+		// itself; every later one carries a name from a listing.
+		if !root {
+			if err := fs.CheckEntryName(walker.Stat().Name()); err != nil {
+				return fmt.Errorf("walk %s: %w", walker.Path(), err)
+			}
+		}
+		root = false
 		if walker.Stat().IsDir() {
 			if walker.Path() != remoteRoot && fs.ShouldSkipDir(path.Base(walker.Path())) {
 				walker.SkipDir()

@@ -4,9 +4,23 @@
 package fs
 
 import (
+	"fmt"
 	"io/fs"
+	"strings"
 	"time"
 )
+
+// CheckEntryName rejects a directory-listing name that is not one path
+// component. A remote host supplies these names, and they are joined onto the
+// listed directory: "..", or a name with a slash, would make the result point
+// outside that directory, so a comparison of one folder could reach the rest
+// of the project.
+func CheckEntryName(name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\x00") {
+		return fmt.Errorf("listing contains the entry name %q, which is not a single path component", name)
+	}
+	return nil
+}
 
 // EntryKind classifies a filesystem entry.
 type EntryKind int

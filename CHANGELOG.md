@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-24
+
+This release hardens drift against hostile servers and certificates; the entries
+under Fixed describe the cases.
+
 ### Changed
 
 - the certificate prompt shows the server, the problems and the SHA-256 fingerprint

@@ -139,6 +139,18 @@ func connect(ctx context.Context, host config.Host, policy tlstrust.Policy, inte
 	return c, nil
 }
 
+// checkPath rejects a path that would end the FTP command early. The control
+// connection is line-based and the library writes paths into it unchanged, so
+// everything after a line break would reach the server as a further command.
+// Local file names may contain line breaks, and remote paths are built from
+// them. Every method that takes a path calls this before it sends anything.
+func checkPath(remotePath string) error {
+	if strings.ContainsAny(remotePath, "\r\n\x00") {
+		return fmt.Errorf("remote path %q contains a control character that FTP cannot transmit", remotePath)
+	}
+	return nil
+}
+
 // Stat returns file info for a remote path.
 //
 // MLST is the only reliable way to tell a directory from a file here. SIZE
@@ -152,6 +164,9 @@ func connect(ctx context.Context, host config.Host, policy tlstrust.Policy, inte
 // command replaces SIZE plus MDTM, and its timestamps have second precision.
 // Servers without MLST fall back to SIZE and keep that ambiguity.
 func (c *Client) Stat(remotePath string) (info os.FileInfo, err error) {
+	if err = checkPath(remotePath); err != nil {
+		return nil, err
+	}
 	if err = c.beginOperation(); err != nil {
 		return nil, err
 	}
@@ -230,6 +245,9 @@ func (c *Client) classifyMissing(remotePath string, cause error) error {
 // ReadDir reads one remote directory level.
 // Directories are returned before files; both groups sorted alphabetically.
 func (c *Client) ReadDir(remotePath string) (entries []*fs.FileEntry, err error) {
+	if err = checkPath(remotePath); err != nil {
+		return nil, err
+	}
 	if err = c.beginOperation(); err != nil {
 		return nil, err
 	}
@@ -277,6 +295,9 @@ func (c *Client) ReadDir(remotePath string) (entries []*fs.FileEntry, err error)
 
 // Open opens a remote file for streaming reads.
 func (c *Client) Open(remotePath string) (io.ReadCloser, error) {
+	if err := checkPath(remotePath); err != nil {
+		return nil, err
+	}
 	if err := c.beginOperation(); err != nil {
 		return nil, err
 	}
@@ -309,6 +330,9 @@ func (c *Client) ReadFile(remotePath string) ([]byte, error) {
 // parent directories as needed. The existing target is replaced only after the
 // staged upload has completed successfully.
 func (c *Client) Upload(remotePath string, src io.Reader) (err error) {
+	if err = checkPath(remotePath); err != nil {
+		return err
+	}
 	if err = c.beginOperation(); err != nil {
 		return err
 	}
@@ -349,6 +373,9 @@ func (c *Client) WalkFiles(remoteRoot string, fn func(string) error) error {
 
 // WalkFilesWithActivity reports completed listings, even for empty directories.
 func (c *Client) WalkFilesWithActivity(remoteRoot string, fn func(string) error, activity func() error) error {
+	if err := checkPath(remoteRoot); err != nil {
+		return err
+	}
 	if err := c.connectionError(); err != nil {
 		return err
 	}
@@ -535,6 +562,12 @@ func walkQueue(root string, listers []func(string) []string, stop func() bool) {
 // walkDirLevel lists one directory: files go to handleFile, subdirectories are
 // returned for the caller to schedule.
 func (c *Client) walkDirLevel(dir string, classifyRoot bool, handleFile func(string), recordErr func(error)) []string {
+	// dir may hold a name from a server listing, where a lone carriage return
+	// survives the line-based parser.
+	if err := checkPath(dir); err != nil {
+		recordErr(err)
+		return nil
+	}
 	if err := c.beginOperation(); err != nil {
 		recordErr(err)
 		return nil
@@ -569,6 +602,9 @@ func (c *Client) walkDirLevel(dir string, classifyRoot bool, handleFile func(str
 
 // DeleteFile removes a file on the remote host.
 func (c *Client) DeleteFile(remotePath string) (err error) {
+	if err = checkPath(remotePath); err != nil {
+		return err
+	}
 	if err = c.beginOperation(); err != nil {
 		return err
 	}

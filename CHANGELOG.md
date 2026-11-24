@@ -19,6 +19,10 @@ All notable changes to this project will be documented in this file.
   A remote host could supply those four entries, so syncing them ran its command on
   the next comparison. drift now disables `core.fsmonitor` for its Git calls and treats
   such a directory as a project without a repository
+- security: FTP and FTPS reject a path that contains a line break and show the file as
+  a failed comparison. The rest of the name used to reach the server as a separate FTP
+  command, so a hostile directory name in the project could delete or rename remote
+  files during a comparison, before any sync was confirmed
 
 ### Removed
 

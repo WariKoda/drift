@@ -24,7 +24,7 @@ def run(*args, **kwargs):
 
 
 def main():
-    for tool in ("go", "git", "docker", "tmux", "chromium", "ffmpeg", "ffprobe"):
+    for tool in ("go", "git", "docker", "tmux", "chromium", "ffmpeg", "ffprobe", "ssh-keyscan"):
         if not shutil.which(tool):
             raise SystemExit(f"Missing dependency: {tool}")
     run("docker", "image", "inspect", "atmoz/sftp:alpine")
@@ -59,6 +59,14 @@ def main():
                        TERM="xterm-256color", COLORTERM="truecolor",
                        DRIFT_THEME="omarchy", DRIFT_THEME_FILE=str(KIT / "theme.toml"))
             time.sleep(2)
+            # drift asks before it trusts an unknown SSH host key. The video shows
+            # a host that is already known, so the container's key goes into the
+            # isolated known_hosts first.
+            known_hosts = home / ".ssh/known_hosts"
+            known_hosts.parent.mkdir(mode=0o700, exist_ok=True)
+            known_hosts.write_text(run("ssh-keyscan", "-p", port, "127.0.0.1"))
+            if not known_hosts.read_text().strip():
+                raise SystemExit("Could not read the container's SSH host key")
             run(*tmux, "-f", "/dev/null", "new-session", "-d", "-s", "demo",
                 "-x", str(COLS), "-y", str(ROWS), "-c", str(project),
                 str(binary), "--no-dashboard", env=env)

@@ -260,7 +260,7 @@ func lexicalClass(projectRoot string, candidate ClassifyCandidate) (PathClass, e
 	for i, part := range parts {
 		terminalDirectory := i == len(parts)-1 && candidate.IsDir
 		ancestorDirectory := i < len(parts)-1
-		metadataFile := part == ".git" || part == ".svn" || part == ".hg"
+		metadataFile := matchesFold(metadataNames, part)
 		if ShouldSkipDir(part) && (terminalDirectory || ancestorDirectory || metadataFile) {
 			class.HardExcluded = true
 			class.Reason = part

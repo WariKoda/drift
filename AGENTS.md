@@ -132,7 +132,7 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 
 ## File walker exclusions
 
-`internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks.
+`internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks. The names match without regard to case, because `.GIT` opens `.git` on a case-insensitive filesystem; compare excluded names through `fs.ShouldSkipDir`, never with `==`.
 
 Gitignore classification goes through `fs.Classifier`, which batches paths through
 `git check-ignore`. The project directory is untrusted input for Git: every call goes

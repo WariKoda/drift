@@ -31,6 +31,16 @@ func TestClassifierSeparatesHiddenIgnoredAndHardExcluded(t *testing.T) {
 		{".git/config", false, true, false, true},
 		{"node_modules/a.js", false, false, false, true},
 		{"node_modules", false, false, false, false},
+		// On a case-insensitive filesystem these open the excluded entries.
+		{".GIT/config", false, true, false, true},
+		{"packages/x/.Git/hooks/pre-commit", false, true, false, true},
+		{".Git", false, true, false, true},
+		{".VSCODE/tasks.json", false, true, false, true},
+		{"Node_Modules/a.js", false, false, false, true},
+		// U+017F folds to "s", as it does on APFS.
+		{".vſcode/tasks.json", false, true, false, true},
+		{".gitignore", false, true, false, false},
+		{".github/workflows/ci.yml", false, true, false, false},
 		// An interrupted transfer leaves its staging file behind; it must never
 		// become a sync or delete candidate on either side.
 		{"assets/.big.bin.drift-tmp-ed75fbcd7e7466c701845a0190e6ae09", false, true, false, true},

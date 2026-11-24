@@ -25,7 +25,8 @@ toggle them independently; they do not change the sync scope.
 - Selecting an ignored file directly includes that file. Selecting an ignored
   directory does not include its contents.
 - `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, and `.vscode` directories are
-  always excluded, even when ignored files are included. Symlinks and paths outside
+  always excluded, even when ignored files are included, and in any mix of upper and
+  lower case. Symlinks and paths outside
   the project or active mappings keep their safety checks.
 
 drift reads the ignore rules through `git check-ignore`, so nested rules, tracked

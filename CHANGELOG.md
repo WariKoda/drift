@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- the fixed exclusions for `.git`, `.svn`, `.hg`, `node_modules`, `.idea` and `.vscode`
+  ignore upper and lower case. On a case-insensitive filesystem, the default on macOS,
+  a remote path through `.GIT` reached the real `.git` directory
+
 ## [0.2.1] - 2026-11-24
 
 This release fixes two security issues, listed under Fixed. Updating is recommended

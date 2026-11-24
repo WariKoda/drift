@@ -5,21 +5,34 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // skipDirs contains directory names that are never synced.
-var skipDirs = map[string]bool{
-	".git":         true,
-	".svn":         true,
-	".hg":          true,
-	"node_modules": true,
-	".idea":        true,
-	".vscode":      true,
-}
+var skipDirs = []string{".git", ".svn", ".hg", "node_modules", ".idea", ".vscode"}
+
+// metadataNames are the entries of skipDirs that are excluded as files too. A
+// linked worktree or a submodule has a .git file instead of a directory.
+var metadataNames = []string{".git", ".svn", ".hg"}
 
 // ShouldSkipDir reports whether name is a directory that drift should never sync.
+//
+// The comparison ignores case. On a case-insensitive filesystem, the default on
+// macOS, ".GIT" opens the same directory as ".git", so a remote host could
+// otherwise name a path that passes this check and still lands in the excluded
+// directory. Whether the volume folds case is not known here, and a remote
+// listing comes from another system anyway, so the rule is the same everywhere.
 func ShouldSkipDir(name string) bool {
-	return skipDirs[name]
+	return matchesFold(skipDirs, name)
+}
+
+func matchesFold(names []string, name string) bool {
+	for _, candidate := range names {
+		if strings.EqualFold(candidate, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // WalkFiles calls fn for every regular file under root, recursively, in lexical

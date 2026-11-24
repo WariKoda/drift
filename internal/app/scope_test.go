@@ -105,6 +105,34 @@ func TestLoadScopeSkipsInterruptedStagingFiles(t *testing.T) {
 	}
 }
 
+// A remote host can spell an excluded directory in another case. On a
+// case-insensitive filesystem that path opens the real directory.
+func TestLoadScopeSkipsExcludedDirectoryInAnotherCase(t *testing.T) {
+	root := t.TempDir()
+	writeScopeFile(t, filepath.Join(root, "packages", "x", ".git", "config"), "[core]\n")
+	writeScopeFile(t, filepath.Join(root, "packages", "x", "readme.txt"), "local")
+
+	server := ftptest.Start(t, maxFTPDiffLoadWorkers)
+	server.AddFile("/packages/x/.GIT/config", "[core]\n\tfsmonitor = id\n")
+	server.AddFile("/packages/x/.Vscode/tasks.json", "{}")
+	server.AddFile("/packages/x/readme.txt", "remote")
+	host := server.Host(t)
+	conn := connectTestHost(t, host)
+	selection := fs.NewSelectionState()
+	selection.Marked[filepath.Join(root, "packages")] = struct{}{}
+	tracker := progress.NewTracker("Connecting…")
+	loaded, err := Load(tracker.Context(), LoadRequest{Host: host, Config: &config.MergedConfig{ProjectRoot: root},
+		Local: selection, Conn: conn, Options: syncpolicy.ScopeOptions{IncludeIgnored: true}, IdleTimeout: 5 * time.Second}, tracker)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	defer loaded.Conn.Close()
+	defer loaded.Root.Close()
+	if len(loaded.Sessions) != 1 || loaded.Sessions[0].RemotePath != "/packages/x/readme.txt" {
+		t.Fatalf("sessions = %+v, want only the regular file", loaded.Sessions)
+	}
+}
+
 func writeScopeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

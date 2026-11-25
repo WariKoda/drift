@@ -1,122 +1,113 @@
-# AGENTS.md — drift-tui
+# AGENTS.md — drift
 
 Guidelines for AI agents working on this codebase.
 
 ## Project overview
 
-drift is a standalone terminal TUI (Go + Bubble Tea) for browsing, diffing, and syncing local files with remote hosts over SFTP, FTP, or FTPS. It is inspired by PHPStorm's "Browse Remote Host" / "Sync with Deployed To" workflow.
+drift is a standalone terminal TUI (Go 1.25+ + Bubble Tea, Linux and macOS) for browsing, diffing, and syncing local files with remote hosts over SFTP, FTP, or FTPS. It is inspired by PHPStorm's "Browse Remote Host" / "Sync with Deployed To" workflow.
 
 ## Architecture
 
-The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes messages to one active screen at a time. Screens are Go packages under `internal/tui/`:
+### Screens & root model
 
-| Package             | Screen                                                |
-| ------------------- | ----------------------------------------------------- |
-| `dashboard`         | Project dashboard (optional landing screen)           |
-| `projectform`       | Create / edit a project                               |
-| `projectselector`   | Modal: switch project from the browser (`P`)          |
-| `browser`           | File browser (entry point)                            |
-| `certtrust`         | Modal: inspect and trust an FTPS certificate          |
-| `hostkeytrust`      | Modal: trust the key of an unknown SSH host           |
-| `hostselector`      | Modal: pick the sync or remote-pane host (`s`, `@`)   |
-| `hostmanager`       | CRUD list of hosts                                    |
-| `hostform`          | Create / edit a host (includes mapping sub-screen)    |
-| `diffview`          | File list + unified or split diff + sync              |
-| `remoteeditor`      | External-editor session + upload confirmation         |
+The app is a single Bubble Tea root model (`internal/tui/app.go`) that routes messages to one active screen at a time. Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model owns all screen models and handles cross-screen messages.
 
-The `textfield` package holds the shared single-line input widget used by `hostform`
-and `projectform`. The dashboard draws the logo from `internal/logo`; the SVG and PNG
-versions live in `.github/assets/logo/`. The project registry (slug, name, path, timestamps) lives in
-`internal/project` and is persisted to `~/.config/drift/projects.toml`; per-project hosts
-stay in `<config.Dir()>/projects/<slug>.toml`. Selecting a project on the dashboard or in
-the project switcher (`P`) re-roots the app via `App.openProject`
-(`config.Load(path, slug)` + `browser.New(path)`). `P` opens the switcher as a modal and leaves the browser session
-intact until a different project is chosen.
+Screens are Go packages under `internal/tui/`:
 
-Screen transitions happen via typed messages (e.g. `browser.MsgSyncRequested`, `hostselector.MsgHostChosen`). The root model (`app.go`) owns all screen models and handles cross-screen messages.
+| Package           | Screen                                                |
+| ----------------- | ----------------------------------------------------- |
+| `dashboard`       | Project dashboard (optional landing screen)           |
+| `projectform`     | Create / edit a project                               |
+| `projectselector` | Modal: switch project from the browser (`P`)          |
+| `browser`         | File browser (entry point)                            |
+| `certtrust`       | Modal: inspect and trust an FTPS certificate          |
+| `hostkeytrust`    | Modal: trust the key of an unknown SSH host           |
+| `hostselector`    | Modal: pick the sync or remote-pane host (`s`, `@`)   |
+| `hostmanager`     | CRUD list of hosts                                    |
+| `hostform`        | Create / edit a host (includes mapping sub-screen)    |
+| `diffview`        | File list + unified or split diff + sync              |
+| `remoteeditor`    | External-editor session + upload confirmation         |
 
-Remote editing uses `internal/remoteedit` for scope checks, private cache working
-copies, immutable upload snapshots, conflict checks and cleanup. The
-`internal/tui/remoteeditor` screen only runs the external process and routes typed
-results/decisions. It takes exclusive ownership of the existing browser connection
-and returns it on exit; reconnect/certificate approval only reads and never retries
-a write. Each session has its own `fs.Root` outside the project. Unconfirmed copies
-are retained on shutdown; cleanup uses an opened cache-parent root, not an
-unconfined recursive delete. `[editor]` is global user configuration only and must
-survive every configuration write. Never execute editor commands from project
-or host records.
+`ScreenRegisterPrompt` (`internal/tui/state.go`) is rendered directly by `app.go` to offer registering an unregistered Git repository.
 
-Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`), which returns them sorted as a directory tree for the grouped file list; every refresh and every completed sync rebuilds the comparison through it, keeping the scope options; executing uploads, downloads and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea: they return values and errors, and the screen wraps each call in a `tea.Cmd` that turns the result into its typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`); `internal/tui/loading` only draws the indicator. Do not add `remote.Connect`, path mapping or transfer loops to a screen package.
+Shared TUI helper packages under `internal/tui/`:
 
-`internal/architecture/architecture_test.go` enforces these import and call
-boundaries over production Go files. Browser connection/listing and host tests
-use `app.BrowseRemote` and `app.TestHost`, not direct screen connections.
+- `textfield`: single-line input widget used by `hostform` and `projectform`.
+- `loading`: progress indicator rendering (consumes `*progress.Tracker`).
+- `mouse`: wheel classification, scroll step, and double-click detection (`ClickTracker`).
+- `statusbar`: persistent bottom status bar rendering.
 
-Diff presentation is documented in `docs/diff-presentation.md`. Keep display rows,
-word/syntax spans and reading snapshots outside `DiffResult` and transfer state.
-The diffview caches one active row plan, plus one all-files plan in continuous
-mode; syntax tokens use a bounded single-entry, palette-independent cache. Word and
-syntax data is kept per result for at most `maxDecorations` files, computed by one
-request at a time. Decoration commands consume immutable comparison lines, never
-perform I/O, and reject stale request identities. In continuous mode the sync keys
-act on the active file: the one at the top after manual scrolling, or the one
-chosen with Tab, a file list click or a hunk jump. Global `[ui.diff]`
-preferences must survive every configuration write; they never change sync
-policy. Refresh restores reading state only, bound to the reload request.
+The dashboard draws the logo from `internal/logo` (SVG and PNG assets live in `.github/assets/logo/`). Selecting a project on the dashboard or in the project switcher (`P`) re-roots the app via `App.openProject` (`config.Load(path, slug)` + `browser.New(path)`). `P` opens the switcher as a modal and leaves the browser session intact until a different project is chosen.
 
-Terminal images use the Kitty graphics protocol with Unicode placeholders, or half
-blocks in other true-colour terminals (`internal/termimage`). Half blocks are text
-rows computed in `Output.Show` and never write to the terminal. `cmd` creates one `termimage.Output`, passes it to Bubble Tea
-with `tea.WithOutput` and to `tui.New`; image transmissions take its lock, so they
-never split a frame. Other sequences written outside `View`, such as the OSC 52
-clipboard copy, go through the same Output. Transmit only from a `tea.Cmd` (`Output.Show`), then render the
-placeholder rows from `termimage.Rows`; never put image data into `View`. Every
-placement is freed with `Output.Delete` when its screen moves on or closes, including
-placements that arrive stale. `internal/imagefile` recognizes, decodes and scales
-images from bytes the caller read; the diff view loads both sides through
-`app.LoadImagePair`. Detection is environment-based (`termimage.Detect` with the
-termenv colour profile, override `DRIFT_IMAGES`); there is no config key.
+CLI entry points live in `cmd/`: default `drift` (`--dashboard`, `--no-dashboard`, `--log`, `--debug`), `dash`, `open <name-or-slug>`, `projects` (`list`, `add`, `edit`, `remove`, `archive`), `image-test [image]`, and `version`.
 
-Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly. The FTP control connection is line-based, so every `internal/ftp` method that takes a path calls `checkPath` before it sends anything; a path with CR, LF or NUL is a per-file error. Names from a remote listing go through `fs.CheckEntryName` before they are joined onto the listed directory.
+### Application boundaries
 
-Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project (or the remote editor's separate private working directory) and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.
+Screens handle interaction and rendering only. Building diff sessions lives in `internal/app` (`app.Load`), which returns them sorted as a directory tree for the grouped file list; every refresh and every completed sync rebuilds the comparison through `app.Load`, keeping the scope options. Executing uploads, downloads, and deletes lives in `internal/sync` (`sync.Run`). Neither package imports Bubble Tea or `internal/tui`: they return values and errors, and screens wrap each call in a `tea.Cmd` that turns the result into a typed message. Progress and cancellation cross that boundary as `*progress.Tracker` (`internal/progress`). Do not add `remote.Connect`, path mapping, or transfer loops to a screen package.
 
-Remote clients own their keep-alive monitors. `Host.KeepAliveInterval` is optional: nil uses 60 seconds, `0` disables probes. `Done()` closes on normal shutdown or a terminal monitor failure; `Err()` reports only the latter. Keep monitors independent of the short-lived connect context. FTP probes share the operation lock and skip busy connections; SSH probes may run alongside SFTP transfers. Root-owned connection observers must handle failures before modal input routing and reject stale connection/project identities. Browser/diff close methods return commands: detach state in `Update`, run transport shutdown in the returned `tea.Cmd`. Never automatically retry a transfer after connection loss.
-
-FTPS verification and endpoint-scoped exceptions live in `internal/tlstrust`. The root `App` owns the session trust manager. Persistent exceptions live in `<config.Dir()>/trusted-certificates.toml`; `insecure_tls` is not a supported host field. TLS callbacks never block for UI input. They return a typed `tlstrust.VerificationError`, and the root model opens the `certtrust` modal after the async command exits. In that modal, rows drift computed come before text from the certificate, and certificate text is escaped, capped and indented so it can never start a row.
-
-SSH host keys follow the same pattern in `internal/ssh`. The host key callback never writes and never waits for input: for a host that neither `~/.ssh/known_hosts` nor the session lists it returns a typed `ssh.UnknownHostKeyError`, before authentication, and the root model opens the `hostkeytrust` modal. Approval stores the key with `ssh.SaveHostKey` or in `Manager.HostKeys()`; the retry then accepts only that key, so SFTP needs no `requiredChallenge`. A changed key of a known host stays a plain error without a prompt. Root-model code opens either prompt through `App.openTrustPrompt`. Tests that need an SSH host use `internal/sshtest`.
-
-`diff.Compare` currently treats FTP status `550` as missing, although some servers also use it for permission failures. Do not describe every FTP `550` as a confirmed NotFound result. Changes to this classification need protocol-specific evidence and tests.
+`internal/architecture/architecture_test.go` enforces these import and call boundaries over production Go files. Browser connection/listing, host tests, and diff image loading use `app.BrowseRemote`, `app.TestHost`, and `app.LoadImagePair`, not direct screen connections.
 
 Path translation between local and remote is handled by `internal/pathmap`. When effective host-level or project-level fallback mappings are configured, only files within those mappings may be synced. Paths otherwise fall back to `host.RootPath`-relative translation.
 
+### Connections, local roots & keep-alive
+
+Remote I/O goes through the `remote.Client` interface and connection factory (`internal/remote/client.go`). Two implementations exist: `internal/sftp` (SFTP/SSH) and `internal/ftp` (FTP or explicit-TLS FTPS). Use `remote.Connect(ctx, host, trustManager, requiredChallenge)` and pass the root-owned `tlstrust.Manager`; `requiredChallenge` is non-nil only for the first retry after a certificate prompt. Never instantiate protocol clients directly.
+
+The FTP control connection is line-based, so every `internal/ftp` method that takes a path calls `checkPath` before it sends anything; a path with CR, LF, or NUL is a per-file error. Names from a remote listing go through `fs.CheckEntryName` before they are joined onto the listed directory. Because FTP status `550` can also signal permission errors, `internal/ftp`'s `classifyMissing` verifies absence by listing the parent directory (walking up if the parent also returns `550`) and returns `os.ErrNotExist` only when a parent listing succeeds without the exact entry name; `diff.Compare` relies on `errors.Is(err, os.ErrNotExist)` rather than treating every `550` as missing.
+
+Remote clients never receive local paths. Local transfer and mutation operations go through an opened `fs.Root`, which confines them to the project (or the remote editor's separate private working directory) and rejects symlink escapes. Upload with `root.Open` plus `client.Upload`, download with `client.Open` plus `root.WriteAtomic`, and delete local files with `root.Remove`. `WriteAtomic` closes its source and replaces the target only after a complete write. The owner of a successful diff session keeps both the client and root open and closes them together; error paths close resources they created.
+
+Remote clients own their keep-alive monitors. `Host.KeepAliveInterval` is optional: `nil` uses 60 seconds, `0` disables probes. `Done()` closes on normal shutdown or a terminal monitor failure; `Err()` reports only the latter. Keep monitors independent of the short-lived connect context. FTP probes share the operation lock and skip busy connections; SSH probes may run alongside SFTP transfers. Root-owned connection observers must handle failures before modal input routing and reject stale connection/project identities. Browser/diff close methods return commands: detach state in `Update`, run transport shutdown in the returned `tea.Cmd`. Never automatically retry a transfer after connection loss.
+
+### Trust (FTPS certificates & SSH host keys)
+
+FTPS verification and endpoint-scoped exceptions live in `internal/tlstrust`. The root `App` owns the session trust manager. Persistent exceptions live in `<config.Dir()>/trusted-certificates.toml`; `insecure_tls` is not a supported host field. TLS callbacks never block for UI input. They return a typed `tlstrust.VerificationError`, and the root model opens the `certtrust` modal after the async command exits. In that modal, rows drift computed come before text from the certificate, and certificate text is escaped, capped, and indented so it can never start a row.
+
+SSH host keys follow the same pattern in `internal/ssh`. The host key callback never writes and never waits for input: for a host that neither `~/.ssh/known_hosts` nor the session lists it returns a typed `ssh.UnknownHostKeyError` before authentication, and the root model opens the `hostkeytrust` modal. Approval stores the key with `ssh.SaveHostKey` or in `Manager.HostKeys()`; the retry then accepts only that key, so SFTP needs no `requiredChallenge`. A changed key of a known host stays a plain error without a prompt. Root-model code opens either prompt through `App.openTrustPrompt`. Tests that need an SSH host use `internal/sshtest`.
+
+### Diff presentation
+
+Keep display rows, word/syntax spans, and reading snapshots outside `DiffResult` and transfer state. Decoration commands consume immutable comparison lines, never perform I/O, and reject stale request identities; syntax token caching is palette-independent. Global `[ui.diff]` preferences must survive every configuration write and never change sync policy. Refresh restores reading state only, bound to the reload request.
+
+Full layout, continuous-mode, caching, and navigation rules live in [`docs/diff-presentation.md`](docs/diff-presentation.md).
+
+### Terminal images
+
+`cmd` creates one `termimage.Output`, passes it to Bubble Tea with `tea.WithOutput` and to `tui.New`; image transmissions and other escape sequences written outside `View` (such as OSC 52 clipboard copy) take its lock so they never split a frame. Transmit images only from a `tea.Cmd` (`Output.Show`), then render placeholder or half-block rows from `termimage.Rows`; never put raw image data into `View`. Free every placement with `Output.Delete` when its screen moves on or closes, including stale arrivals. Detection is environment-based (`DRIFT_IMAGES`); there is no config key.
+
+Full protocol, decoding, and sizing rules live in [`docs/terminal-images.md`](docs/terminal-images.md).
+
+### Remote editing
+
+Remote editing uses `internal/remoteedit` for scope checks, private cache working copies under `<os.UserCacheDir()>/drift/remote-edit/`, immutable upload snapshots, conflict checks, and cleanup. The `internal/tui/remoteeditor` screen only runs the external process and routes typed results/decisions. It takes exclusive ownership of the existing browser connection and returns it on exit; reconnect/certificate approval only reads and never retries a write. Each session has its own `fs.Root` outside the project. Unconfirmed copies are retained on shutdown; cleanup uses an opened cache-parent `os.Root`, not an unconfined recursive delete. `[editor]` is global user configuration only and must survive every configuration write. Never execute editor commands from project or host records.
+
 ## Code conventions
 
-- **No mocks in tests** — use real connections or skip. `internal/ftptest` runs a real in-process FTP server for tests that need a remote host.
+- **Testing** — prefer real connections (`internal/ftptest`, `internal/sshtest`) or skip. Small hand-written stubs for narrow interfaces (like `diff.RemoteClient` in `internal/diff/engine_test.go`) are fine; do not introduce mock frameworks.
 - **No speculative abstractions** — add helpers only when used in 3+ places.
 - **No backwards-compat shims** — if something is unused, delete it.
 - **No error swallowing** — propagate errors to the TUI as typed messages (`MsgDiffError`, session `.Err` field, etc.). Also log connect/sync/diff failures via `internal/log` (see Logging) so they survive past the TUI session.
-- All async work runs in `tea.Cmd` goroutines. Never block `Update()`.
-- Styles live in `internal/styles/styles.go` and `internal/tui/styles.go`. Do not inline lipgloss styles in view code.
-- Config is TOML. Types live in `internal/config/config.go`. Persistence via `internal/config/writer.go`.
+- **Non-blocking `Update()`** — all async work runs in `tea.Cmd` goroutines.
+- **Escape untrusted text** — pass text from external or untrusted sources (file names, remote paths, host fields, error messages, certificate fields) through `styles.SafeText` (`internal/styles/text.go`) before rendering in views.
+- **Styles & themes** — semantic palette colors live in `internal/styles/theme.go` (`DRIFT_THEME` = `auto`/`ansi`/`omarchy`/`default`, `DRIFT_THEME_FILE`, Omarchy `colors.toml` lookup), shared styles in `internal/styles/styles.go`, key hints in `internal/styles/key_hints.go` (`KeyHints`/`FitKeyHints`), and root aliases in `internal/tui/styles.go`. Reuse semantic colors (`styles.Color*`) and shared styles; use inline `lipgloss.NewStyle()` in views only for one-off layout/width/border wrappers with palette colors, never hardcoded hex or ANSI colors.
+- **Config persistence** — config is TOML (`internal/config/config.go`, `internal/config/writer.go`). Wrap every config or registry write transaction in `config.WithWriteLock`.
 
 ## Key types
 
 ```go
-config.Host         // a remote target (name, hostname, port, auth, root_path, protocol, mappings); Server set = link
-config.LinkTarget   // a global server or another project's host a project host can link
-config.Mapping      // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
-tlstrust.Manager    // session + persistent FTPS certificate trust, plus the session's SSH host keys; owned by tui.App
+config.Host          // a remote target (name, hostname, port, auth, root_path, protocol, mappings); Server set = link
+config.LinkTarget    // a global server or another project's host a project host can link
+config.Mapping       // {Local, Remote} path pair — local relative to project root, remote relative to Host.RootPath
+tlstrust.Manager     // session + persistent FTPS certificate trust, plus the session's SSH host keys; owned by tui.App
 ssh.HostKeyChallenge // {Address, Key} of an SSH host that known_hosts does not list
-fs.Root             // project-confined local Open, Stat, ReadFile, Remove, WriteAtomic
-remote.Client       // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, WalkFilesWithActivity, DeleteFile, Done, Err, Close
-diff.Session        // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}
-diff.DiffResult     // comparison output; HasDiff() reports whether files differ
-app.LoadRequest     // host, selections, scope options, optional connection and trust for app.Load
-progress.Tracker    // progress counters plus the cancellation context of one operation
-sync.Item           // {LocalPath, RemotePath, Decision}; sync.Run executes a list of them
-diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
+fs.Root              // project-confined local Open, Stat, ReadFile, Remove, WriteAtomic
+remote.Client        // Stat, ReadDir, Open, ReadFile, Upload, WalkFiles, WalkFilesWithActivity, DeleteFile, Done, Err, Close
+diff.Session         // {LocalPath, RemotePath, Result *DiffResult, Err, Loaded}
+diff.DiffResult      // comparison output; HasDiff() reports whether files differ
+app.LoadRequest      // host, selections, scope options, optional connection and trust for app.Load
+progress.Tracker     // progress counters plus the cancellation context of one operation
+sync.Item            // {LocalPath, RemotePath, Decision}; sync.Run executes a list of them
+diffview.SyncDir     // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirDeleteRemote
 ```
 
 ## Adding a new screen
@@ -138,86 +129,53 @@ diffview.SyncDir    // DirNone / DirUpload / DirDownload / DirDeleteLocal / DirD
 
 `internal/fs/local.go` `WalkFiles` skips `.git`, `.svn`, `.hg`, `node_modules`, `.idea`, `.vscode`. Add entries to `skipDirs` for new exclusions — do not add flags or callbacks. The names match without regard to case, because `.GIT` opens `.git` on a case-insensitive filesystem; compare excluded names through `fs.ShouldSkipDir`, never with `==`.
 
-Gitignore classification goes through `fs.Classifier`, which batches paths through
-`git check-ignore`. The project directory is untrusted input for Git: every call goes
-through `classifierGitCommand`, which disables `core.fsmonitor` and bare-repository
-discovery. Do not start Git in the project any other way. Hidden state affects browser visibility only. Gitignored paths
-are excluded symmetrically from recursive comparisons unless the user includes
-ignored paths for that operation; directly selected ignored files are exceptions.
-Hard exclusions can never be overridden. Staging files from interrupted transfers (`fs.StagingName`, recognized by `fs.IsStagingName`) are hard exclusions too; every upload and download names its staging file through `fs.StagingName`. Remote paths must be mapped locally before
-classification so ignored remote-only files cannot become deletion candidates.
+Gitignore classification goes through `fs.Classifier`, which batches paths through `git check-ignore`. The project directory is untrusted input for Git: every call goes through `classifierGitCommand`, which disables `core.fsmonitor` and bare-repository discovery. Do not start Git in the project any other way. Hidden state affects browser visibility only. Gitignored paths are excluded symmetrically from recursive comparisons unless the user includes ignored paths for that operation; directly selected ignored files are exceptions. Hard exclusions can never be overridden. Staging files from interrupted transfers (`fs.StagingName`, recognized by `fs.IsStagingName`) are hard exclusions too; every upload and download names its staging file through `fs.StagingName`. Remote paths must be mapped locally before classification so ignored remote-only files cannot become deletion candidates.
 
-## Config locations
+## Configuration & state
 
-| Scope    | Path                                                                    |
-| -------- | ----------------------------------------------------------------------- |
-| Global   | `~/.config/drift/config.toml` (or `$XDG_CONFIG_HOME/drift/config.toml`) |
-| Project  | `~/.config/drift/projects/<slug>.toml` (hosts + mappings, mode 600)     |
-| Registry | `~/.config/drift/projects.toml` (project list; via `config.Dir()`)      |
-| FTPS trust | `~/.config/drift/trusted-certificates.toml` (mode 600)                |
+drift writes no files into a project's working tree (see [`docs/adr/0001-projektspeicher-nach-slug.md`](docs/adr/0001-projektspeicher-nach-slug.md)). All configuration and runtime state lives outside the repository:
 
-With a project open, `MergedConfig.Hosts` holds only that project's hosts; global hosts are
-servers that project hosts link with `server = "<name>"` (`internal/config/servers.go`).
-Without a project, `Hosts` holds the global hosts. A link stores only name, server,
-root_path and mappings; `merge` and `rebuildMerged` resolve it with `config.Resolve`, so
-the rest of the app sees a complete `config.Host`. `hostsOut` strips the connection again
-on write. Project `Mappings` are a fallback; host-level `Mappings` take precedence.
+| Purpose          | Path                                                                          |
+| ---------------- | ----------------------------------------------------------------------------- |
+| Global config    | `~/.config/drift/config.toml` (`$XDG_CONFIG_HOME` overrides `~/.config`)      |
+| Project store    | `~/.config/drift/projects/<slug>.toml` (hosts + mappings, mode 600)           |
+| Project registry | `~/.config/drift/projects.toml` (via `config.Dir()`)                          |
+| FTPS trust       | `~/.config/drift/trusted-certificates.toml` (mode 600)                        |
+| Write lock       | `~/.config/drift/write.lock` (mode 600, permanent `flock` lock — never unlink)|
+| Log file         | `~/.config/drift/drift.log` (default when `--log`/`--debug` is enabled)       |
+| Remote-edit cache| `<os.UserCacheDir()>/drift/remote-edit/` (mode 700, private working copies)   |
+| SSH host keys    | `~/.ssh/known_hosts` (written only when a key is trusted permanently)         |
 
-`config.LinkTargets` reads every store under `projects/` to list link candidates, and
-`serverUsers` does the same so `DeleteGlobalHost` and renames in `SaveGlobalHost` refuse a
-server that any project links (`ServerInUseError`). `PromoteProjectHost` turns another
-project's host into a server: it writes the global config first, then the source store.
-
-## Nothing in the project directory
-
-drift writes no file into a working tree. A project's hosts and mappings live in
-`<config.Dir()>/projects/<slug>.toml` (`internal/config/store.go`), named after
-its registry slug.
-
-- `config.Load(root, slug)` takes the identity rather than looking it up:
-  `internal/project` imports `internal/config` for `config.Dir()`, so config
-  cannot ask the registry. An empty slug means no project, so only global hosts.
-- Which project a directory belongs to is `Registry.FindByPathPrefix(dir)`,
-  longest match wins. There is no marker file any more; `cmd/root.go` resolves
-  it in `loadAll` and the TUI carries it as `MergedConfig.ProjectSlug`.
-- Registering is what gives a directory hosts, so drift offers it:
-  `registerCandidate` (app.go) proposes an unregistered repository,
-  `project.GitRoot` / `SuggestRoot` supply the path, and `worthStayingIn` (cmd)
-  keeps startup in such a directory instead of reopening the last project.
-  `adoptRegisteredProject` reloads the config afterwards, so the new project's
-  store is in reach without a restart.
-- `SaveProjectHost`/`DeleteProjectHost` need that slug and fail without one.
-  They start from `projectStoreBase`, which re-reads the store from disk, so a
-  save cannot bake `[defaults]` into the other hosts' records.
-- Global hosts still live in `~/.config/drift/config.toml`, so `HostScope`
-  stays a real distinction. With a project open they are link targets, not sync
-  targets.
-
-There is no migration path left in the code: 0.1.7-alpha was the release that
-moved `<project>/.drift/config.toml`, `secrets.toml` and `access.toml` into the
-store, and this version does not read them. An installation coming from
-0.1.6-alpha or earlier has to pass through 0.1.7-alpha first. `gitguard.go` and
-`legacy.go` are gone with it.
-
-Tests in `internal/config` must never touch the real config directory: its
-`TestMain` points `$XDG_CONFIG_HOME` at a temp dir for the whole package, and
-`isolate(t)` gives one test its own, since the store is keyed by slug and two
-tests sharing a slug would share a file.
-
-Written files: `writeToml` replaces atomically (temp file + rename) and the
-encoding-only `hostOut`/`defaultsOut` mirrors exist because BurntSushi's
-`omitempty` does not cover numeric zero.
+- **Project identity**: `config.Load(root, slug)` takes the slug explicitly because `internal/project` imports `internal/config` for `config.Dir()`. An empty slug means no project, so only global hosts are exposed. Directory-to-project lookup uses `Registry.FindByPathPrefix(dir)` (longest match wins); `cmd/root.go` resolves it in `loadAll` and stores it as `MergedConfig.ProjectSlug`. Unregistered Git repositories trigger the registration prompt (`registerCandidate`, `project.GitRoot`/`SuggestRoot`, `worthStayingIn`, `adoptRegisteredProject`).
+- **Server links** ([`docs/adr/0002-server-verknuepfung-ohne-verbindungsfelder.md`](docs/adr/0002-server-verknuepfung-ohne-verbindungsfelder.md)): with a project open, `MergedConfig.Hosts` holds only that project's hosts; global hosts are servers linked via `server = "<name>"` (`internal/config/servers.go`). A link stores only `name`, `server`, `root_path`, and `mappings`; `merge` and `rebuildMerged` resolve it with `config.Resolve`, and `hostsOut` strips connection fields on write. Project `Mappings` are a fallback; host-level `Mappings` take precedence. `config.LinkTargets` scans `projects/` for candidates, `serverUsers` guards `DeleteGlobalHost` and renames in `SaveGlobalHost` (`ServerInUseError`), and `PromoteProjectHost` writes the global config first, then the source store.
+- **Locking & atomic writes**: `SaveProjectHost`/`DeleteProjectHost` require a slug and start from `projectStoreBase`, re-reading from disk so a save cannot bake `[defaults]` into other hosts. Every write transaction runs under `config.WithWriteLock` (`internal/config/writelock.go`), which acquires a non-blocking `flock` on `write.lock` and returns `ErrWriteBusy` rather than blocking the UI; never unlink `write.lock`. `writeToml` replaces files atomically (temp file + rename), and the encoding-only `hostOut`/`defaultsOut` mirrors exist because BurntSushi's `omitempty` does not cover numeric zero.
+- **Test isolation**: tests in `internal/config` must never touch the real config directory; `TestMain` redirects `$XDG_CONFIG_HOME` to a temp dir, and `isolate(t)` gives individual tests their own directory.
 
 ## Logging
 
-`internal/log` is a no-op slog wrapper, **off by default**. It is enabled in
-`cmd/root.go` (`runProgram` → `resolveLogConfig` → `log.Init`) when `--log`/`--debug`
-or `$DRIFT_LOG`/`$DRIFT_DEBUG` are set; otherwise no file is opened. Never log to
-stdout/stderr — the Bubble Tea alt screen owns the terminal; logging goes to a file.
-The package is dependency-free: the default path (`<config.Dir()>/drift.log`) is
-resolved by the caller in `cmd`, not inside `internal/log`. Use `log.Error` for
-failures (with key/value context like `"err"`, path keys) and `log.Info`/`log.Debug`
-for lifecycle. slog is concurrency-safe, so logging from `tea.Cmd` goroutines is fine.
+`internal/log` is a no-op slog wrapper, **off by default**. It is enabled in `cmd/root.go` (`runProgram` → `resolveLogConfig` → `log.Init`) when `--log`/`--debug` or `$DRIFT_LOG`/`$DRIFT_DEBUG` are set; otherwise no file is opened. Never log to stdout/stderr — the Bubble Tea alt screen owns the terminal; logging goes to a file. The package is dependency-free: the default path (`<config.Dir()>/drift.log`) is resolved by the caller in `cmd`, not inside `internal/log`. Use `log.Error` for failures (with key/value context like `"err"`, path keys) and `log.Info`/`log.Debug` for lifecycle. slog is concurrency-safe, so logging from `tea.Cmd` goroutines is fine.
+
+## Documentation & scripts
+
+| Location                     | Purpose                                                                     |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `docs/guide/`                | User guides (`configuration.md`, `keys.md`, `projects.md`, `remote-editing.md`, `sync.md`) |
+| `docs/adr/`                  | Architecture Decision Records (`0001`–`0006`; see `docs/adr/README.md`)     |
+| `docs/diff-presentation.md`  | Detailed diff rendering, layout, caching, and navigation specification      |
+| `docs/terminal-images.md`    | Detailed terminal image protocol, sizing, and lifecycle specification       |
+| `docs/manual-testing.md`     | Interactive SFTP/FTPS checklist paired with `scripts/manual-test/mt.sh`     |
+| `scripts/screenshots/run.sh` | Regenerates README screenshots in `.github/assets/screenshots/`             |
+| `showcase/`                  | Static project showcase website                                             |
+
+`PLAN.md` and `docs/*-plan.md` are completed historical planning documents, not live specifications.
+
+## Before committing
+
+- Run `go test ./...`, `go vet ./...`, and `go build ./...`.
+- Add a concise entry under `## [Unreleased]` in `CHANGELOG.md` for user-visible changes (the release workflow extracts release notes from it).
+- Update `docs/guide/` or `README.md` when changing user-facing behavior, keybindings, or configuration (and run `scripts/screenshots/run.sh` when the browser, diff view, or dashboard changes noticeably).
+- Check that any newly rendered untrusted text goes through `styles.SafeText` and any config/registry writes run inside `config.WithWriteLock`.
+- For changes to transfers, connection handling, or the diff view, verify against `docs/manual-testing.md` (`scripts/manual-test/mt.sh`).
 
 ## Build & install
 
@@ -233,53 +191,19 @@ make snapshot                 # all release archives in dist/, nothing published
 
 ## Releases
 
-GoReleaser (`.goreleaser.yaml`) builds the release archives;
-`.github/workflows/release.yml` runs it for every pushed `v*` tag. To release:
+GoReleaser (`.goreleaser.yaml`) builds the release archives; `.github/workflows/release.yml` runs it for every pushed `v*` tag. To release:
 
-1. Turn `## [Unreleased]` in `CHANGELOG.md` into `## [X.Y.Z] - YYYY-MM-DD` and
-   merge that into `main`. The workflow takes the release text from this section
-   (`scripts/release-notes.sh`) and fails if it is missing.
+1. Turn `## [Unreleased]` in `CHANGELOG.md` into `## [X.Y.Z] - YYYY-MM-DD` and merge that into `main`. The workflow takes the release text from this section (`scripts/release-notes.sh`) and fails if it is missing.
 2. Tag the merge commit on `main` with `vX.Y.Z` and push the tag.
 
-The workflow runs the tests, builds `drift_<os>_<arch>.tar.gz` for linux and
-darwin on amd64 and arm64, writes `checksums.txt`, attests the archives and
-updates the cask in `WariKoda/homebrew-tap`. Tags with a suffix such as
-`-alpha` or `-rc.1` become prereleases and leave the tap alone. The tap push
-needs the repository secret `HOMEBREW_TAP_TOKEN`, a fine-grained token with
-contents write access to `WariKoda/homebrew-tap`.
+The workflow runs the tests, builds `drift_<os>_<arch>.tar.gz` for linux and darwin on amd64 and arm64, writes `checksums.txt`, attests the archives, and updates the cask in `WariKoda/homebrew-tap`. Tags with a suffix such as `-alpha` or `-rc.1` become prereleases and leave the tap alone. The tap push needs the repository secret `HOMEBREW_TAP_TOKEN`, a fine-grained token with contents write access to `WariKoda/homebrew-tap`.
 
-`release.mode: keep-existing` means GoReleaser never replaces the text of a
-release that already exists. To add archives to an old release, check out its
-tag and run GoReleaser there with the current config
-(`--config <path to current .goreleaser.yaml>`).
+`release.mode: keep-existing` means GoReleaser never replaces the text of a release that already exists. To add archives to an old release, check out its tag and run GoReleaser there with the current config (`--config <path to current .goreleaser.yaml>`).
 
 ## Git workflow
 
-- Keep `main` stable and releasable.
-- Do not work directly on `main` unless the user explicitly asks for it.
-- Create a short-lived branch for each change:
-  - `feature/...` for new functionality
-  - `fix/...` for bug fixes
-  - `docs/...` for documentation changes
-  - `chore/...` for maintenance
-  - `refactor/...` for internal cleanup
-- Typical flow:
-
-```bash
-git switch main
-git pull
-git switch -c feature/my-change
-# implement change
-go test ./...
-go vet ./...
-go build ./...
-git add .
-git commit -m "Add my change"
-git push -u origin feature/my-change
-```
-
-- Open a pull request from the branch into `main`.
-- Merge to `main` only after validation passes.
-- Create releases from `main` using tags.
+- Keep `main` stable and releasable; do not work directly on `main` unless the user explicitly asks for it.
+- Use a short-lived branch per change (`feature/...`, `fix/...`, `docs/...`, `chore/...`, `refactor/...`) and open a PR into `main` (see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full flow and PR checklist).
+- Merge to `main` only after validation passes; create releases from `main` using tags.
 
 Module path: `github.com/WariKoda/drift`

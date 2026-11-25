@@ -32,14 +32,14 @@ Important conventions in this codebase:
 
 - Do not block Bubble Tea `Update()` with network or filesystem work
 - Run async work in `tea.Cmd`
-- Reuse existing styles from `internal/styles/styles.go` and `internal/tui/styles.go`
+- Reuse semantic palette colors and styles from `internal/styles/` (avoid hardcoded colors)
 - Prefer typed messages for screen transitions and async results
 - Do not add speculative abstractions
 - Do not swallow errors silently
 
 ## Tests
 
-There are currently only a few unit tests. If you change config handling, path mapping, or sync behavior, please add or update tests where practical.
+The test suite covers unit, integration, and architecture boundary tests across the codebase. If you change behavior, please add or update tests alongside your change.
 
 Run before opening a PR:
 

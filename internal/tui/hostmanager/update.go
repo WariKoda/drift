@@ -190,10 +190,11 @@ func (m Model) updateNormal(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// RetryTest repeats a failed test while pinning the certificate shown in the
-// trust prompt for the first reconnect.
-func (m *Model) RetryTest(host config.Host, challenge tlstrust.Challenge) tea.Cmd {
-	return m.startTest(host, &challenge)
+// RetryTest repeats a failed test after a trust prompt. required pins the
+// first reconnect to the FTPS certificate the prompt showed; it is nil after an
+// SSH host key prompt, where the approved key is the only one accepted anyway.
+func (m *Model) RetryTest(host config.Host, required *tlstrust.Challenge) tea.Cmd {
+	return m.startTest(host, required)
 }
 
 func (m *Model) startTest(host config.Host, required *tlstrust.Challenge) tea.Cmd {

@@ -43,6 +43,11 @@ type Client interface {
 
 // Connect dials the host using the protocol specified in host.Protocol.
 // An empty or "sftp" protocol uses SSH/SFTP; "ftp" uses plain FTP; "ftps" uses FTP over explicit TLS.
+//
+// trust supplies the FTPS exceptions and the SSH host keys approved for this
+// process. required pins an FTPS retry to the certificate the user just saw;
+// SFTP needs no such pin, because an approved host key is itself the only key
+// the next connection accepts.
 func Connect(ctx context.Context, host config.Host, trust *tlstrust.Manager, required *tlstrust.Challenge) (Client, error) {
 	switch host.Protocol {
 	case "ftp":
@@ -71,7 +76,7 @@ func Connect(ctx context.Context, host config.Host, trust *tlstrust.Manager, req
 		}
 		return connected(driftftp.Connect(ctx, host, policy))
 	default:
-		return connected(sftp.Connect(ctx, host))
+		return connected(sftp.Connect(ctx, host, trust.HostKeys()))
 	}
 }
 

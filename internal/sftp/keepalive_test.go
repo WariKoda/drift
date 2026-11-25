@@ -13,14 +13,17 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	pkgsftp "github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/WariKoda/drift/internal/config"
+	"github.com/WariKoda/drift/internal/ssh"
 )
 
 const testKeepAliveInterval = 10 * time.Millisecond
@@ -29,6 +32,9 @@ const testKeepAliveInterval = 10 * time.Millisecond
 // loopback. Tests decide when (and whether) to reply to each global request.
 type localSSHServer struct {
 	host       config.Host
+	hostKeys   *ssh.SessionHostKeys // holds the server's key, as if the user had approved it
+	challenge  ssh.HostKeyChallenge // what a prompt for this server would show
+	authTries  atomic.Int32         // password attempts the server received
 	root       string
 	requests   chan *gossh.Request
 	listener   net.Listener
@@ -50,8 +56,10 @@ func newLocalSSHServer(t *testing.T, rejectSFTP bool) *localSSHServer {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var authTries *atomic.Int32
 	cfg := &gossh.ServerConfig{
 		PasswordCallback: func(_ gossh.ConnMetadata, password []byte) (*gossh.Permissions, error) {
+			authTries.Add(1)
 			if string(password) != "test-password" {
 				return nil, fmt.Errorf("invalid password")
 			}
@@ -73,6 +81,12 @@ func newLocalSSHServer(t *testing.T, rejectSFTP bool) *localSSHServer {
 		listener: listener, accepted: make(chan struct{}), done: make(chan struct{}),
 		stop: make(chan struct{}), rejectSFTP: rejectSFTP,
 	}
+	authTries = &s.authTries
+	s.challenge = ssh.HostKeyChallenge{
+		Address: knownhosts.Normalize(listener.Addr().String()), Key: signer.PublicKey(),
+	}
+	s.hostKeys = ssh.NewSessionHostKeys()
+	s.hostKeys.Trust(s.challenge)
 	go s.serve(t, cfg)
 	t.Cleanup(func() {
 		close(s.stop)
@@ -177,7 +191,7 @@ func connectLocal(t *testing.T, server *localSSHServer, interval, timeout time.D
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel() // successful client must outlive this context
-	client, err := connect(ctx, server.host, interval, timeout)
+	client, err := connect(ctx, server.host, server.hostKeys, interval, timeout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +288,7 @@ func TestKeepAliveDisabled(t *testing.T) {
 	zero := 0
 	server.host.KeepAliveInterval = &zero
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	client, err := Connect(ctx, server.host)
+	client, err := Connect(ctx, server.host, server.hostKeys)
 	cancel()
 	if err != nil {
 		t.Fatal(err)
@@ -348,7 +362,7 @@ func TestKeepAliveFailedSFTPStartup(t *testing.T) {
 	server := newLocalSSHServer(t, true)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, err := connect(ctx, server.host, time.Nanosecond, time.Second)
+	client, err := connect(ctx, server.host, server.hostKeys, time.Nanosecond, time.Second)
 	if err == nil || client != nil {
 		t.Fatalf("rejected subsystem: client=%v error=%v", client, err)
 	}
@@ -385,7 +399,7 @@ func TestConnectFailureClosesAuthResources(t *testing.T) {
 	}()
 	client, err := Connect(context.Background(), config.Host{
 		Hostname: "127.0.0.1", Auth: config.Auth{Type: "agent"},
-	})
+	}, nil)
 	if err == nil || client != nil || !strings.Contains(err.Error(), "known_hosts") {
 		t.Fatalf("known_hosts failure: client=%v error=%v", client, err)
 	}
@@ -423,7 +437,7 @@ func TestConnectCancellationDuringSSHHandshake(t *testing.T) {
 		client, err := Connect(ctx, config.Host{
 			Hostname: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port,
 			Auth: config.Auth{Type: "password", Password: "unused"},
-		})
+		}, nil)
 		if client != nil {
 			_ = client.Close()
 		}

@@ -23,7 +23,7 @@ in a browser from a local checkout. A German version is in [showcase/de/](showca
 - Keep several projects in a dashboard and switch between them without restarting.
 - Map local directories to different remote paths per host.
 - Share one server's connection and credentials between projects.
-- Verify FTPS certificates and trust exceptions per session or permanently.
+- Verify FTPS certificates and SSH host keys, and trust new ones per session or permanently.
 - Write nothing into your project. Configuration lives in `~/.config/drift/`, and drift respects
   your `.gitignore`.
 

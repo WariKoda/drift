@@ -2,93 +2,26 @@ package remoteedit
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/WariKoda/drift/internal/config"
 	"github.com/WariKoda/drift/internal/remote"
-	pkgsftp "github.com/pkg/sftp"
-	gossh "golang.org/x/crypto/ssh"
+	"github.com/WariKoda/drift/internal/sshtest"
+	"github.com/WariKoda/drift/internal/tlstrust"
 )
 
 func TestSFTPEditingUsesRealSSHAndPreservesRemoteMode(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	remoteDir := t.TempDir()
-	_, key, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer, err := gossh.NewSignerFromKey(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := &gossh.ServerConfig{PasswordCallback: func(gossh.ConnMetadata, []byte) (*gossh.Permissions, error) { return nil, nil }}
-	cfg.AddHostKey(signer)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted := make(chan net.Conn, 1)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		socket, err := listener.Accept()
-		accepted <- socket
-		if err != nil {
-			return
-		}
-		defer socket.Close()
-		conn, channels, requests, err := gossh.NewServerConn(socket, cfg)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		go gossh.DiscardRequests(requests)
-		for channel := range channels {
-			if channel.ChannelType() != "session" {
-				_ = channel.Reject(gossh.UnknownChannelType, "session required")
-				continue
-			}
-			stream, requests, err := channel.Accept()
-			if err != nil {
-				continue
-			}
-			for request := range requests {
-				var subsystem struct{ Name string }
-				ok := request.Type == "subsystem" && gossh.Unmarshal(request.Payload, &subsystem) == nil && subsystem.Name == "sftp"
-				if err := request.Reply(ok, nil); err != nil {
-					break
-				}
-				if !ok {
-					continue
-				}
-				server, err := pkgsftp.NewServer(stream, pkgsftp.WithServerWorkingDirectory(remoteDir))
-				if err == nil {
-					_ = server.Serve()
-					_ = server.Close()
-				}
-				break
-			}
-			_ = stream.Close()
-		}
-	}()
-	t.Cleanup(func() {
-		_ = listener.Close()
-		if socket := <-accepted; socket != nil {
-			_ = socket.Close()
-		}
-		<-done
-	})
-	zero := 0
-	host := config.Host{Name: "ssh", Hostname: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port,
-		User: "test", RootPath: remoteDir, Auth: config.Auth{Type: "password", Password: "test"}, KeepAliveInterval: &zero}
-	conn, err := remote.Connect(context.Background(), host, nil, nil)
+	server := sshtest.Start(t, remoteDir)
+	host := server.Host()
+	// The user approved this host key for the session.
+	trust := tlstrust.NewManager()
+	trust.HostKeys().Trust(server.Challenge())
+	conn, err := remote.Connect(context.Background(), host, trust, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

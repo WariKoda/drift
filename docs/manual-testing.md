@@ -136,9 +136,23 @@ interaktiv abgenommen:
 
 ## SFTP
 
-**S1. Erstvergleich und Upload.** `s`, Host `local-sftp`.
-Erwartet: 4 Paare, alle ↑. Der Hostkey landet ohne Rückfrage in
-`.state/home/.ssh/known_hosts`. Dann `S`.
+**S1. Hostkey-Abfrage.** `s`, Host `local-sftp`.
+Erwartet: das Modal "Unknown SSH host key" mit Server `[127.0.0.1]:2222`,
+Schlüsseltyp und Fingerprint. Den Fingerprint mit dem Server vergleichen:
+
+```bash
+ssh-keyscan -p 2222 127.0.0.1 2>/dev/null | ssh-keygen -lf -
+```
+
+Mit `Esc` ablehnen. Erwartet: "SSH host key was not trusted", kein Vergleich,
+`.state/home/.ssh/known_hosts` existiert nicht.
+
+Erneut `s`, "Trust for this session" wählen. Erwartet: 4 Paare, alle ↑,
+weiterhin keine `known_hosts`. drift neu starten und vergleichen: Das Modal
+erscheint wieder. "Trust permanently" wählen. Erwartet: Der Hostkey steht in
+`.state/home/.ssh/known_hosts`, und ein weiterer Neustart fragt nicht mehr.
+
+**S1a. Erstvergleich und Upload.** Im geladenen Vergleich `S`.
 Erwartet: "✓ synced 4 file(s)", danach ein leerer Vergleich. `mt.sh status`
 zeigt für `project` und `sftproot` dieselben Prüfsummen.
 

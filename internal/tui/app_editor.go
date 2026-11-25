@@ -73,7 +73,7 @@ func (a App) updateRemoteEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = tea.Batch(cmd, a.watchConnection(conn))
 	}
 	if result, ok := msg.(remoteeditor.MsgResult); ok && result.Result.Err != nil {
-		a.openCertificatePrompt(trustOperationRemoteEdit, a.remoteEditor.Host(), result.Result.Err)
+		a.openTrustPrompt(trustOperationRemoteEdit, a.remoteEditor.Host(), result.Result.Err)
 	}
 	return a, cmd
 }

@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **breaking:** drift asks before it trusts the key of an SSH host that
+  `~/.ssh/known_hosts` does not list. It used to add the key without a question and
+  go on to authenticate, so the first connection sent the password to whichever
+  server answered. The prompt shows the address, the key type and the SHA-256
+  fingerprint; `Reject` is selected by default, and the key can be trusted for the
+  session or permanently. Hosts already in `known_hosts` connect as before
+- drift no longer creates `~/.ssh/known_hosts` when it connects; the file is written
+  only when a key is trusted permanently
+
+### Fixed
+
+- adding a host key to a `known_hosts` file without a final newline no longer joins
+  the new entry onto the last line
+
 ## [0.2.2] - 2026-11-24
 
 This release hardens drift against hostile servers and certificates; the entries

@@ -89,8 +89,21 @@ a password manager; drift expands it at connect time.
 | `password` | `password` (supports `$ENV_VAR`) |
 | `agent` | none, uses the SSH agent |
 
-drift checks SFTP host keys against `~/.ssh/known_hosts`. It adds an unknown host's key
-on first connect and rejects the connection if a known host's key changes.
+## SSH host keys
+
+drift checks SFTP host keys against `~/.ssh/known_hosts`. For a host the file does not
+list, drift stops before it sends a password or key signature and shows the server
+address, the key type and the SHA-256 fingerprint. `Reject` is selected by default.
+
+Compare the fingerprint with one you got through a trusted channel. On the server,
+`ssh-keygen -lf /etc/ssh/ssh_host_rsa_key.pub` prints it for the key type `ssh-rsa`;
+the other types have their own file, such as `ssh_host_ed25519_key.pub`. Then trust
+the key for the current drift process, or permanently. Permanent trust appends the key
+to `~/.ssh/known_hosts`, which `ssh` and `scp` read too.
+
+If a known host presents a different key, drift rejects the connection without a
+prompt. Remove the old entry from `known_hosts` yourself once you know why the key
+changed.
 
 ## Path mappings
 

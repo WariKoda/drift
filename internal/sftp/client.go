@@ -39,12 +39,14 @@ type Client struct {
 	closeErr  error // written during shutdown, read only after done closes
 }
 
-// Connect dials SSH and opens an SFTP subsystem session.
-func Connect(ctx context.Context, host config.Host) (*Client, error) {
-	return connect(ctx, host, host.KeepAliveDuration(), config.KeepAliveTimeout)
+// Connect dials SSH and opens an SFTP subsystem session. hostKeys holds the
+// keys approved for this process; a host that neither it nor known_hosts lists
+// fails with *ssh.UnknownHostKeyError before authentication.
+func Connect(ctx context.Context, host config.Host, hostKeys *ssh.SessionHostKeys) (*Client, error) {
+	return connect(ctx, host, hostKeys, host.KeepAliveDuration(), config.KeepAliveTimeout)
 }
 
-func connect(ctx context.Context, host config.Host, interval, timeout time.Duration) (*Client, error) {
+func connect(ctx context.Context, host config.Host, hostKeys *ssh.SessionHostKeys, interval, timeout time.Duration) (*Client, error) {
 	methods, authCloser, err := ssh.AuthMethods(ctx, host.Auth)
 	connected := false
 	defer func() {
@@ -61,7 +63,7 @@ func connect(ctx context.Context, host config.Host, interval, timeout time.Durat
 		port = 22
 	}
 
-	hkc, hostKeyAlgorithms, err := ssh.HostKeyCallback(host.Hostname, port)
+	hkc, hostKeyAlgorithms, err := ssh.HostKeyCallback(host.Hostname, port, hostKeys)
 	if err != nil {
 		return nil, fmt.Errorf("known_hosts: %w", err)
 	}

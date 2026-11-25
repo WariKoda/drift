@@ -20,7 +20,7 @@ PORT=${PORT:-2223}
 CONTAINER=drift-screenshots-sftp
 TMUX_CMD=(tmux -L drift-screenshots)
 
-for tool in go git docker tmux python3 chromium magick; do
+for tool in go git docker tmux python3 chromium magick ssh-keyscan; do
 	command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 1; }
 done
 
@@ -94,6 +94,12 @@ docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:22" \
 	-v "$STATE/remote:/home/drift/upload" atmoz/sftp:alpine "drift:secret:$(id -u)::upload" >/dev/null
 sleep 2
+# drift asks before it trusts an unknown SSH host key. The screenshots show a
+# host that is already known, so the container's key goes into the isolated
+# known_hosts first.
+mkdir -p -m 700 "$STATE/home/.ssh"
+ssh-keyscan -p "$PORT" 127.0.0.1 >"$STATE/home/.ssh/known_hosts" 2>/dev/null
+[ -s "$STATE/home/.ssh/known_hosts" ] || { echo "could not read the container's SSH host key" >&2; exit 1; }
 
 project=$STATE/home/work/acme-shop
 start 150 36 "$project" --no-dashboard

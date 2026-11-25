@@ -23,6 +23,7 @@ import (
 	"github.com/WariKoda/drift/internal/tui/dashboard"
 	"github.com/WariKoda/drift/internal/tui/diffview"
 	"github.com/WariKoda/drift/internal/tui/hostform"
+	"github.com/WariKoda/drift/internal/tui/hostkeytrust"
 	"github.com/WariKoda/drift/internal/tui/hostmanager"
 	"github.com/WariKoda/drift/internal/tui/hostselector"
 	"github.com/WariKoda/drift/internal/tui/loading"
@@ -63,6 +64,7 @@ type App struct {
 	images        *termimage.Output // nil or disabled: no inline images
 	trust         *tlstrust.Manager
 	certPrompt    *certtrust.Model
+	hostKeyPrompt *hostkeytrust.Model
 	pendingTrust  *pendingTrustOperation
 	trustSaving   bool
 	trustWriteSeq uint64
@@ -521,7 +523,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.certPrompt != nil {
 		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
 			if a.state.Screen == ScreenRemoteEditor {
-				a.closeCertificatePrompt()
+				a.closeTrustPrompt()
 				return a, nil
 			}
 			return a, tea.Quit
@@ -540,6 +542,31 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			updated, cmd := a.certPrompt.Update(msg)
 			a.certPrompt = &updated
+			return a, cmd
+		}
+	}
+
+	if a.hostKeyPrompt != nil {
+		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
+			if a.state.Screen == ScreenRemoteEditor {
+				a.closeTrustPrompt()
+				return a, nil
+			}
+			return a, tea.Quit
+		}
+		switch promptMsg := msg.(type) {
+		case hostkeytrust.MsgDecision:
+			return a.handleHostKeyDecision(promptMsg)
+		case msgHostKeySaved:
+			return a.handleHostKeySaved(promptMsg)
+		case tea.WindowSizeMsg:
+			a.hostKeyPrompt.SetSize(promptMsg.Width, promptMsg.Height)
+		case tea.KeyMsg, tea.MouseMsg:
+			if a.trustSaving {
+				return a, nil
+			}
+			updated, cmd := a.hostKeyPrompt.Update(msg)
+			a.hostKeyPrompt = &updated
 			return a, cmd
 		}
 	}
@@ -787,7 +814,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = tea.Batch(cmd, a.watchConnection(msg.Conn))
 		}
 		a.finishNetworkActivity(activityRemoteLoad)
-		if msg.Err != nil && a.openCertificatePrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
+		if msg.Err != nil && a.openTrustPrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
 			return a, cmd
 		}
 		if msg.Err != nil && !progress.IsCanceled(msg.Err) {
@@ -800,7 +827,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
 		if accepted && msg.Remote() && msg.Failure() != nil {
-			if host, ok := msg.Host(); ok && a.openCertificatePrompt(trustOperationRemoteBrowse, host, msg.Failure()) {
+			if host, ok := msg.Host(); ok && a.openTrustPrompt(trustOperationRemoteBrowse, host, msg.Failure()) {
 				return a, cmd
 			}
 		}
@@ -823,7 +850,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		accepted := a.browser.AcceptsRemoteChildrenResult(msg)
 		var cmd tea.Cmd
 		a.browser, cmd = a.browser.Update(msg)
-		if accepted && msg.Err != nil && a.openCertificatePrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
+		if accepted && msg.Err != nil && a.openTrustPrompt(trustOperationRemoteBrowse, msg.Host, msg.Err) {
 			return a, cmd
 		}
 		return a, cmd
@@ -895,7 +922,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.diffRequest = 0
 		a.finishNetworkActivity(activityDiffLoad)
-		if a.openCertificatePrompt(trustOperationDiffLoad, msg.Host, msg.Err) {
+		if a.openTrustPrompt(trustOperationDiffLoad, msg.Host, msg.Err) {
 			return a, nil
 		}
 		a.pendingDiffView, a.pendingDiffViewID = nil, 0
@@ -995,7 +1022,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 		a.finishNetworkActivity(activityHostTest)
-		if msg.Err != nil && a.openCertificatePrompt(trustOperationHostTest, msg.Host, msg.Err) {
+		if msg.Err != nil && a.openTrustPrompt(trustOperationHostTest, msg.Host, msg.Err) {
 			return a, cmd
 		}
 		if msg.Err != nil && !progress.IsCanceled(msg.Err) {
@@ -1274,6 +1301,9 @@ func (a App) View() string {
 	base := a.baseView()
 	if a.certPrompt != nil {
 		return a.certPrompt.Overlay(base)
+	}
+	if a.hostKeyPrompt != nil {
+		return a.hostKeyPrompt.Overlay(base)
 	}
 	if a.loader.Visible() {
 		return a.loader.Overlay(base, a.state.TermWidth, a.state.TermHeight)

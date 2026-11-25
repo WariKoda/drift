@@ -124,8 +124,10 @@ func (m *Model) ConnectionLost(conn remote.Client, err error) bool {
 	return true
 }
 
-func (m *Model) RetryConnection(challenge tlstrust.Challenge) tea.Cmd {
-	return m.begin(reconnect, &challenge)
+// RetryConnection reconnects after a trust prompt. required is nil after an
+// SSH host key prompt.
+func (m *Model) RetryConnection(required *tlstrust.Challenge) tea.Cmd {
+	return m.begin(reconnect, required)
 }
 
 // Close is used after Bubble Tea exits. Unconfirmed working data is always kept.

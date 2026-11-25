@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-25
+
+The first SFTP connection to a host that `~/.ssh/known_hosts` does not list now stops
+at a prompt. Scripts that drive drift against a new host have to add its key first,
+for example with `ssh-keyscan`.
+
 ### Changed
 
 - **breaking:** drift asks before it trusts the key of an SSH host that

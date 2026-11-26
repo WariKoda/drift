@@ -41,9 +41,9 @@ checksum:
   # The attestation step in the workflow reads this file by name.
   name_template: checksums.txt
 
-# The release text comes from CHANGELOG.md via --release-notes.
-changelog:
-  disable: true
+# The release text comes from CHANGELOG.md via --release-notes. Do not set
+# changelog.disable: GoReleaser then skips the changelog step, which is also
+# the step that reads --release-notes, and the release stays empty.
 
 release:
   # Tags such as v0.3.0-alpha or v0.3.0-rc.1 become prereleases.
